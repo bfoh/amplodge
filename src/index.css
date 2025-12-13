@@ -1,0 +1,166 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Colors - Premium Lodge Aesthetic */
+    --background: 0 0% 100%;
+    --foreground: 30 20% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 30 20% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 30 20% 12%;
+    --primary: 32 38% 40%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 38 45% 96%;
+    --secondary-foreground: 30 20% 12%;
+    --muted: 38 30% 96%;
+    --muted-foreground: 30 18% 45%;
+    --accent: 42 70% 55%;
+    --accent-foreground: 30 20% 12%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 38 20% 88%;
+    --input: 38 20% 94%;
+    --ring: 32 38% 40%;
+
+    /* Charts */
+    --chart-1: 142.0859 70.5628% 45.2941%;
+    --chart-2: 160.1183 84.0796% 39.4118%;
+    --chart-3: 161.3793 93.5484% 30.3922%;
+    --chart-4: 162.931 93.5484% 24.3137%;
+    --chart-5: 163.1461 88.1188% 19.8039%;
+
+    /* Sidebar */
+    --sidebar: 204 93.75% 93.7255%;
+    --sidebar-foreground: 216.9231 19.1176% 26.6667%;
+    --sidebar-primary: 142.0859 70.5628% 45.2941%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 149.2683 80.3922% 90%;
+    --sidebar-accent-foreground: 216.9231 19.1176% 26.6667%;
+    --sidebar-border: 220 13.0435% 90.9804%;
+    --sidebar-ring: 142.0859 70.5628% 45.2941%;
+
+    /* Fonts */
+    --font-sans: Inter, sans-serif;
+    --font-serif: Playfair Display, serif;
+    --font-mono: ui-monospace, monospace;
+
+    /* Shadows */
+    --shadow-2xs: 0px 4px 8px -1px hsl(0 0% 0% / 0.05);
+    --shadow-xs: 0px 4px 8px -1px hsl(0 0% 0% / 0.05);
+    --shadow-sm: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 1px 2px -2px hsl(0 0% 0% / 0.10);
+    --shadow: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 1px 2px -2px hsl(0 0% 0% / 0.10);
+    --shadow-md: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 2px 4px -2px hsl(0 0% 0% / 0.10);
+    --shadow-lg: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 4px 6px -2px hsl(0 0% 0% / 0.10);
+    --shadow-xl: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 8px 10px -2px hsl(0 0% 0% / 0.10);
+    --shadow-2xl: 0px 4px 8px -1px hsl(0 0% 0% / 0.25);
+
+    /* Misc */
+    --tracking-normal: 0em;
+    --spacing: 0.25rem;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 30 20% 8%;
+    --foreground: 38 45% 94%;
+    --card: 30 18% 12%;
+    --card-foreground: 38 45% 94%;
+    --popover: 30 18% 12%;
+    --popover-foreground: 38 45% 94%;
+    --primary: 42 75% 59%;
+    --primary-foreground: 30 20% 8%;
+    --secondary: 30 15% 18%;
+    --secondary-foreground: 38 30% 85%;
+    --muted: 30 15% 15%;
+    --muted-foreground: 30 15% 60%;
+    --accent: 32 35% 42%;
+    --accent-foreground: 38 45% 94%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 38 45% 94%;
+    --border: 30 15% 20%;
+    --input: 30 15% 20%;
+    --ring: 42 75% 59%;
+
+    --chart-1: 158.1132 64.3725% 51.5686%;
+    --chart-2: 172.4551 66.0079% 50.3922%;
+    --chart-3: 142.0859 70.5628% 45.2941%;
+    --chart-4: 160.1183 84.0796% 39.4118%;
+    --chart-5: 161.3793 93.5484% 30.3922%;
+
+    --sidebar: 217.2414 32.5843% 17.451%;
+    --sidebar-foreground: 216 12.1951% 83.9216%;
+    --sidebar-primary: 158.1132 64.3725% 51.5686%;
+    --sidebar-primary-foreground: 222.2222 47.3684% 11.1765%;
+    --sidebar-accent: 216.9231 19.1176% 26.6667%;
+    --sidebar-accent-foreground: 240 5.0279% 64.902%;
+    --sidebar-border: 215 13.7931% 34.1176%;
+    --sidebar-ring: 158.1132 64.3725% 51.5686%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans), 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    letter-spacing: var(--tracking-normal);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@layer utilities {
+  .delay-100 { animation-delay: 100ms; }
+  .delay-300 { animation-delay: 300ms; }
+  
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Group hover helpers used by CTA glow */
+  .group:hover .group-hover\:translate-y-\[-2rem\] {
+    --tw-translate-y: -2rem;
+    transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate))
+      skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x))
+      scaleY(var(--tw-scale-y));
+  }
+  .group:hover .group-hover\:opacity-100 { opacity: 1; }
+}
+
+@layer base {
+  :root {
+    --brand: 27 96% 61%;
+    --brand-foreground: 31 97% 72%;
+  }
+  .dark {
+    --brand: 31 97% 72%;
+    --brand-foreground: 27 96% 61%;
+  }
+}

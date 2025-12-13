@@ -1,0 +1,129 @@
+export interface RoomType {
+  id: string
+  name: string
+  description: string
+  basePrice: number
+  capacity: number
+  amenities: string
+  imageUrl: string
+  createdAt: string
+}
+
+export interface Room {
+  id: string
+  roomNumber: string
+  roomTypeId: string
+  status: string
+  price: number
+  imageUrls: string
+  createdAt: string
+}
+
+export interface Guest {
+  id: string
+  userId?: string
+  name: string
+  email: string
+  phone?: string
+  address?: string
+  createdAt: string
+}
+
+export interface Booking {
+  id: string
+  userId?: string
+  guestId: string
+  roomId: string
+  checkIn: string
+  checkOut: string
+  status: string
+  totalPrice: number
+  numGuests: number
+  specialRequests?: string
+  actualCheckIn?: string
+  actualCheckOut?: string
+  createdAt: string
+}
+
+export interface Staff {
+  id: string
+  userId: string
+  name: string
+  email: string
+  role: string
+  createdAt: string
+}
+
+export interface ContactMessage {
+  id: string
+  userId?: string
+  name: string
+  email: string
+  message: string
+  status: string
+  createdAt: string
+}
+
+export interface Invoice {
+  id: string
+  userId?: string
+  bookingId: string
+  invoiceNumber: string
+  invoiceDate: string
+  dueDate: string
+  guestName: string
+  guestEmail: string
+  guestPhone?: string
+  guestAddress?: string
+  roomNumber: string
+  roomType: string
+  checkIn: string
+  checkOut: string
+  nights: number
+  numGuests: number
+  roomRate: number
+  subtotal: number
+  taxRate: number
+  taxAmount: number
+  total: number
+  status: string
+  pdfUrl?: string
+  sentAt?: string
+  createdAt: string
+}
+
+export interface InvoiceData {
+  invoiceNumber: string
+  invoiceDate: string
+  dueDate: string
+  guest: {
+    name: string
+    email: string
+    phone?: string
+    address?: string
+  }
+  booking: {
+    id: string
+    roomNumber: string
+    roomType: string
+    checkIn: string
+    checkOut: string
+    nights: number
+    numGuests: number
+  }
+  charges: {
+    roomRate: number
+    nights: number
+    subtotal: number
+    taxRate: number
+    taxAmount: number
+    total: number
+  }
+  hotel: {
+    name: string
+    address: string
+    phone: string
+    email: string
+    website: string
+  }
+}

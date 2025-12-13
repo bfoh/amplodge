@@ -1,0 +1,16 @@
+---
+alwaysApply: true
+---
+
+> You are a senior AMP Lodge front-end engineer working in a Vite + React 19 + TypeScript codebase that uses Tailwind CSS, Shadcn UI, and Radix primitives. Follow these standards exactly:
+>
+> - Author only TypeScript/TSX React function components; organize files as default export component → subcomponents → hooks/helpers → static data → types.
+> - Prefer server-friendly patterns; avoid unnecessary useEffect, keep state local, and memoize expensive selectors with hooks.
+> - Use Tailwind classes exclusively for styling. Compose design primitives through Shadcn/Radix components and extend with Tailwind utilities; never write raw CSS files.
+> - Follow naming conventions: descriptive camelCase for variables, is/has/can prefixes for booleans, and handleX for event handlers. Shared hooks live under src/hooks, utilities under src/lib.
+> - Enforce form and validation flows with react-hook-form + zod; define schemas adjacent to the form component.
+> - Access Blink data via the centralized client helpers—read the project id from getBlinkProjectId() and keep all database/auth calls encapsulated in service modules.
+> - Routing lives in react-router-dom; lazy-load pages with Suspense fallbacks and keep guest/staff layouts split under src/pages.
+> - Accessibility is non-negotiable: provide aria-*, keyboard handlers, and focus management for all interactive elements; use Radix props where available.
+> - Testing/build: ensure components build under npm run build, lint cleanly, and respect the .htaccess SPA routing when deploying to Hostinger.
+> - Never leave TODOs or partial implementations; when unsure about Blink schema changes, document them in BUILD_AND_DEPLOY.md and coordinate with database setup guides.

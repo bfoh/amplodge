@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Activity Logs Access</title>
+  <script src="https://cdn.jsdelivr.net/npm/@blinkdotnew/sdk@latest/dist/index.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 { color: #333; margin-top: 0; }
+    .result {
+      background: #f9f9f9;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 15px 0;
+      white-space: pre-wrap;
+      font-family: monospace;
+      font-size: 14px;
+    }
+    .error { background: #fee; border-left: 4px solid #f00; }
+    .success { background: #efe; border-left: 4px solid #0f0; }
+    .info { background: #eef; border-left: 4px solid #00f; }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 5px;
+    }
+    button:hover { background: #0056b3; }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .section {
+      margin: 20px 0;
+      padding: 20px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔍 Activity Logs Access Test</h1>
+    <p>This tool checks if your current user has access to Activity Logs</p>
+
+    <div class="section">
+      <h3>Step 1: Check Current User</h3>
+      <button onclick="checkCurrentUser()">Check My User & Role</button>
+      <div id="userResult"></div>
+    </div>
+
+    <div class="section">
+      <h3>Step 2: Test Activity Logs Access</h3>
+      <button onclick="testActivityLogsAccess()">Test Activity Logs Access</button>
+      <div id="accessResult"></div>
+    </div>
+
+    <div class="section">
+      <h3>Step 3: View All Staff Members</h3>
+      <button onclick="listAllStaff()">List All Staff & Their Roles</button>
+      <div id="staffResult"></div>
+    </div>
+
+    <div class="section">
+      <h3>Quick Fix: Ensure Admin Access</h3>
+      <p>If you don't have admin access, use this to ensure admin@amplodge.com has owner role:</p>
+      <button onclick="ensureAdminAccess()">Make Admin Owner</button>
+      <div id="adminResult"></div>
+    </div>
+  </div>
+
+  <script>
+    const blink = BlinkSDK.createClient({
+      projectId: 'amp-lodge-hotel-management-system-j2674r7k',
+      authRequired: false,
+      auth: { mode: 'headless' }
+    })
+
+    function log(elementId, message, type = 'info') {
+      const el = document.getElementById(elementId)
+      const className = type === 'error' ? 'result error' : type === 'success' ? 'result success' : 'result info'
+      el.innerHTML = `<div class="${className}">${message}</div>`
+    }
+
+    async function checkCurrentUser() {
+      try {
+        log('userResult', '⏳ Checking current user...', 'info')
+        
+        const user = await blink.auth.me()
+        if (!user) {
+          log('userResult', '❌ No user logged in. Please login first at /staff/login', 'error')
+          return
+        }
+
+        log('userResult', `✅ Logged in as: ${user.email}\nUser ID: ${user.id}\n\nNow checking staff record...`, 'info')
+
+        // Check staff record
+        const staff = await blink.db.staff.list({ 
+          where: { userId: user.id },
+          limit: 1 
+        })
+
+        if (staff.length === 0) {
+          log('userResult', `❌ No staff record found for user: ${user.email}\n\nYou need a staff record with admin or owner role to see Activity Logs.\n\nPlease use the Employees page to create a staff record.`, 'error')
+          return
+        }
+
+        const staffRecord = staff[0]
+        const hasAccess = staffRecord.role === 'admin' || staffRecord.role === 'owner'
+
+        const message = `✅ Current User Info:
+Email: ${user.email}
+User ID: ${user.id}
+Staff ID: ${staffRecord.id}
+Role: ${staffRecord.role}
+Name: ${staffRecord.name}
+
+Activity Logs Access: ${hasAccess ? '✅ YES' : '❌ NO'}
+
+${hasAccess 
+  ? 'You should see "Activity Logs" in the sidebar under Admin section.'
+  : 'You need "admin" or "owner" role to see Activity Logs.\nYour current role is: ' + staffRecord.role
+}`
+
+        log('userResult', message, hasAccess ? 'success' : 'error')
+      } catch (error) {
+        log('userResult', `❌ Error: ${error.message}`, 'error')
+      }
+    }
+
+    async function testActivityLogsAccess() {
+      try {
+        log('accessResult', '⏳ Testing Activity Logs access...', 'info')
+        
+        const user = await blink.auth.me()
+        if (!user) {
+          log('accessResult', '❌ Not logged in', 'error')
+          return
+        }
+
+        // Try to access activity logs
+        const logs = await blink.db.activityLogs.list({ limit: 5 })
+        
+        log('accessResult', `✅ Activity Logs accessible!\n\nFound ${logs.length} recent activities.\n\nYou can access Activity Logs at:\n/staff/activity-logs`, 'success')
+      } catch (error) {
+        log('accessResult', `❌ Cannot access Activity Logs: ${error.message}`, 'error')
+      }
+    }
+
+    async function listAllStaff() {
+      try {
+        log('staffResult', '⏳ Loading all staff members...', 'info')
+        
+        const allStaff = await blink.db.staff.list({ limit: 100 })
+        
+        if (allStaff.length === 0) {
+          log('staffResult', '❌ No staff members found', 'error')
+          return
+        }
+
+        let output = `✅ Found ${allStaff.length} staff member(s):\n\n`
+        allStaff.forEach((s, i) => {
+          const hasAccess = s.role === 'admin' || s.role === 'owner'
+          output += `${i + 1}. ${s.name} (${s.email})\n`
+          output += `   Role: ${s.role} ${hasAccess ? '✅ Can see Activity Logs' : '❌ Cannot see Activity Logs'}\n`
+          output += `   Staff ID: ${s.id}\n`
+          output += `   User ID: ${s.userId}\n\n`
+        })
+
+        log('staffResult', output, 'success')
+      } catch (error) {
+        log('staffResult', `❌ Error: ${error.message}`, 'error')
+      }
+    }
+
+    async function ensureAdminAccess() {
+      try {
+        log('adminResult', '⏳ Checking admin@amplodge.com...', 'info')
+        
+        // Find staff record for admin@amplodge.com
+        const adminStaff = await blink.db.staff.list({
+          where: { email: 'admin@amplodge.com' },
+          limit: 1
+        })
+
+        if (adminStaff.length === 0) {
+          log('adminResult', '❌ No staff record found for admin@amplodge.com\n\nPlease create one using the Employees page first.', 'error')
+          return
+        }
+
+        const staff = adminStaff[0]
+
+        if (staff.role === 'owner') {
+          log('adminResult', `✅ admin@amplodge.com already has owner role!\n\nStaff ID: ${staff.id}\nRole: ${staff.role}`, 'success')
+          return
+        }
+
+        // Update to owner role
+        await blink.db.staff.update(staff.id, { role: 'owner' })
+        
+        log('adminResult', `✅ Updated admin@amplodge.com to owner role!\n\nOld role: ${staff.role}\nNew role: owner\n\nPlease refresh the page to see Activity Logs in the sidebar.`, 'success')
+      } catch (error) {
+        log('adminResult', `❌ Error: ${error.message}`, 'error')
+      }
+    }
+
+    // Auto-check on load
+    window.addEventListener('load', () => {
+      checkCurrentUser()
+    })
+  </script>
+</body>
+</html>
+
+
+
+
+
+

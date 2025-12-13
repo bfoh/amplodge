@@ -1,0 +1,504 @@
+import { useMemo, useState } from 'react'
+import { cn } from '../lib/utils'
+import { getRoomDisplayName, calculateNights } from '../lib/display'
+import { Users, CalendarIcon, Mail, Phone, DollarSign, MessageSquare, LogIn, LogOut, CheckCircle2 } from 'lucide-react'
+import { createInvoiceData, generateInvoicePDF, sendInvoiceEmail } from '@/services/invoice-service'
+import { bookingEngine } from '../services/booking-engine'
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from './ui/hover-card'
+import { Button } from './ui/button'
+import { Badge } from './ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog'
+import { toast } from 'sonner'
+import { blink } from '../blink/client'
+
+interface CalendarGridViewProps {
+  currentDate: Date
+  properties: any[]
+  bookings: any[]
+  monthNames: string[]
+  weekDays: string[]
+  onBookingUpdate?: () => void
+}
+
+export function CalendarGridView({
+  currentDate,
+  properties,
+  bookings,
+  monthNames,
+  weekDays,
+  onBookingUpdate,
+}: CalendarGridViewProps) {
+  const [checkInDialog, setCheckInDialog] = useState<any>(null)
+  const [checkOutDialog, setCheckOutDialog] = useState<any>(null)
+  const [processing, setProcessing] = useState(false)
+
+  // Get month details
+  const year = currentDate.getFullYear()
+  const month = currentDate.getMonth()
+  const firstDay = new Date(year, month, 1)
+  const lastDay = new Date(year, month + 1, 0)
+  const daysInMonth = lastDay.getDate()
+  const startingDayOfWeek = firstDay.getDay()
+
+  // Create calendar grid
+  const calendarDays = useMemo(() => {
+    const days = []
+
+    // Add empty cells for days before the first day of the month
+    for (let i = 0; i < startingDayOfWeek; i++) {
+      days.push(null)
+    }
+
+    // Add days of the month
+    for (let day = 1; day <= daysInMonth; day++) {
+      days.push(new Date(year, month, day))
+    }
+
+    return days
+  }, [year, month, daysInMonth, startingDayOfWeek])
+
+  // Get bookings for a specific date
+  const getBookingsForDate = (date: Date) => {
+    if (!date) return []
+
+    const dateStr = date.toISOString().split('T')[0]
+
+    return bookings.filter(booking => {
+      const checkIn = new Date(booking.checkIn).toISOString().split('T')[0]
+      const checkOut = new Date(booking.checkOut).toISOString().split('T')[0]
+
+      return dateStr >= checkIn && dateStr < checkOut
+    })
+  }
+
+  // Get room for a booking
+  const getRoomForBooking = (booking: any) => {
+    return properties.find(prop => prop.id === booking.propertyId || prop.id === booking.roomId)
+  }
+
+  // Get status color
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'confirmed':
+        return 'bg-red-500 text-white'
+      case 'pending':
+        return 'bg-yellow-500 text-white'
+      case 'checked-in':
+        return 'bg-green-500 text-white'
+      case 'checked-out':
+        return 'bg-gray-500 text-white'
+      default:
+        return 'bg-gray-400 text-white'
+    }
+  }
+
+  // Check-in handler
+  const handleCheckIn = async (booking: any) => {
+    setProcessing(true)
+    try {
+      // Use booking engine to handle status update, timestamps, room status, and logging
+      // Ensure we use the remoteId (actual database ID) format
+      const remoteId = booking.remoteId || booking.id
+      console.log('[CalendarGridView] Check-in attempt:', {
+        bookingId: booking.id,
+        remoteId,
+        bookingRemoteId: booking.remoteId,
+        guestName: booking.guestName,
+        status: booking.status
+      })
+      await bookingEngine.updateBookingStatus(remoteId, 'checked-in')
+
+      setCheckInDialog(null)
+      onBookingUpdate?.()
+      toast.success(`Guest ${booking.guestName} checked in successfully!`)
+    } catch (error: any) {
+      console.error('[CalendarGridView] Check-in failed:', error)
+      console.error('[CalendarGridView] Error details:', {
+        message: error?.message,
+        stack: error?.stack,
+        booking: booking
+      })
+      toast.error('Failed to check in guest')
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  // Check-out handler
+  const handleCheckOut = async (booking: any) => {
+    setProcessing(true)
+    try {
+      const db = blink.db as any
+      const remoteId = booking.remoteId || booking.id
+
+      // Use booking engine to handle status update, timestamps, room status, logs, and cleanup tasks
+      await bookingEngine.updateBookingStatus(remoteId, 'checked-out')
+
+      // Get room info for invoice
+      const roomId = booking.propertyId || booking.roomId
+      let roomNumber = 'N/A'
+      let room: any = null
+
+      if (roomId) {
+        const rooms = await db.rooms.list({ limit: 500 })
+        room = rooms.find((r: any) => r.id === roomId)
+        if (room) roomNumber = room.roomNumber || 'N/A'
+      }
+
+      // Generate and send invoice
+      try {
+        console.log('🚀 [CalendarGridView] Starting invoice generation...', {
+          bookingId: booking.remoteId || booking.id,
+          guestName: booking.guestName,
+          guestEmail: booking.guestEmail
+        })
+
+        // Create booking with details for invoice
+        const bookingWithDetails = {
+          id: booking.remoteId || booking.id,
+          guestId: booking.guestId || '',
+          roomId: roomId,
+          checkIn: booking.checkIn,
+          checkOut: booking.checkOut,
+          status: 'checked-out',
+          totalPrice: booking.totalPrice || 0,
+          numGuests: booking.numGuests || 1,
+          actualCheckOut: new Date().toISOString(),
+          createdAt: booking.createdAt || new Date().toISOString(),
+          guest: {
+            name: booking.guestName,
+            email: booking.guestEmail || '',
+            phone: booking.guestPhone,
+            address: booking.guestAddress
+          },
+          room: {
+            roomNumber: getRoomForBooking(booking)?.roomNumber || 'N/A',
+            roomType: getRoomForBooking(booking)?.name || 'Standard Room'
+          }
+        }
+
+        console.log('📊 [CalendarGridView] Creating invoice data...')
+        // Generate invoice data
+        const invoiceData = await createInvoiceData(bookingWithDetails, getRoomForBooking(booking))
+        console.log('✅ [CalendarGridView] Invoice data created:', invoiceData.invoiceNumber)
+
+        console.log('📄 [CalendarGridView] Generating invoice PDF...')
+        // Generate invoice PDF
+        const invoicePdf = await generateInvoicePDF(invoiceData)
+        console.log('✅ [CalendarGridView] Invoice PDF generated')
+
+        console.log('📧 [CalendarGridView] Sending invoice email...')
+        // Send invoice email
+        const emailResult = await sendInvoiceEmail(invoiceData, invoicePdf)
+        console.log('📧 [CalendarGridView] Email result:', emailResult)
+
+        if (emailResult.success) {
+          console.log('✅ [CalendarGridView] Invoice sent successfully')
+          toast.success(`Guest ${booking.guestName} checked out successfully! Invoice sent to ${booking.guestEmail || 'guest'}.`)
+        } else {
+          console.warn('⚠️ [CalendarGridView] Invoice email failed:', emailResult.error)
+          toast.success(`Guest ${booking.guestName} checked out successfully! Cleaning task created. Invoice generation failed.`)
+        }
+      } catch (invoiceError: any) {
+        console.error('❌ [CalendarGridView] Invoice generation failed:', invoiceError)
+        toast.success(`Guest ${booking.guestName} checked out successfully! Cleaning task created. Invoice generation failed.`)
+      }
+
+      setCheckOutDialog(null)
+      onBookingUpdate?.()
+    } catch (error) {
+      console.error('Check-out failed:', error)
+      toast.error('Failed to check out guest')
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  // Determine if check-in is allowed
+  const canCheckIn = (booking: any) => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const checkInDate = new Date(booking.checkIn)
+    checkInDate.setHours(0, 0, 0, 0)
+    return booking.status === 'confirmed' && checkInDate <= today
+  }
+
+  // Determine if check-out is allowed
+  const canCheckOut = (booking: any) => {
+    return booking.status === 'checked-in'
+  }
+
+  return (
+    <>
+      {/* Calendar Grid */}
+      <div className="flex-1 overflow-auto">
+        {/* Header with day names */}
+        <div className="grid grid-cols-7 border-b bg-muted/50 sticky top-0 z-10">
+          {weekDays.map(day => (
+            <div key={day} className="p-3 text-center font-medium text-sm text-muted-foreground border-r last:border-r-0">
+              {day}
+            </div>
+          ))}
+        </div>
+
+        {/* Calendar days */}
+        <div className="grid grid-cols-7">
+          {calendarDays.map((date, index) => {
+            const dayBookings = getBookingsForDate(date)
+            const isToday = date && date.toDateString() === new Date().toDateString()
+            const isCurrentMonth = date && date.getMonth() === month
+
+            return (
+              <div
+                key={index}
+                className={cn(
+                  "min-h-[120px] border-r border-b last:border-r-0 p-2",
+                  !isCurrentMonth && "bg-muted/30 text-muted-foreground",
+                  isToday && "bg-primary/10 border-primary"
+                )}
+              >
+                {date && (
+                  <>
+                    {/* Date number */}
+                    <div className={cn(
+                      "text-sm font-medium mb-2",
+                      isToday && "text-primary font-bold"
+                    )}>
+                      {date.getDate()}
+                    </div>
+
+                    {/* Bookings for this day */}
+                    <div className="space-y-1">
+                      {dayBookings.map(booking => {
+                        const room = getRoomForBooking(booking)
+                        return (
+                          <HoverCard key={booking.id}>
+                            <HoverCardTrigger asChild>
+                              <div
+                                className={cn(
+                                  "px-2 py-1 rounded text-xs cursor-pointer hover:opacity-80 transition-opacity",
+                                  getStatusColor(booking.status)
+                                )}
+                              >
+                                <div className="font-medium truncate">
+                                  {booking.guestName}
+                                </div>
+                                <div className="opacity-90 truncate">
+                                  Room {room?.roomNumber || 'N/A'}
+                                </div>
+                              </div>
+                            </HoverCardTrigger>
+                            <HoverCardContent className="w-80">
+                              <div className="space-y-3">
+                                <div>
+                                  <h4 className="font-semibold text-lg">{booking.guestName}</h4>
+                                  <p className="text-sm text-muted-foreground">Room {room?.roomNumber || 'N/A'}</p>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4 text-sm">
+                                  <div className="flex items-center gap-2">
+                                    <CalendarIcon className="w-4 h-4 text-muted-foreground" />
+                                    <div>
+                                      <p className="text-muted-foreground">Check-in</p>
+                                      <p className="font-medium">{new Date(booking.checkIn).toLocaleDateString()}</p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <CalendarIcon className="w-4 h-4 text-muted-foreground" />
+                                    <div>
+                                      <p className="text-muted-foreground">Check-out</p>
+                                      <p className="font-medium">{new Date(booking.checkOut).toLocaleDateString()}</p>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4 text-sm">
+                                  <div className="flex items-center gap-2">
+                                    <Users className="w-4 h-4 text-muted-foreground" />
+                                    <div>
+                                      <p className="text-muted-foreground">Guests</p>
+                                      <p className="font-medium">{booking.numGuests}</p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <DollarSign className="w-4 h-4 text-muted-foreground" />
+                                    <div>
+                                      <p className="text-muted-foreground">Total</p>
+                                      <p className="font-medium">${booking.totalPrice?.toFixed(2) || '0.00'}</p>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {booking.guestEmail && (
+                                  <div className="flex items-center gap-2 text-sm">
+                                    <Mail className="w-4 h-4 text-muted-foreground" />
+                                    <span className="text-muted-foreground">{booking.guestEmail}</span>
+                                  </div>
+                                )}
+
+                                {booking.guestPhone && (
+                                  <div className="flex items-center gap-2 text-sm">
+                                    <Phone className="w-4 h-4 text-muted-foreground" />
+                                    <span className="text-muted-foreground">{booking.guestPhone}</span>
+                                  </div>
+                                )}
+
+                                <div className="flex items-center justify-between pt-2 border-t">
+                                  <span className={cn(
+                                    "px-2 py-1 rounded-full text-xs font-medium",
+                                    getStatusColor(booking.status)
+                                  )}>
+                                    {booking.status.replace('-', ' ')}
+                                  </span>
+
+                                  <div className="flex gap-1">
+                                    {canCheckIn(booking) && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => setCheckInDialog(booking)}
+                                        className="h-7 px-2 text-xs"
+                                      >
+                                        <LogIn className="w-3 h-3 mr-1" />
+                                        Check In
+                                      </Button>
+                                    )}
+
+                                    {canCheckOut(booking) && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => setCheckOutDialog(booking)}
+                                        className="h-7 px-2 text-xs"
+                                      >
+                                        <LogOut className="w-3 h-3 mr-1" />
+                                        Check Out
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </HoverCardContent>
+                          </HoverCard>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Check-In Dialog */}
+      <Dialog open={!!checkInDialog} onOpenChange={(open) => !open && setCheckInDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Guest Check-In</DialogTitle>
+            <DialogDescription>
+              Verify guest details before checking in
+            </DialogDescription>
+          </DialogHeader>
+          {checkInDialog && (
+            <div className="space-y-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Guest Name</p>
+                  <p className="text-base font-semibold">{checkInDialog.guestName}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Room Number</p>
+                  <p className="text-base font-semibold">
+                    Room {getRoomForBooking(checkInDialog)?.roomNumber || 'N/A'}
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Check-in Date</p>
+                  <p className="text-base">{new Date(checkInDialog.checkIn).toLocaleDateString()}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Check-out Date</p>
+                  <p className="text-base">{new Date(checkInDialog.checkOut).toLocaleDateString()}</p>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCheckInDialog(null)} disabled={processing}>
+              Cancel
+            </Button>
+            <Button onClick={() => handleCheckIn(checkInDialog!)} disabled={processing}>
+              {processing ? 'Processing...' : 'Confirm Check-In'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Check-Out Dialog */}
+      <Dialog open={!!checkOutDialog} onOpenChange={(open) => !open && setCheckOutDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Guest Check-Out</DialogTitle>
+            <DialogDescription>
+              Complete the checkout process and create cleaning task
+            </DialogDescription>
+          </DialogHeader>
+          {checkOutDialog && (
+            <div className="space-y-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Guest Name</p>
+                  <p className="text-base font-semibold">{checkOutDialog.guestName}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Room Number</p>
+                  <p className="text-base font-semibold">
+                    Room {getRoomForBooking(checkOutDialog)?.roomNumber || 'N/A'}
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Check-in Date</p>
+                  <p className="text-base">{new Date(checkOutDialog.checkIn).toLocaleDateString()}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Check-out Date</p>
+                  <p className="text-base">{new Date(checkOutDialog.checkOut).toLocaleDateString()}</p>
+                </div>
+              </div>
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="text-sm text-muted-foreground">
+                  <CheckCircle2 className="w-4 h-4 inline mr-1" />
+                  This will create a housekeeping task for room cleaning
+                </p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCheckOutDialog(null)} disabled={processing}>
+              Cancel
+            </Button>
+            <Button onClick={() => handleCheckOut(checkOutDialog!)} disabled={processing}>
+              {processing ? 'Processing...' : 'Confirm Check-Out'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
