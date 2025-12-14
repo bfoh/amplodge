@@ -1,0 +1,9 @@
+{
+    "name": "netlify-functions",
+    "version": "1.0.0",
+    "description": "Netlify Functions for AMP Lodge",
+    "dependencies": {
+        "resend": "^6.6.0",
+        "twilio": "^5.10.7"
+    }
+}
