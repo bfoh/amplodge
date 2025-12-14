@@ -92,12 +92,20 @@ export default function HousekeepingPage() {
         notes: completionNotes || selectedTask.notes
       })
 
-      // Find the room associated with this task
-      const room = rooms.find(r => r.roomNumber === selectedTask.roomNumber)
-      
+      // Fetch the latest room data to check current status
+      // We don't rely on the local 'rooms' state as it might be stale
+      const currentRooms = await blink.db.rooms.list({
+        where: { roomNumber: selectedTask.roomNumber },
+        limit: 1
+      })
+      const room = currentRooms[0]
+
       if (room) {
-        // Auto-update room status from 'cleaning' to 'available'
-        if (room.status === 'cleaning') {
+        console.log(`[Housekeeping] Found room ${room.roomNumber} with status: ${room.status}`)
+
+        // Auto-update room status from 'cleaning' (case-insensitive) to 'available'
+        if (room.status?.toLowerCase() === 'cleaning') {
+          console.log(`[Housekeeping] Updating room ${room.roomNumber} to available`)
           await blink.db.rooms.update(room.id, {
             status: 'available'
           })
@@ -107,6 +115,7 @@ export default function HousekeepingPage() {
             const properties = await (blink.db as any).properties.list({ limit: 500 })
             const property = properties.find((p: any) => p.id === room.id || p.roomNumber === room.roomNumber)
             if (property && property.status !== 'active') {
+              console.log(`[Housekeeping] syncing property ${property.id} status to active`)
               await (blink.db as any).properties.update(property.id, { status: 'active' })
             }
           } catch (propUpdateError) {
@@ -114,9 +123,11 @@ export default function HousekeepingPage() {
           }
           toast.success(`Task completed! Room ${room.roomNumber} is now available`)
         } else {
+          console.log(`[Housekeeping] Room status is '${room.status}', not updating to available`)
           toast.success(`Task completed for Room ${room.roomNumber}`)
         }
       } else {
+        console.warn(`[Housekeeping] Room not found for number: ${selectedTask.roomNumber}`)
         toast.success('Task marked as completed')
       }
 
@@ -143,18 +154,18 @@ export default function HousekeepingPage() {
       // Get task and staff details for email
       const task = tasks.find(t => t.id === taskId)
       const assignedStaff = staff.find(s => s.id === staffId)
-      
+
       if (task && assignedStaff) {
         // Generate completion URL
         const completionUrl = `${window.location.origin}/task-complete/${taskId}`
-        
+
         // Send email notification
         console.log('📧 [HousekeepingPage] Sending task assignment email...', {
           taskId,
           roomNumber: task.roomNumber,
           staffEmail: assignedStaff.email
         })
-        
+
         const emailResult = await sendTaskAssignmentEmail({
           employeeName: assignedStaff.name,
           employeeEmail: assignedStaff.email,
@@ -163,7 +174,7 @@ export default function HousekeepingPage() {
           taskId: task.id,
           completionUrl: completionUrl
         })
-        
+
         if (emailResult.success) {
           toast.success(`Task assigned to ${assignedStaff.name}. Email notification sent!`)
         } else {
@@ -173,7 +184,7 @@ export default function HousekeepingPage() {
       } else {
         toast.success('Task assigned successfully')
       }
-      
+
       await loadData()
     } catch (error) {
       console.error('Failed to assign task:', error)
@@ -196,7 +207,7 @@ export default function HousekeepingPage() {
 
   const filteredTasks = tasks.filter(task => {
     const matchesSearch = task.roomNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         getStaffName(task.assignedTo).toLowerCase().includes(searchTerm.toLowerCase())
+      getStaffName(task.assignedTo).toLowerCase().includes(searchTerm.toLowerCase())
     const matchesStatus = statusFilter === 'all' || task.status === statusFilter
     return matchesSearch && matchesStatus
   })
@@ -221,9 +232,9 @@ export default function HousekeepingPage() {
 
   const pendingCount = tasks.filter(t => t.status === 'pending').length
   const inProgressCount = tasks.filter(t => t.status === 'in_progress').length
-  const completedTodayCount = tasks.filter(t => 
-    t.status === 'completed' && 
-    t.completedAt && 
+  const completedTodayCount = tasks.filter(t =>
+    t.status === 'completed' &&
+    t.completedAt &&
     new Date(t.completedAt).toDateString() === new Date().toDateString()
   ).length
 
@@ -330,7 +341,7 @@ export default function HousekeepingPage() {
                           <span className="ml-1.5">{task.status.replace('_', ' ')}</span>
                         </Badge>
                       </div>
-                      
+
                       <div className="flex flex-col gap-2 text-sm text-gray-600">
                         <div className="flex items-center gap-2">
                           <User className="w-4 h-4" />
@@ -357,7 +368,7 @@ export default function HousekeepingPage() {
 
                     <div className="flex flex-col gap-2 md:w-48">
                       {task.status === 'pending' && (
-                        <Select 
+                        <Select
                           onValueChange={(staffId) => handleAssignTask(task.id, staffId)}
                           value={task.assignedTo || undefined}
                         >
@@ -373,7 +384,7 @@ export default function HousekeepingPage() {
                           </SelectContent>
                         </Select>
                       )}
-                      
+
                       {(task.status === 'in_progress' || task.status === 'pending') && (
                         <div className="flex gap-2">
                           <Button
@@ -396,7 +407,7 @@ export default function HousekeepingPage() {
                           </Button>
                         </div>
                       )}
-                      
+
                       {task.status === 'completed' && (
                         <div className="flex justify-end">
                           <Button

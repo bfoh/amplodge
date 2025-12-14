@@ -95,8 +95,9 @@ export function TaskCompletionPage() {
       try {
         const rooms = await blink.db.rooms.list()
         const room = rooms.find((r: any) => r.roomNumber === task.roomNumber)
-        
-        if (room && room.status === 'cleaning') {
+
+        if (room && room.status?.toLowerCase() === 'cleaning') {
+          console.log(`[TaskCompletion] Updating room ${room.roomNumber} to available`)
           await blink.db.rooms.update(room.id, {
             status: 'available'
           })
@@ -105,11 +106,14 @@ export function TaskCompletionPage() {
             const properties = await blink.db.properties.list({ limit: 500 })
             const property = properties.find((p: any) => p.id === room.id || p.roomNumber === room.roomNumber)
             if (property && property.status !== 'active') {
+              console.log(`[TaskCompletion] Syncing property ${property.id} status to active`)
               await blink.db.properties.update(property.id, { status: 'active' })
             }
           } catch (propUpdateError) {
             console.warn('Could not update property status:', propUpdateError)
           }
+        } else {
+          console.log(`[TaskCompletion] Room status is '${room?.status}', not updating to available`)
         }
       } catch (roomError) {
         console.warn('Could not update room status:', roomError)
@@ -139,7 +143,7 @@ export function TaskCompletionPage() {
       }
 
       toast.success(`Task completed! Room ${task.roomNumber} is now available.`)
-      
+
       // Redirect to success page or back to main site
       setTimeout(() => {
         navigate('/')
@@ -222,7 +226,7 @@ export function TaskCompletionPage() {
             Mark your housekeeping task as completed
           </CardDescription>
         </CardHeader>
-        
+
         <CardContent className="space-y-6">
           {/* Task Information */}
           <div className="bg-gray-50 rounded-lg p-4 space-y-3">
@@ -231,7 +235,7 @@ export function TaskCompletionPage() {
               <span className="font-semibold text-gray-900">Room:</span>
               <span className="text-gray-700">{task.roomNumber}</span>
             </div>
-            
+
             {staff && (
               <div className="flex items-center gap-2">
                 <Clock className="w-5 h-5 text-gray-600" />
@@ -239,7 +243,7 @@ export function TaskCompletionPage() {
                 <span className="text-gray-700">{staff.name}</span>
               </div>
             )}
-            
+
             <div className="flex items-center gap-2">
               <Clock className="w-5 h-5 text-gray-600" />
               <span className="font-semibold text-gray-900">Created:</span>
@@ -247,7 +251,7 @@ export function TaskCompletionPage() {
                 {new Date(task.createdAt).toLocaleString()}
               </span>
             </div>
-            
+
             {task.notes && (
               <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
                 <span className="font-semibold text-blue-900">Instructions:</span>
@@ -276,7 +280,7 @@ export function TaskCompletionPage() {
                 </>
               )}
             </Button>
-            
+
             <p className="text-sm text-gray-600 mt-3">
               This will automatically update the task status and mark the room as available
             </p>
@@ -284,8 +288,8 @@ export function TaskCompletionPage() {
 
           {/* Back to Home */}
           <div className="text-center">
-            <Button 
-              onClick={() => navigate('/')} 
+            <Button
+              onClick={() => navigate('/')}
               variant="outline"
               className="w-full"
             >

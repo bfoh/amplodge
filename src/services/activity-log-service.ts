@@ -59,7 +59,7 @@ export interface ActivityLog extends ActivityLogData {
  */
 function generateUniqueActivityHeading(action: string, entityType: string, details: Record<string, any>): string {
   const actionText = action.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase())
-  
+
   // Handle different entity types and actions
   switch (entityType) {
     case 'booking':
@@ -70,7 +70,7 @@ function generateUniqueActivityHeading(action: string, entityType: string, detai
         return `${actionText} Booking - Room ${details.roomNumber}`
       }
       return `${actionText} Booking`
-      
+
     case 'guest':
       if (details.name) {
         return `${actionText} Guest - ${details.name}`
@@ -79,7 +79,7 @@ function generateUniqueActivityHeading(action: string, entityType: string, detai
         return `${actionText} Guest - ${details.email}`
       }
       return `${actionText} Guest`
-      
+
     case 'payment':
       if (details.amount && details.method) {
         return `${actionText} Payment - $${details.amount} via ${details.method}`
@@ -88,7 +88,7 @@ function generateUniqueActivityHeading(action: string, entityType: string, detai
         return `${actionText} Payment - $${details.amount}`
       }
       return `${actionText} Payment`
-      
+
     case 'invoice':
       if (details.invoiceNumber) {
         return `${actionText} Invoice - ${details.invoiceNumber}`
@@ -97,13 +97,13 @@ function generateUniqueActivityHeading(action: string, entityType: string, detai
         return `${actionText} Invoice - ${details.guestName}`
       }
       return `${actionText} Invoice`
-      
+
     case 'room':
       if (details.roomNumber) {
         return `${actionText} Room - ${details.roomNumber}`
       }
       return `${actionText} Room`
-      
+
     case 'staff':
     case 'user':
       if (details.name) {
@@ -116,7 +116,7 @@ function generateUniqueActivityHeading(action: string, entityType: string, detai
         return `${actionText} ${details.role}`
       }
       return `${actionText} User`
-      
+
     case 'task':
       if (details.title) {
         return `${actionText} Task - ${details.title}`
@@ -125,7 +125,7 @@ function generateUniqueActivityHeading(action: string, entityType: string, detai
         return `${actionText} Task - Room ${details.roomNumber}`
       }
       return `${actionText} Task`
-      
+
     case 'contact_message':
       if (details.name) {
         return `${actionText} Contact Message - ${details.name}`
@@ -134,7 +134,7 @@ function generateUniqueActivityHeading(action: string, entityType: string, detai
         return `${actionText} Contact Message - ${details.email}`
       }
       return `${actionText} Contact Message`
-      
+
     default:
       // Generic fallback with entity ID for uniqueness
       if (details.entityId) {
@@ -185,8 +185,11 @@ class ActivityLogService {
 
   /**
    * Log an activity to the database
+   * NOTE: This method is designed to be non-blocking - failures will not propagate
+   * to the caller so that main operations (like booking deletion) are not affected
    */
   public async log(data: ActivityLogData): Promise<void> {
+    // Wrap entire function in try-catch to ensure logging never blocks operations
     try {
       const db = blink.db as any
 
@@ -243,31 +246,43 @@ class ActivityLogService {
         return
       } catch (activityLogsError: any) {
         console.warn('[ActivityLog] activityLogs table failed, trying fallback:', activityLogsError.message)
-        
-        // Fallback: Use contactMessages table with activity_log status
-        const fallbackEntry = {
-          id: logEntry.id,
-          name: `${data.action} ${data.entityType} - ${data.entityId}`,
-          email: userEmail,
-          message: JSON.stringify({
-            action: logEntry.action,
-            entityType: logEntry.entityType,
-            entityId: logEntry.entityId,
-            details: JSON.parse(logEntry.details),
-            userId: userEmail,
-            metadata: JSON.parse(logEntry.metadata)
-          }),
-          status: 'activity_log',
-          createdAt: logEntry.createdAt,
-        }
 
-        await db.contactMessages.create(fallbackEntry)
-        console.log('[ActivityLog] Activity logged successfully to contactMessages table (fallback)')
+        // Fallback: Try contactMessages table with activity_log status
+        try {
+          const fallbackEntry = {
+            id: logEntry.id,
+            name: `${data.action} ${data.entityType} - ${data.entityId}`,
+            email: userEmail,
+            message: JSON.stringify({
+              action: logEntry.action,
+              entityType: logEntry.entityType,
+              entityId: logEntry.entityId,
+              details: JSON.parse(logEntry.details),
+              userId: userEmail,
+              metadata: JSON.parse(logEntry.metadata)
+            }),
+            status: 'activity_log',
+            createdAt: logEntry.createdAt,
+          }
+
+          await db.contactMessages.create(fallbackEntry)
+          console.log('[ActivityLog] Activity logged successfully to contactMessages table (fallback)')
+        } catch (fallbackError: any) {
+          // Both methods failed - log to console only, don't propagate
+          console.warn('[ActivityLog] Fallback also failed, activity not persisted:', fallbackError.message)
+          // Store locally for potential future retry
+          this.pendingLogs.push(data)
+        }
       }
     } catch (error) {
-      console.error('[ActivityLog] Failed to log activity:', error)
-      // Queue for retry if database write fails
-      this.pendingLogs.push(data)
+      // Catch-all to ensure we never throw from this method
+      console.error('[ActivityLog] Failed to log activity (non-blocking):', error)
+      // Silently queue for potential future retry - don't throw
+      try {
+        this.pendingLogs.push(data)
+      } catch (queueError) {
+        console.error('[ActivityLog] Failed to queue activity log:', queueError)
+      }
     }
   }
 
@@ -587,7 +602,7 @@ class ActivityLogService {
   public async logUserLogout(userId: string, userDetails?: { email?: string }) {
     // Use provided user details or try to get user email
     let userEmail = userDetails?.email || 'Unknown User'
-    
+
     if (!userDetails?.email) {
       try {
         const user = await blink.auth.me()
@@ -705,7 +720,7 @@ class ActivityLogService {
         return parsedLogs
       } catch (activityLogsError: any) {
         console.warn('[ActivityLog] activityLogs table failed, using fallback:', activityLogsError.message)
-        
+
         // Fallback: Get logs from contactMessages table
         const messages = await db.contactMessages.list({
           orderBy: { createdAt: 'desc' },

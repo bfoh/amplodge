@@ -166,7 +166,9 @@ export function ReservationsPage() {
 
   const resolveRoomStatus = (booking: Booking, room?: Room) => {
     if (booking.status === 'checked-in') return 'occupied'
-    if (booking.status === 'checked-out') return 'cleaning'
+    // For checked-out bookings, use actual room status from database
+    // Room can be 'cleaning' or 'available' depending on housekeeping task completion
+    if (booking.status === 'checked-out') return room?.status || 'cleaning'
     if (booking.status === 'cancelled') return room?.status || 'cancelled'
     if (booking.status === 'confirmed' || booking.status === 'reserved') {
       if (room?.status && ['maintenance', 'cleaning'].includes(room.status)) {

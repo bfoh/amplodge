@@ -430,9 +430,12 @@ class BookingEngine {
             b.id === remoteId ||
             b.id === id ||
             b.id === id.replace(/^booking_/, 'booking-') ||
-            b.id === id.replace(/^booking-/, 'booking_')
+            b.id === id.replace(/^booking-/, 'booking_') ||
+            // Handle case where DB ID is raw (no prefix) but local ID has booking_ prefix
+            b.id === id.replace(/^booking_/, '')
           )
           if (booking) {
+            console.log('[BookingEngine] Resolved booking ID from list search:', booking.id)
             remoteId = booking.id
           }
         }
@@ -451,88 +454,128 @@ class BookingEngine {
       }
 
       // Perform the actual deletion
-      await db.bookings.delete(remoteId)
-      console.log('[BookingEngine] Successfully deleted booking:', remoteId)
+      console.log('[BookingEngine] Attempting to delete booking:', remoteId)
+      try {
+        await db.bookings.delete(remoteId)
+        console.log('[BookingEngine] Delete command executed for:', remoteId)
+
+        // Verify the booking was actually deleted
+        const verifyDeleted = await db.bookings.get(remoteId).catch(() => null)
+        if (verifyDeleted) {
+          console.error('[BookingEngine] WARNING: Booking still exists after deletion attempt!', remoteId)
+          throw new Error(`Failed to delete booking ${remoteId} - booking still exists in database`)
+        }
+        console.log('[BookingEngine] Verified booking deletion successful:', remoteId)
+      } catch (deleteError: any) {
+        console.error('[BookingEngine] Delete operation failed:', deleteError)
+        console.error('[BookingEngine] Delete error details:', {
+          message: deleteError?.message,
+          status: deleteError?.status,
+          code: deleteError?.code,
+          stack: deleteError?.stack
+        })
+        throw deleteError
+      }
 
       // Also delete any duplicate bookings with the same guest, room, and dates
-      if (booking && guest && room) {
-        try {
-          const allBookings = await db.bookings.list({ limit: 500 })
-          const allGuests = await db.guests.list({ limit: 500 })
-          const allRooms = await db.rooms.list({ limit: 500 })
+      // Run this even if guest/room lookup didn't work - try to match by IDs
+      try {
+        const allBookings = await db.bookings.list({ limit: 500 })
+        const allGuests = await db.guests.list({ limit: 500 })
+        const allRooms = await db.rooms.list({ limit: 500 })
 
-          const guestMap = new Map(allGuests.map((g: any) => [g.id, g]))
-          const roomMap = new Map(allRooms.map((r: any) => [r.id, r]))
+        const guestMap = new Map(allGuests.map((g: any) => [g.id, g]))
+        const roomMap = new Map(allRooms.map((r: any) => [r.id, r]))
 
-          const normalizeDate = (d: string) => d ? d.split('T')[0] : ''
-          const targetCheckIn = normalizeDate(booking.checkIn)
-          const targetCheckOut = normalizeDate(booking.checkOut)
-          const targetGuestEmail = guest?.email?.toLowerCase() || ''
-          const targetRoomNumber = room?.roomNumber || ''
+        const normalizeDate = (d: string) => d ? d.split('T')[0] : ''
 
-          // Find all duplicate bookings
-          const duplicateBookings = allBookings.filter((b: any) => {
-            if (b.id === remoteId) return false // Already deleted
+        // Use booking-level data for matching (more reliable than resolved guest/room)
+        const targetCheckIn = booking ? normalizeDate(booking.checkIn) : ''
+        const targetCheckOut = booking ? normalizeDate(booking.checkOut) : ''
+        const targetGuestId = booking?.guestId || ''
+        const targetRoomId = booking?.roomId || ''
+        const targetGuestEmail = guest?.email?.toLowerCase() || ''
+        const targetRoomNumber = room?.roomNumber || ''
 
-            const bGuest = guestMap.get(b.guestId)
-            const bRoom = roomMap.get(b.roomId)
-            const bCheckIn = normalizeDate(b.checkIn)
-            const bCheckOut = normalizeDate(b.checkOut)
-            const bGuestEmail = bGuest?.email?.toLowerCase() || ''
-            const bRoomNumber = bRoom?.roomNumber || ''
+        console.log('[BookingEngine] Looking for duplicates with:', {
+          targetCheckIn, targetCheckOut, targetGuestId, targetRoomId, targetGuestEmail, targetRoomNumber
+        })
 
-            return (
-              bGuestEmail === targetGuestEmail &&
-              bRoomNumber === targetRoomNumber &&
-              bCheckIn === targetCheckIn &&
-              bCheckOut === targetCheckOut
-            )
-          })
+        // Find all duplicate bookings - match by IDs or by resolved details
+        const duplicateBookings = allBookings.filter((b: any) => {
+          if (b.id === remoteId) return false // Already deleted
+          if (!targetCheckIn || !targetCheckOut) return false // No booking details
 
-          // Delete all duplicates
-          for (const dup of duplicateBookings) {
-            try {
-              await db.bookings.delete(dup.id)
-              console.log('[BookingEngine] Also deleted duplicate booking:', dup.id)
-            } catch (dupErr) {
-              console.warn('[BookingEngine] Failed to delete duplicate:', dup.id, dupErr)
+          const bCheckIn = normalizeDate(b.checkIn)
+          const bCheckOut = normalizeDate(b.checkOut)
+
+          // Check date match first (required)
+          if (bCheckIn !== targetCheckIn || bCheckOut !== targetCheckOut) return false
+
+          // Try to match by IDs (fastest, most reliable)
+          if (targetGuestId && targetRoomId) {
+            if (b.guestId === targetGuestId && b.roomId === targetRoomId) {
+              return true
             }
           }
 
-          if (duplicateBookings.length > 0) {
-            console.log(`[BookingEngine] Deleted ${duplicateBookings.length} duplicate booking(s)`)
+          // Also try to match by resolved email/room number
+          const bGuest = guestMap.get(b.guestId)
+          const bRoom = roomMap.get(b.roomId)
+          const bGuestEmail = bGuest?.email?.toLowerCase() || ''
+          const bRoomNumber = bRoom?.roomNumber || ''
+
+          if (targetGuestEmail && targetRoomNumber) {
+            if (bGuestEmail === targetGuestEmail && bRoomNumber === targetRoomNumber) {
+              return true
+            }
           }
-        } catch (duplicateErr) {
-          console.warn('[BookingEngine] Failed to check/delete duplicates:', duplicateErr)
+
+          return false
+        })
+
+        console.log('[BookingEngine] Found', duplicateBookings.length, 'duplicate booking(s) to delete')
+
+        // Delete all duplicates
+        for (const dup of duplicateBookings) {
+          try {
+            await db.bookings.delete(dup.id)
+            console.log('[BookingEngine] Also deleted duplicate booking:', dup.id)
+          } catch (dupErr) {
+            console.warn('[BookingEngine] Failed to delete duplicate:', dup.id, dupErr)
+          }
         }
+
+        if (duplicateBookings.length > 0) {
+          console.log(`[BookingEngine] Deleted ${duplicateBookings.length} duplicate booking(s)`)
+        }
+      } catch (duplicateErr) {
+        console.warn('[BookingEngine] Failed to check/delete duplicates:', duplicateErr)
       }
 
-      // Log the deletion activity
-      try {
-        const currentUser = await blink.auth.me().catch(() => null)
-        await activityLogService.log({
-          action: 'deleted',
-          entityType: 'booking',
-          entityId: remoteId,
-          details: {
-            guestName: guest?.name || 'Unknown Guest',
-            guestEmail: guest?.email || '',
-            roomNumber: room?.roomNumber || 'Unknown Room',
-            checkIn: booking?.checkIn,
-            checkOut: booking?.checkOut,
-            amount: booking?.totalPrice,
-            deletedAt: new Date().toISOString()
-          },
-          userId: currentUser?.id,
-          metadata: {
-            source: 'booking_deletion',
-            deletedBy: 'staff'
-          }
-        })
-      } catch (logError) {
-        console.error('[BookingEngine] Failed to log booking deletion:', logError)
-        // Don't fail the deletion if logging fails
-      }
+      // Log the deletion activity (fire-and-forget - never block deletion)
+      const currentUser = await blink.auth.me().catch(() => null)
+      activityLogService.log({
+        action: 'deleted',
+        entityType: 'booking',
+        entityId: remoteId,
+        details: {
+          guestName: guest?.name || 'Unknown Guest',
+          guestEmail: guest?.email || '',
+          roomNumber: room?.roomNumber || 'Unknown Room',
+          checkIn: booking?.checkIn,
+          checkOut: booking?.checkOut,
+          amount: booking?.totalPrice,
+          deletedAt: new Date().toISOString()
+        },
+        userId: currentUser?.id,
+        metadata: {
+          source: 'booking_deletion',
+          deletedBy: 'staff'
+        }
+      }).catch(logError => {
+        console.warn('[BookingEngine] Activity logging failed (non-blocking):', logError)
+      })
 
       this.notifySyncHandlers('synced', 'Booking deleted successfully')
     } catch (error) {
