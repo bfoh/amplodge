@@ -8,12 +8,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Download, Loader2 } from 'lucide-react'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, isBefore, isAfter } from 'date-fns'
 import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { toast } from 'sonner'
 import { createInvoiceData, downloadInvoicePDF, generateInvoicePDF, sendInvoiceEmail } from '@/services/invoice-service'
 import { activityLogService } from '@/services/activity-log-service'
+import { housekeepingService } from '@/services/housekeeping-service'
 import {
   Dialog,
   DialogContent,
@@ -327,7 +328,7 @@ export function ReservationsPage() {
       toast.success(`Guest ${guestMap.get(booking.guestId)?.name || 'Guest'} checked in successfully!`)
     } catch (error) {
       console.error('Check-in failed:', error)
-      toast.error('Failed to check in guest')
+      toast.error(error instanceof Error ? error.message : 'Failed to check in guest')
       // Reload data to restore correct state
       const [b] = await Promise.all([db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 500 })])
       setBookings(b)
@@ -385,6 +386,8 @@ export function ReservationsPage() {
     setProcessing(true)
     setCheckOutDialog(null) // Close dialog immediately
     try {
+      let housekeepingTaskCreated = false
+
       // Update booking status to checked-out
       await db.bookings.update(booking.id, {
         status: 'checked-out',
@@ -429,36 +432,16 @@ export function ReservationsPage() {
           console.warn('Properties update skipped:', e)
         }
 
-        // Always create a housekeeping task tied to the current user and room
-        const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(7)}`
-        await db.housekeepingTasks.create({
-          id: taskId,
-          userId: user?.id || booking.userId || '',
-          propertyId: room.id,
-          roomNumber: room.roomNumber,
-          status: 'pending',
-          notes: `Checkout cleaning for ${guestMap.get(booking.guestId)?.name || 'Guest'}`,
-          createdAt: new Date().toISOString()
-        })
-
-        // Log housekeeping task creation
+        // Create housekeeping task using the new service
         try {
-          await activityLogService.log({
-            action: 'created',
-            entityType: 'task',
-            entityId: taskId,
-            details: {
-              title: 'Checkout Cleaning',
-              roomNumber: room.roomNumber,
-              guestName: guestMap.get(booking.guestId)?.name || 'Guest',
-              status: 'pending',
-              reason: 'guest_check_out',
-              bookingId: booking.id
-            },
-            userId: user?.id || 'system'
-          })
-        } catch (logError) {
-          console.error('Failed to log housekeeping task creation:', logError)
+          const guestName = guestMap.get(booking.guestId)?.name || 'Guest'
+          const newTask = await housekeepingService.createCheckoutTask(booking, room, guestName, user)
+
+          if (newTask) {
+            housekeepingTaskCreated = true
+          }
+        } catch (taskError) {
+          console.error('❌ [Checkout] Failed to create housekeeping task via service:', taskError)
         }
       }
 
@@ -600,7 +583,8 @@ export function ReservationsPage() {
         console.error('❌ [ReservationsPage] Failed to log check-out activity:', logError)
       }
 
-      toast.success(`Guest ${guestMap.get(booking.guestId)?.name || 'Guest'} checked out successfully! Cleaning task created.`)
+      const taskMessage = housekeepingTaskCreated ? ' Cleaning task created.' : ' (Cleaning task creation failed - please check console)'
+      toast.success(`Guest ${guestMap.get(booking.guestId)?.name || 'Guest'} checked out successfully!${taskMessage}`)
     } catch (error) {
       console.error('Check-out failed:', error)
       toast.error('Failed to check out guest')

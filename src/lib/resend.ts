@@ -2,7 +2,7 @@
  * Resend Configuration
  * 
  * DEPRECATED: This file is no longer used for direct Resend SDK calls.
- * All email sending now goes through the Netlify Function at /api/send-email
+ * All email sending now goes through the Netlify Function at /.netlify/functions/send-email
  * which keeps the API key server-side for security.
  * 
  * This file is kept for backwards compatibility exports only.

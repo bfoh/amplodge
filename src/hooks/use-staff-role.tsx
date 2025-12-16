@@ -23,15 +23,15 @@ function loadFromCache(userId: string): { staffRecord: StaffRecord; role: StaffR
   try {
     const cached = localStorage.getItem(`${CACHE_KEY_PREFIX}${userId}`)
     if (!cached) return null
-    
+
     const cacheData = JSON.parse(cached)
     const isExpired = Date.now() - cacheData.timestamp > CACHE_EXPIRY
-    
+
     if (isExpired) {
       localStorage.removeItem(`${CACHE_KEY_PREFIX}${userId}`)
       return null
     }
-    
+
     return {
       staffRecord: cacheData.staffRecord,
       role: cacheData.role
@@ -66,7 +66,7 @@ export function useStaffRole() {
   const [userId, setUserId] = useState<string | null>(null)
   const isLoadingRef = useRef(false)
   const loadedUserIdRef = useRef<string | null>(null)
-  
+
   // Computed properties for backward compatibility
   const isOwner = role === 'owner'
   const isAdmin = role === 'admin'
@@ -85,7 +85,7 @@ export function useStaffRole() {
       isLoadingRef.current = true
       setLoading(true)
       console.log('🔍 [useStaffRole] Loading staff role for userId:', uid)
-      
+
       // Try to load from cache first
       const cached = loadFromCache(uid)
       if (cached) {
@@ -94,43 +94,71 @@ export function useStaffRole() {
         loadedUserIdRef.current = uid
         setLoading(false)
         isLoadingRef.current = false
-        console.log('✅ [useStaffRole] Loaded from cache:', { 
-          userId: uid, 
-          role: cached.role, 
+        console.log('✅ [useStaffRole] Loaded from cache:', {
+          userId: uid,
+          role: cached.role,
           name: cached.staffRecord.name
         })
         return
       }
-      
+
       // Optimized single query with better error handling
-      let staff = await (blink.db as any).staff.list({ 
-        where: { userId: uid }, 
+      let staff = await (blink.db as any).staff.list({
+        where: { userId: uid },
         limit: 1,
         include: ['user'] // Try to include user data in single query
       })
-      
+
       if (staff.length === 0) {
         // Try snake_case version as fallback
-        staff = await (blink.db as any).staff.list({ 
-          where: { user_id: uid } as any, 
+        staff = await (blink.db as any).staff.list({
+          where: { user_id: uid } as any,
           limit: 1,
           include: ['user']
         })
       }
-      
+
+      // Fallback: Try looking up by email if userId lookup failed
+      if (staff.length === 0) {
+        console.log('🔍 [useStaffRole] userId lookup failed, trying email lookup...')
+        try {
+          const currentUser = await blink.auth.me()
+          if (currentUser?.email) {
+            staff = await (blink.db as any).staff.list({
+              where: { email: currentUser.email },
+              limit: 1
+            })
+
+            // If found by email, update the userId in the staff record
+            if (staff.length > 0 && staff[0].userId !== uid) {
+              console.log('🔧 [useStaffRole] Updating staff record with correct userId...')
+              try {
+                await (blink.db as any).staff.update(staff[0].id, { userId: uid })
+                staff[0].userId = uid
+                console.log('✅ [useStaffRole] Staff record userId updated successfully')
+              } catch (updateError) {
+                console.warn('⚠️ [useStaffRole] Could not update staff userId:', updateError)
+              }
+            }
+          }
+        } catch (emailLookupError) {
+          console.warn('⚠️ [useStaffRole] Email lookup failed:', emailLookupError)
+        }
+      }
+
       if (staff.length > 0) {
         const staffRecord = staff[0] as unknown as StaffRecord
         const staffRole = staffRecord.role as StaffRole
         setStaffRecord(staffRecord)
         setRole(staffRole)
         loadedUserIdRef.current = uid
-        
+
         // Save to cache
         saveToCache(uid, staffRecord, staffRole)
-        
-        console.log('✅ [useStaffRole] Staff role loaded successfully:', { 
-          userId: uid, 
-          role: staffRole, 
+
+        console.log('✅ [useStaffRole] Staff role loaded successfully:', {
+          userId: uid,
+          role: staffRole,
           name: staffRecord.name,
           email: staffRecord.email
         })
@@ -153,14 +181,14 @@ export function useStaffRole() {
 
   useEffect(() => {
     let currentUserId: string | null = null
-    
+
     const unsubscribe = blink.auth.onAuthStateChanged((state) => {
       const newUserId = state.user?.id || null
-      
+
       // Only reload if userId actually changed
       if (newUserId !== currentUserId) {
         currentUserId = newUserId
-        
+
         if (newUserId) {
           setUserId(newUserId)
           loadStaffRole(newUserId)
@@ -186,9 +214,9 @@ export function useStaffRole() {
         loadStaffRole(currentUserId)
       }
     }
-    
+
     window.addEventListener('refreshStaffRole', handleRefresh)
-    
+
     return () => {
       unsubscribe()
       window.removeEventListener('refreshStaffRole', handleRefresh)

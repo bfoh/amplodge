@@ -1,8 +1,8 @@
 import { blink } from '@/blink/client'
 import { bookingEngine } from './booking-engine'
-import type { 
-  RevenueAnalytics, 
-  OccupancyAnalytics, 
+import type {
+  RevenueAnalytics,
+  OccupancyAnalytics,
   GuestAnalytics,
   PerformanceMetrics,
   FinancialAnalytics
@@ -13,7 +13,7 @@ class AnalyticsService {
    * Calculate comprehensive revenue analytics
    */
   async getRevenueAnalytics(
-    startDate?: Date, 
+    startDate?: Date,
     endDate?: Date
   ): Promise<RevenueAnalytics> {
     try {
@@ -23,22 +23,34 @@ class AnalyticsService {
         db.roomTypes.list(),
         db.properties.list()
       ])
-      
+
       // Filter by date range if provided
       const filteredBookings = startDate && endDate
         ? bookings.filter(b => {
-            const checkIn = new Date(b.dates.checkIn)
-            return checkIn >= startDate && checkIn <= endDate
-          })
+          const checkIn = new Date(b.dates.checkIn)
+          return checkIn >= startDate && checkIn <= endDate
+        })
         : bookings
 
       // Calculate total revenue from confirmed/checked-in/checked-out bookings
       const revenueBookings = filteredBookings.filter(
         b => ['confirmed', 'checked-in', 'checked-out'].includes(b.status)
       )
-      
+
+      // Debug logging
+      console.log('[AnalyticsService] Total bookings:', bookings.length)
+      console.log('[AnalyticsService] Revenue bookings (confirmed/checked-in/out):', revenueBookings.length)
+      if (revenueBookings.length > 0) {
+        console.log('[AnalyticsService] Sample booking:', {
+          status: revenueBookings[0].status,
+          amount: revenueBookings[0].amount,
+          source: revenueBookings[0].source,
+          payment: revenueBookings[0].payment
+        })
+      }
+
       const totalRevenue = revenueBookings.reduce(
-        (sum, b) => sum + Number(b.amount || 0), 
+        (sum, b) => sum + Number(b.amount || 0),
         0
       )
 
@@ -63,26 +75,26 @@ class AnalyticsService {
         today: revenueBookings
           .filter(b => b.dates.checkIn === today)
           .reduce((sum, b) => sum + Number(b.amount || 0), 0),
-        
+
         thisWeek: revenueBookings
           .filter(b => new Date(b.dates.checkIn) >= thisWeekStart)
           .reduce((sum, b) => sum + Number(b.amount || 0), 0),
-        
+
         thisMonth: revenueBookings
           .filter(b => new Date(b.dates.checkIn) >= thisMonthStart)
           .reduce((sum, b) => sum + Number(b.amount || 0), 0),
-        
+
         lastMonth: revenueBookings
           .filter(b => {
             const checkIn = new Date(b.dates.checkIn)
             return checkIn >= lastMonthStart && checkIn <= lastMonthEnd
           })
           .reduce((sum, b) => sum + Number(b.amount || 0), 0),
-        
+
         thisYear: revenueBookings
           .filter(b => new Date(b.dates.checkIn) >= thisYearStart)
           .reduce((sum, b) => sum + Number(b.amount || 0), 0),
-        
+
         lastYear: revenueBookings
           .filter(b => {
             const checkIn = new Date(b.dates.checkIn)
@@ -113,7 +125,7 @@ class AnalyticsService {
         if (typeIdFromProperty) {
           typeId = typeIdFromProperty
         }
-        
+
         const current = revenueByType.get(typeId) || { revenue: 0, count: 0 }
         revenueByType.set(typeId, {
           revenue: current.revenue + Number(b.amount || 0),
@@ -136,15 +148,15 @@ class AnalyticsService {
         cash: revenueBookings
           .filter(b => b.payment?.method === 'cash')
           .reduce((sum, b) => sum + Number(b.amount || 0), 0),
-        
+
         mobileMoney: revenueBookings
           .filter(b => b.payment?.method === 'mobile_money')
           .reduce((sum, b) => sum + Number(b.amount || 0), 0),
-        
+
         card: revenueBookings
           .filter(b => b.payment?.method === 'card')
           .reduce((sum, b) => sum + Number(b.amount || 0), 0),
-        
+
         pending: revenueBookings
           .filter(b => !b.payment || b.payment.status === 'pending')
           .reduce((sum, b) => sum + Number(b.amount || 0), 0)
@@ -155,7 +167,7 @@ class AnalyticsService {
         online: revenueBookings
           .filter(b => b.source === 'online')
           .reduce((sum, b) => sum + Number(b.amount || 0), 0),
-        
+
         reception: revenueBookings
           .filter(b => b.source === 'reception')
           .reduce((sum, b) => sum + Number(b.amount || 0), 0)
@@ -170,7 +182,7 @@ class AnalyticsService {
         const checkIn = new Date(b.dates.checkIn)
         const checkOut = new Date(b.dates.checkOut)
         const nights = Math.max(
-          1, 
+          1,
           Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24))
         )
         return sum + nights
@@ -238,13 +250,13 @@ class AnalyticsService {
         return isActive && checkIn <= today && checkOut > today
       }).length
 
-      const currentOccupancyRate = totalRooms > 0 
-        ? (currentOccupied / totalRooms) * 100 
+      const currentOccupancyRate = totalRooms > 0
+        ? (currentOccupied / totalRooms) * 100
         : 0
 
       // Occupancy by room type
       const roomTypeOccupancy = new Map<string, { occupied: number; total: number }>()
-      
+
       // Count total rooms by type
       properties.forEach((p: any) => {
         const typeId = p.propertyTypeId
@@ -308,8 +320,8 @@ class AnalyticsService {
 
         const rate = totalRooms > 0 ? (occupied / totalRooms) * 100 : 0
 
-        occupancyTrend.push({ 
-          date: dateStr, 
+        occupancyTrend.push({
+          date: dateStr,
           rate: Math.round(rate * 10) / 10,
           occupiedRooms: occupied
         })
@@ -319,7 +331,7 @@ class AnalyticsService {
       const completedBookings = bookings.filter(
         b => b.status === 'checked-out' || b.status === 'confirmed'
       )
-      
+
       const totalStayDays = completedBookings.reduce((sum, b) => {
         const checkIn = new Date(b.dates.checkIn)
         const checkOut = new Date(b.dates.checkOut)
@@ -366,12 +378,12 @@ class AnalyticsService {
           const checkIn = new Date(b.dates.checkIn)
           return checkIn <= next7Days
         }).length / totalRooms) * 100),
-        
+
         next30Days: Math.round((futureBookings.filter(b => {
           const checkIn = new Date(b.dates.checkIn)
           return checkIn <= next30Days
         }).length / totalRooms) * 100),
-        
+
         next90Days: Math.round((futureBookings.filter(b => {
           const checkIn = new Date(b.dates.checkIn)
           return checkIn <= next90Days
@@ -433,13 +445,13 @@ class AnalyticsService {
       const repeatGuests = Array.from(guestBookingCount.values()).filter(
         count => count > 1
       ).length
-      
+
       const vipGuests = Array.from(guestBookingCount.values()).filter(
         count => count >= 5
       ).length
 
-      const repeatGuestRate = totalGuests > 0 
-        ? (repeatGuests / totalGuests) * 100 
+      const repeatGuestRate = totalGuests > 0
+        ? (repeatGuests / totalGuests) * 100
         : 0
 
       const guestSegmentation = {
@@ -464,11 +476,11 @@ class AnalyticsService {
         .forEach(b => {
           const email = b.guest.email.toLowerCase().trim()
           const existing = guestRevenueMap.get(email)
-          
+
           const checkIn = new Date(b.dates.checkIn)
           const checkOut = new Date(b.dates.checkOut)
           const nights = Math.max(1, Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24)))
-          
+
           if (existing) {
             existing.revenue += Number(b.amount || 0)
             existing.bookingCount += 1
@@ -541,7 +553,7 @@ class AnalyticsService {
       // Peak booking days (day of week analysis)
       const dayOfWeekCounts = new Map<string, number>()
       const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-      
+
       bookings.forEach(b => {
         if (b.createdAt) {
           const created = new Date(b.createdAt)
@@ -588,7 +600,7 @@ class AnalyticsService {
         this.getRevenueAnalytics(),
         this.getOccupancyAnalytics()
       ])
-      
+
       const bookings = await bookingEngine.getAllBookings()
 
       const totalBookings = bookings.filter(
@@ -608,7 +620,7 @@ class AnalyticsService {
       // Room status distribution (placeholder - implement when housekeeping data available)
       const db = blink.db as any
       const rooms = await db.rooms.list()
-      
+
       const roomStatusDistribution = {
         available: rooms.filter((r: any) => r.status === 'available').length,
         occupied: occupancyAnalytics.occupiedRooms,
@@ -666,7 +678,7 @@ class AnalyticsService {
       // Invoice metrics
       const paidInvoices = invoices.filter((inv: any) => inv.status === 'paid')
       const unpaidInvoices = invoices.filter((inv: any) => inv.status === 'unpaid')
-      
+
       const today = new Date()
       const overdueInvoices = unpaidInvoices.filter((inv: any) => {
         const dueDate = new Date(inv.dueDate)
@@ -677,7 +689,7 @@ class AnalyticsService {
         (sum: number, inv: any) => sum + (Number(inv.total) || 0),
         0
       )
-      
+
       const totalCollected = paidInvoices.reduce(
         (sum: number, inv: any) => sum + (Number(inv.total) || 0),
         0
@@ -694,13 +706,13 @@ class AnalyticsService {
 
       // Outstanding payments
       const outstandingTotal = totalInvoiced - totalCollected
-      
+
       // Age outstanding payments
       const outstandingByAge = unpaidInvoices.reduce((acc: any, inv: any) => {
         const dueDate = new Date(inv.dueDate)
         const daysOverdue = Math.ceil((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24))
         const amount = Number(inv.total) || 0
-        
+
         if (daysOverdue <= 30) {
           acc.current += amount
         } else if (daysOverdue <= 60) {
@@ -710,7 +722,7 @@ class AnalyticsService {
         } else {
           acc.late90Plus += amount
         }
-        
+
         return acc
       }, { current: 0, late30: 0, late60: 0, late90Plus: 0 })
 
@@ -750,17 +762,17 @@ class AnalyticsService {
         const date = new Date()
         date.setMonth(date.getMonth() - i)
         const monthStr = date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' })
-        
+
         const monthStart = new Date(date.getFullYear(), date.getMonth(), 1)
         const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0)
-        
+
         const monthTax = invoices
           .filter((inv: any) => {
             const invDate = new Date(inv.invoiceDate)
             return invDate >= monthStart && invDate <= monthEnd
           })
           .reduce((sum: number, inv: any) => sum + (Number(inv.taxAmount) || 0), 0)
-        
+
         taxByPeriod.push({
           period: monthStr,
           amount: monthTax

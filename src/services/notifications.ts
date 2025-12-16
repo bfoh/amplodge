@@ -24,6 +24,111 @@ interface Booking {
 }
 
 /**
+ * Send booking confirmation to guest
+ */
+export async function sendBookingConfirmation(
+  guest: Guest,
+  room: Room,
+  booking: Booking
+): Promise<void> {
+  try {
+    console.log('📧 [BookingConfirmation] Starting confirmation email...', {
+      guestEmail: guest.email,
+      guestName: guest.name,
+      roomNumber: room.roomNumber,
+      bookingId: booking.id
+    })
+
+    const checkInDate = new Date(booking.checkIn)
+    const checkOutDate = new Date(booking.checkOut)
+
+    // Send email notification
+    const result = await sendTransactionalEmail({
+      to: guest.email,
+      subject: 'Booking Confirmed - AMP Lodge',
+      html: `
+        <div style="font-family: 'Inter', Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
+          <div style="background: #8B4513; padding: 40px 20px; text-align: center;">
+            <div style="margin-bottom: 12px;">
+              <img src="https://amplodge.org/amp.png" alt="AMP LODGE" style="height: 50px; width: auto; max-width: 150px;" />
+            </div>
+            <h1 style="color: #ffffff; margin: 0; font-size: 32px; font-family: 'Arial', sans-serif; font-weight: 700;">Booking Confirmed!</h1>
+            <p style="color: #F5F1E8; margin: 10px 0 0 0; font-size: 16px;">We look forward to your visit</p>
+          </div>
+          
+          <div style="padding: 40px 20px;">
+            <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+              Dear ${guest.name},
+            </p>
+            
+            <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6; margin: 0 0 30px 0;">
+              Thank you for choosing AMP LODGE. Your reservation has been successfully confirmed.
+            </p>
+            
+            <div style="background: #F5F1E8; border-left: 4px solid #8B6F47; padding: 20px; margin: 0 0 30px 0;">
+              <h3 style="margin: 0 0 15px 0; color: #2C2416; font-size: 18px;">Reservation Details</h3>
+              <p style="margin: 5px 0; color: #4a4a4a;"><strong>Booking Reference:</strong> ${booking.id}</p>
+              <p style="margin: 5px 0; color: #4a4a4a;"><strong>Room:</strong> ${room.roomNumber}</p>
+              <p style="margin: 5px 0; color: #4a4a4a;"><strong>Check-In:</strong> ${checkInDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+              <p style="margin: 5px 0; color: #4a4a4a;"><strong>Check-Out:</strong> ${checkOutDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+            </div>
+            
+            <div style="background: #ffffff; border: 1px solid #e5e5e5; padding: 20px; margin: 0 0 30px 0; border-radius: 8px;">
+              <h3 style="color: #2C2416; font-size: 18px; margin: 0 0 15px 0;">Check-in Information</h3>
+              <ul style="color: #4a4a4a; margin: 0; padding-left: 20px; line-height: 1.8;">
+                <li>Check-in time is from 2:00 PM</li>
+                <li>Please present valid ID upon arrival</li>
+                <li>Full payment is due upon check-in</li>
+              </ul>
+            </div>
+            
+            <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6; margin: 0;">
+              Best regards,<br>
+              <strong style="color: #8B6F47;">The AMP LODGE Team</strong>
+            </p>
+          </div>
+          
+          <div style="background: #F5F1E8; padding: 20px; text-align: center; border-top: 1px solid #e5e5e5;">
+            <p style="color: #6b6b6b; font-size: 14px; margin: 0;">
+              AMP LODGE | Premium Hospitality Experience
+            </p>
+          </div>
+        </div>
+      `,
+      text: `
+Booking Confirmed - AMP LODGE
+
+Dear ${guest.name},
+
+Thank you for choosing AMP LODGE. Your reservation has been successfully confirmed.
+
+Reservation Details:
+- Booking Reference: ${booking.id}
+- Room: ${room.roomNumber}
+- Check-In: ${checkInDate.toLocaleDateString()}
+- Check-Out: ${checkOutDate.toLocaleDateString()}
+
+Check-in Information:
+- Check-in time is from 2:00 PM
+- Please present valid ID upon arrival
+- Full payment is due upon check-in
+
+Best regards,
+The AMP LODGE Team
+      `
+    })
+
+    if (result.success) {
+      console.log('✅ [BookingConfirmation] Confirmation email sent successfully!')
+    } else {
+      console.error('❌ [BookingConfirmation] Confirmation email failed:', result.error)
+    }
+  } catch (error) {
+    console.error('❌ [BookingConfirmation] Failed to send confirmation email:', error)
+  }
+}
+
+/**
  * Send check-in notification to guest
  */
 export async function sendCheckInNotification(
@@ -47,7 +152,7 @@ export async function sendCheckInNotification(
     const currency = settings.currency || 'GHS'
 
     // Send email notification
-    await sendTransactionalEmail({
+    const result = await sendTransactionalEmail({
       to: guest.email,
       subject: 'Welcome to AMP Lodge - Check-In Confirmed',
       html: `
@@ -130,10 +235,14 @@ The AMP LODGE Team
       `
     })
 
-    console.log('✅ [CheckInNotification] Check-in email sent successfully!', {
-      guestEmail: guest.email,
-      guestName: guest.name
-    })
+    if (result.success) {
+      console.log('✅ [CheckInNotification] Check-in email sent successfully!', {
+        guestEmail: guest.email,
+        guestName: guest.name
+      })
+    } else {
+      console.error('❌ [CheckInNotification] Check-in email failed:', result.error)
+    }
 
     // SMS/WhatsApp notification (if phone number provided)
     if (guest.phone) {
@@ -199,7 +308,7 @@ export async function sendCheckOutNotification(
     `
 
     // Send email notification
-    await sendTransactionalEmail({
+    const result = await sendTransactionalEmail({
       to: guest.email,
       subject: 'Thank You for Staying at AMP Lodge',
       html: testEmailContent,
@@ -229,11 +338,15 @@ The AMP LODGE Team
       `
     })
 
-    console.log('✅ [CheckOutNotification] Check-out email sent successfully!', {
-      guestEmail: guest.email,
-      guestName: guest.name,
-      hasInvoiceData: !!invoiceData
-    })
+    if (result.success) {
+      console.log('✅ [CheckOutNotification] Check-out email sent successfully!', {
+        guestEmail: guest.email,
+        guestName: guest.name,
+        hasInvoiceData: !!invoiceData
+      })
+    } else {
+      console.error('❌ [CheckOutNotification] Check-out email failed:', result.error)
+    }
 
     // SMS/WhatsApp notification (if phone number provided)
     if (guest.phone) {

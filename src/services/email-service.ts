@@ -35,7 +35,7 @@ async function sendEmail(payload: EmailPayload, context = 'Email'): Promise<Emai
       subject: payload.subject
     })
 
-    const response = await fetch('/api/send-email', {
+    const response = await fetch('/.netlify/functions/send-email', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -43,7 +43,23 @@ async function sendEmail(payload: EmailPayload, context = 'Email'): Promise<Emai
       body: JSON.stringify(payload)
     })
 
-    const result = await response.json()
+    // Check if response is JSON before parsing
+    const contentType = response.headers.get('content-type')
+    let result: any
+
+    if (contentType && contentType.includes('application/json')) {
+      try {
+        result = await response.json()
+      } catch (parseError) {
+        console.warn(`[EmailService] Failed to parse JSON response:`, parseError)
+        return { success: false, error: 'Email service returned invalid response. Ensure Netlify dev is running for email functionality.' }
+      }
+    } else {
+      // Non-JSON response (likely proxy error or server unavailable)
+      const text = await response.text().catch(() => '')
+      console.warn(`[EmailService] Non-JSON response (status ${response.status}):`, text.substring(0, 200))
+      return { success: false, error: 'Email service unavailable. Run "netlify dev" for email functionality.' }
+    }
 
     if (!response.ok || !result.success) {
       console.error(`[EmailService] ${context} failed:`, result.error)
@@ -54,6 +70,11 @@ async function sendEmail(payload: EmailPayload, context = 'Email'): Promise<Emai
     return { success: true, id: result.id }
 
   } catch (error: any) {
+    // Handle network errors (e.g., proxy failure when netlify dev isn't running)
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      console.warn(`[EmailService] Network error - email service may not be available:`, error.message)
+      return { success: false, error: 'Email service not reachable. Run "netlify dev" for email functionality.' }
+    }
     console.error(`[EmailService] ${context} error:`, error)
     return { success: false, error: error?.message || 'Failed to send email' }
   }

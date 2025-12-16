@@ -31,13 +31,13 @@ export function ActivityLogsPage() {
   async function initializePageDatabase() {
     try {
       console.log('[ActivityLogsPage] Loading activity logs...')
-      
+
       // Load existing logs and users
       await loadLogs()
       await loadUsers()
-      
+
       console.log('[ActivityLogsPage] ✅ Activity logs loaded successfully')
-      
+
     } catch (error) {
       console.error('[ActivityLogsPage] Failed to load activity logs:', error)
       toast.error('Failed to load activity logs')
@@ -52,7 +52,7 @@ export function ActivityLogsPage() {
     try {
       setLoading(true)
       const options: any = { limit: 500 }
-      
+
       if (startDate) options.startDate = new Date(startDate)
       if (endDate) options.endDate = new Date(endDate)
       if (actionFilter !== 'all') options.action = actionFilter
@@ -88,6 +88,22 @@ export function ActivityLogsPage() {
     } catch (error) {
       console.error('Failed to load users:', error)
     }
+  }
+
+  // Helper function to resolve userId to user name
+  function resolveUserName(userId: string | undefined): string {
+    if (!userId || userId === 'system') return 'System'
+    if (userId === 'guest') return 'Guest'
+
+    // Try to find in users list
+    const user = users.find(u => u.id === userId)
+    if (user) return user.name
+
+    // Check if it looks like an email
+    if (userId.includes('@')) return userId
+
+    // Otherwise return a shortened version of the ID
+    return userId.length > 20 ? `${userId.slice(0, 8)}...` : userId
   }
 
   // All test functions removed
@@ -150,7 +166,7 @@ export function ActivityLogsPage() {
   function formatDetails(details: Record<string, any>) {
     // Convert details to human-readable message
     const readableMessage = convertDetailsToReadableMessage(details)
-    
+
     return (
       <div className="space-y-1 text-xs max-w-md">
         <div className="text-foreground leading-relaxed">
@@ -171,7 +187,7 @@ export function ActivityLogsPage() {
       const checkOut = details.checkOut
       const amount = details.amount
       const status = details.status
-      
+
       let message = `Guest ${guestName} booked ${roomType} (Room ${roomNumber})`
       if (checkIn && checkOut) {
         message += ` from ${checkIn} to ${checkOut}`
@@ -214,39 +230,39 @@ export function ActivityLogsPage() {
       }
       return message
     }
-    
+
     if (details.name && details.email) {
       // Guest/Staff creation details
       const name = details.name
       const email = details.email
       const role = details.role
-      
+
       let message = `Created ${role ? role.toLowerCase() : 'user'} ${name}`
       if (email) {
         message += ` (${email})`
       }
       return message
     }
-    
+
     if (details.amount && details.method) {
       // Payment details
       const amount = details.amount
       const method = details.method
       const reference = details.reference
-      
+
       let message = `Payment of $${amount} received via ${method}`
       if (reference) {
         message += ` (Reference: ${reference})`
       }
       return message
     }
-    
+
     if (details.invoiceNumber) {
       // Invoice details
       const invoiceNumber = details.invoiceNumber
       const totalAmount = details.totalAmount
       const guestName = details.guestName
-      
+
       let message = `Invoice ${invoiceNumber}`
       if (guestName) {
         message += ` for ${guestName}`
@@ -256,26 +272,26 @@ export function ActivityLogsPage() {
       }
       return message
     }
-    
+
     if (details.roomNumber && details.roomType) {
       // Room details
       const roomNumber = details.roomNumber
       const roomType = details.roomType
       const status = details.status
-      
+
       let message = `Room ${roomNumber} (${roomType})`
       if (status) {
         message += ` - Status: ${status}`
       }
       return message
     }
-    
+
     if (details.title) {
       // Task details
       const title = details.title
       const roomNumber = details.roomNumber
       const completedBy = details.completedBy
-      
+
       let message = `Task: ${title}`
       if (roomNumber) {
         message += ` (Room ${roomNumber})`
@@ -285,7 +301,7 @@ export function ActivityLogsPage() {
       }
       return message
     }
-    
+
     if (details.changes) {
       // Update details
       const changes = details.changes
@@ -297,17 +313,17 @@ export function ActivityLogsPage() {
       }
       return 'Updated details'
     }
-    
+
     if (details.reason) {
       // Cancellation details
       return `Cancelled: ${details.reason}`
     }
-    
+
     if (details.message) {
       // Generic message
       return details.message
     }
-    
+
     // Handle empty or simple details
     if (Object.keys(details).length === 0) {
       return 'No additional details'
@@ -343,7 +359,7 @@ export function ActivityLogsPage() {
         return `${key}: ${value}`
       })
       .join(', ')
-    
+
     return keyValuePairs || 'No details available'
   }
 
@@ -439,7 +455,7 @@ export function ActivityLogsPage() {
       a.download = `activity-logs-${format(new Date(), 'yyyy-MM-dd-HHmmss')}.html`
       a.click()
       URL.revokeObjectURL(url)
-      
+
       // For better PDF generation, we'll create an HTML file that can be printed as PDF
       toast.success('Activity logs exported as HTML (print as PDF)')
     } catch (error) {
@@ -522,6 +538,10 @@ export function ActivityLogsPage() {
                 <SelectItem value="checked_out">Checked Out</SelectItem>
                 <SelectItem value="payment_received">Payment Received</SelectItem>
                 <SelectItem value="cancelled">Cancelled</SelectItem>
+                <SelectItem value="assigned">Assigned</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+                <SelectItem value="login">Login</SelectItem>
+                <SelectItem value="logout">Logout</SelectItem>
               </SelectContent>
             </Select>
 
@@ -607,7 +627,7 @@ export function ActivityLogsPage() {
             </div>
           ) : filteredLogs.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              {searchQuery || actionFilter !== 'all' || entityTypeFilter !== 'all' 
+              {searchQuery || actionFilter !== 'all' || entityTypeFilter !== 'all'
                 ? 'No activity logs match your filters'
                 : 'No activity logs yet'
               }
@@ -655,7 +675,7 @@ export function ActivityLogsPage() {
                         {formatDetails(log.details)}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {log.userId || 'System'}
+                        {resolveUserName(log.userId)}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -678,7 +698,7 @@ export function ActivityLogsPage() {
             <div className="text-2xl font-bold">{logs.length}</div>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">

@@ -32,26 +32,26 @@ export function CleanupToolPage() {
 
   const clearGuests = async () => {
     if (!confirm('Are you sure you want to delete ALL guest records? This may affect booking history.')) return
-    
+
     setCleaningGuests(true)
     try {
       console.log('🗑️ Deleting guests...')
       let deleted = 0
       let hasMore = true
-      
+
       while (hasMore) {
         const guests = await (blink.db as any).guests.list({ limit: 100 })
         if (guests.length === 0) {
           hasMore = false
           break
         }
-        
+
         for (const guest of guests) {
           await (blink.db as any).guests.delete(guest.id)
           deleted++
         }
       }
-      
+
       toast({
         title: 'Guest database cleared',
         description: `Deleted ${deleted} guest records`,
@@ -108,27 +108,27 @@ export function CleanupToolPage() {
 
   const clearHousekeepingTasks = async () => {
     if (!confirm('Are you sure you want to delete ALL housekeeping tasks?')) return
-    
+
     setCleaningTasks(true)
     try {
       console.log('🗑️ Deleting housekeeping tasks...')
       let deletedTotal = 0
       let hasMore = true
-      
+
       while (hasMore) {
         const tasks = await (blink.db as any).housekeepingTasks.list({ limit: 100 })
         if (tasks.length === 0) {
           hasMore = false
           break
         }
-        
+
         for (const task of tasks) {
           await (blink.db as any).housekeepingTasks.delete(task.id)
           deletedTotal++
         }
         console.log(`Deleted batch of ${tasks.length} tasks...`)
       }
-      
+
       toast({
         title: 'Housekeeping tasks cleared',
         description: `Deleted ${deletedTotal} tasks`,
@@ -143,11 +143,11 @@ export function CleanupToolPage() {
 
   const clearMockData = async () => {
     if (!confirm('Are you sure you want to delete ALL mock data (bookings, guests, invoices, logs)? This effectively resets the app.')) return
-    
+
     setCleaningMockData(true)
     try {
       console.log('🗑️ Deleting mock data...')
-      
+
       // Helper for batched deletion
       const deleteCollection = async (collectionName: string, label: string) => {
         let deleted = 0
@@ -156,13 +156,13 @@ export function CleanupToolPage() {
           // Dynamic access to collection
           const collection = (blink.db as any)[collectionName]
           if (!collection) break
-          
+
           const items = await collection.list({ limit: 100 })
           if (items.length === 0) {
             hasMore = false
             break
           }
-          
+
           for (const item of items) {
             await collection.delete(item.id)
             deleted++
@@ -218,26 +218,26 @@ export function CleanupToolPage() {
     setScanning(true)
     try {
       console.log('🔍 Scanning database...')
-      
+
       const allStaff = await (blink.db as any).staff.list({})
       console.log(`📋 Found ${allStaff.length} staff records`)
-      
+
       const toKeep = allStaff.filter((staff: StaffMember) => {
-        return staff.email === 'admin@amplodge.com' || 
-               staff.role === 'owner' ||
-               (staff.email && staff.email.toLowerCase().includes('admin'))
+        return staff.email === 'admin@amplodge.com' ||
+          staff.role === 'owner' ||
+          (staff.email && staff.email.toLowerCase().includes('admin'))
       })
-      
+
       const toDelete = allStaff.filter((staff: StaffMember) => {
-        return staff.email !== 'admin@amplodge.com' && 
-               staff.role !== 'owner' &&
-               (!staff.email || !staff.email.toLowerCase().includes('admin'))
+        return staff.email !== 'admin@amplodge.com' &&
+          staff.role !== 'owner' &&
+          (!staff.email || !staff.email.toLowerCase().includes('admin'))
       })
-      
+
       setStaffToKeep(toKeep)
       setStaffToDelete(toDelete)
       setScanned(true)
-      
+
       toast({
         title: 'Scan complete',
         description: `Found ${toDelete.length} accounts to clean`,
@@ -258,7 +258,7 @@ export function CleanupToolPage() {
     if (!confirm(`Are you sure you want to CASCADE DELETE ${staffToDelete.length} employee records and ALL their related data? This cannot be undone.`)) {
       return
     }
-    
+
     setCleaning(true)
     try {
       console.log('🗑️ Starting cascade cleanup...')
@@ -267,27 +267,20 @@ export function CleanupToolPage() {
       let totalActivityLogs = 0
       let totalBookings = 0
       let totalUserAccounts = 0
-      
+
       for (const staff of staffToDelete) {
         try {
           console.log(`Cascade deleting: ${staff.name}...`)
-          
+
           // 1. Delete staff record
           await (blink.db as any).staff.delete(staff.id)
           deleted++
-          
-          // 2. Delete user account using headless client
+
+          // 2. Previous Blink-specific user deletion removed - Supabase handles auth cleanup differently
           if (staff.userId && staff.userId !== 'pending') {
             try {
-              // Use headless client to avoid affecting current admin session
-              const { createClient } = await import('@blinkdotnew/sdk')
-              const headlessBlink = createClient({
-                projectId: "amp-lodge-hotel-management-system-j2674r7k",
-                auth: { mode: "headless" },
-              })
-              
-              // Note: Blink might not have direct user deletion via headless client
-              // For now, we'll delete from database and let auth system handle cleanup
+              // With Supabase, we just delete from the database
+              // Auth cleanup should be handled separately via Supabase admin functions
               await (blink.db as any).users.delete(staff.userId)
               totalUserAccounts++
               console.log(`  ✅ Deleted user account`)
@@ -295,7 +288,7 @@ export function CleanupToolPage() {
               console.warn(`  ⚠️ Could not delete user account`)
             }
           }
-          
+
           // 3. Delete activity logs
           try {
             const logs = await (blink.db as any).activityLogs.list({
@@ -308,7 +301,7 @@ export function CleanupToolPage() {
           } catch (logsErr) {
             console.warn(`  ⚠️ Could not clean activity logs`)
           }
-          
+
           // 4. Anonymize bookings
           try {
             const bookings = await (blink.db as any).bookings.list({
@@ -321,16 +314,16 @@ export function CleanupToolPage() {
           } catch (bookingsErr) {
             console.warn(`  ⚠️ Could not anonymize bookings`)
           }
-          
+
           console.log(`  ✅ Cascade delete complete for ${staff.name}`)
         } catch (error: any) {
           console.error(`Failed to delete ${staff.name}:`, error.message)
         }
       }
-      
+
       setDeletedCount(deleted)
       setCleaned(true)
-      
+
       // Log activity
       try {
         await (blink.db as any).activityLogs.create({
@@ -353,12 +346,12 @@ export function CleanupToolPage() {
       } catch (logError) {
         console.warn('Failed to log activity:', logError)
       }
-      
+
       toast({
         title: 'Cascade cleanup complete!',
         description: `Deleted ${deleted} employees, ${totalUserAccounts} user accounts, ${totalActivityLogs} activity logs`,
       })
-      
+
       console.log(`✅ Cascade cleanup complete!`)
       console.log(`   Staff records: ${deleted}`)
       console.log(`   User accounts: ${totalUserAccounts}`)
@@ -410,19 +403,19 @@ export function CleanupToolPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            <Button 
-              variant="outline" 
-              onClick={clearHousekeepingTasks} 
+            <Button
+              variant="outline"
+              onClick={clearHousekeepingTasks}
               disabled={cleaningTasks}
               className="border-amber-300 text-amber-800 hover:bg-amber-100"
             >
               {cleaningTasks ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
               Clear Housekeeping Tasks
             </Button>
-            
-            <Button 
-              variant="outline" 
-              onClick={clearGuests} 
+
+            <Button
+              variant="outline"
+              onClick={clearGuests}
               disabled={cleaningGuests}
               className="border-amber-300 text-amber-800 hover:bg-amber-100"
             >
@@ -440,9 +433,9 @@ export function CleanupToolPage() {
               Reset Room Statuses
             </Button>
 
-            <Button 
-              variant="destructive" 
-              onClick={clearMockData} 
+            <Button
+              variant="destructive"
+              onClick={clearMockData}
               disabled={cleaningMockData}
             >
               {cleaningMockData ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
@@ -464,8 +457,8 @@ export function CleanupToolPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button 
-              onClick={scanDatabase} 
+            <Button
+              onClick={scanDatabase}
               disabled={scanning}
               size="lg"
               className="w-full"
@@ -555,8 +548,8 @@ export function CleanupToolPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button 
-                onClick={cleanDatabase} 
+              <Button
+                onClick={cleanDatabase}
                 disabled={cleaning || staffToDelete.length === 0}
                 variant="destructive"
                 size="lg"

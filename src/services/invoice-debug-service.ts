@@ -64,7 +64,7 @@ interface BookingWithDetails {
 export async function debugInvoiceSystem(): Promise<{ success: boolean; details: any; error?: string }> {
   try {
     console.log('🔍 [InvoiceDebug] Starting comprehensive invoice system debug...')
-    
+
     const debugResults = {
       timestamp: new Date().toISOString(),
       tests: [] as any[],
@@ -72,30 +72,28 @@ export async function debugInvoiceSystem(): Promise<{ success: boolean; details:
       errors: [] as string[]
     }
 
-    // Test 1: Check Blink client availability
-    console.log('🔍 [InvoiceDebug] Test 1: Checking Blink client availability...')
+    // Test 1: Check Blink client availability (now just checks if supabase wrapper is available)
+    console.log('🔍 [InvoiceDebug] Test 1: Checking database client availability...')
     try {
       const clientCheck = {
-        test: 'blink_client_availability',
+        test: 'database_client_availability',
         success: true,
         details: {
-          blinkManaged: !!blinkManaged,
-          notifications: !!blinkManaged?.notifications,
-          email: !!blinkManaged?.notifications?.email
+          note: 'Using Supabase backend - Blink SDK no longer used'
         }
       }
       debugResults.tests.push(clientCheck)
-      console.log('✅ [InvoiceDebug] Blink client available:', clientCheck.details)
+      console.log('✅ [InvoiceDebug] Database client available (Supabase)')
     } catch (error: any) {
       const clientCheck = {
-        test: 'blink_client_availability',
+        test: 'database_client_availability',
         success: false,
         error: error.message
       }
       debugResults.tests.push(clientCheck)
-      debugResults.errors.push(`Blink client error: ${error.message}`)
+      debugResults.errors.push(`Database client error: ${error.message}`)
       debugResults.overallSuccess = false
-      console.error('❌ [InvoiceDebug] Blink client error:', error)
+      console.error('❌ [InvoiceDebug] Database client error:', error)
     }
 
     // Test 2: Create test invoice data
@@ -187,7 +185,7 @@ export async function debugInvoiceSystem(): Promise<{ success: boolean; details:
 
       const invoiceData = createInvoiceData(testBooking, testRoom)
       const htmlContent = await generateInvoiceHTML(invoiceData)
-      
+
       const htmlCheck = {
         test: 'html_generation',
         success: true,
@@ -245,7 +243,7 @@ export async function debugInvoiceSystem(): Promise<{ success: boolean; details:
 
       const invoiceData = createInvoiceData(testBooking, testRoom)
       const htmlContent = await generateInvoiceHTML(invoiceData)
-      
+
       // Test email sending
       const emailResult = await sendTransactionalEmail({
         to: 'debug@test.com',
@@ -308,11 +306,11 @@ export function createInvoiceData(booking: BookingWithDetails, roomDetails: any)
   const invoiceNumber = `INV-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
   const invoiceDate = new Date().toISOString()
   const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30 days from now
-  
+
   const checkInDate = new Date(booking.checkIn)
   const checkOutDate = new Date(booking.actualCheckOut || booking.checkOut)
   const nights = Math.ceil((checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24))
-  
+
   const roomRate = booking.totalPrice / nights
   const subtotal = booking.totalPrice
   const taxRate = 0.10 // 10% tax rate

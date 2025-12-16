@@ -59,7 +59,7 @@ export function EmployeesPage() {
 
   // Use RBAC hook for role management  
   const { role: currentUserRole, canManageEmployees } = useStaffRole()
-  
+
   console.log('📊 [EmployeesPage] canManageEmployees value:', canManageEmployees, typeof canManageEmployees)
 
   const form = useForm<EmployeeFormValues>({
@@ -83,23 +83,23 @@ export function EmployeesPage() {
         setEmployees([])
         return
       }
-      
+
       // Try multiple times to get consistent data
       let staffList = []
       let attempts = 0
       const maxAttempts = 3
-      
+
       while (attempts < maxAttempts) {
         try {
           staffList = await blink.db.staff.list({
             orderBy: { createdAt: 'desc' },
           })
           console.log(`📋 [EmployeesPage] Loaded staff list (attempt ${attempts + 1}):`, staffList)
-          
+
           if (staffList && staffList.length > 0) {
             break
           }
-          
+
           attempts++
           if (attempts < maxAttempts) {
             console.log(`⏳ [EmployeesPage] Retrying in 1 second... (attempt ${attempts + 1}/${maxAttempts})`)
@@ -113,7 +113,7 @@ export function EmployeesPage() {
           }
         }
       }
-      
+
       setEmployees(staffList as StaffMember[])
       console.log('✅ [EmployeesPage] Employees state updated with', staffList.length, 'employees')
     } catch (err) {
@@ -175,7 +175,7 @@ export function EmployeesPage() {
       const currentUser = await blink.auth.me()
 
       console.log('🗑️ [EmployeesPage] Starting cascade delete for employee:', deletedEmployee.name)
-      
+
       // Track what was deleted for comprehensive logging
       const deletionSummary = {
         staffRecord: false,
@@ -215,7 +215,7 @@ export function EmployeesPage() {
         const employeeLogs = await (blink.db as any).activityLogs.list({
           where: { userId: deletedEmployee.userId }
         })
-        
+
         for (const log of employeeLogs) {
           try {
             await (blink.db as any).activityLogs.delete(log.id)
@@ -235,13 +235,13 @@ export function EmployeesPage() {
         const employeeBookings = await (blink.db as any).bookings.list({
           where: { userId: deletedEmployee.userId }
         })
-        
+
         // Option A: Delete bookings (uncomment if you want to delete)
         // for (const booking of employeeBookings) {
         //   await blink.db.bookings.delete(booking.id)
         //   deletionSummary.bookings++
         // }
-        
+
         // Option B: Anonymize bookings (keep booking data, remove employee reference)
         for (const booking of employeeBookings) {
           try {
@@ -311,7 +311,7 @@ export function EmployeesPage() {
   // Send welcome email to new staff
   const handleSendWelcomeEmail = async () => {
     if (!generatedPassword || !createdEmployeeEmail) return
-    
+
     setSendingEmail(true)
     try {
       const result = await sendStaffWelcomeEmail({
@@ -429,8 +429,8 @@ export function EmployeesPage() {
         return
       }
 
-      // Generate optimistic staff ID
-      const staffId = `staff_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+      // Generate optimistic staff ID using proper UUID format (required by Supabase)
+      const staffId = crypto.randomUUID()
       const optimisticEmployee: StaffMember = {
         id: staffId,
         userId: 'pending',
@@ -451,7 +451,7 @@ export function EmployeesPage() {
 
       // Create employee directly using Blink SDK instead of external API
       console.log('📡 [EmployeesPage] Creating employee using Blink SDK...')
-      
+
       try {
         // Check if email already exists before creating
         console.log('🔍 [EmployeesPage] Checking for existing email...')
@@ -465,37 +465,99 @@ export function EmployeesPage() {
           })
           return
         }
-        
+
         // Use default password that employees must change on first login
-        const defaultPassword = 'staff@123'
-        
-        // Add a small delay to prevent rate limiting
-        console.log('⏳ [EmployeesPage] Adding delay to prevent rate limiting...')
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        
-        // Create user account using headless client to avoid affecting current session
-        console.log('👤 [EmployeesPage] Creating user account with headless client...')
-        
-        // Import createClient for headless mode
-        const { createClient } = await import('@blinkdotnew/sdk')
-        
-        // Create headless client to avoid affecting current admin session
-        const headlessBlink = createClient({
-          projectId: "amp-lodge-hotel-management-system-j2674r7k",
-          auth: { mode: "headless" },
-        })
-        
-        const newUser = await headlessBlink.auth.signUp({
-          email: values.email,
-          password: defaultPassword,
-        })
-        
+        const defaultPassword = 'User@123'
+
+        // Create user account using Supabase Auth
+        // This approach works for both local dev and production
+        console.log('👤 [EmployeesPage] Creating user account with Supabase Auth...')
+
+        let newUser: { id: string; email: string } | null = null
+
+        // First, try using the Netlify function (production)
+        try {
+          const response = await fetch('/.netlify/functions/create-employee', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: values.email,
+              password: defaultPassword,
+              name: values.name,
+              role: values.role
+            })
+          })
+
+          if (response.ok) {
+            const result = await response.json()
+            if (result.success && result.user?.id) {
+              newUser = result.user
+              console.log('✅ [EmployeesPage] User created via Netlify function:', newUser.id)
+            }
+          }
+        } catch (netlifyError) {
+          console.log('ℹ️ [EmployeesPage] Netlify function not available, using direct Supabase signUp')
+        }
+
+        // Fallback: Use direct Supabase signUp (for local development)
+        if (!newUser) {
+          console.log('👤 [EmployeesPage] Using direct Supabase signUp...')
+
+          // Import supabase directly for signup
+          const { supabase } = await import('@/lib/supabase')
+
+          // Store current session before signing up new user
+          const { data: currentSession } = await supabase.auth.getSession()
+
+          const { data, error } = await supabase.auth.signUp({
+            email: values.email,
+            password: defaultPassword,
+            options: {
+              data: { name: values.name, role: values.role }
+            }
+          })
+
+          if (error) {
+            console.error('[EmployeesPage] Supabase signUp error:', error)
+            throw new Error(error.message)
+          }
+
+          if (!data.user) {
+            throw new Error('Failed to create user account')
+          }
+
+          newUser = { id: data.user.id, email: data.user.email || values.email }
+          console.log('✅ [EmployeesPage] User created via Supabase Auth:', newUser.id)
+
+          // Restore admin session if it was cleared
+          if (currentSession?.session) {
+            await supabase.auth.setSession({
+              access_token: currentSession.session.access_token,
+              refresh_token: currentSession.session.refresh_token
+            })
+            console.log('✅ [EmployeesPage] Admin session restored')
+          }
+
+          // Create user profile record
+          try {
+            await supabase.from('users').insert({
+              id: data.user.id,
+              email: data.user.email,
+              first_login: 1,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+          } catch (profileError) {
+            console.warn('⚠️ [EmployeesPage] Could not create user profile:', profileError)
+          }
+        }
+
         if (!newUser?.id) {
           throw new Error('Failed to create user account')
         }
-        
+
         console.log('✅ [EmployeesPage] User account created:', newUser.id)
-        
+
         // Set first login flag to force password change
         try {
           await (blink.db as any).users.update(newUser.id, {
@@ -506,7 +568,7 @@ export function EmployeesPage() {
           console.warn('⚠️ [EmployeesPage] Could not set first login flag:', flagError)
           // Don't fail the entire operation, but log the warning
         }
-        
+
         // Create staff record
         console.log('👥 [EmployeesPage] Creating staff record...')
         const newStaff = await blink.db.staff.create({
@@ -517,12 +579,12 @@ export function EmployeesPage() {
           role: values.role,
           createdAt: new Date().toISOString(),
         })
-        
+
         console.log('✅ [EmployeesPage] Staff record created:', newStaff)
-        
+
         // Update optimistic entry with real userId
         setEmployees((prev) => prev.map((emp) => (emp.id === staffId ? { ...emp, userId: newUser.id } : emp)))
-        
+
         // Automatically send welcome email with default credentials
         console.log('📧 [EmployeesPage] Sending welcome email automatically...')
         try {
@@ -533,7 +595,7 @@ export function EmployeesPage() {
             role: getRoleDisplay(values.role as StaffRole),
             loginUrl: `${window.location.origin}/staff/login`
           })
-          
+
           if (emailResult.success) {
             console.log('✅ [EmployeesPage] Welcome email sent successfully')
             toast({
@@ -556,21 +618,21 @@ export function EmployeesPage() {
             variant: 'destructive'
           })
         }
-        
+
         // Show password dialog with credentials
         setGeneratedPassword(defaultPassword)
         setCreatedEmployeeEmail(values.email)
         setCreatedEmployeeName(values.name)
         setPasswordDialogOpen(true)
-        
+
         console.log('✅ [EmployeesPage] Employee creation completed successfully')
-        
+
         // Show immediate success notification
-        toast({ 
+        toast({
           title: 'Employee created!',
           description: `${values.name} has been added. Refreshing list...`,
         })
-        
+
       } catch (createError: any) {
         console.error('❌ [EmployeesPage] Employee creation failed:', createError)
         console.error('❌ [EmployeesPage] Error details:', {
@@ -580,30 +642,30 @@ export function EmployeesPage() {
           details: createError.details,
           stack: createError.stack
         })
-        
+
         // Remove optimistic entry
         setEmployees((prev) => prev.filter((emp) => emp.id !== staffId))
-        
+
         // Handle specific error cases
-        if (createError.message?.includes('already exists') || 
-            createError.message?.includes('already registered') ||
-            createError.message?.includes('duplicate') ||
-            createError.status === 409) {
+        if (createError.message?.includes('already exists') ||
+          createError.message?.includes('already registered') ||
+          createError.message?.includes('duplicate') ||
+          createError.status === 409) {
           toast({
             title: 'Email already in use',
             description: 'This email is already registered. Please use a different email.',
             variant: 'destructive',
           })
-        } else if (createError.message?.includes('rate limit') || 
-                   createError.message?.includes('too many requests') ||
-                   createError.status === 429) {
+        } else if (createError.message?.includes('rate limit') ||
+          createError.message?.includes('too many requests') ||
+          createError.status === 429) {
           toast({
             title: 'Rate limit exceeded',
             description: 'Please wait a moment before adding another employee.',
             variant: 'destructive',
           })
         } else if (createError.message?.includes('constraint') ||
-                   createError.message?.includes('unique')) {
+          createError.message?.includes('unique')) {
           toast({
             title: 'Database constraint error',
             description: 'There was a conflict with existing data. Please try again.',
@@ -621,18 +683,18 @@ export function EmployeesPage() {
 
       // Refresh list to ensure full consistency with delay
       console.log('🔄 [EmployeesPage] Refreshing employee list...')
-      
+
       // Add delay to ensure database consistency
       await new Promise(resolve => setTimeout(resolve, 2000))
-      
+
       try {
         await loadEmployees()
         console.log('✅ [EmployeesPage] Employee list refreshed successfully')
-        
+
         // Verify the new employee is in the list
         const updatedList = await blink.db.staff.list({ orderBy: { createdAt: 'desc' } })
         const newEmployeeInList = updatedList.find(emp => emp.email === values.email)
-        
+
         if (newEmployeeInList) {
           console.log('✅ [EmployeesPage] New employee confirmed in database:', newEmployeeInList)
         } else {
@@ -643,7 +705,7 @@ export function EmployeesPage() {
         // Don't fail the entire operation if refresh fails
       }
 
-      toast({ 
+      toast({
         title: 'Employee added successfully',
         description: `${values.name} has been added to the system.`
       })
@@ -683,7 +745,8 @@ export function EmployeesPage() {
   const canEditEmployee = (employee: StaffMember): boolean => {
     if (!currentUserRole) return false
     if (currentUserRole === 'owner') return true
-    if (currentUserRole === 'admin' && employee.role !== 'owner' && employee.role !== 'admin') return true
+    // Admin can edit anyone except owner
+    if (currentUserRole === 'admin' && employee.role !== 'owner') return true
     return false
   }
 
@@ -691,7 +754,8 @@ export function EmployeesPage() {
   const canDeleteEmployee = (employee: StaffMember): boolean => {
     if (!currentUserRole) return false
     if (currentUserRole === 'owner') return true
-    if (currentUserRole === 'admin' && employee.role !== 'owner' && employee.role !== 'admin') return true
+    // Admin can delete anyone except owner
+    if (currentUserRole === 'admin' && employee.role !== 'owner') return true
     return false
   }
 
@@ -1080,7 +1144,7 @@ export function EmployeesPage() {
           </Card>
         </TabsContent>
         <TabsContent value="activity">
-          <ActivityLogViewer 
+          <ActivityLogViewer
             entityType="employee"
             showFilters={true}
             limit={100}
@@ -1222,7 +1286,7 @@ export function EmployeesPage() {
                 Login instructions have been sent to the employee's email address.
               </p>
             </div>
-            
+
             <div className="rounded-lg bg-secondary p-4 space-y-3">
               <p className="text-sm font-medium">Default Login Credentials:</p>
               <div className="space-y-2">
@@ -1258,7 +1322,7 @@ export function EmployeesPage() {
                 </div>
               </div>
             </div>
-          
+
             <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-md text-sm">
               <div className="text-amber-600 mt-0.5">⚠️</div>
               <p className="text-amber-900 flex-1">
@@ -1268,9 +1332,9 @@ export function EmployeesPage() {
           </div>
 
           <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button 
+            <Button
               type="button"
-              variant="outline" 
+              variant="outline"
               onClick={handleSendWelcomeEmail}
               disabled={sendingEmail}
               className="w-full sm:w-auto"

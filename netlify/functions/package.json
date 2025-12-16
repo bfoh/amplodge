@@ -3,6 +3,7 @@
     "version": "1.0.0",
     "description": "Netlify Functions for AMP Lodge",
     "dependencies": {
+        "@supabase/supabase-js": "^2.43.0",
         "resend": "^6.6.0",
         "twilio": "^5.10.7"
     }

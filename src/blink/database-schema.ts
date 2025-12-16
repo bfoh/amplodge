@@ -38,7 +38,8 @@ export async function initializeDatabaseSchema(): Promise<void> {
       'invoices',
       'contactMessages',
       'properties',
-      'hotelSettings'
+      'hotelSettings',
+      'housekeepingTasks'
     ]
 
     // Test each table and create if necessary

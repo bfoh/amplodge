@@ -44,22 +44,20 @@ export function PropertiesPage() {
   }, [])
 
   useEffect(() => {
-    if (roomTypes.length > 0) {
-      loadProperties()
-    }
+    loadProperties()
   }, [roomTypes])
 
   const loadProperties = async () => {
     try {
       // Wait for authentication to be fully initialized
       const user = await blink.auth.me()
-      
+
       // Load ALL properties without userId filter to prevent data loss
       // Properties are already scoped to the project, so userId filtering is not necessary
       const data = await blink.db.properties.list({
-        orderBy: { createdAt: 'desc' }
+        orderBy: { column: 'createdAt', ascending: false }
       })
-      
+
       // Derive room type by id first, fallback to name, and compute display fields
       const propertiesWithPrices = data.map((prop: any) => {
         const matchingType =
@@ -71,7 +69,7 @@ export function PropertiesPage() {
           displayPrice: matchingType?.basePrice ?? 0
         }
       })
-      
+
       setProperties(propertiesWithPrices)
     } catch (error) {
       console.error('Failed to load rooms:', error)
@@ -83,10 +81,45 @@ export function PropertiesPage() {
 
   const loadRoomTypes = async () => {
     try {
-      const types = await (blink.db as any).roomTypes.list<RoomType>({ orderBy: { createdAt: 'asc' } })
-      setRoomTypes(types)
-      if (!formData.propertyTypeId && types.length > 0) {
-        setFormData((prev) => ({ ...prev, propertyTypeId: types[0].id }))
+      const types = await (blink.db as any).roomTypes.list<RoomType>({ orderBy: { column: 'createdAt', ascending: true } })
+
+      // Ensure default types exist (robust check)
+      const defaults = [
+        { name: 'Deluxe Room', capacity: 2, basePrice: 150 },
+        { name: 'Executive Suite', capacity: 2, basePrice: 250 },
+        { name: 'Standard Room', capacity: 2, basePrice: 100 },
+        { name: 'Family Room', capacity: 4, basePrice: 200 }
+      ]
+
+      let seeded = false
+      for (const def of defaults) {
+        // Check if this specific type exists (case-insensitive)
+        const exists = types.some(t => t.name?.toLowerCase() === def.name.toLowerCase())
+        if (!exists) {
+          await (blink.db as any).roomTypes.create({
+            id: crypto.randomUUID(),
+            ...def,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          })
+          seeded = true
+        }
+      }
+
+      if (seeded) {
+        toast.info('Initializing missing room types...')
+        // Reload if we added anything
+        const allTypes = await (blink.db as any).roomTypes.list<RoomType>({ orderBy: { column: 'createdAt', ascending: true } })
+        setRoomTypes(allTypes)
+        if (!formData.propertyTypeId && allTypes.length > 0) {
+          setFormData((prev) => ({ ...prev, propertyTypeId: allTypes[0].id }))
+        }
+        toast.success('Room types updated')
+      } else {
+        setRoomTypes(types)
+        if (!formData.propertyTypeId && types.length > 0) {
+          setFormData((prev) => ({ ...prev, propertyTypeId: types[0].id }))
+        }
       }
     } catch (error) {
       console.error('Failed to load room types:', error)
@@ -110,7 +143,7 @@ export function PropertiesPage() {
         })
       } else {
         await db.rooms.create({
-          id: `room-${rn}`,
+          id: crypto.randomUUID(),
           roomNumber: rn,
           roomTypeId: rtId,
           status: 'available',
@@ -125,7 +158,7 @@ export function PropertiesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     // Check permissions before creating/updating
     const action = editingId ? 'update' : 'create'
     if (!permissions.can('properties', action)) {
@@ -134,16 +167,16 @@ export function PropertiesPage() {
       })
       return
     }
-    
+
     try {
       // Get current user but don't require it - properties are project-scoped
       const user = await blink.auth.me().catch(() => null)
-      
+
       if (!formData.propertyTypeId) {
         toast.error('Please select a room type')
         return
       }
-      
+
       if (editingId) {
         const payload = {
           name: formData.name?.trim() || '',
@@ -161,16 +194,26 @@ export function PropertiesPage() {
         await syncRoomWithProperty({ roomNumber: payload.roomNumber, propertyTypeId: payload.propertyTypeId, basePrice: payload.basePrice })
         toast.success('Room updated')
       } else {
-        // Create property and associate with current user for persistence across views
-        await blink.db.properties.create({
-          id: `prop_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          userId: user?.id || null,
-          ...formData,
+        // Create property with explicit field mapping to match database schema
+        // Note: properties table doesn't have a user_id column
+        const createPayload = {
+          id: crypto.randomUUID(),
+          name: formData.name?.trim() || '',
+          roomNumber: (formData.roomNumber ?? '').toString().trim(),
+          address: formData.address?.trim() || '',
+          propertyTypeId: formData.propertyTypeId || '',
+          bedrooms: Number.isFinite(Number(formData.bedrooms)) ? Number(formData.bedrooms) : 1,
+          bathrooms: Number.isFinite(Number(formData.bathrooms)) ? Number(formData.bathrooms) : 1,
+          maxGuests: Number.isFinite(Number(formData.maxGuests)) ? Number(formData.maxGuests) : 2,
+          basePrice: Number.isFinite(Number(formData.basePrice)) ? Number(formData.basePrice) : 100,
+          description: formData.description || '',
           status: 'active',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
-        })
-        await syncRoomWithProperty({ roomNumber: (formData.roomNumber ?? '').toString().trim(), propertyTypeId: formData.propertyTypeId, basePrice: Number(formData.basePrice) || 0 })
+        }
+        console.log('[PropertiesPage] Creating property with payload:', createPayload)
+        await blink.db.properties.create(createPayload)
+        await syncRoomWithProperty({ roomNumber: createPayload.roomNumber, propertyTypeId: createPayload.propertyTypeId, basePrice: createPayload.basePrice })
         toast.success('Room added successfully')
       }
       setDialogOpen(false)
@@ -195,7 +238,7 @@ export function PropertiesPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this room?')) return
-    
+
     // Check delete permission
     if (!permissions.can('properties', 'delete')) {
       toast.error('Permission denied', {
@@ -203,7 +246,7 @@ export function PropertiesPage() {
       })
       return
     }
-    
+
     try {
       // Find property to know its roomNumber for room sync delete
       const prop = (await blink.db.properties.list({ where: { id }, limit: 1 }))?.[0]
@@ -297,21 +340,21 @@ export function PropertiesPage() {
                     required
                   >
                     {!formData.propertyTypeId && <option value="">Select type</option>}
-                    {roomTypes.map((rt) => (
-                      <option key={rt.id} value={rt.id}>{rt.name}</option>
-                    ))}
+                    {roomTypes.length > 0 ? (
+                      roomTypes.map((rt) => (
+                        <option key={rt.id} value={rt.id}>{rt.name}</option>
+                      ))
+                    ) : (
+                      /* Fallback options if room types not loaded from database */
+                      <>
+                        <option value="deluxe_room">Deluxe Room</option>
+                        <option value="executive_suite">Executive Suite</option>
+                        <option value="standard_room">Standard Room</option>
+                        <option value="family_room">Family Room</option>
+                      </>
+                    )}
                   </select>
                 </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="address">Address</Label>
-                <Input
-                  id="address"
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  placeholder="123 Beach Road, Miami, FL"
-                />
               </div>
 
               <div className="grid gap-4 md:grid-cols-3">

@@ -17,6 +17,17 @@ export function RoomsPage() {
   const [bookings, setBookings] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
+  // Original AMP Lodge room images from Firebase Storage
+  const defaultRoomImages: Record<string, string> = {
+    'deluxe room': 'https://firebasestorage.googleapis.com/v0/b/blink-451505.firebasestorage.app/o/user-uploads%2FQFoz0QclVFXcNNPMxlrHiX37KPP2%2F635126952__6eca0552.jpg?alt=media&token=7eef0142-a5f2-4464-bfe7-03ac326e8125',
+    'executive suite': 'https://firebasestorage.googleapis.com/v0/b/blink-451505.firebasestorage.app/o/user-uploads%2FQFoz0QclVFXcNNPMxlrHiX37KPP2%2F635126885__9daf4942.jpg?alt=media&token=3cc7cdf2-0aa6-4bcb-b4fb-b53cbda42670',
+    'standard room': 'https://firebasestorage.googleapis.com/v0/b/blink-451505.firebasestorage.app/o/user-uploads%2FQFoz0QclVFXcNNPMxlrHiX37KPP2%2F635126955__a81cd5a2.jpg?alt=media&token=bd934225-17a9-40b5-aa26-5d7f753e33a0',
+    'family room': 'https://firebasestorage.googleapis.com/v0/b/blink-451505.firebasestorage.app/o/user-uploads%2FQFoz0QclVFXcNNPMxlrHiX37KPP2%2F635127046__b3813c4a.jpg?alt=media&token=4661db91-76d6-4406-aa45-763924bb2647',
+  }
+
+  // Default fallback image
+  const defaultImage = 'https://firebasestorage.googleapis.com/v0/b/blink-451505.firebasestorage.app/o/user-uploads%2FQFoz0QclVFXcNNPMxlrHiX37KPP2%2F635126968__549b9c12.jpg?alt=media&token=e394d361-a2f7-4da7-8287-accf09c773d7'
+
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
   }, [])
@@ -35,30 +46,30 @@ export function RoomsPage() {
         db.properties.list({ orderBy: { createdAt: 'desc' } }),
         db.bookings.list()
       ])
-      
+
+      // Add fallback images to room types that don't have them
+      const typesWithImages = (typesData as RoomType[]).map(rt => ({
+        ...rt,
+        imageUrl: rt.imageUrl || defaultRoomImages[rt.name.toLowerCase()] || defaultImage
+      }))
+
       // Debug: Log raw data to verify basePrice is being fetched
       console.log('Raw room types data:', typesData)
       console.log('Raw properties data:', propertiesData)
-      console.log('Mapped prices:', typesData.map((t: any) => ({ 
-        id: t.id, 
-        name: t.name, 
-        basePrice: t.basePrice,
-        base_price: t.base_price // Check both formats
-      })))
-      
+
       // Process properties data to match room types
       const propertiesWithPrices = propertiesData.map((prop: any) => {
         const matchingType =
-          typesData.find((rt) => rt.id === prop.propertyTypeId) ||
-          typesData.find((rt) => rt.name.toLowerCase() === (prop.propertyType || '').toLowerCase())
+          typesWithImages.find((rt) => rt.id === prop.propertyTypeId) ||
+          typesWithImages.find((rt) => rt.name.toLowerCase() === (prop.propertyType || '').toLowerCase())
         return {
           ...prop,
           roomTypeName: matchingType?.name || prop.propertyType || '',
           displayPrice: matchingType?.basePrice ?? 0
         }
       })
-      
-      setRoomTypes(typesData as RoomType[])
+
+      setRoomTypes(typesWithImages)
       setRooms(roomsData as Room[])
       setProperties(propertiesWithPrices)
       setBookings(bookingsData)
@@ -75,7 +86,7 @@ export function RoomsPage() {
     const date1End = new Date(end1)
     const date2Start = new Date(start2)
     const date2End = new Date(end2)
-    
+
     return date1Start < date2End && date2Start < date1End
   }
 
@@ -83,30 +94,30 @@ export function RoomsPage() {
     // Use properties data to match backend data source
     const propertiesOfType = properties.filter(prop => {
       const matchingType = roomTypes.find(rt => rt.id === prop.propertyTypeId) ||
-                          roomTypes.find(rt => rt.name.toLowerCase() === (prop.propertyType || '').toLowerCase())
+        roomTypes.find(rt => rt.name.toLowerCase() === (prop.propertyType || '').toLowerCase())
       return matchingType?.id === typeId
     })
-    
+
     // Filter out properties that have current bookings (today's date range)
     const today = new Date()
     const tomorrow = new Date(today)
     tomorrow.setDate(tomorrow.getDate() + 1)
-    
+
     const availableProperties = propertiesOfType.filter(property => {
       const hasCurrentBooking = bookings.some(booking => {
         // Skip cancelled bookings
         if (booking.status === 'cancelled') return false
-        
+
         // Check if this booking is for the same room (match by room number)
         if (booking.roomNumber !== property.roomNumber) return false
-        
+
         // Check if booking is currently active (guest is checked in or will check in today)
         const checkInDate = new Date(booking.checkIn)
         const checkOutDate = new Date(booking.checkOut)
-        
+
         return today >= checkInDate && today < checkOutDate
       })
-      
+
       return !hasCurrentBooking
     })
 
@@ -139,10 +150,12 @@ export function RoomsPage() {
       {/* Room Types */}
       <section className="py-20 bg-gradient-to-b from-background to-secondary/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 lg:gap-10">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-10">
             {roomTypes.map((roomType) => {
               const availableCount = getAvailableRoomCount(roomType.id)
-              const amenitiesList = roomType.amenities.split(',').map(a => a.trim())
+              // Ensure amenities is a string before splitting
+              const amenitiesStr = typeof roomType.amenities === 'string' ? roomType.amenities : ''
+              const amenitiesList = amenitiesStr.length > 0 ? amenitiesStr.split(',').map(a => a.trim()).filter(a => a) : []
 
               return (
                 <Card key={roomType.id} className="overflow-hidden hover:shadow-2xl transition-all duration-300 flex flex-col h-full border-primary/10 hover:border-primary/25 bg-white group">

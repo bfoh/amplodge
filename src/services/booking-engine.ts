@@ -1,5 +1,7 @@
-import { blink } from '@/blink/client'
+import { blink, isOnline, syncQueue } from '../blink/client'
+import { v4 as uuidv4 } from 'uuid'
 import { activityLogService } from './activity-log-service'
+import { sendBookingConfirmation } from './notifications'
 
 export interface LocalBooking {
   _id: string
@@ -32,6 +34,11 @@ export interface LocalBooking {
   }
   notes?: string
   createdBy?: string
+  createdByName?: string
+  checkInBy?: string
+  checkInByName?: string
+  checkOutBy?: string
+  checkOutByName?: string
   createdAt: string
   updatedAt: string
 }
@@ -280,6 +287,29 @@ class BookingEngine {
 
     console.log('[BookingEngine] Using room:', room.id, room.roomNumber)
 
+    // Check for date overlaps with existing active bookings
+    const existingForRoom = await db.bookings.list({ where: { roomId: room.id } })
+    const activeStatues = ['reserved', 'confirmed', 'checked-in']
+    const newStart = new Date(bookingData.dates.checkIn).getTime()
+    const newEnd = new Date(bookingData.dates.checkOut).getTime()
+
+    const hasOverlap = existingForRoom.some((b: any) => {
+      // Ignore cancelled or checked-out bookings
+      if (!activeStatues.includes(b.status)) return false
+
+      const bStart = new Date(b.checkIn).getTime()
+      const bEnd = new Date(b.checkOut).getTime()
+
+      // Check for overlap: (StartA < EndB) and (EndA > StartB)
+      return (newStart < bEnd && newEnd > bStart)
+    })
+
+    if (hasOverlap) {
+      const error = new Error('Room is not available for the selected dates')
+      console.warn('[BookingEngine] Booking creation blocked due to overlap')
+      throw error
+    }
+
     // Generate deterministic IDs to keep UI logic intact
     const timestamp = Date.now()
     const random = Math.random().toString(36).slice(2, 8)
@@ -298,9 +328,12 @@ class BookingEngine {
       checkIn: bookingData.dates.checkIn,
       checkOut: bookingData.dates.checkOut,
       status: bookingData.status,
+      source: bookingData.source,
       totalPrice: bookingData.amount ?? 0,
       numGuests: bookingData.numGuests ?? 1,
-      specialRequests: bookingData.notes || ''
+      specialRequests: bookingData.notes || '',
+      created_by: bookingData.createdBy,
+      created_by_name: bookingData.createdByName
     }
 
     console.log('[BookingEngine] Creating booking with payload:', JSON.stringify(bookingPayload, null, 2))
@@ -326,28 +359,39 @@ class BookingEngine {
       }
     }
 
-    // Ensure room remains available until check-in
+    // Ensure room is marked available for the new booking, UNLESS it is currently occupied.
+    // The user explicitly requested: "once the booking is created, the room status should always be available".
+    // We safeguard this by NOT resetting 'occupied' or 'maintenance' rooms (which would be a bug for future bookings).
     if (bookingData.status !== 'checked-in') {
       try {
         const currentRoom = await db.rooms.get(room.id).catch(() => room)
-        if (currentRoom?.status === 'occupied') {
-          await db.rooms.update(room.id, { status: 'available' })
-          console.log('[BookingEngine] Reset room status to available for future stay')
-        }
 
-        // Also align related property status
-        try {
-          const propMatch = await db.properties.list({
-            where: { roomNumber: room.roomNumber },
-            limit: 1
-          })
-          const relatedProperty = propMatch?.[0]
-          if (relatedProperty && relatedProperty.status === 'occupied') {
-            await db.properties.update(relatedProperty.id, { status: 'active' })
-            console.log('[BookingEngine] Reset property status to active for future stay')
+        // Only reset status if it's 'cleaning' or already 'available' (to ensure consistency)
+        // CRITICAL: Do NOT reset 'occupied' or 'maintenance' status.
+        if (currentRoom?.status === 'cleaning' || currentRoom?.status === 'available') {
+          if (currentRoom?.status !== 'available') {
+            await db.rooms.update(room.id, { status: 'available' })
+            console.log('[BookingEngine] Reset room status from', currentRoom.status, 'to available for new booking')
           }
-        } catch (propStatusError) {
-          console.warn('[BookingEngine] Failed to sync property status:', propStatusError)
+
+          // Also align related property status
+          try {
+            const propMatch = await db.properties.list({
+              where: { roomNumber: room.roomNumber },
+              limit: 1
+            })
+            const relatedProperty = propMatch?.[0]
+            if (relatedProperty && (relatedProperty.status === 'cleaning' || relatedProperty.status === 'active')) {
+              if (relatedProperty.status !== 'active') {
+                await db.properties.update(relatedProperty.id, { status: 'active' })
+                console.log('[BookingEngine] Reset property status to active')
+              }
+            }
+          } catch (propStatusError) {
+            console.warn('[BookingEngine] Failed to sync property status:', propStatusError)
+          }
+        } else {
+          console.log(`[BookingEngine] Skipping room status reset because currently: ${currentRoom?.status}`)
         }
       } catch (roomStatusError) {
         console.warn('[BookingEngine] Failed to reset room status:', roomStatusError)
@@ -371,6 +415,7 @@ class BookingEngine {
       payment: bookingData.payment,
       notes: bookingData.notes,
       createdBy: bookingData.createdBy,
+      createdByName: bookingData.createdByName,
       createdAt: now,
       updatedAt: now,
       synced: true,
@@ -392,6 +437,36 @@ class BookingEngine {
     }, bookingData.createdBy || currentUser?.id).catch(err => {
       console.error('[BookingEngine] Failed to log activity:', err)
     })
+
+    // Send Booking Confirmation Email
+    // Only send if it's a confirmed/reserved booking (not a draft or cancelled one)
+    if (['confirmed', 'reserved'].includes(local.status)) {
+      // Construct booking object compatible with the notification service
+      const bookingForEmail = {
+        id: local._id, // Use local ID for reference
+        checkIn: local.dates.checkIn,
+        checkOut: local.dates.checkOut
+      }
+
+      const guestForEmail = {
+        id: guestId,
+        name: local.guest.fullName,
+        email: local.guest.email,
+        phone: local.guest.phone || null
+      }
+
+      const roomForEmail = {
+        id: room.id,
+        roomNumber: local.roomNumber
+      }
+
+      console.log(`[BookingEngine] Attempting to send confirmation email for booking ${local._id}...`)
+
+      // Fire and forget - don't await the result to block UI
+      sendBookingConfirmation(guestForEmail, roomForEmail, bookingForEmail)
+        .then(() => console.log(`[BookingEngine] Confirmation email request sent for ${local._id}`))
+        .catch(err => console.error('[BookingEngine] Failed to send confirmation email:', err))
+    }
 
     console.log('[BookingEngine] Booking completed successfully:', localId)
     this.notifySyncHandlers('synced', 'Booking saved to database')
@@ -423,6 +498,11 @@ class BookingEngine {
       try {
         booking = await db.bookings.get(remoteId).catch(() => null)
 
+        // Prevent deletion if booking is checked in
+        if (booking && booking.status === 'checked-in') {
+          throw new Error('Cannot delete a booking that is currently checked in. Please check out the guest first.')
+        }
+
         // If not found, try alternative ID formats
         if (!booking) {
           const allBookings = await db.bookings.list({ limit: 500 })
@@ -441,6 +521,11 @@ class BookingEngine {
         }
 
         if (booking) {
+          // Double-check status here to catch bookings resolved via fallback list search
+          if (booking.status === 'checked-in') {
+            throw new Error('Cannot delete a booking that is currently checked in. Please check out the guest first.')
+          }
+
           // Get related guest and room info for logging
           if (booking.guestId) {
             guest = await db.guests.get(booking.guestId).catch(() => null)
@@ -449,7 +534,11 @@ class BookingEngine {
             room = await db.rooms.get(booking.roomId).catch(() => null)
           }
         }
-      } catch (err) {
+      } catch (err: any) {
+        // If it's our validation error, propagate it!
+        if (err.message && err.message.includes('Cannot delete')) {
+          throw err
+        }
         console.warn('[BookingEngine] Could not fetch booking details for logging:', err)
       }
 
@@ -577,6 +666,62 @@ class BookingEngine {
         console.warn('[BookingEngine] Activity logging failed (non-blocking):', logError)
       })
 
+      // Conditional guest deletion:
+      // Delete guest only if booking was NOT checked-out (never completed their stay)
+      // AND the guest has no other bookings
+      if (booking && booking.guestId && booking.status !== 'checked-out') {
+        try {
+          // Check if guest has any other bookings
+          const remainingBookings = await db.bookings.list({ limit: 500 })
+          const guestOtherBookings = remainingBookings.filter((b: any) =>
+            b.guestId === booking.guestId && b.id !== remoteId
+          )
+
+          if (guestOtherBookings.length === 0) {
+            // No other bookings, safe to delete guest
+            console.log('[BookingEngine] Deleting guest with no remaining bookings:', booking.guestId)
+            await db.guests.delete(booking.guestId)
+            console.log('[BookingEngine] Guest deleted successfully:', booking.guestId)
+          } else {
+            console.log('[BookingEngine] Guest has', guestOtherBookings.length, 'other booking(s), keeping guest record')
+          }
+        } catch (guestDeleteErr) {
+          console.warn('[BookingEngine] Failed to delete guest (non-blocking):', guestDeleteErr)
+        }
+      } else if (booking?.status === 'checked-out') {
+        // Snapshot booking data to guest record before deletion (for legacy bookings that weren't snapshotted on checkout)
+        console.log('[BookingEngine] Booking was checked-out, preserving guest record for history')
+        if (booking.guestId) {
+          try {
+            // Fetch guest if not already available
+            let guestForUpdate = guest
+            if (!guestForUpdate) {
+              guestForUpdate = await db.guests.get(booking.guestId).catch(() => null)
+            }
+
+            if (guestForUpdate) {
+              const guestHistoryUpdate = {
+                last_booking_date: booking.createdAt || new Date().toISOString(),
+                last_room_number: room?.roomNumber || booking.roomNumber || '',
+                last_check_in: booking.checkIn,
+                last_check_out: booking.checkOut,
+                last_source: booking.source || 'reception',
+                last_created_by_name: booking.created_by_name || booking.createdByName || '',
+                total_revenue: Number(booking.totalPrice || 0),
+                total_stays: (guestForUpdate.total_stays || 0) + 1
+              }
+              console.log('[BookingEngine] Saving guest history update:', JSON.stringify(guestHistoryUpdate, null, 2))
+              await db.guests.update(booking.guestId, guestHistoryUpdate)
+              console.log('[BookingEngine] Guest history snapshot saved before deletion:', booking.guestId)
+            } else {
+              console.warn('[BookingEngine] Could not find guest for history snapshot:', booking.guestId)
+            }
+          } catch (historyErr) {
+            console.error('[BookingEngine] Failed to save guest history snapshot:', historyErr)
+          }
+        }
+      }
+
       this.notifySyncHandlers('synced', 'Booking deleted successfully')
     } catch (error) {
       console.error('[BookingEngine] Failed to delete booking:', error)
@@ -603,7 +748,11 @@ class BookingEngine {
       const remoteId: string = b.id || ''
       const localId = `booking_${remoteId.replace(/^booking-/, '')}`
       const createdAt = b.createdAt || b.checkIn
-      const payment = undefined // Not tracked in DB currently
+      // Map payment data if available
+      const payment = b.paymentMethod || b.payment_method ? {
+        method: b.paymentMethod || b.payment_method || 'cash',
+        status: b.paymentStatus || b.payment_status || 'pending'
+      } : undefined
 
       const local: LocalBooking = {
         _id: localId,
@@ -623,7 +772,7 @@ class BookingEngine {
         numGuests: b.numGuests || 1,
         amount: Number(b.totalPrice || 0),
         status: b.status || 'confirmed',
-        source: 'online',
+        source: b.source || 'online',
         payment,
         createdAt,
         updatedAt: b.updatedAt || createdAt,
@@ -759,6 +908,49 @@ class BookingEngine {
 
       // Set timestamp updates based on status change
       if (status === 'checked-in') {
+        // Prevent check-in if room is already occupied
+        if (room) {
+          try {
+            const activeBookings = await db.bookings.list({
+              where: {
+                roomId: room.id,
+                status: 'checked-in'
+              }
+            })
+            // Filter out self just in case (though unlikely to be checked-in already if we are setting it now)
+            const otherActive = activeBookings.filter((b: any) => b.id !== remoteId)
+
+            if (otherActive.length > 0) {
+              const occupant = otherActive[0] // Just take the first one
+              // Try to find occupant name for better error message
+              let occupantName = 'another guest'
+              if (occupant.guestId) {
+                const g = await db.guests.get(occupant.guestId).catch(() => null)
+                if (g) occupantName = g.name
+              }
+              throw new Error(`Cannot check in: Room ${room.roomNumber} is currently occupied by ${occupantName}. Check out the previous guest first.`)
+            }
+          } catch (checkErr: any) {
+            // Rethrow if it's our content error, otherwise log and continue (fail safe? or fail secure?)
+            // We should fail secure: if we can't verify occupancy, don't allow checkin? 
+            // Or log and throw?
+            if (checkErr.message && checkErr.message.includes('Cannot check in')) {
+              throw checkErr
+            }
+            console.warn('[BookingEngine] Failed to check occupancy, proceeding with caution:', checkErr)
+          }
+        }
+
+        if (currentUser?.id) {
+          updates.checkInBy = currentUser.id
+
+          // Try to resolve name from staff table if possible, otherwise use user metadata or fallback
+          // Ideally we should have fetched the staff record for currentUser earlier if we want the "Display Name" (e.g. Admin)
+          // But here we might just have the raw auth user.
+          // Let's see if we can get a name.
+          const name = currentUser.user_metadata?.full_name || currentUser.user_metadata?.name || currentUser.email || 'Staff'
+          updates.checkInByName = name
+        }
         updates.actualCheckIn = new Date().toISOString()
 
         // Auto-update room/property status
@@ -775,6 +967,11 @@ class BookingEngine {
           }
         }
       } else if (status === 'checked-out') {
+        if (currentUser?.id) {
+          updates.checkOutBy = currentUser.id
+          const name = currentUser.user_metadata?.full_name || currentUser.user_metadata?.name || currentUser.email || 'Staff'
+          updates.checkOutByName = name
+        }
         updates.actualCheckOut = new Date().toISOString()
 
         // Auto-update room status and create cleanup task
@@ -789,8 +986,9 @@ class BookingEngine {
 
             // Create housekeeping task
             const roomNumber = prop?.roomNumber || room?.roomNumber || prop?.name || 'N/A'
+            const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(7)}`
             await db.housekeepingTasks.create({
-              id: `task_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+              id: taskId,
               userId: currentUser?.id || booking.userId || '',
               propertyId: room.id,
               roomNumber,
@@ -798,12 +996,27 @@ class BookingEngine {
               notes: `Checkout cleaning for ${guest?.name || 'Guest'}`,
               createdAt: new Date().toISOString()
             })
+
+            // Log housekeeping task creation
+            await activityLogService.log({
+              action: 'created',
+              entityType: 'task',
+              entityId: taskId,
+              details: {
+                title: `Room ${roomNumber} Cleaning`,
+                roomNumber,
+                guestName: guest?.name || 'Guest',
+                reason: 'checkout',
+                createdAt: new Date().toISOString()
+              }
+            }).catch(err => console.error('Failed to log task creation:', err))
           } catch (e) {
             console.warn('[BookingEngine] Failed to auto-update room/task on check-out:', e)
           }
         }
       }
 
+      console.log('[BookingEngine] Updating booking with:', { remoteId, updates: JSON.stringify(updates) })
       await db.bookings.update(remoteId, updates)
 
       // Log appropriate activity based on status
@@ -821,6 +1034,35 @@ class BookingEngine {
           actualCheckOut: new Date().toISOString(),
           scheduledCheckOut: booking.checkOut,
         }, currentUser?.id).catch(err => console.error('[BookingEngine] Failed to log check-out:', err))
+
+        // Snapshot booking data to guest record for history persistence
+        console.log('[BookingEngine] Check-out: Full booking object:', JSON.stringify(booking, null, 2))
+        const guestIdToUse = booking.guestId || booking.guest_id
+        console.log('[BookingEngine] Check-out: guestId to use:', guestIdToUse)
+
+        if (guestIdToUse) {
+          try {
+            const guestHistoryUpdate = {
+              last_booking_date: booking.createdAt || booking.created_at || new Date().toISOString(),
+              last_room_number: room?.roomNumber || booking.roomNumber || '',
+              last_check_in: booking.checkIn || booking.check_in,
+              last_check_out: booking.checkOut || booking.check_out,
+              last_source: booking.source || 'reception',
+              last_created_by_name: booking.created_by_name || booking.createdByName || '',
+              last_check_in_by_name: booking.checkInByName || booking.check_in_by_name || '',
+              last_check_out_by_name: currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.name || currentUser?.email || '',
+              total_revenue: (guest?.total_revenue || 0) + Number(booking.totalPrice || booking.total_price || 0),
+              total_stays: (guest?.total_stays || 0) + 1
+            }
+            console.log('[BookingEngine] Check-out: Saving guest history:', JSON.stringify(guestHistoryUpdate, null, 2))
+            await db.guests.update(guestIdToUse, guestHistoryUpdate)
+            console.log('[BookingEngine] Guest history snapshot saved:', guestIdToUse)
+          } catch (historyErr) {
+            console.error('[BookingEngine] Failed to save guest history snapshot:', historyErr)
+          }
+        } else {
+          console.warn('[BookingEngine] No guestId found on booking, cannot save history')
+        }
       } else if (status === 'cancelled') {
         await activityLogService.logBookingCancelled(remoteId, 'Status changed to cancelled', currentUser?.id)
           .catch(err => console.error('[BookingEngine] Failed to log cancellation:', err))

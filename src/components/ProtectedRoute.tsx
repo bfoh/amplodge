@@ -67,7 +67,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
       console.log('⚠️ [ProtectedRoute] No role found after retries, checking if admin user')
       // For admin users, allow access even if role detection fails
       blink.auth.me().then(user => {
-        if (user?.email === 'admin@amplodge.com') {
+        if (user?.email === import.meta.env.VITE_ADMIN_EMAIL) {
           console.log('✅ [ProtectedRoute] Admin user detected, allowing access without role')
           setHasChecked(true)
           isCheckingRef.current = false
@@ -92,7 +92,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     // If we have a role, check route access
     if (role) {
       const currentPath = location.pathname
-      
+
       // Debug logging for History route specifically
       if (currentPath.includes('reservations/history')) {
         console.log('🔍 [ProtectedRoute] Checking History route access:', {
@@ -102,7 +102,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
           canAccess: canAccessRoute(currentPath, role)
         })
       }
-      
+
       // Check if route access is defined for this path
       if (!canAccessRoute(currentPath, role)) {
         console.log(`❌ [ProtectedRoute] Access denied for ${role} to ${currentPath}`)
@@ -114,7 +114,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
         isCheckingRef.current = false
         return
       }
-      
+
       console.log(`✅ [ProtectedRoute] Access granted for ${role} to ${currentPath}`)
       setHasChecked(true)
       isCheckingRef.current = false

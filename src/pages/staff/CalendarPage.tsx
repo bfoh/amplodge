@@ -125,7 +125,7 @@ export function CalendarPage() {
           createdAt: b.createdAt,
           currency: currency
         }
-      }).filter((b: any) => b.propertyId) // Only include bookings with valid propertyId
+      }).filter((b: any) => b.propertyId && b.status !== 'checked-out') // Only include active bookings with valid room
 
       console.log('[CalendarPage] Total bookings loaded:', localBookings.length)
       console.log('[CalendarPage] Bookings mapped to timeline:', mapped.length)

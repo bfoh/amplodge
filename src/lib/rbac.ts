@@ -28,8 +28,12 @@ export const ROLE_PERMISSIONS: Record<StaffRole, Permission[]> = {
   manager: [
     { resource: 'bookings', actions: ['create', 'read', 'update', 'delete'] },
     { resource: 'properties', actions: ['create', 'read', 'update'] },
-    { resource: 'guests', actions: ['create', 'read', 'update'] },
+    { resource: 'guests', actions: ['create', 'read', 'update', 'delete'] },
     { resource: 'reports', actions: ['read'] },
+    { resource: 'analytics', actions: ['read'] },
+    { resource: 'activity-logs', actions: ['read'] },
+    { resource: 'invoices', actions: ['read'] },
+    { resource: 'employees', actions: ['read'] },
     { resource: 'housekeeping', actions: ['read', 'update'] }
   ],
   staff: [
@@ -48,12 +52,12 @@ export const ROUTE_ACCESS: Record<string, StaffRole[]> = {
   '/staff/properties': ['owner', 'admin', 'manager'],
   '/staff/housekeeping': ['owner', 'admin', 'manager', 'staff'],
   '/staff/calendar': ['owner', 'admin', 'manager', 'staff'],
-  '/staff/analytics': ['owner', 'admin'],
-  '/staff/activity-logs': ['owner', 'admin'],
-  '/staff/invoices': ['owner', 'admin'],
-  '/staff/employees': ['owner', 'admin'],
+  '/staff/analytics': ['owner', 'admin', 'manager'],
+  '/staff/activity-logs': ['owner', 'admin', 'manager'],
+  '/staff/invoices': ['owner', 'admin', 'manager'],
+  '/staff/employees': ['owner', 'admin', 'manager'],
   '/staff/cleanup': ['owner', 'admin'],
-  '/staff/settings': ['owner', 'admin'],
+  '/staff/settings': ['owner', 'admin', 'manager'],
   '/staff/channels': ['owner', 'admin', 'manager'],
   '/staff/meals': ['owner', 'admin', 'manager', 'staff'],
   '/staff/services': ['owner', 'admin', 'manager'],
@@ -91,7 +95,7 @@ export const NAV_ITEMS: NavItem[] = [
  */
 export function canAccessRoute(route: string, userRole: StaffRole): boolean {
   const allowedRoles = ROUTE_ACCESS[route]
-  
+
   // Debug logging for History route specifically
   if (route.includes('reservations/history')) {
     console.log('🔍 [RBAC] Checking route access:', {
@@ -101,7 +105,7 @@ export function canAccessRoute(route: string, userRole: StaffRole): boolean {
       hasAccess: allowedRoles ? allowedRoles.includes(userRole) : false
     })
   }
-  
+
   if (!allowedRoles) return false
   return allowedRoles.includes(userRole)
 }
@@ -115,14 +119,14 @@ export function hasPermission(
   action: 'create' | 'read' | 'update' | 'delete'
 ): boolean {
   const permissions = ROLE_PERMISSIONS[userRole]
-  
+
   // Check for wildcard permission (owner)
   if (permissions.some(p => p.resource === '*')) return true
-  
+
   // Check specific resource permission
   const resourcePermission = permissions.find(p => p.resource === resource)
   if (!resourcePermission) return false
-  
+
   return resourcePermission.actions.includes(action)
 }
 
@@ -176,7 +180,7 @@ export function getRoleLevel(role: StaffRole): number {
 export function canAssignRole(actorRole: StaffRole, targetRole: StaffRole): boolean {
   const actorLevel = getRoleLevel(actorRole)
   const targetLevel = getRoleLevel(targetRole)
-  
+
   if (actorRole === 'owner') return true
   if (actorRole === 'admin' && targetLevel < 4) return true
   return false

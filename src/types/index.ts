@@ -127,3 +127,15 @@ export interface InvoiceData {
     website: string
   }
 }
+
+export interface HousekeepingTask {
+  id: string
+  propertyId: string
+  userId?: string // Original creator (optional)
+  roomNumber: string
+  assignedTo: string | null
+  status: 'pending' | 'in_progress' | 'completed'
+  notes: string | null
+  createdAt: string
+  completedAt: string | null
+}

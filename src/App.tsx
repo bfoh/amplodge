@@ -31,6 +31,7 @@ import { InvoicePage } from './pages/InvoicePage'
 import { InvoicesPage } from './pages/staff/InvoicesPage'
 import { AnalyticsPage } from './pages/staff/AnalyticsPage'
 import { ActivityLogsPage } from './pages/staff/ActivityLogsPage'
+import { DiagnoseEmailPage } from './pages/staff/DiagnoseEmailPage'
 // import './utils/test-activity-logs-fix'
 const HomePage = lazy(() => import('./pages/HomePage').then(m => ({ default: m.HomePage })))
 const RoomsPage = lazy(() => import('./pages/RoomsPage').then(m => ({ default: m.RoomsPage })))
@@ -61,11 +62,13 @@ function App() {
         // Force reset rooms (one-time cleanup)
         await forceResetRooms()
 
+        console.log('🚀 App running with Supabase backend - Legacy cleanup active')
+
         // Initialize database schema first
         console.log('🔧 Initializing database schema...')
         await initializeDatabaseSchema()
         console.log('✅ Database schema initialized')
-        
+
         // Initialize activity log service
         console.log('📝 Initializing activity log service...')
         try {
@@ -81,12 +84,12 @@ function App() {
           console.warn('⚠️ Failed to initialize activity log service with user, using system:', error)
           activityLogService.setCurrentUser('system')
         }
-        
+
         // Seeding disabled for production
         // console.log('🌱 Seeding sample data...')
         // await seedSampleData()
         // console.log('✅ Sample data seeded')
-        
+
         // Admin auto-seeding disabled for production
         /*
         if (!adminSeeded) {
@@ -96,8 +99,6 @@ function App() {
             try { localStorage.setItem('adminSeeded', '1') } catch (err) { console.debug('localStorage set failed', err) }
             if (!result.alreadyExists) {
               console.log('✅ Admin account created successfully')
-              console.log('📧 Email: admin@amplodge.com')
-              console.log('🔑 Password: AdminAMP2025!')
             }
           }
         }
@@ -139,21 +140,21 @@ function App() {
   // Ensure admin staff record exists when logged in as admin
   useEffect(() => {
     let isCreating = false // Prevent concurrent creation attempts
-    
+
     const ensureAdminStaffRecord = async (userId: string, email: string) => {
       if (isCreating) {
         console.log('⏳ [App] Admin staff record creation already in progress')
         return
       }
-      
+
       try {
         isCreating = true
-        
+
         // Check if staff record exists
         const existingStaff = await (blink.db as any).staff.list({
           where: { userId }
         })
-        
+
         if (!existingStaff || existingStaff.length === 0) {
           console.log('🔧 [App] Creating admin staff record...')
           await (blink.db as any).staff.create({
@@ -174,15 +175,15 @@ function App() {
         isCreating = false
       }
     }
-    
+
     // Run after auth state changes (with proper checks)
     const unsubscribe = blink.auth.onAuthStateChanged(async (state) => {
       // Only process when fully loaded and user is admin
-      if (!state.isLoading && state.user?.email === 'admin@amplodge.com' && state.user?.id) {
+      if (!state.isLoading && state.user?.email === import.meta.env.VITE_ADMIN_EMAIL && state.user?.id) {
         await ensureAdminStaffRecord(state.user.id, state.user.email)
       }
     })
-    
+
     return unsubscribe
   }, [])
 
@@ -191,64 +192,65 @@ function App() {
       <BrowserRouter>
         <Toaster position="top-right" />
         <Suspense fallback={<div className="flex items-center justify-center py-12"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
-      <Routes>
-        {/* Guest Portal */}
-        <Route
-          path="/*"
-          element={
-            <div className="flex flex-col min-h-screen">
-              <Navbar />
-              <main className="flex-1">
-                <Routes>
-                  <Route path="/" element={<HomePage />} />
-                  <Route path="/rooms" element={<RoomsPage />} />
-                  <Route path="/gallery" element={<GalleryPage />} />
-                  <Route path="/virtual-tour" element={<VirtualTourPage />} />
-                  <Route path="/contact" element={<ContactPage />} />
-                  <Route path="/booking" element={<BookingPage />} />
-                </Routes>
-              </main>
-              <Footer />
-            </div>
-          }
-        />
+          <Routes>
+            {/* Guest Portal */}
+            <Route
+              path="/*"
+              element={
+                <div className="flex flex-col min-h-screen">
+                  <Navbar />
+                  <main className="flex-1">
+                    <Routes>
+                      <Route path="/" element={<HomePage />} />
+                      <Route path="/rooms" element={<RoomsPage />} />
+                      <Route path="/gallery" element={<GalleryPage />} />
+                      <Route path="/virtual-tour" element={<VirtualTourPage />} />
+                      <Route path="/contact" element={<ContactPage />} />
+                      <Route path="/booking" element={<BookingPage />} />
+                    </Routes>
+                  </main>
+                  <Footer />
+                </div>
+              }
+            />
 
-        {/* Staff Login Page - Public */}
-        <Route path="/staff/login" element={<StaffLoginPage />} />
+            {/* Staff Login Page - Public */}
+            <Route path="/staff/login" element={<StaffLoginPage />} />
 
-        {/* Staff Portal - Protected Routes */}
-        <Route path="/staff" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-          <Route index element={<Navigate to="/staff/dashboard" replace />} />
-          <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="calendar" element={<StaffCalendarPage />} />
-          <Route path="properties" element={<PropertiesPage />} />
-          <Route path="bookings" element={<StaffBookingsPage />} />
-          <Route path="reservations" element={<StaffReservationsPage />} />
-          <Route path="reservations/history" element={<ReservationHistoryPage />} />
-          <Route path="guests" element={<StaffGuestsPage />} />
-          <Route path="housekeeping" element={<HousekeepingPage />} />
-          <Route path="employees" element={<EmployeesPage />} />
-          <Route path="invoices" element={<InvoicesPage />} />
-          <Route path="cleanup" element={<CleanupToolPage />} />
-          <Route path="channels" element={<ChannelsPage />} />
-          <Route path="reports" element={<ReportsPage />} />
-          <Route path="analytics" element={<AnalyticsPage />} />
-          <Route path="activity-logs" element={<ActivityLogsPage />} />
-          <Route path="set-prices" element={<SetPricesPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-        </Route>
-        
-        {/* Invoice debug route */}
-        <Route path="/invoice-debug" element={<InvoicePage />} />
-        
-        {/* External task completion route */}
-        <Route path="/task-complete/:taskId" element={<TaskCompletionPage />} />
-        
-        {/* External invoice route */}
-        <Route path="/invoice/:invoiceNumber" element={<InvoicePage />} />
-      </Routes>
-      </Suspense>
-    </BrowserRouter>
+            {/* Staff Portal - Protected Routes */}
+            <Route path="/staff" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+              <Route index element={<Navigate to="/staff/dashboard" replace />} />
+              <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="calendar" element={<StaffCalendarPage />} />
+              <Route path="properties" element={<PropertiesPage />} />
+              <Route path="bookings" element={<StaffBookingsPage />} />
+              <Route path="reservations" element={<StaffReservationsPage />} />
+              <Route path="reservations/history" element={<ReservationHistoryPage />} />
+              <Route path="guests" element={<StaffGuestsPage />} />
+              <Route path="housekeeping" element={<HousekeepingPage />} />
+              <Route path="employees" element={<EmployeesPage />} />
+              <Route path="invoices" element={<InvoicesPage />} />
+              <Route path="cleanup" element={<CleanupToolPage />} />
+              <Route path="channels" element={<ChannelsPage />} />
+              <Route path="reports" element={<ReportsPage />} />
+              <Route path="analytics" element={<AnalyticsPage />} />
+              <Route path="activity-logs" element={<ActivityLogsPage />} />
+              <Route path="email-diagnostics" element={<DiagnoseEmailPage />} />
+              <Route path="set-prices" element={<SetPricesPage />} />
+              <Route path="settings" element={<SettingsPage />} />
+            </Route>
+
+            {/* Invoice debug route */}
+            <Route path="/invoice-debug" element={<InvoicePage />} />
+
+            {/* External task completion route */}
+            <Route path="/task-complete/:taskId" element={<TaskCompletionPage />} />
+
+            {/* External invoice route */}
+            <Route path="/invoice/:invoiceNumber" element={<InvoicePage />} />
+          </Routes>
+        </Suspense>
+      </BrowserRouter>
     </ErrorBoundary>
   )
 }

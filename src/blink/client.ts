@@ -1,19 +1,21 @@
-import { createClient } from '@blinkdotnew/sdk'
+/**
+ * Blink Client - Now powered by Supabase
+ * 
+ * This module re-exports the Supabase wrapper which provides
+ * a Blink-compatible API. All existing code using blink.auth
+ * and blink.db will continue to work.
+ */
 
-// Main client for authentication operations (headless mode)
-export const blink = createClient({
-  projectId: 'amp-lodge-hotel-management-system-j2674r7k',
-  authRequired: false,
-  auth: {
-    mode: 'headless'
-  }
-})
+export { blink, db, auth } from '../lib/supabase-wrapper'
 
-// Managed client for operations that need managed mode
-export const blinkManaged = createClient({
-  projectId: 'amp-lodge-hotel-management-system-j2674r7k',
-  authRequired: false,
-  auth: {
-    mode: 'managed'
-  }
-})
+// For backwards compatibility with code using blinkManaged
+export { blink as blinkManaged } from '../lib/supabase-wrapper'
+
+// Stub exports for legacy offline sync functionality (no longer needed with Supabase)
+export const isOnline = () => typeof navigator !== 'undefined' ? navigator.onLine : true
+export const syncQueue = {
+    add: async () => { },
+    process: async () => { },
+    clear: async () => { },
+    getAll: async () => []
+}

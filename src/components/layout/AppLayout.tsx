@@ -49,13 +49,13 @@ export function AppLayout() {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [scrollPosition, setScrollPosition] = useState(0)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
-  
+
   // Use the same hook that's working in EmployeesPage
   const { role, canManageEmployees, loading: isLoadingStaff } = useStaffRole()
-  
+
   // Remember last known admin state to prevent flicker
   const lastKnownAdminStateRef = React.useRef<boolean>(false)
-  
+
   // Fallback: Get current user directly as backup
   useEffect(() => {
     const getUser = async () => {
@@ -63,9 +63,9 @@ export function AppLayout() {
         const user = await blink.auth.me()
         setCurrentUser(user)
         console.log('🎨 [AppLayout] Current user:', user?.email)
-        
+
         // If admin email, remember it
-        if (user?.email === 'admin@amplodge.com') {
+        if (user?.email === import.meta.env.VITE_ADMIN_EMAIL) {
           lastKnownAdminStateRef.current = true
         }
       } catch (error) {
@@ -74,44 +74,44 @@ export function AppLayout() {
     }
     getUser()
   }, [])
-  
+
   // Update last known admin state when role loads
   useEffect(() => {
     if (!isLoadingStaff && (role === 'admin' || role === 'owner' || canManageEmployees)) {
       lastKnownAdminStateRef.current = true
     }
   }, [isLoadingStaff, role, canManageEmployees])
-  
+
   // Determine if user is admin - STABLE during loading to prevent flicker
   const isAdmin = React.useMemo(() => {
     // 1. User email is admin (highest priority)
-    if (currentUser?.email === 'admin@amplodge.com') {
+    if (currentUser?.email === import.meta.env.VITE_ADMIN_EMAIL) {
       return true
     }
-    
+
     // 2. While loading, use last known state to prevent flicker
     if (isLoadingStaff && lastKnownAdminStateRef.current) {
       return true
     }
-    
+
     // 3. After loading, check actual permissions
     if (!isLoadingStaff && role && (role === 'admin' || role === 'owner' || canManageEmployees)) {
       return true
     }
-    
+
     // 4. Default to false only if we're sure (not loading and no admin indicators)
     if (!isLoadingStaff && !role && !canManageEmployees) {
       return false
     }
-    
+
     // 5. During loading with no previous admin state, default to false
     return false
   }, [currentUser?.email, isLoadingStaff, canManageEmployees, role])
-  
-  console.log('🎨 [AppLayout] Admin section state:', { 
-    role, 
-    canManageEmployees, 
-    isLoadingStaff, 
+
+  console.log('🎨 [AppLayout] Admin section state:', {
+    role,
+    canManageEmployees,
+    isLoadingStaff,
     currentUserEmail: currentUser?.email,
     isAdmin,
     lastKnownAdminState: lastKnownAdminStateRef.current,
@@ -123,14 +123,14 @@ export function AppLayout() {
       // Log the logout activity before signing out
       const user = await blink.auth.me()
       if (user) {
-        await activityLogService.logUserLogout(user.id, { email: user.email }).catch(err => 
+        await activityLogService.logUserLogout(user.id, { email: user.email }).catch(err =>
           console.error('Failed to log logout activity:', err)
         )
       }
     } catch (error) {
       console.error('Failed to get current user for logout logging:', error)
     }
-    
+
     await blink.auth.logout()
   }
 
@@ -162,13 +162,13 @@ export function AppLayout() {
     e.preventDefault()
     e.stopPropagation()
     console.log('📍 [AppLayout] Reservations toggle clicked, current scrollTop:', scrollAreaRef.current?.scrollTop)
-    
+
     // Store current scroll position before state change
     const currentScroll = scrollAreaRef.current?.scrollTop || 0
     setScrollPosition(currentScroll)
-    
+
     setReservationsOpen((v) => !v)
-    
+
     // Immediately restore scroll position
     setTimeout(() => {
       if (scrollAreaRef.current) {
@@ -182,13 +182,13 @@ export function AppLayout() {
     e.preventDefault()
     e.stopPropagation()
     console.log('📍 [AppLayout] Price toggle clicked, current scrollTop:', scrollAreaRef.current?.scrollTop)
-    
+
     // Store current scroll position before state change
     const currentScroll = scrollAreaRef.current?.scrollTop || 0
     setScrollPosition(currentScroll)
-    
+
     setPriceOpen((v) => !v)
-    
+
     // Immediately restore scroll position
     setTimeout(() => {
       if (scrollAreaRef.current) {
@@ -214,7 +214,7 @@ export function AppLayout() {
           console.log('📍 [AppLayout] Immediate backup restoration to:', scrollPosition)
         }
       }, 0)
-      
+
       // Second attempt - after 10ms
       const shortId = setTimeout(() => {
         if (scrollAreaRef.current && scrollPosition > 0) {
@@ -222,7 +222,7 @@ export function AppLayout() {
           console.log('📍 [AppLayout] Short delay backup restoration to:', scrollPosition)
         }
       }, 10)
-      
+
       // Third attempt - after 50ms
       const longId = setTimeout(() => {
         if (scrollAreaRef.current && scrollPosition > 0) {
@@ -230,7 +230,7 @@ export function AppLayout() {
           console.log('📍 [AppLayout] Long delay backup restoration to:', scrollPosition)
         }
       }, 50)
-      
+
       return () => {
         clearTimeout(immediateId)
         clearTimeout(shortId)
@@ -345,7 +345,7 @@ export function AppLayout() {
                 <UserCheck className="w-5 h-5" />
                 <span>Employees</span>
               </Link>
-              
+
               {/* Price list collapsible - Admin only */}
               <div className="mt-3">
                 <button
@@ -377,7 +377,7 @@ export function AppLayout() {
                   </div>
                 )}
               </div>
-              
+
               <Link
                 to="/staff/invoices"
                 onClick={() => setMobileMenuOpen(false)}
@@ -416,6 +416,19 @@ export function AppLayout() {
               >
                 <FileText className="w-5 h-5" />
                 <span>Activity Logs</span>
+              </Link>
+              <Link
+                to="/staff/email-diagnostics"
+                onClick={() => setMobileMenuOpen(false)}
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                  location.pathname === '/staff/email-diagnostics'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                )}
+              >
+                <Network className="w-5 h-5" />
+                <span>Email Diagnostics</span>
               </Link>
               <Link
                 to="/staff/settings"

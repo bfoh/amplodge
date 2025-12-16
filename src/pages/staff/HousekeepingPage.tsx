@@ -11,33 +11,17 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { blink } from '@/blink/client'
 import { toast } from 'sonner'
+import { activityLogService } from '@/services/activity-log-service'
 import { format } from 'date-fns'
 import { sendTaskAssignmentEmail } from '@/services/task-notification-service'
 
-interface HousekeepingTask {
-  id: string
-  propertyId: string
-  roomNumber: string
-  assignedTo: string | null
-  status: 'pending' | 'in_progress' | 'completed'
-  notes: string | null
-  createdAt: string
-  completedAt: string | null
-}
+import { housekeepingService } from '@/services/housekeeping-service'
+import type { HousekeepingTask, Staff, Room } from '@/types'
 
-interface Staff {
-  id: string
-  name: string
-  email: string
-  role: string
-}
+// Removed local HousekeepingTask interface in favor of shared type
 
-interface Room {
-  id: string
-  roomNumber: string
-  status: string
-  roomTypeId: string
-}
+
+// Local interfaces removed in favor of shared types
 
 export default function HousekeepingPage() {
   const [tasks, setTasks] = useState<HousekeepingTask[]>([])
@@ -57,14 +41,39 @@ export default function HousekeepingPage() {
   const loadData = async () => {
     try {
       setLoading(true)
-      const [tasksData, staffData, roomsData] = await Promise.all([
-        blink.db.housekeepingTasks.list({ orderBy: { createdAt: 'desc' } }),
-        blink.db.staff.list(),
-        blink.db.rooms.list()
+
+      // Load staff and rooms first (these should always exist)
+      const [staffData, roomsData] = await Promise.all([
+        blink.db.staff.list().catch((e) => {
+          console.warn('Failed to load staff:', e)
+          return []
+        }),
+        blink.db.rooms.list().catch((e) => {
+          console.warn('Failed to load rooms:', e)
+          return []
+        })
       ])
-      setTasks(tasksData)
-      setStaff(staffData)
-      setRooms(roomsData)
+
+      setStaff(staffData as unknown as Staff[])
+      setRooms(roomsData as unknown as Room[])
+
+      // Try to load housekeeping tasks (table may not exist)
+      try {
+        console.log('🧹 [HousekeepingPage] Loading housekeeping tasks...')
+        const tasksData = await blink.db.housekeepingTasks.list({ orderBy: { createdAt: 'desc' } })
+        console.log('✅ [HousekeepingPage] Loaded tasks:', tasksData.length)
+        setTasks(tasksData as unknown as HousekeepingTask[])
+      } catch (taskError) {
+        console.error('❌ [HousekeepingPage] Failed to load housekeeping tasks:', taskError)
+        console.error('ℹ️ [HousekeepingPage] The housekeeping_tasks table may not exist in Supabase. Please create it.')
+        setTasks([])
+
+        // Show a helpful message to the user
+        toast.error('Housekeeping tasks table not found. Please create it in Supabase.', {
+          duration: 10000,
+          description: 'See console for SQL instructions.'
+        })
+      }
     } catch (error) {
       console.error('Failed to load housekeeping data:', error)
       toast.error('Failed to load housekeeping data')
@@ -85,57 +94,35 @@ export default function HousekeepingPage() {
     try {
       setIsCompleting(true)
 
-      // Update task status to completed
-      await blink.db.housekeepingTasks.update(selectedTask.id, {
-        status: 'completed',
-        completedAt: new Date().toISOString(),
-        notes: completionNotes || selectedTask.notes
-      })
+      console.log(`[HousekeepingPage] Completing task ${selectedTask.id} for room ${selectedTask.roomNumber}`)
 
-      // Fetch the latest room data to check current status
-      // We don't rely on the local 'rooms' state as it might be stale
-      const currentRooms = await blink.db.rooms.list({
-        where: { roomNumber: selectedTask.roomNumber },
-        limit: 1
-      })
-      const room = currentRooms[0]
+      const result = await housekeepingService.completeTask(
+        selectedTask.id,
+        selectedTask.roomNumber,
+        completionNotes || selectedTask.notes || ''
+      )
 
-      if (room) {
-        console.log(`[Housekeeping] Found room ${room.roomNumber} with status: ${room.status}`)
+      if (result.success) {
+        // Log the task completion
+        await activityLogService.logTaskCompleted(selectedTask.id, {
+          title: `Room ${selectedTask.roomNumber} Cleaning`,
+          roomNumber: selectedTask.roomNumber,
+          completedBy: getStaffName(selectedTask.assignedTo),
+          completedAt: new Date().toISOString(),
+          notes: completionNotes
+        }).catch(err => console.error('Failed to log task completion:', err))
 
-        // Auto-update room status from 'cleaning' (case-insensitive) to 'available'
-        if (room.status?.toLowerCase() === 'cleaning') {
-          console.log(`[Housekeeping] Updating room ${room.roomNumber} to available`)
-          await blink.db.rooms.update(room.id, {
-            status: 'available'
-          })
+        toast.success(`Task completed! Room ${selectedTask.roomNumber} is likely available now.`)
 
-          // Ensure related property record is marked active again
-          try {
-            const properties = await (blink.db as any).properties.list({ limit: 500 })
-            const property = properties.find((p: any) => p.id === room.id || p.roomNumber === room.roomNumber)
-            if (property && property.status !== 'active') {
-              console.log(`[Housekeeping] syncing property ${property.id} status to active`)
-              await (blink.db as any).properties.update(property.id, { status: 'active' })
-            }
-          } catch (propUpdateError) {
-            console.warn('Failed to sync property status after housekeeping completion:', propUpdateError)
-          }
-          toast.success(`Task completed! Room ${room.roomNumber} is now available`)
-        } else {
-          console.log(`[Housekeeping] Room status is '${room.status}', not updating to available`)
-          toast.success(`Task completed for Room ${room.roomNumber}`)
-        }
+        // Refresh data
+        await loadData()
+        setSelectedTask(null)
+        setCompletionNotes('')
       } else {
-        console.warn(`[Housekeeping] Room not found for number: ${selectedTask.roomNumber}`)
-        toast.success('Task marked as completed')
+        console.error('Failed to complete task via service:', result.error)
+        toast.error('Failed to complete task: ' + result.error)
       }
-
-      // Refresh data
-      await loadData()
-      setSelectedTask(null)
-      setCompletionNotes('')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to complete task:', error)
       toast.error('Failed to complete task')
     } finally {
@@ -185,6 +172,19 @@ export default function HousekeepingPage() {
         toast.success('Task assigned successfully')
       }
 
+      // Log the task assignment
+      await activityLogService.log({
+        action: 'assigned',
+        entityType: 'task',
+        entityId: taskId,
+        details: {
+          title: `Room ${task.roomNumber} Cleaning`,
+          roomNumber: task.roomNumber,
+          assignedTo: assignedStaff.name,
+          assignedToEmail: assignedStaff.email
+        }
+      }).catch(err => console.error('Failed to log task assignment:', err))
+
       await loadData()
     } catch (error) {
       console.error('Failed to assign task:', error)
@@ -195,8 +195,27 @@ export default function HousekeepingPage() {
   const handleDeleteTask = async (taskId: string) => {
     if (!confirm('Are you sure you want to delete this task?')) return
 
+    // Get task details before deletion for logging
+    const task = tasks.find(t => t.id === taskId)
+
     try {
       await blink.db.housekeepingTasks.delete(taskId)
+
+      // Log the task deletion
+      if (task) {
+        await activityLogService.log({
+          action: 'deleted',
+          entityType: 'task',
+          entityId: taskId,
+          details: {
+            title: `Room ${task.roomNumber} Cleaning`,
+            roomNumber: task.roomNumber,
+            status: task.status,
+            deletedAt: new Date().toISOString()
+          }
+        }).catch(err => console.error('Failed to log task deletion:', err))
+      }
+
       toast.success('Task deleted successfully')
       await loadData()
     } catch (error) {

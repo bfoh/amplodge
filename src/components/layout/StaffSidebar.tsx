@@ -45,44 +45,44 @@ const adminItems: Array<{
   icon: React.ComponentType<{ className?: string }>
   minRole: StaffRole[]
 }> = [
-  { label: 'Employees', to: '/staff/employees', icon: Users, minRole: ['owner', 'admin'] },
-  { label: 'Price list', to: '/staff/set-prices', icon: Tag, minRole: ['owner', 'admin'] },
-  { label: 'Invoices', to: '/staff/invoices', icon: ReceiptText, minRole: ['owner', 'admin'] },
-  { label: 'Analytics', to: '/staff/analytics', icon: TrendingUp, minRole: ['owner', 'admin'] },
-  { label: 'Activity Logs', to: '/staff/activity-logs', icon: FileText, minRole: ['owner', 'admin'] },
-  { label: 'Settings', to: '/staff/settings', icon: Settings, minRole: ['owner', 'admin'] },
-]
+    { label: 'Employees', to: '/staff/employees', icon: Users, minRole: ['owner', 'admin', 'manager'] },
+    { label: 'Price list', to: '/staff/set-prices', icon: Tag, minRole: ['owner', 'admin', 'manager'] },
+    { label: 'Invoices', to: '/staff/invoices', icon: ReceiptText, minRole: ['owner', 'admin', 'manager'] },
+    { label: 'Analytics', to: '/staff/analytics', icon: TrendingUp, minRole: ['owner', 'admin', 'manager'] },
+    { label: 'Activity Logs', to: '/staff/activity-logs', icon: FileText, minRole: ['owner', 'admin', 'manager'] },
+    { label: 'Settings', to: '/staff/settings', icon: Settings, minRole: ['owner', 'admin', 'manager'] },
+  ]
 
 export function StaffSidebar({ email }: StaffSidebarProps) {
   const { role, canManageEmployees, loading: isLoadingStaff } = useStaffRole()
-  
+
   const [priceOpen, setPriceOpen] = useState(false)
   const submenuRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
-  
+
   // While loading, show all items to prevent navigation flicker
   // Once loaded, filter based on role
-  const visibleNavItems = isLoadingStaff || !role 
+  const visibleNavItems = isLoadingStaff || !role
     ? navItems // Show all items while loading
     : navItems.filter(item => {
-        if (!item.minRole) return true
-        return item.minRole.includes(role)
-      })
-  
+      if (!item.minRole) return true
+      return item.minRole.includes(role)
+    })
+
   // Filter price list items based on user role
   const visiblePriceListItems = isLoadingStaff || !role
     ? priceListItems // Show all items while loading
     : priceListItems.filter(item => {
-        if (!item.minRole) return true
-        return item.minRole.includes(role)
-      })
-  
+      if (!item.minRole) return true
+      return item.minRole.includes(role)
+    })
+
   // Filter admin items based on user role
   // Show admin items for admin/owner, OR while loading to prevent flicker
-  const visibleAdminItems = isLoadingStaff || !role || email === 'admin@amplodge.com'
+  const visibleAdminItems = isLoadingStaff || !role || email === import.meta.env.VITE_ADMIN_EMAIL
     ? adminItems // Show admin items while loading or for admin email
     : adminItems.filter(item => item.minRole.includes(role))
-  
+
   // Show price list section if user can access any price list items
   const showPriceListSection = visiblePriceListItems.length > 0
 
@@ -168,7 +168,7 @@ export function StaffSidebar({ email }: StaffSidebarProps) {
             </button>
 
             {priceOpen && (
-              <div 
+              <div
                 id="price-submenu"
                 ref={submenuRef}
                 className="mt-1 space-y-1"

@@ -1,6 +1,10 @@
 import { blink } from '../blink/client'
 
 /**
+ * @deprecated This file is LEGACY code from the Blink era.
+ * After migrating to Supabase, seeding should be done via Supabase or disabled.
+ * This file is retained for reference only.
+ * 
  * Seed sample room types and properties for AMP Lodge
  * This ensures the booking system has data to work with
  * SKIPS in production - only runs in development
@@ -14,21 +18,17 @@ export async function seedSampleData() {
 
   try {
     console.log('🌱 Seeding sample data...')
-    
+    console.warn('⚠️ DEPRECATED: seed-sample-data.ts is legacy code from Blink era.')
+
     const db = (blink.db as any)
-    
+
     // Check if we need to log out first (in case seed ran while another user was logged in)
     const currentAuthUser = await blink.auth.me()
     const wasAlreadyLoggedIn = !!currentAuthUser
-    
-    // If not logged in, sign in as admin to seed data
+
+    // DEPRECATED: Admin login for seeding removed - use Supabase Auth
     if (!currentAuthUser) {
-      try {
-        await blink.auth.signInWithEmail('admin@amplodge.com', 'AdminAMP2025!')
-        console.log('🔐 Signed in as admin for seeding')
-      } catch (error) {
-        console.warn('⚠️ Could not sign in as admin, proceeding without auth')
-      }
+      console.warn('⚠️ Not logged in. Seeding requires authentication via Supabase Auth.')
     }
 
     // Seed room types

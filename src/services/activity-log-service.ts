@@ -209,7 +209,7 @@ class ActivityLogService {
       }
 
       const logEntry = {
-        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 9)}_${Math.random().toString(36).slice(2, 5)}`,
+        id: crypto.randomUUID(),
         action: data.action,
         entityType: data.entityType,
         entityId: data.entityId,

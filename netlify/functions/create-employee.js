@@ -1,0 +1,130 @@
+const { createClient } = require('@supabase/supabase-js')
+
+exports.handler = async function (event, context) {
+    // Only allow POST requests
+    if (event.httpMethod !== 'POST') {
+        return {
+            statusCode: 405,
+            body: JSON.stringify({ error: 'Method not allowed' })
+        }
+    }
+
+    // CORS headers
+    const headers = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Content-Type': 'application/json'
+    }
+
+    // Handle preflight
+    if (event.httpMethod === 'OPTIONS') {
+        return { statusCode: 200, headers, body: '' }
+    }
+
+    try {
+        const { email, password, name, role } = JSON.parse(event.body)
+
+        // Validate required fields
+        if (!email || !password) {
+            return {
+                statusCode: 400,
+                headers,
+                body: JSON.stringify({ error: 'Email and password are required' })
+            }
+        }
+
+        // Create Supabase Admin client
+        const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+        const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+        if (!supabaseUrl || !supabaseServiceKey) {
+            console.error('Missing Supabase credentials')
+            return {
+                statusCode: 500,
+                headers,
+                body: JSON.stringify({ error: 'Server configuration error - missing Supabase credentials' })
+            }
+        }
+
+        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+            auth: {
+                autoRefreshToken: false,
+                persistSession: false
+            }
+        })
+
+        // Create user with Admin API (doesn't require email confirmation)
+        console.log('[create-employee] Creating user:', email)
+        const { data: userData, error: createError } = await supabaseAdmin.auth.admin.createUser({
+            email: email,
+            password: password,
+            email_confirm: true // Auto-confirm email
+        })
+
+        if (createError) {
+            console.error('[create-employee] User creation error:', createError)
+
+            // Handle specific errors
+            if (createError.message.includes('already been registered') ||
+                createError.message.includes('already exists')) {
+                return {
+                    statusCode: 409,
+                    headers,
+                    body: JSON.stringify({ error: 'An account with this email already exists' })
+                }
+            }
+
+            return {
+                statusCode: 400,
+                headers,
+                body: JSON.stringify({ error: createError.message })
+            }
+        }
+
+        if (!userData.user) {
+            return {
+                statusCode: 500,
+                headers,
+                body: JSON.stringify({ error: 'Failed to create user account' })
+            }
+        }
+
+        console.log('[create-employee] User created successfully:', userData.user.id)
+
+        // Create user profile record
+        try {
+            await supabaseAdmin.from('users').insert({
+                id: userData.user.id,
+                email: userData.user.email,
+                first_login: 1,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            })
+            console.log('[create-employee] User profile created')
+        } catch (profileError) {
+            console.warn('[create-employee] Could not create user profile:', profileError)
+            // Non-critical - continue
+        }
+
+        return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify({
+                success: true,
+                user: {
+                    id: userData.user.id,
+                    email: userData.user.email
+                }
+            })
+        }
+
+    } catch (error) {
+        console.error('[create-employee] Error:', error)
+        return {
+            statusCode: 500,
+            headers,
+            body: JSON.stringify({ error: error.message || 'An unexpected error occurred' })
+        }
+    }
+}

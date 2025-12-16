@@ -253,7 +253,8 @@ export function BookingsPage() {
         status: 'confirmed' as const,
         source: 'reception' as const,
         notes: formData.notes,
-        createdBy: staffData?.userId || staffData?.id
+        createdBy: staffData?.userId || staffData?.id,
+        createdByName: staffData?.name || staffData?.user?.name || 'Staff'
       }
 
       // Comprehensive fallback: Get current user ID directly if staffData is not available
@@ -338,7 +339,7 @@ export function BookingsPage() {
       await loadData()
     } catch (error) {
       console.error('[BookingsPage] Failed to delete booking:', error)
-      toast.error('Failed to delete booking')
+      toast.error(error instanceof Error ? error.message : 'Failed to delete booking')
       // Reload data to restore UI state if deletion failed
       await loadData()
     }

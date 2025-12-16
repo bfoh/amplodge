@@ -25,17 +25,31 @@ export function HomePage() {
   const [loadingRooms, setLoadingRooms] = useState(true)
   const location = useLocation()
 
+  // Original AMP Lodge room images from Firebase Storage
+  const originalRoomImages: Record<string, string> = {
+    'deluxe room': 'https://firebasestorage.googleapis.com/v0/b/blink-451505.firebasestorage.app/o/user-uploads%2FQFoz0QclVFXcNNPMxlrHiX37KPP2%2F635126952__6eca0552.jpg?alt=media&token=7eef0142-a5f2-4464-bfe7-03ac326e8125',
+    'executive suite': 'https://firebasestorage.googleapis.com/v0/b/blink-451505.firebasestorage.app/o/user-uploads%2FQFoz0QclVFXcNNPMxlrHiX37KPP2%2F635126885__9daf4942.jpg?alt=media&token=3cc7cdf2-0aa6-4bcb-b4fb-b53cbda42670',
+    'standard room': 'https://firebasestorage.googleapis.com/v0/b/blink-451505.firebasestorage.app/o/user-uploads%2FQFoz0QclVFXcNNPMxlrHiX37KPP2%2F635126955__a81cd5a2.jpg?alt=media&token=bd934225-17a9-40b5-aa26-5d7f753e33a0',
+    'family room': 'https://firebasestorage.googleapis.com/v0/b/blink-451505.firebasestorage.app/o/user-uploads%2FQFoz0QclVFXcNNPMxlrHiX37KPP2%2F635127046__b3813c4a.jpg?alt=media&token=4661db91-76d6-4406-aa45-763924bb2647',
+  }
+  // Default fallback if no match found
+  const defaultImage = 'https://firebasestorage.googleapis.com/v0/b/blink-451505.firebasestorage.app/o/user-uploads%2FQFoz0QclVFXcNNPMxlrHiX37KPP2%2F635126968__549b9c12.jpg?alt=media&token=e394d361-a2f7-4da7-8287-accf09c773d7'
+
   useEffect(() => {
     // Load a few room types for the landing section
     const load = async () => {
       try {
         const types = await db.roomTypes.list()
-        const normalize = (s: string) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
-        const filtered = (types as RoomType[]).filter(t => {
-          const n = normalize((t as any).name)
-          return n && !n.includes('executive suite')
-        })
-        setRoomTypes(filtered.slice(0, 3))
+        // Filter and keep all room types (show up to 3)
+        const filtered = (types as RoomType[]).filter(t => t.name)
+
+        // Use original Firebase images as fallback
+        const typesWithImages = filtered.map(rt => ({
+          ...rt,
+          imageUrl: rt.imageUrl || originalRoomImages[rt.name.toLowerCase()] || defaultImage
+        }))
+
+        setRoomTypes(typesWithImages.slice(0, 3))
       } catch (e) {
         console.error('Failed to load room types for home:', e)
       } finally {
@@ -60,8 +74,8 @@ export function HomePage() {
     <div className="min-h-screen">
       {/* Hero Section */}
       <section id="hero" className="relative min-h-[90svh] sm:min-h-screen flex items-center justify-center overflow-hidden">
-        <div 
-          className="absolute inset-0 bg-cover bg-center before:absolute before:inset-0 before:bg-gradient-to-b before:from-black/40 before:via-black/20 before:to-black/50" 
+        <div
+          className="absolute inset-0 bg-cover bg-center before:absolute before:inset-0 before:bg-gradient-to-b before:from-black/40 before:via-black/20 before:to-black/50"
           style={{
             backgroundImage: `url('https://firebasestorage.googleapis.com/v0/b/blink-451505.firebasestorage.app/o/user-uploads%2FQFoz0QclVFXcNNPMxlrHiX37KPP2%2F635126960__33431230.jpg?alt=media&token=be2c31b0-dce3-4eb6-9de9-022beeb03dd7')`,
             filter: 'brightness(1.1) contrast(1.08)'
