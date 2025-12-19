@@ -1,7 +1,8 @@
 import { formatCurrencySync } from '@/lib/utils'
 import { hotelSettingsService } from '@/services/hotel-settings'
 import { sendTransactionalEmail } from '@/services/email-service'
-import { sendCheckInSMS, sendCheckOutSMS } from '@/services/sms-service'
+import { sendCheckInSMS, sendCheckOutSMS, sendBookingConfirmationSMS } from '@/services/sms-service'
+import { generateEmailHtml, EMAIL_STYLES } from '@/services/email-template'
 
 interface Guest {
   id: string
@@ -42,59 +43,47 @@ export async function sendBookingConfirmation(
     const checkInDate = new Date(booking.checkIn)
     const checkOutDate = new Date(booking.checkOut)
 
+    const htmlContent = generateEmailHtml({
+      title: 'Booking Confirmed!',
+      preheader: `Reservation confirmed for ${guest.name} at AMP Lodge`,
+      content: `
+        <p>Dear <strong>${guest.name}</strong>,</p>
+        <p>Thank you for choosing AMP LODGE. Your reservation has been successfully confirmed. We look forward to hosting you!</p>
+        
+        <div style="${EMAIL_STYLES.infoBox}">
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Booking ID:</span> ${booking.id}
+          </div>
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Room:</span> ${room.roomNumber}
+          </div>
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Check-In:</span> ${checkInDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          </div>
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Check-Out:</span> ${checkOutDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          </div>
+        </div>
+
+        <h3 style="margin-top: 30px; font-size: 18px; color: #8B4513;">Check-in Information</h3>
+        <ul>
+          <li>Check-in time is from 2:00 PM</li>
+          <li>Please present valid ID upon arrival</li>
+          <li>Full payment is due upon check-in</li>
+        </ul>
+        
+        <p style="margin-top: 30px;">
+          Best regards,<br>
+          <strong>The AMP LODGE Team</strong>
+        </p>
+      `
+    })
+
     // Send email notification
     const result = await sendTransactionalEmail({
       to: guest.email,
       subject: 'Booking Confirmed - AMP Lodge',
-      html: `
-        <div style="font-family: 'Inter', Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
-          <div style="background: #8B4513; padding: 40px 20px; text-align: center;">
-            <div style="margin-bottom: 12px;">
-              <img src="https://amplodge.org/amp.png" alt="AMP LODGE" style="height: 50px; width: auto; max-width: 150px;" />
-            </div>
-            <h1 style="color: #ffffff; margin: 0; font-size: 32px; font-family: 'Arial', sans-serif; font-weight: 700;">Booking Confirmed!</h1>
-            <p style="color: #F5F1E8; margin: 10px 0 0 0; font-size: 16px;">We look forward to your visit</p>
-          </div>
-          
-          <div style="padding: 40px 20px;">
-            <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
-              Dear ${guest.name},
-            </p>
-            
-            <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6; margin: 0 0 30px 0;">
-              Thank you for choosing AMP LODGE. Your reservation has been successfully confirmed.
-            </p>
-            
-            <div style="background: #F5F1E8; border-left: 4px solid #8B6F47; padding: 20px; margin: 0 0 30px 0;">
-              <h3 style="margin: 0 0 15px 0; color: #2C2416; font-size: 18px;">Reservation Details</h3>
-              <p style="margin: 5px 0; color: #4a4a4a;"><strong>Booking Reference:</strong> ${booking.id}</p>
-              <p style="margin: 5px 0; color: #4a4a4a;"><strong>Room:</strong> ${room.roomNumber}</p>
-              <p style="margin: 5px 0; color: #4a4a4a;"><strong>Check-In:</strong> ${checkInDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-              <p style="margin: 5px 0; color: #4a4a4a;"><strong>Check-Out:</strong> ${checkOutDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-            </div>
-            
-            <div style="background: #ffffff; border: 1px solid #e5e5e5; padding: 20px; margin: 0 0 30px 0; border-radius: 8px;">
-              <h3 style="color: #2C2416; font-size: 18px; margin: 0 0 15px 0;">Check-in Information</h3>
-              <ul style="color: #4a4a4a; margin: 0; padding-left: 20px; line-height: 1.8;">
-                <li>Check-in time is from 2:00 PM</li>
-                <li>Please present valid ID upon arrival</li>
-                <li>Full payment is due upon check-in</li>
-              </ul>
-            </div>
-            
-            <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6; margin: 0;">
-              Best regards,<br>
-              <strong style="color: #8B6F47;">The AMP LODGE Team</strong>
-            </p>
-          </div>
-          
-          <div style="background: #F5F1E8; padding: 20px; text-align: center; border-top: 1px solid #e5e5e5;">
-            <p style="color: #6b6b6b; font-size: 14px; margin: 0;">
-              AMP LODGE | Premium Hospitality Experience
-            </p>
-          </div>
-        </div>
-      `,
+      html: htmlContent,
       text: `
 Booking Confirmed - AMP LODGE
 
@@ -123,6 +112,18 @@ The AMP LODGE Team
     } else {
       console.error('❌ [BookingConfirmation] Confirmation email failed:', result.error)
     }
+
+    // SMS notification (if phone number provided)
+    if (guest.phone) {
+      sendBookingConfirmationSMS({
+        phone: guest.phone,
+        guestName: guest.name,
+        roomNumber: room.roomNumber,
+        checkIn: booking.checkIn,
+        checkOut: booking.checkOut,
+        bookingId: booking.id
+      }).catch(err => console.error('SMS notification failed:', err))
+    }
   } catch (error) {
     console.error('❌ [BookingConfirmation] Failed to send confirmation email:', error)
   }
@@ -147,70 +148,50 @@ export async function sendCheckInNotification(
     const checkInDate = new Date(booking.actualCheckIn || booking.checkIn)
     const checkOutDate = new Date(booking.checkOut)
 
-    // Get currency for formatting (even though check-in doesn't show prices, we keep it consistent)
-    const settings = await hotelSettingsService.getHotelSettings()
-    const currency = settings.currency || 'GHS'
+    const htmlContent = generateEmailHtml({
+      title: 'Welcome to AMP Lodge',
+      preheader: `Check-in confirmed for Room ${room.roomNumber}`,
+      content: `
+        <p>Dear <strong>${guest.name}</strong>,</p>
+        <p>Welcome to AMP LODGE! Your check-in has been confirmed. We hope you have a wonderful stay with us.</p>
+        
+        <div style="${EMAIL_STYLES.infoBox}">
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Room:</span> ${room.roomNumber}
+          </div>
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Check-In:</span> ${checkInDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+          </div>
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Check-Out:</span> ${checkOutDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          </div>
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Booking ID:</span> ${booking.id}
+          </div>
+        </div>
+
+        <div style="background-color: #F5F5F5; border-radius: 4px; padding: 20px; margin-top: 20px;">
+          <h3 style="margin: 0 0 15px 0; font-size: 18px; color: #8B4513;">Guest Information</h3>
+          <ul style="margin: 0; padding-left: 20px;">
+            <li><strong>WiFi:</strong> Password available at front desk</li>
+            <li><strong>Breakfast:</strong> 7:00 AM - 10:00 AM</li>
+            <li><strong>Check-out:</strong> 11:00 AM</li>
+            <li><strong>Reception:</strong> Dial 0</li>
+          </ul>
+        </div>
+        
+        <p style="margin-top: 30px;">
+          Best regards,<br>
+          <strong>The AMP LODGE Team</strong>
+        </p>
+      `
+    })
 
     // Send email notification
     const result = await sendTransactionalEmail({
       to: guest.email,
       subject: 'Welcome to AMP Lodge - Check-In Confirmed',
-      html: `
-        <div style="font-family: 'Inter', Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
-          <div style="background: #8B4513; padding: 40px 20px; text-align: center;">
-            <div style="margin-bottom: 12px;">
-              <img src="/amp.png" alt="AMP LODGE" style="height: 50px; width: auto; max-width: 150px;" />
-            </div>
-            <h1 style="color: #ffffff; margin: 0; font-size: 32px; font-family: 'Arial', sans-serif; font-weight: 700;">AMP LODGE</h1>
-            <p style="color: #F5F1E8; margin: 10px 0 0 0; font-size: 16px;">Welcome to Your Stay</p>
-          </div>
-          
-          <div style="padding: 40px 20px;">
-            <h2 style="color: #2C2416; font-size: 24px; margin: 0 0 20px 0;">Check-In Confirmed</h2>
-            
-            <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
-              Dear ${guest.name},
-            </p>
-            
-            <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6; margin: 0 0 30px 0;">
-              Welcome to AMP LODGE! Your check-in has been confirmed. We hope you have a wonderful stay with us.
-            </p>
-            
-            <div style="background: #F5F1E8; border-left: 4px solid #8B6F47; padding: 20px; margin: 0 0 30px 0;">
-              <p style="margin: 0 0 10px 0; color: #2C2416; font-weight: 600;">Booking Details:</p>
-              <p style="margin: 5px 0; color: #4a4a4a;"><strong>Room:</strong> ${room.roomNumber}</p>
-              <p style="margin: 5px 0; color: #4a4a4a;"><strong>Check-In:</strong> ${checkInDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-              <p style="margin: 5px 0; color: #4a4a4a;"><strong>Check-Out:</strong> ${checkOutDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-              <p style="margin: 5px 0; color: #4a4a4a;"><strong>Booking ID:</strong> ${booking.id}</p>
-            </div>
-            
-            <div style="background: #ffffff; border: 1px solid #e5e5e5; padding: 20px; margin: 0 0 30px 0; border-radius: 8px;">
-              <h3 style="color: #2C2416; font-size: 18px; margin: 0 0 15px 0;">Important Information:</h3>
-              <ul style="color: #4a4a4a; margin: 0; padding-left: 20px; line-height: 1.8;">
-                <li>WiFi password available at the front desk</li>
-                <li>Breakfast served daily 7:00 AM - 10:00 AM</li>
-                <li>Check-out time is 11:00 AM</li>
-                <li>For assistance, dial 0 from your room phone</li>
-              </ul>
-            </div>
-            
-            <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
-              If you need anything during your stay, please don't hesitate to contact our front desk.
-            </p>
-            
-            <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6; margin: 0;">
-              Best regards,<br>
-              <strong style="color: #8B6F47;">The AMP LODGE Team</strong>
-            </p>
-          </div>
-          
-          <div style="background: #F5F1E8; padding: 20px; text-align: center; border-top: 1px solid #e5e5e5;">
-            <p style="color: #6b6b6b; font-size: 14px; margin: 0;">
-              AMP LODGE | Premium Hospitality Experience
-            </p>
-          </div>
-        </div>
-      `,
+      html: htmlContent,
       text: `
 Welcome to AMP LODGE!
 
@@ -236,10 +217,7 @@ The AMP LODGE Team
     })
 
     if (result.success) {
-      console.log('✅ [CheckInNotification] Check-in email sent successfully!', {
-        guestEmail: guest.email,
-        guestName: guest.name
-      })
+      console.log('✅ [CheckInNotification] Check-in email sent successfully!')
     } else {
       console.error('❌ [CheckInNotification] Check-in email failed:', result.error)
     }
@@ -255,7 +233,6 @@ The AMP LODGE Team
     }
   } catch (error) {
     console.error('❌ [CheckInNotification] Failed to send check-in notification:', error)
-    // Don't throw - notification failures shouldn't block check-in
   }
 }
 
@@ -270,7 +247,8 @@ export async function sendCheckOutNotification(
     invoiceNumber: string
     totalAmount: number
     downloadUrl: string
-  }
+  },
+  attachments?: any[]
 ): Promise<void> {
   try {
     console.log('📧 [CheckOutNotification] Starting check-out email...', {
@@ -285,33 +263,67 @@ export async function sendCheckOutNotification(
     const settings = await hotelSettingsService.getHotelSettings()
     const currency = settings.currency || 'GHS'
 
-    console.log('📧 [CheckOutNotification] About to send email via blink...')
+    let invoiceHtml = ''
+    let callToAction = undefined
 
-    // Test with simplified email content first
-    const testEmailContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h1 style="color: #8B6F47;">Thank You for Staying at AMP LODGE!</h1>
-        <p>Dear ${guest.name},</p>
-        <p>Thank you for choosing AMP LODGE! Your check-out has been processed.</p>
-        <p><strong>Room:</strong> ${room.roomNumber}</p>
-        <p><strong>Check-out:</strong> ${checkOutDate.toLocaleDateString()}</p>
-        <p><strong>Booking ID:</strong> ${booking.id}</p>
-        ${invoiceData ? `
-          <h2>Your Invoice</h2>
-          <p><strong>Invoice #:</strong> ${invoiceData.invoiceNumber}</p>
-          <p><strong>Total Amount:</strong> ${formatCurrencySync(invoiceData.totalAmount, currency)}</p>
-          <p><a href="${invoiceData.downloadUrl}">Download Invoice</a></p>
-        ` : ''}
-        <p>We hope you had a wonderful stay!</p>
-        <p>Best regards,<br>The AMP LODGE Team</p>
-      </div>
-    `
+    if (invoiceData) {
+      invoiceHtml = `
+        <div style="background-color: #F8F9FA; border: 1px solid #E9ECEF; border-radius: 8px; padding: 20px; margin: 30px 0; text-align: center;">
+          <h3 style="margin: 0 0 15px 0; color: #8B4513;">Your Invoice is Ready</h3>
+          <p style="font-size: 24px; font-weight: bold; margin: 0 0 10px 0; color: #2C2416;">
+            ${formatCurrencySync(invoiceData.totalAmount, currency)}
+          </p>
+          <p style="margin: 0; color: #666; font-size: 14px;">Invoice #: ${invoiceData.invoiceNumber}</p>
+        </div>
+      `
+
+      callToAction = {
+        text: 'Download Invoice',
+        url: invoiceData.downloadUrl,
+        color: '#8B4513'
+      }
+    }
+
+    const htmlContent = generateEmailHtml({
+      title: 'Thank You for Staying!',
+      preheader: `Check-out receipt for ${guest.name}`,
+      content: `
+        <p>Dear <strong>${guest.name}</strong>,</p>
+        <p>Thank you for choosing AMP LODGE! Your check-out has been successfully processed.</p>
+        
+        <div style="${EMAIL_STYLES.infoBox}">
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Room:</span> ${room.roomNumber}
+          </div>
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Check-Out:</span> ${checkOutDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+          </div>
+        </div>
+
+        ${invoiceHtml}
+        
+        <p style="margin-top: 20px;">We hope you had a wonderful stay!</p>
+        
+        <div style="background-color: #fdf2f8; border: 1px solid #fce7f3; border-radius: 8px; padding: 15px; margin-top: 20px; text-align: center;">
+          <p style="margin: 0 0 10px 0;"><strong>How was your experience?</strong></p>
+          <a href="https://amplodge.org/review?bookingId=${booking.id}" style="display: inline-block; background-color: #BE185D; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Rate Your Stay</a>
+        </div>
+        
+        <p style="margin-top: 20px;">We look forward to welcoming you back soon!</p>
+
+        <p style="margin-top: 30px;">
+          Best regards,<br>
+          <strong>The AMP LODGE Team</strong>
+        </p>
+      `,
+      callToAction: callToAction
+    })
 
     // Send email notification
     const result = await sendTransactionalEmail({
       to: guest.email,
       subject: 'Thank You for Staying at AMP Lodge',
-      html: testEmailContent,
+      html: htmlContent,
       text: `
 Thank You for Staying at AMP LODGE!
 
@@ -323,27 +335,29 @@ Stay Summary:
 - Room: ${room.roomNumber}
 - Check-Out: ${checkOutDate.toLocaleDateString()}
 - Booking ID: ${booking.id}
+
 ${invoiceData ? `
+Invoice Details:
 - Invoice #: ${invoiceData.invoiceNumber}
 - Total Amount: ${formatCurrencySync(invoiceData.totalAmount, currency)}
 
-Your invoice is ready for download!
-Download link: ${invoiceData.downloadUrl}
+Download your invoice here:
+${invoiceData.downloadUrl}
 ` : ''}
 
 We hope you had a wonderful stay!
 
+Please rate your experience:
+https://amplodge.org/review?bookingId=${booking.id}
+
 Best regards,
 The AMP LODGE Team
-      `
+      `,
+      attachments: attachments
     })
 
     if (result.success) {
-      console.log('✅ [CheckOutNotification] Check-out email sent successfully!', {
-        guestEmail: guest.email,
-        guestName: guest.name,
-        hasInvoiceData: !!invoiceData
-      })
+      console.log('✅ [CheckOutNotification] Check-out email sent successfully!')
     } else {
       console.error('❌ [CheckOutNotification] Check-out email failed:', result.error)
     }
@@ -354,11 +368,11 @@ The AMP LODGE Team
         phone: guest.phone,
         guestName: guest.name,
         invoiceNumber: invoiceData?.invoiceNumber,
-        totalAmount: invoiceData ? formatCurrencySync(invoiceData.totalAmount, currency) : undefined
+        totalAmount: invoiceData ? formatCurrencySync(invoiceData.totalAmount, currency) : undefined,
+        bookingId: booking.id
       }).catch(err => console.error('SMS notification failed:', err))
     }
   } catch (error) {
     console.error('❌ [CheckOutNotification] Failed to send check-out notification:', error)
-    // Don't throw - notification failures shouldn't block check-out
   }
 }

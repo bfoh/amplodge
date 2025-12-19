@@ -37,6 +37,7 @@ interface BookingWithDetails {
   checkIn: string
   checkOut: string
   status: string
+  source?: string
   totalPrice: number
   numGuests: number
   nights: number
@@ -147,6 +148,7 @@ export function BookingsPage() {
           checkIn: b.dates.checkIn,
           checkOut: b.dates.checkOut,
           status: b.status,
+          source: b.source,
           totalPrice: b.amount,
           numGuests: b.numGuests,
           nights
@@ -235,7 +237,7 @@ export function BookingsPage() {
       const roomTypeName = selectedRoomType?.name || ''
       console.log('[BookingsPage] Room type:', roomTypeName, 'from roomTypeId:', selectedProperty.roomTypeId)
 
-      const bookingPayload = {
+      const bookingPayload: any = {
         guest: {
           fullName: formData.guestName,
           email: formData.guestEmail,
@@ -250,8 +252,8 @@ export function BookingsPage() {
         },
         numGuests: formData.adults + formData.children,
         amount: formData.totalPrice,
-        status: 'confirmed' as const,
-        source: 'reception' as const,
+        status: 'confirmed',
+        source: 'reception',
         notes: formData.notes,
         createdBy: staffData?.userId || staffData?.id,
         createdByName: staffData?.name || staffData?.user?.name || 'Staff'
@@ -590,6 +592,16 @@ export function BookingsPage() {
                           <Badge className={getStatusColor(booking.status)}>
                             {booking.status}
                           </Badge>
+                          {booking.source === 'voice_agent' && (
+                            <Badge className="bg-purple-100 text-purple-800 border-purple-200">
+                              Voice Agent
+                            </Badge>
+                          )}
+                          {booking.source === 'online' && (
+                            <Badge className="bg-blue-100 text-blue-800 border-blue-200">
+                              Online
+                            </Badge>
+                          )}
                         </div>
                         {booking.guestEmail && (
                           <p className="text-sm text-muted-foreground">{booking.guestEmail}</p>

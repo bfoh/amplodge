@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import { cn } from '../lib/utils'
 import { getRoomDisplayName, calculateNights } from '../lib/display'
 import { Users, CalendarIcon, Mail, Phone, DollarSign, MessageSquare, LogIn, LogOut, CheckCircle2 } from 'lucide-react'
-import { createInvoiceData, generateInvoicePDF, sendInvoiceEmail } from '@/services/invoice-service'
+import { createInvoiceData, generateInvoicePDF, blobToBase64 } from '@/services/invoice-service'
+import { sendCheckInNotification, sendCheckOutNotification } from '@/services/notifications'
 import { bookingEngine } from '../services/booking-engine'
 import {
   HoverCard,
@@ -119,6 +120,37 @@ export function CalendarGridView({
       })
       await bookingEngine.updateBookingStatus(remoteId, 'checked-in')
 
+      // Send Check-in Notification
+      try {
+        const guest = {
+          id: booking.guestId || '',
+          name: booking.guestName,
+          email: booking.guestEmail || '',
+          phone: booking.guestPhone || null
+        }
+
+        const room = {
+          id: booking.propertyId || booking.roomId,
+          roomNumber: getRoomForBooking(booking)?.roomNumber || 'N/A'
+        }
+
+        const bookingForEmail = {
+          id: remoteId,
+          checkIn: booking.checkIn,
+          checkOut: booking.checkOut,
+          actualCheckIn: new Date().toISOString()
+        }
+
+        if (guest.email) {
+          sendCheckInNotification(guest, room, bookingForEmail)
+            .catch(err => console.error('[CalendarGridView] Failed to send check-in email:', err))
+        } else {
+          console.warn('[CalendarGridView] No guest email, skipping check-in notification')
+        }
+      } catch (emailErr) {
+        console.error('[CalendarGridView] Failed to trigger check-in notification:', emailErr)
+      }
+
       setCheckInDialog(null)
       onBookingUpdate?.()
       toast.success(`Guest ${booking.guestName} checked in successfully!`)
@@ -198,20 +230,56 @@ export function CalendarGridView({
         const invoicePdf = await generateInvoicePDF(invoiceData)
         console.log('✅ [CalendarGridView] Invoice PDF generated')
 
-        console.log('📧 [CalendarGridView] Sending invoice email...')
-        // Send invoice email
-        const emailResult = await sendInvoiceEmail(invoiceData, invoicePdf)
-        console.log('📧 [CalendarGridView] Email result:', emailResult)
+        console.log('📧 [CalendarGridView] Sending standard check-out notification with invoice...')
 
-        if (emailResult.success) {
-          console.log('✅ [CalendarGridView] Invoice sent successfully')
-          toast.success(`Guest ${booking.guestName} checked out successfully! Invoice sent to ${booking.guestEmail || 'guest'}.`)
-        } else {
-          console.warn('⚠️ [CalendarGridView] Invoice email failed:', emailResult.error)
-          toast.success(`Guest ${booking.guestName} checked out successfully! Cleaning task created. Invoice generation failed.`)
+        // Prepare attachments (invoice PDF)
+        const pdfBase64 = await blobToBase64(invoicePdf)
+        const attachments = [
+          {
+            filename: `invoice-${invoiceData.invoiceNumber}.pdf`,
+            content: pdfBase64,
+            contentType: 'application/pdf'
+          }
+        ]
+
+        // Prepare data for notification
+        const guest = {
+          id: bookingWithDetails.guestId,
+          name: bookingWithDetails.guest.name,
+          email: bookingWithDetails.guest.email,
+          phone: bookingWithDetails.guest.phone || null
         }
+
+        const roomInfo = {
+          id: bookingWithDetails.roomId,
+          roomNumber: bookingWithDetails.room?.roomNumber || 'N/A'
+        }
+
+        const bookingInfo = {
+          id: bookingWithDetails.id,
+          checkIn: bookingWithDetails.checkIn,
+          checkOut: bookingWithDetails.checkOut,
+          actualCheckOut: bookingWithDetails.actualCheckOut
+        }
+
+        const invoiceInfo = {
+          invoiceNumber: invoiceData.invoiceNumber,
+          totalAmount: invoiceData.charges.total,
+          downloadUrl: `${window.location.origin}/invoice/${invoiceData.invoiceNumber}`
+        }
+
+        // Send standardized check-out email
+        if (guest.email) {
+          await sendCheckOutNotification(guest, roomInfo, bookingInfo, invoiceInfo, attachments)
+          console.log('✅ [CalendarGridView] Check-out email sent successfully')
+          toast.success(`Guest ${booking.guestName} checked out successfully! Invoice sent to ${booking.guestEmail}.`)
+        } else {
+          console.warn('⚠️ [CalendarGridView] No guest email, skipping check-out email')
+          toast.success(`Guest ${booking.guestName} checked out successfully! Cleaning task created. No email sent (missing address).`)
+        }
+
       } catch (invoiceError: any) {
-        console.error('❌ [CalendarGridView] Invoice generation failed:', invoiceError)
+        console.error('❌ [CalendarGridView] Invoice generation/sending failed:', invoiceError)
         toast.success(`Guest ${booking.guestName} checked out successfully! Cleaning task created. Invoice generation failed.`)
       }
 

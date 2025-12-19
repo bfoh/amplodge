@@ -1,4 +1,5 @@
-const twilio = require('twilio');
+// Arkesel SMS Integration
+// Documentation: https://arkesel.com/developers
 
 exports.handler = async (event) => {
     // Only allow POST requests
@@ -10,7 +11,7 @@ exports.handler = async (event) => {
     }
 
     try {
-        const { to, message, channel = 'both' } = JSON.parse(event.body);
+        const { to, message } = JSON.parse(event.body);
 
         if (!to || !message) {
             return {
@@ -19,83 +20,90 @@ exports.handler = async (event) => {
             };
         }
 
-        // Get Twilio credentials from environment
-        const accountSid = process.env.TWILIO_ACCOUNT_SID;
-        const authToken = process.env.TWILIO_AUTH_TOKEN;
-        const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
-        const twilioWhatsAppNumber = process.env.TWILIO_WHATSAPP_NUMBER || '+14155238886';
+        const apiKey = process.env.ARKESEL_API_KEY ? process.env.ARKESEL_API_KEY.trim() : null;
+        const senderId = process.env.ARKESEL_SENDER_ID || 'AMPLodge';
 
-        if (!accountSid || !authToken || !twilioPhoneNumber) {
-            console.error('[SMS Function] Twilio credentials not configured');
+        if (!apiKey) {
+            console.error('[SMS Function] Arkesel API Key not configured');
             return {
                 statusCode: 500,
                 body: JSON.stringify({ error: 'SMS service not configured' })
             };
         }
 
-        const client = twilio(accountSid, authToken);
+        console.log(`[SMS Function] Configured API Key length: ${apiKey ? apiKey.length : 'undefined'}`);
+        console.log(`[SMS Function] API Key start: ${apiKey ? apiKey.substring(0, 4) + '...' : 'none'}`);
 
-        // Format phone number to E.164
-        let formattedPhone = to.replace(/[^\d+]/g, '');
-        if (formattedPhone.startsWith('0')) {
-            formattedPhone = '+233' + formattedPhone.substring(1);
+        // Format number for Arkesel (they accept various formats, but E.164 sans + is safest or local)
+        // Arkesel typically expects "233xxxxxxxxx" for Ghana.
+        let recipient = to.replace(/[^\d]/g, ''); // Remove all non-digits
+        // If it starts with 0 (e.g. 055...), replace 0 with 233
+        if (recipient.startsWith('0')) {
+            recipient = '233' + recipient.substring(1);
         }
-        if (!formattedPhone.startsWith('+')) {
-            if (formattedPhone.length === 9 || formattedPhone.length === 10) {
-                formattedPhone = '+233' + (formattedPhone.startsWith('0') ? formattedPhone.substring(1) : formattedPhone);
-            } else {
-                formattedPhone = '+' + formattedPhone;
-            }
-        }
-
-        const results = { sms: null, whatsapp: null };
-
-        // Send SMS
-        if (channel === 'sms' || channel === 'both') {
-            try {
-                const smsResult = await client.messages.create({
-                    body: message,
-                    from: twilioPhoneNumber,
-                    to: formattedPhone
-                });
-                results.sms = { success: true, sid: smsResult.sid };
-                console.log('[SMS Function] SMS sent:', smsResult.sid);
-            } catch (smsError) {
-                console.error('[SMS Function] SMS failed:', smsError.message);
-                results.sms = { success: false, error: smsError.message };
-            }
+        // If it doesn't start with 233 and is 9 digits (e.g. 555...), add 233
+        if (!recipient.startsWith('233') && recipient.length === 9) {
+            recipient = '233' + recipient;
         }
 
-        // Send WhatsApp
-        if (channel === 'whatsapp' || channel === 'both') {
-            try {
-                const whatsappResult = await client.messages.create({
-                    body: message,
-                    from: `whatsapp:${twilioWhatsAppNumber.replace('whatsapp:', '')}`,
-                    to: `whatsapp:${formattedPhone}`
-                });
-                results.whatsapp = { success: true, sid: whatsappResult.sid };
-                console.log('[SMS Function] WhatsApp sent:', whatsappResult.sid);
-            } catch (whatsappError) {
-                console.error('[SMS Function] WhatsApp failed:', whatsappError.message);
-                results.whatsapp = { success: false, error: whatsappError.message };
-            }
+        console.log(`[SMS Function] Sending SMS via Arkesel V1 to ${recipient}`);
+
+        // Arkesel V1 API URL
+        // From user: https://sms.arkesel.com/sms/api?action=send-sms&api_key=&to=PhoneNumber&from=SenderID&sms=YourMessage
+        const baseUrl = 'https://sms.arkesel.com/sms/api';
+
+        const params = new URLSearchParams({
+            action: 'send-sms',
+            api_key: apiKey,
+            to: recipient,
+            from: senderId,
+            sms: message
+        });
+
+        const fullUrl = `${baseUrl}?${params.toString()}`;
+
+        // Mask API key in logs
+        const loggedUrl = fullUrl.replace(apiKey, '***');
+        console.log('[SMS Function] V1 URL:', loggedUrl);
+
+        const response = await fetch(fullUrl);
+
+        // V1 API usually returns text or JSON. Let's try to get text first.
+        const responseText = await response.text();
+        console.log('[SMS Function] Arkesel V1 Response:', responseText);
+
+        // Simple check for success (Arkesel V1 often returns "Ok" or "Success" or specific codes)
+        // Adjust logic based on actual response. Usually a code like "100" or similar implies success, or just HTTP 200.
+        // Assuming if response contains "error" or "invalid" it failed.
+        const isSuccess = response.ok && !responseText.toLowerCase().includes('error') && !responseText.toLowerCase().includes('invalid');
+
+        if (isSuccess) {
+            return {
+                statusCode: 200,
+                body: JSON.stringify({
+                    success: true,
+                    results: {
+                        sms: { success: true, response: responseText }
+                    }
+                })
+            };
+        } else {
+            console.error('[SMS Function] Arkesel Error:', responseText);
+            return {
+                statusCode: 500,
+                body: JSON.stringify({
+                    success: false,
+                    error: responseText || 'Failed to send SMS via Arkesel V1',
+                    debug: {
+                        keyLength: apiKey ? apiKey.length : 0,
+                        keyStart: apiKey ? apiKey.substring(0, 4) : 'none',
+                        recipient: recipient,
+                        rawResponse: responseText
+                    }
+                })
+            };
         }
 
-        // Check if at least one succeeded
-        const anySuccess = results.sms?.success || results.whatsapp?.success;
-
-        return {
-            statusCode: anySuccess ? 200 : 500,
-            headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            },
-            body: JSON.stringify({
-                success: anySuccess,
-                results
-            })
-        };
     } catch (error) {
         console.error('[SMS Function] Error:', error);
         return {

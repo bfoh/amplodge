@@ -12,6 +12,7 @@ import { useCurrency } from '@/hooks/use-currency'
 
 export function InvoicePage() {
   const { invoiceNumber } = useParams<{ invoiceNumber: string }>()
+  const { currency } = useCurrency()
   const [invoiceData, setInvoiceData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -28,27 +29,27 @@ export function InvoicePage() {
       }
       try {
         console.log('🔍 [InvoicePage] Loading invoice:', invoiceNumber)
-        
+
         const db = blink.db as any
-        
+
         // Try to find a booking with this invoice number
         // Since invoice numbers are generated at checkout, we need to find the booking
         // For now, we'll fetch all checked-out bookings and find the matching one
-        const bookings = await db.bookings.list({ 
+        const bookings = await db.bookings.list({
           where: { status: 'checked-out' },
           limit: 500
         })
-        
+
         // For this demo, we'll use the most recent checked-out booking
         // In production, you'd want to store invoiceNumber in the booking record
         const booking = bookings[0]
-        
+
         if (!booking) {
           setError('Invoice not found. No checked-out bookings available.')
           setLoading(false)
           return
         }
-        
+
         // Fetch associated guest and room data
         const [guest, room] = await Promise.all([
           db.guests.get(booking.guestId),
@@ -73,9 +74,9 @@ export function InvoicePage() {
 
         const generatedInvoice = await createInvoiceData(bookingWithDetails, room)
         // Use the invoice number from URL
-        generatedInvoice.invoiceNumber = invoiceNumber 
+        generatedInvoice.invoiceNumber = invoiceNumber
         setInvoiceData(generatedInvoice)
-        
+
         console.log('✅ [InvoicePage] Invoice loaded successfully')
       } catch (err: any) {
         console.error('❌ [InvoicePage] Failed to load invoice:', err)
@@ -92,7 +93,7 @@ export function InvoicePage() {
       toast.error('Invoice data not available for download.')
       return
     }
-    
+
     setDownloading(true)
     try {
       await downloadInvoicePDF(invoiceData)
@@ -110,7 +111,7 @@ export function InvoicePage() {
       toast.error('Invoice data not available for printing.')
       return
     }
-    
+
     setPrinting(true)
     try {
       await printInvoice(invoiceData)
@@ -172,8 +173,8 @@ export function InvoicePage() {
     <div className="container mx-auto p-6">
       {/* Action Buttons */}
       <div className="flex justify-end gap-4 mb-6">
-        <Button 
-          onClick={handleDownloadPdf} 
+        <Button
+          onClick={handleDownloadPdf}
           disabled={downloading}
           className="bg-blue-600 hover:bg-blue-700"
         >
@@ -189,8 +190,8 @@ export function InvoicePage() {
             </>
           )}
         </Button>
-        <Button 
-          onClick={handlePrint} 
+        <Button
+          onClick={handlePrint}
           disabled={printing}
           variant="outline"
           className="border-blue-600 text-blue-600 hover:bg-blue-50"

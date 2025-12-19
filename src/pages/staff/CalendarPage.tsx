@@ -37,7 +37,7 @@ export function CalendarPage() {
   const [roomTypes, setRoomTypes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [viewMode, setViewMode] = useState<ViewMode>('timeline')
+  const [viewMode, setViewMode] = useState<ViewMode>('grid')
 
   // Booking form (aligned with Staff Bookings page)
   const [formData, setFormData] = useState({
@@ -89,23 +89,44 @@ export function CalendarPage() {
 
       // Map bookings from booking engine into timeline-friendly shape
       // CRITICAL: Must match booking roomNumber to the property.id that CalendarTimeline uses for rows
+      // ENHANCED: Also try matching by room ID for Voice Agent bookings
       const mapped = (localBookings as any[]).map((b: any) => {
         const bookingRoomNumber = String(b.roomNumber || '').trim()
+        const bookingRemoteId = b.remoteId || b._id
 
-        // Find the property by roomNumber to get its ID (used as row identifier)
-        const matchingProperty = combined.find((p: any) =>
+        // Strategy 1: Find the property by roomNumber
+        let matchingProperty = combined.find((p: any) =>
           String(p.roomNumber || '').trim() === bookingRoomNumber
         )
 
-        const propertyId = matchingProperty?.id || ''
+        // Strategy 2: If no match, try matching by room ID in the rooms list
+        if (!matchingProperty && roomsData) {
+          const matchingRoom = (roomsData as any[]).find((r: any) =>
+            r.roomNumber === bookingRoomNumber ||
+            r.room_number === bookingRoomNumber ||
+            String(r.roomNumber || '').trim() === bookingRoomNumber
+          )
+          if (matchingRoom) {
+            matchingProperty = combined.find((p: any) =>
+              p.id === matchingRoom.id ||
+              String(p.roomNumber || '').trim() === String(matchingRoom.roomNumber || '').trim()
+            )
+          }
+        }
+
+        // Strategy 3: If still no match but we have a roomNumber, create a synthetic property entry
+        // This ensures Voice Agent bookings always appear even if property setup is incomplete
+        const propertyId = matchingProperty?.id || (bookingRoomNumber ? `voice-agent-${bookingRoomNumber}` : '')
 
         console.log('[CalendarPage] Mapping booking:', {
           bookingId: b._id,
+          remoteId: bookingRemoteId,
           bookingRoomNumber,
           matchingPropertyId: propertyId,
           checkIn: b.dates?.checkIn,
           checkOut: b.dates?.checkOut,
-          status: b.status
+          status: b.status,
+          source: b.source
         })
 
         return {
@@ -123,13 +144,15 @@ export function CalendarPage() {
           totalPrice: Number(b.amount || 0),
           numGuests: Number(b.numGuests || 1),
           createdAt: b.createdAt,
-          currency: currency
+          currency: currency,
+          source: b.source // Track booking source for debugging
         }
       }).filter((b: any) => b.propertyId && b.status !== 'checked-out') // Only include active bookings with valid room
 
       console.log('[CalendarPage] Total bookings loaded:', localBookings.length)
       console.log('[CalendarPage] Bookings mapped to timeline:', mapped.length)
       console.log('[CalendarPage] Properties (rows):', combined.length)
+      console.log('[CalendarPage] Voice Agent bookings:', mapped.filter((b: any) => b.source === 'voice_agent').length)
 
       // Sort rooms by numeric room number when possible
       combined.sort((a: any, b: any) => {

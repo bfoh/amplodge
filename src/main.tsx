@@ -25,7 +25,7 @@ if ('serviceWorker' in navigator) {
 console.log('🚀 BUILD TIMESTAMP: ' + new Date().toISOString())
 console.log('📧 Email Service Endpoint: /.netlify/functions/send-email')
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+ReactDOM.createRoot(document.getElementById('app-root')!).render(
   <React.StrictMode>
     <App />
   </React.StrictMode>,

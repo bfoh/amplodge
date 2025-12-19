@@ -523,6 +523,10 @@ export function GuestsPage() {
                       <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                         Online
                       </span>
+                    ) : guest.lastBooking?.source === 'voice_agent' ? (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                        Voice Agent
+                      </span>
                     ) : (
                       <span className="text-sm text-muted-foreground">
                         Staff: {guest.lastBooking?.createdByName || resolveName(guest.lastBooking?.createdBy) || 'Unknown'}

@@ -1,5 +1,5 @@
-// SMS Service - Uses Netlify serverless function for Twilio calls
-// This avoids browser compatibility issues with the Twilio SDK
+// SMS Service - Uses Netlify serverless function for Arkesel calls
+// This keeps API keys secure on the server side
 
 interface SMSResult {
     success: boolean
@@ -78,7 +78,7 @@ async function sendViaNetlifyFunction(
             console.log(`✅ [SMSService] ${context} sent successfully`, data.results)
             return { success: true, messageId: data.results?.sms?.sid || data.results?.whatsapp?.sid }
         } else {
-            console.error(`❌ [SMSService] ${context} failed:`, data.error || data.results)
+            console.error(`❌ [SMSService] ${context} failed:`, data)
             return { success: false, error: data.error || 'Failed to send message' }
         }
     } catch (error: any) {
@@ -88,7 +88,7 @@ async function sendViaNetlifyFunction(
 }
 
 /**
- * Send SMS via Twilio (through Netlify function)
+ * Send SMS via Arkesel (through Netlify function)
  */
 export async function sendSMS(
     to: string,
@@ -100,44 +100,37 @@ export async function sendSMS(
         return { success: false, error: 'SMS not available in this environment' }
     }
 
+    // Channel is 'sms' by default for Arkesel
     return sendViaNetlifyFunction(to, message, 'sms', context)
 }
 
 /**
- * Send WhatsApp message via Twilio (through Netlify function)
+ * Send WhatsApp message - DEPRECATED for Arkesel
+ * Falls back to SMS for now as Arkesel SMS is the primary channel
  */
 export async function sendWhatsApp(
     to: string,
     message: string,
     context = 'WhatsApp'
 ): Promise<SMSResult> {
-    if (!isNetlifyFunctionsAvailable()) {
-        console.warn(`[SMSService] Not in browser environment, skipping ${context}`)
-        return { success: false, error: 'WhatsApp not available in this environment' }
-    }
-
-    return sendViaNetlifyFunction(to, message, 'whatsapp', context)
+    console.warn('[SMSService] WhatsApp channel not supported with Arkesel, falling back to SMS')
+    return sendSMS(to, message, context)
 }
 
 /**
- * Send notification via both WhatsApp AND SMS simultaneously
+ * Send notification
  */
 export async function sendSMSWithFallback(
     to: string,
     message: string,
     context = 'Notification'
 ): Promise<SMSResult> {
-    if (!isNetlifyFunctionsAvailable()) {
-        console.warn(`[SMSService] Not in browser environment, skipping ${context}`)
-        return { success: false, error: 'Messaging not available in this environment' }
-    }
-
-    // Send both via a single API call
-    return sendViaNetlifyFunction(to, message, 'both', context)
+    // Just send SMS, as fallback logic was for Twilio channels
+    return sendSMS(to, message, context)
 }
 
 /**
- * Send booking confirmation via SMS/WhatsApp
+ * Send booking confirmation via SMS
  */
 export async function sendBookingConfirmationSMS(params: {
     phone: string
@@ -149,25 +142,20 @@ export async function sendBookingConfirmationSMS(params: {
 }): Promise<SMSResult> {
     const { phone, guestName, roomNumber, checkIn, checkOut, bookingId } = params
 
-    const message = `🏨 AMP Lodge Booking Confirmed!
+    const message = `Hi ${guestName}, your booking at AMP Lodge is confirmed!
+Room: ${roomNumber}
+In: ${new Date(checkIn).toLocaleDateString()}
+Out: ${new Date(checkOut).toLocaleDateString()}
+ID: ${bookingId.slice(0, 8)}
 
-Hi ${guestName},
+We look forward to hosting you!
+www.amplodge.org`
 
-Your reservation is confirmed:
-📍 Room: ${roomNumber}
-📅 Check-in: ${new Date(checkIn).toLocaleDateString()}
-📅 Check-out: ${new Date(checkOut).toLocaleDateString()}
-🔖 Booking ID: ${bookingId.slice(0, 8)}
-
-We look forward to welcoming you!
-
-- AMP Lodge Team`
-
-    return sendSMSWithFallback(phone, message, 'Booking Confirmation')
+    return sendSMS(phone, message, 'Booking Confirmation')
 }
 
 /**
- * Send check-in confirmation via SMS/WhatsApp
+ * Send check-in confirmation via SMS
  */
 export async function sendCheckInSMS(params: {
     phone: string
@@ -177,49 +165,51 @@ export async function sendCheckInSMS(params: {
 }): Promise<SMSResult> {
     const { phone, guestName, roomNumber, checkOutDate } = params
 
-    const message = `✅ Welcome to AMP Lodge, ${guestName}!
+    const message = `Welcome ${guestName}!
+You are checked in to Room ${roomNumber}.
+Checkout: ${new Date(checkOutDate).toLocaleDateString()} @ 11AM
+WiFi password at front desk.
+BFast: 7-10AM
+Dial +233555009697 for help.
 
-You're checked in to Room ${roomNumber}.
+Enjoy your stay @ AMP Lodge!
+www.amplodge.org`
 
-📅 Check-out: ${new Date(checkOutDate).toLocaleDateString()} by 11:00 AM
-📶 WiFi password available at front desk
-🍳 Breakfast: 7:00 AM - 10:00 AM
-📞 Front desk: Dial 0
-
-Enjoy your stay!
-- AMP Lodge Team`
-
-    return sendSMSWithFallback(phone, message, 'Check-in Confirmation')
+    return sendSMS(phone, message, 'Check-in Confirmation')
 }
 
 /**
- * Send check-out confirmation via SMS/WhatsApp
+ * Send check-out confirmation via SMS
  */
 export async function sendCheckOutSMS(params: {
     phone: string
     guestName: string
     invoiceNumber?: string
     totalAmount?: string
+    bookingId?: string
 }): Promise<SMSResult> {
-    const { phone, guestName, invoiceNumber, totalAmount } = params
+    const { phone, guestName, invoiceNumber, totalAmount, bookingId } = params
 
-    let message = `🙏 Thank you for staying at AMP Lodge, ${guestName}!
-
-We hope you had a wonderful stay.`
+    let message = `Thank you for staying at AMP Lodge, ${guestName}!`
 
     if (invoiceNumber && totalAmount) {
         message += `
-
-📄 Invoice: ${invoiceNumber}
-💰 Total: ${totalAmount}`
+Inv: ${invoiceNumber}
+Total: ${totalAmount}`
     }
 
     message += `
+Safe travels & see you soon!`
 
-We look forward to welcoming you back!
-- AMP Lodge Team`
+    if (bookingId) {
+        message += `
+Rate your stay: www.amplodge.org/review?bookingId=${bookingId}`
+    } else {
+        message += `
+www.amplodge.org`
+    }
 
-    return sendSMSWithFallback(phone, message, 'Check-out Confirmation')
+    return sendSMS(phone, message, 'Check-out Confirmation')
 }
 
 /**
@@ -234,17 +224,12 @@ export async function sendTaskAssignmentSMS(params: {
 }): Promise<SMSResult> {
     const { phone, staffName, roomNumber, taskType, completionUrl } = params
 
-    const message = `📋 New Task Assigned
-
-Hi ${staffName},
-
-Task: ${taskType}
+    const message = `Task: ${taskType}
 Room: ${roomNumber}
+Staff: ${staffName}
 
-Complete task here:
-${completionUrl}
-
-- AMP Lodge`
+Link: ${completionUrl}
+www.amplodge.org`
 
     return sendSMS(phone, message, 'Task Assignment')
 }

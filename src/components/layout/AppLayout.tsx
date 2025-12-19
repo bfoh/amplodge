@@ -25,7 +25,8 @@ import {
   UserCheck,
   ReceiptText,
   TrendingUp,
-  FileText
+  FileText,
+  Star
 } from 'lucide-react'
 import { blink } from '../../blink/client'
 import { cn } from '../../lib/utils'
@@ -38,7 +39,8 @@ const navigation = [
   { name: 'Bookings', href: '/staff/bookings', icon: BookOpen },
   { name: 'Guests', href: '/staff/guests', icon: Users },
   { name: 'Housekeeping', href: '/staff/housekeeping', icon: Sparkles },
-  { name: 'Channels', href: '/staff/channels', icon: Network }
+  { name: 'Channels', href: '/staff/channels', icon: Network },
+  { name: 'Reviews', href: '/staff/reviews', icon: Star }
 ]
 
 export function AppLayout() {
@@ -246,6 +248,7 @@ export function AppLayout() {
     if (location.pathname.startsWith('/staff/reservations')) return 'Reservations'
     if (location.pathname === '/staff/set-prices') return 'Set prices'
     if (location.pathname === '/staff/analytics') return 'Analytics'
+    if (location.pathname === '/staff/reviews') return 'Guest Reviews'
     return 'Dashboard'
   })()
 

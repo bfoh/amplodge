@@ -29,10 +29,13 @@ import { CleanupToolPage } from './pages/staff/CleanupToolPage'
 import { TaskCompletionPage } from './pages/TaskCompletionPage'
 import { InvoicePage } from './pages/InvoicePage'
 import { InvoicesPage } from './pages/staff/InvoicesPage'
+import { ReviewSubmissionPage } from './pages/ReviewSubmissionPage'
 import { AnalyticsPage } from './pages/staff/AnalyticsPage'
 import { ActivityLogsPage } from './pages/staff/ActivityLogsPage'
 import { DiagnoseEmailPage } from './pages/staff/DiagnoseEmailPage'
+import { ReviewsPage } from './pages/staff/ReviewsPage'
 // import './utils/test-activity-logs-fix'
+import VoiceWidget from './components/voice-agent/VoiceWidget'
 const HomePage = lazy(() => import('./pages/HomePage').then(m => ({ default: m.HomePage })))
 const RoomsPage = lazy(() => import('./pages/RoomsPage').then(m => ({ default: m.RoomsPage })))
 const GalleryPage = lazy(() => import('./pages/GalleryPage').then(m => ({ default: m.GalleryPage })))
@@ -56,13 +59,12 @@ function App() {
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        // Force reset guests (one-time cleanup)
-        await forceResetGuests()
+        // Legacy cleanup scripts disabled - they cause foreign key constraint errors
+        // when guests have associated bookings
+        // await forceResetGuests()
+        // await forceResetRooms()
 
-        // Force reset rooms (one-time cleanup)
-        await forceResetRooms()
-
-        console.log('🚀 App running with Supabase backend - Legacy cleanup active')
+        console.log('🚀 App running with Supabase backend')
 
         // Initialize database schema first
         console.log('🔧 Initializing database schema...')
@@ -191,6 +193,7 @@ function App() {
     <ErrorBoundary>
       <BrowserRouter>
         <Toaster position="top-right" />
+        <VoiceWidget />
         <Suspense fallback={<div className="flex items-center justify-center py-12"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
           <Routes>
             {/* Guest Portal */}
@@ -238,6 +241,7 @@ function App() {
               <Route path="email-diagnostics" element={<DiagnoseEmailPage />} />
               <Route path="set-prices" element={<SetPricesPage />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="reviews" element={<ReviewsPage />} />
             </Route>
 
             {/* Invoice debug route */}
@@ -248,6 +252,9 @@ function App() {
 
             {/* External invoice route */}
             <Route path="/invoice/:invoiceNumber" element={<InvoicePage />} />
+
+            {/* Public Review Link */}
+            <Route path="/review" element={<ReviewSubmissionPage />} />
           </Routes>
         </Suspense>
       </BrowserRouter>

@@ -67,43 +67,53 @@ interface BookingWithDetails {
 
 export async function createInvoiceData(booking: BookingWithDetails, roomDetails: any): Promise<InvoiceData> {
   console.log('📊 [InvoiceData] Creating invoice data with real hotel information...')
-  
+
   try {
     // Get real hotel settings from database
     const hotelSettings = await hotelSettingsService.getHotelSettings()
-    
+
     const invoiceNumber = `INV-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
     const invoiceDate = new Date().toISOString()
     const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30 days from now
-    
+
     // Validate and parse dates safely
     const checkInDate = new Date(booking.checkIn)
     const checkOutDate = new Date(booking.actualCheckOut || booking.checkOut)
-    
+
     // Check if dates are valid
     if (isNaN(checkInDate.getTime()) || isNaN(checkOutDate.getTime())) {
       throw new Error('Invalid date values in booking data')
     }
-    
+
     const nights = Math.ceil((checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24))
-    
+
     // Validate nights calculation
     if (nights < 0) {
       throw new Error('Check-out date cannot be before check-in date')
     }
-    
-    const roomRate = booking.totalPrice / nights
-    const subtotal = booking.totalPrice
-    const taxRate = hotelSettings.taxRate // Use real tax rate from settings
-    const taxAmount = subtotal * taxRate
-    const total = subtotal + taxAmount
 
-    console.log('✅ [InvoiceData] Invoice data created with real hotel settings:', {
+    // TAX UPDATE: 17% of the TOTAL amount
+    const taxRate = 0.17
+
+    // Booking price is treated as the TOTAL amount
+    const total = booking.totalPrice
+    const taxAmount = total * taxRate
+    const subtotal = total - taxAmount
+
+    // Note: roomRate calculation needs to adjust if it was derived from total previously
+    // If roomRate was total / nights, now it should conceptually be subtotal / nights?
+    // But usually room rate is presented inclusive or exclusive. 
+    // Let's keep roomRate consistent with how it matches the total.
+    // If the logical "Room Charge" line item should sum to Subtotal:
+    const roomRate = subtotal / nights
+
+    console.log('✅ [InvoiceData] Invoice data created with updated tax settings:', {
       hotelName: hotelSettings.name,
       taxRate: `${(taxRate * 100).toFixed(1)}%`,
       invoiceNumber,
       nights,
-      total
+      total,
+      taxAmount
     })
 
     return {
@@ -167,34 +177,37 @@ export async function generateInvoiceHTML(invoiceData: InvoiceData): Promise<str
         <title>Invoice ${invoiceData.invoiceNumber}</title>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background: #fff; }
-          .invoice-container { max-width: 800px; margin: 0 auto; padding: 40px; background: #fff; }
-          .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; border-bottom: 3px solid #2563eb; padding-bottom: 20px; }
-          .hotel-info h1 { color: #2563eb; font-size: 32px; font-weight: bold; margin-bottom: 10px; }
-          .hotel-info p { color: #666; font-size: 14px; margin: 2px 0; }
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.4; color: #333; background: #fff; font-size: 12px; }
+          .invoice-container { max-width: 800px; margin: 0 auto; padding: 20px 40px; background: #fff; }
+          .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; border-bottom: 2px solid #2563eb; padding-bottom: 10px; }
+          .hotel-info h1 { color: #2563eb; font-size: 24px; font-weight: bold; margin-bottom: 5px; }
+          .hotel-info p { color: #666; font-size: 11px; margin: 1px 0; }
           .invoice-meta { text-align: right; }
-          .invoice-meta h2 { color: #2563eb; font-size: 24px; margin-bottom: 10px; }
-          .invoice-meta p { color: #666; font-size: 14px; margin: 2px 0; }
-          .invoice-details { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 40px; }
-          .bill-to, .invoice-info { background: #f8fafc; padding: 20px; border-radius: 8px; }
-          .bill-to h3, .invoice-info h3 { color: #2563eb; font-size: 18px; margin-bottom: 15px; font-weight: bold; }
-          .bill-to p, .invoice-info p { color: #555; font-size: 14px; margin: 5px 0; }
-          .charges-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-          .charges-table th { background: #2563eb; color: white; padding: 15px; text-align: left; font-weight: bold; }
-          .charges-table td { padding: 15px; border-bottom: 1px solid #e5e7eb; }
+          .invoice-meta h2 { color: #2563eb; font-size: 18px; margin-bottom: 5px; }
+          .invoice-meta p { color: #666; font-size: 11px; margin: 1px 0; }
+          .invoice-details { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+          .bill-to, .invoice-info { background: #f8fafc; padding: 15px; border-radius: 6px; }
+          .bill-to h3, .invoice-info h3 { color: #2563eb; font-size: 14px; margin-bottom: 5px; font-weight: bold; }
+          .bill-to p, .invoice-info p { color: #555; font-size: 11px; margin: 2px 0; }
+          .charges-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 11px; }
+          .charges-table th { background: #2563eb; color: white; padding: 8px; text-align: left; font-weight: bold; }
+          .charges-table td { padding: 8px; border-bottom: 1px solid #e5e7eb; }
           .charges-table tr:nth-child(even) { background: #f9fafb; }
           .charges-table .text-right { text-align: right; }
           .charges-table .text-center { text-align: center; }
-          .totals { display: flex; justify-content: flex-end; margin-bottom: 40px; }
-          .totals-table { width: 300px; }
-          .totals-table td { padding: 10px 15px; border-bottom: 1px solid #e5e7eb; }
-          .totals-table .total-row { background: #2563eb; color: white; font-weight: bold; font-size: 18px; }
-          .footer { margin-top: 40px; padding-top: 20px; border-top: 2px solid #e5e7eb; text-align: center; color: #666; font-size: 14px; }
-          .footer p { margin: 5px 0; }
-          .thank-you { background: #f0f9ff; padding: 20px; border-radius: 8px; text-align: center; margin-top: 30px; }
-          .thank-you h3 { color: #2563eb; font-size: 20px; margin-bottom: 10px; }
-          .thank-you p { color: #555; font-size: 16px; }
-          @media print { .invoice-container { padding: 20px; } }
+          .totals { display: flex; justify-content: flex-end; margin-bottom: 20px; }
+          .totals-table { width: 250px; font-size: 11px; }
+          .totals-table td { padding: 5px 10px; border-bottom: 1px solid #e5e7eb; }
+          .totals-table .total-row { background: #2563eb; color: white; font-weight: bold; font-size: 14px; }
+          .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #e5e7eb; text-align: center; color: #666; font-size: 10px; }
+          .footer p { margin: 2px 0; }
+          .thank-you { background: #f0f9ff; padding: 15px; border-radius: 6px; text-align: center; margin-top: 15px; }
+          .thank-you h3 { color: #2563eb; font-size: 14px; margin-bottom: 5px; }
+          .thank-you p { color: #555; font-size: 11px; }
+          @media print { 
+            .invoice-container { padding: 10px 20px; } 
+            body { -webkit-print-color-adjust: exact; }
+          }
         </style>
       </head>
       <body>
@@ -314,7 +327,7 @@ export async function generateInvoicePDF(invoiceData: InvoiceData): Promise<Blob
 
     // Generate HTML content
     const htmlContent = await generateInvoiceHTML(invoiceData)
-    
+
     // Create a temporary element to render the HTML
     const element = document.createElement('div')
     element.innerHTML = htmlContent
@@ -539,7 +552,7 @@ Website: ${invoiceData.hotel.website}
 }
 
 // Helper function to convert blob to base64
-function blobToBase64(blob: Blob): Promise<string> {
+export function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onloadend = () => resolve(reader.result as string)
@@ -557,7 +570,7 @@ export async function downloadInvoicePDF(invoiceData: InvoiceData): Promise<void
     })
 
     const pdfBlob = await generateInvoicePDF(invoiceData)
-    
+
     // Create download link
     const url = URL.createObjectURL(pdfBlob)
     const a = document.createElement('a')
@@ -588,7 +601,7 @@ export async function printInvoice(invoiceData: InvoiceData): Promise<void> {
     })
 
     const htmlContent = await generateInvoiceHTML(invoiceData)
-    
+
     // Open print window
     const printWindow = window.open('', '_blank')
     if (printWindow) {

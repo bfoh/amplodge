@@ -465,7 +465,7 @@ class AnalyticsService {
         id: string
         name: string
         email: string
-        revenue: number
+        totalRevenue: number
         bookingCount: number
         lastVisit: string
         totalNights: number
@@ -482,7 +482,7 @@ class AnalyticsService {
           const nights = Math.max(1, Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24)))
 
           if (existing) {
-            existing.revenue += Number(b.amount || 0)
+            existing.totalRevenue += Number(b.amount || 0)
             existing.bookingCount += 1
             existing.totalNights += nights
             if (b.dates.checkIn > existing.lastVisit) {
@@ -493,7 +493,7 @@ class AnalyticsService {
               id: email,
               name: b.guest.fullName,
               email: b.guest.email,
-              revenue: Number(b.amount || 0),
+              totalRevenue: Number(b.amount || 0),
               bookingCount: 1,
               lastVisit: b.dates.checkIn,
               totalNights: nights
@@ -506,12 +506,12 @@ class AnalyticsService {
           ...guest,
           averageStay: guest.bookingCount > 0 ? guest.totalNights / guest.bookingCount : 0
         }))
-        .sort((a, b) => b.revenue - a.revenue)
+        .sort((a, b) => b.totalRevenue - a.totalRevenue)
         .slice(0, 10)
 
       // Guest lifetime value calculations
       const allGuestRevenues = Array.from(guestRevenueMap.values())
-        .map(g => g.revenue)
+        .map(g => g.totalRevenue)
         .sort((a, b) => b - a)
 
       const average = allGuestRevenues.length > 0

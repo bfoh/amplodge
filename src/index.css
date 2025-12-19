@@ -113,8 +113,13 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-  
-  h1, h2, h3, h4, h5, h6 {
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     @apply font-serif;
     letter-spacing: -0.02em;
   }
@@ -137,9 +142,14 @@
 }
 
 @layer utilities {
-  .delay-100 { animation-delay: 100ms; }
-  .delay-300 { animation-delay: 300ms; }
-  
+  .delay-100 {
+    animation-delay: 100ms;
+  }
+
+  .delay-300 {
+    animation-delay: 300ms;
+  }
+
   .text-balance {
     text-wrap: balance;
   }
@@ -147,11 +157,12 @@
   /* Group hover helpers used by CTA glow */
   .group:hover .group-hover\:translate-y-\[-2rem\] {
     --tw-translate-y: -2rem;
-    transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate))
-      skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x))
-      scaleY(var(--tw-scale-y));
+    transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
   }
-  .group:hover .group-hover\:opacity-100 { opacity: 1; }
+
+  .group:hover .group-hover\:opacity-100 {
+    opacity: 1;
+  }
 }
 
 @layer base {
@@ -159,8 +170,26 @@
     --brand: 27 96% 61%;
     --brand-foreground: 31 97% 72%;
   }
+
   .dark {
     --brand: 31 97% 72%;
     --brand-foreground: 27 96% 61%;
   }
+}
+
+/* Force Voice Agent Widget to be on top of everything */
+div[aria-label="Open AMP Lodge Concierge"],
+button[aria-label="Open AMP Lodge Concierge"] {
+  z-index: 2147483647 !important;
+  position: fixed !important;
+  bottom: 20px !important;
+  right: 20px !important;
+  top: auto !important;
+  left: auto !important;
+  transform: none !important;
+}
+
+/* Ensure the container (if it exists) is also on top */
+body>div:has([aria-label="Open AMP Lodge Concierge"]) {
+  z-index: 2147483647 !important;
 }

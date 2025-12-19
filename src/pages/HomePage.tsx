@@ -7,7 +7,9 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Bed, Coffee, Wifi, Car, Utensils, Dumbbell, PlayCircle, Users, DollarSign } from 'lucide-react'
 import { CTASection } from '@/components/ui/cta-with-glow'
 import { formatCurrencySync } from '@/lib/utils'
+
 import { useCurrency } from '@/hooks/use-currency'
+import { ReviewsCarousel } from '@/components/landing/ReviewsCarousel'
 
 export function HomePage() {
   const db = (blink.db as any)
@@ -300,6 +302,9 @@ export function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* Guest Reviews Section */}
+      <ReviewsCarousel />
 
       {/* Call to Action */}
       <section className="py-12 bg-gradient-to-br from-primary/10 via-secondary to-accent/10 text-secondary-foreground">

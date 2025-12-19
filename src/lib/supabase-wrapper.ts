@@ -203,6 +203,7 @@ export const db = {
     hotelSettings: createTableWrapper('hotel_settings'),
     housekeepingTasks: createTableWrapper('housekeeping_tasks'),
     notifications: createTableWrapper('notifications'),
+    reviews: createTableWrapper('reviews'),
 }
 
 // Auth wrapper that matches Blink's auth interface
