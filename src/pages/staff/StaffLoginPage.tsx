@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { blink } from '@/blink/client'
+import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,13 +12,12 @@ import type { StaffRole } from '@/lib/rbac'
 import { activityLogService } from '@/services/activity-log-service'
 
 export function StaffLoginPage() {
-  const db = (blink.db as any)
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [user, setUser] = useState<any>(null)
-  
+
   // Password change dialog state
   const [showPasswordChange, setShowPasswordChange] = useState(false)
   const [newPassword, setNewPassword] = useState('')
@@ -29,17 +28,15 @@ export function StaffLoginPage() {
 
   useEffect(() => {
     // Only check auth state to show loading state, but don't auto-redirect
-    const unsubscribe = blink.auth.onAuthStateChanged((state) => {
-      if (!state.isLoading) {
-        if (state.user) {
-          setUser(state.user)
-          // Don't auto-redirect - let user manually login
-        } else {
-          setUser(null)
-        }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        setUser(session.user)
+        // Don't auto-redirect - let user manually login
+      } else {
+        setUser(null)
       }
     })
-    return unsubscribe
+    return () => subscription.unsubscribe()
   }, [])
 
   const getRoleDashboard = (role: StaffRole): string => {
@@ -50,10 +47,13 @@ export function StaffLoginPage() {
 
   const checkStaffAccess = async (userId: string) => {
     try {
-      const staff = await db.staff.list({
-        where: { userId }
-      })
-      if (staff.length > 0) {
+      const { data: staff } = await supabase
+        .from('staff')
+        .select('*')
+        .eq('user_id', userId)
+        .limit(1)
+
+      if (staff && staff.length > 0) {
         const staffRole = staff[0].role as StaffRole
         const dashboardPath = getRoleDashboard(staffRole)
         navigate(dashboardPath)
@@ -68,74 +68,120 @@ export function StaffLoginPage() {
     setLoading(true)
 
     try {
-      console.log('🚀 [StaffLoginPage] Starting optimized login process...')
-      
-      // Perform login with provided credentials
-      await blink.auth.signInWithEmail(email, password)
-      const currentUser = await blink.auth.me()
-      
-      if (currentUser) {
-        console.log('✅ [StaffLoginPage] User authenticated, checking staff access...')
-        
-        // Single optimized query to get staff data with user info included
-        const staffResults = await db.staff.list({ 
-          where: { userId: currentUser.id }, 
-          limit: 1,
-          include: ['user'] // Include user data in single query if possible
-        })
+      console.log('🚀 [StaffLoginPage] Starting login process...')
 
-        if (staffResults.length === 0) {
-          await blink.auth.logout()
-          toast.error('You do not have staff access')
-          setLoading(false)
-          return
-        }
+      // Perform login with Supabase
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      })
 
-        const staff = staffResults[0]
-        
-        // Get user data from the staff record or make a single query
-        let userData = null
-        if (staff.user) {
-          userData = staff.user
-        } else {
-          // Fallback: single user query
-          const userResults = await db.users.list({ where: { id: currentUser.id }, limit: 1 })
-          userData = userResults[0]
-        }
-
-        // Check if this is first login
-        if (userData && Number(userData.firstLogin) > 0) {
-          console.log('🔐 [StaffLoginPage] First login detected, showing password change dialog')
-          setShowPasswordChange(true)
-          setLoading(false)
-          return
-        }
-
-        // Role-based redirect
-        const staffRole = staff.role as StaffRole
-        const dashboardPath = getRoleDashboard(staffRole)
-        
-        // Log the login activity
-        try {
-          await activityLogService.logUserLogin(currentUser.id, {
-            email: currentUser.email,
-            role: staffRole,
-            staffName: staff.name,
-            loginAt: new Date().toISOString()
-          })
-        } catch (logError) {
-          console.error('Failed to log login activity:', logError)
-          // Don't fail the login if logging fails
-        }
-        
-        console.log('🎉 [StaffLoginPage] Login successful, redirecting to dashboard')
-        toast.success(`Welcome back, ${staff.name}!`)
-    
-        // Initialize activity logging with current user
-        activityLogService.setCurrentUser(currentUser.id)
-        
-        navigate(dashboardPath)
+      if (authError) {
+        console.error('❌ [StaffLoginPage] Auth error:', authError)
+        toast.error(authError.message || 'Login failed')
+        setLoading(false)
+        return
       }
+
+      const currentUser = authData.user
+      if (!currentUser) {
+        toast.error('Login failed - no user returned')
+        setLoading(false)
+        return
+      }
+
+      console.log('✅ [StaffLoginPage] User authenticated, checking staff access...')
+
+      // Get staff record from Supabase
+      const { data: staffResults, error: staffError } = await supabase
+        .from('staff')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .limit(1)
+
+      if (staffError || !staffResults || staffResults.length === 0) {
+        await supabase.auth.signOut()
+        toast.error('You do not have staff access')
+        setLoading(false)
+        return
+      }
+
+      const staff = staffResults[0]
+
+      // Check first_login flag - try multiple sources
+      console.log('🔍 [StaffLoginPage] Checking first_login flag...')
+
+      let isFirstLogin = false
+
+      // First, try the users table
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('first_login')
+        .eq('id', currentUser.id)
+        .single()
+
+      console.log('🔍 [StaffLoginPage] User data:', userData, 'error:', userError)
+
+      if (userData && !userError) {
+        isFirstLogin = userData.first_login === 1 || String(userData.first_login) === '1' || userData.first_login === true
+        console.log('🔍 [StaffLoginPage] first_login from users table:', userData.first_login, '-> isFirstLogin:', isFirstLogin)
+      } else if (userError) {
+        // If no users record exists, this is likely a first login - create the record
+        console.log('🔍 [StaffLoginPage] No users record found, creating one with first_login=1...')
+
+        const { error: insertError } = await supabase
+          .from('users')
+          .insert({
+            id: currentUser.id,
+            email: currentUser.email,
+            first_login: 1,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+
+        if (!insertError) {
+          console.log('🔍 [StaffLoginPage] Created users record with first_login=1')
+          isFirstLogin = true
+        } else {
+          console.warn('🔍 [StaffLoginPage] Failed to create users record:', insertError)
+          // Still treat as first login for safety
+          isFirstLogin = true
+        }
+      }
+
+      console.log('🔐 [StaffLoginPage] isFirstLogin final value:', isFirstLogin)
+
+      if (isFirstLogin) {
+        console.log('🔐 [StaffLoginPage] First login detected, showing password change dialog')
+        setShowPasswordChange(true)
+        setLoading(false)
+        return
+      }
+
+      // Role-based redirect
+      const staffRole = staff.role as StaffRole
+      const dashboardPath = getRoleDashboard(staffRole)
+
+      // Log the login activity
+      try {
+        await activityLogService.logUserLogin(currentUser.id, {
+          email: currentUser.email || '',
+          role: staffRole,
+          staffName: staff.name,
+          loginAt: new Date().toISOString()
+        })
+      } catch (logError) {
+        console.error('Failed to log login activity:', logError)
+        // Don't fail the login if logging fails
+      }
+
+      console.log('🎉 [StaffLoginPage] Login successful, redirecting to dashboard')
+      toast.success(`Welcome back, ${staff.name}!`)
+
+      // Initialize activity logging with current user
+      activityLogService.setCurrentUser(currentUser.id)
+
+      navigate(dashboardPath)
     } catch (error: any) {
       console.error('❌ [StaffLoginPage] Login failed:', error)
       toast.error(error.message || 'Invalid credentials')
@@ -146,7 +192,7 @@ export function StaffLoginPage() {
 
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (newPassword !== confirmPassword) {
       toast.error('Passwords do not match')
       return
@@ -160,19 +206,25 @@ export function StaffLoginPage() {
     setChangingPassword(true)
 
     try {
-      const currentUser = await blink.auth.me()
+      const { data: { user: currentUser } } = await supabase.auth.getUser()
       if (!currentUser?.id) {
         toast.error('Authentication error')
         return
       }
 
-      // Change password
-      await blink.auth.changePassword(password, newPassword)
+      // Change password using Supabase
+      const { error: passwordError } = await supabase.auth.updateUser({
+        password: newPassword
+      })
+
+      if (passwordError) {
+        throw passwordError
+      }
 
       // Update first_login flag
-      await db.users.update(currentUser.id, {
-        firstLogin: "0"
-      })
+      await supabase.from('users').update({
+        first_login: 0
+      }).eq('id', currentUser.id)
 
       toast.success('Password changed successfully!')
       setShowPasswordChange(false)

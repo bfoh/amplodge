@@ -1,7 +1,7 @@
 
-const { createClient } = require('@supabase/supabase-js');
+import { createClient } from '@supabase/supabase-js';
 
-exports.handler = async (event, context) => {
+export const handler = async (event, context) => {
     // CORS headers
     const headers = {
         'Access-Control-Allow-Origin': '*',
@@ -42,10 +42,17 @@ exports.handler = async (event, context) => {
 
         const supabase = createClient(supabaseUrl, supabaseKey);
 
-        // 1. Verify Booking exists
+        // 1. Verify Booking exists and get Guest Name
+        // We select guest:guests(name) to get the name directly via the foreign key relation
         const { data: booking, error: bookingError } = await supabase
             .from('bookings')
-            .select('id, guest_id') // adjusted to snake_case if DB is snake_case
+            .select(`
+                id,
+                guest_id,
+                guests (
+                    name
+                )
+            `)
             .eq('id', bookingId)
             .single();
 
@@ -73,11 +80,14 @@ exports.handler = async (event, context) => {
         }
 
         // 3. Insert Review
+        const guestName = booking.guests ? booking.guests.name : 'Guest';
+
         const { data: review, error: insertError } = await supabase
             .from('reviews')
             .insert({
                 booking_id: bookingId,
                 guest_id: booking.guest_id, // automatically linked
+                guest_name: guestName, // Persist the name!
                 rating: parseInt(rating),
                 comment: comment || '',
                 status: 'pending', // Pending moderation

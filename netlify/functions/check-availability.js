@@ -1,4 +1,3 @@
-// Alias for rooms-availability.js (Agent Hallucination Fix)
-const { handler } = require('./rooms-availability');
+import { handler as roomsHandler } from './rooms-availability.js';
 
-exports.handler = handler;
+export const handler = roomsHandler;

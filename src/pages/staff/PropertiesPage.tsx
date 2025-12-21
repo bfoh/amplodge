@@ -14,6 +14,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '../../components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../../components/ui/alert-dialog"
 import { usePermissions } from '@/hooks/use-permissions'
 import { Permission } from '@/components/Permission'
 import { formatCurrencySync } from '@/lib/utils'
@@ -26,6 +36,7 @@ export function PropertiesPage() {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
   const [formData, setFormData] = useState({
     name: '',
@@ -236,21 +247,26 @@ export function PropertiesPage() {
     }
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this room?')) return
+  const handleDeleteClick = (id: string) => {
+    setDeleteId(id)
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteId) return
 
     // Check delete permission
     if (!permissions.can('properties', 'delete')) {
       toast.error('Permission denied', {
         description: 'You do not have permission to delete properties'
       })
+      setDeleteId(null)
       return
     }
 
     try {
       // Find property to know its roomNumber for room sync delete
-      const prop = (await blink.db.properties.list({ where: { id }, limit: 1 }))?.[0]
-      await blink.db.properties.delete(id)
+      const prop = (await blink.db.properties.list({ where: { id: deleteId }, limit: 1 }))?.[0]
+      await blink.db.properties.delete(deleteId)
       if (prop?.roomNumber) {
         try {
           const existing = (await (blink.db as any).rooms.list({ where: { roomNumber: String(prop.roomNumber).trim() }, limit: 1 }))?.[0]
@@ -266,6 +282,8 @@ export function PropertiesPage() {
     } catch (error) {
       console.error('Failed to delete room:', error)
       toast.error('Failed to delete room')
+    } finally {
+      setDeleteId(null)
     }
   }
 
@@ -478,7 +496,7 @@ export function PropertiesPage() {
                         Edit
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onClick={() => handleDelete(property.id)}
+                        onClick={() => handleDeleteClick(property.id)}
                         className="text-destructive"
                       >
                         <Trash2 className="h-4 w-4 mr-2" />
@@ -519,6 +537,23 @@ export function PropertiesPage() {
           ))}
         </div>
       )}
+
+      <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the room property.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

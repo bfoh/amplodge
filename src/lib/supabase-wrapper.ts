@@ -196,6 +196,7 @@ export const db = {
     roomTypes: createTableWrapper('room_types'),
     guests: createTableWrapper('guests'),
     bookings: createTableWrapper('bookings'),
+    bookingCharges: createTableWrapper('booking_charges'),
     invoices: createTableWrapper('invoices'),
     activityLogs: createTableWrapper('activity_logs'),
     contactMessages: createTableWrapper('contact_messages'),

@@ -1,11 +1,11 @@
-const { createClient } = require('@supabase/supabase-js');
+import { createClient } from '@supabase/supabase-js';
 
 // Initialize Supabase client
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-exports.handler = async (event, context) => {
+export const handler = async (event, context) => {
     // CORS Headers
     const headers = {
         'Access-Control-Allow-Origin': '*', // Allow any origin for testing, restrict to app/agent domain in prod if needed

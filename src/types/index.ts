@@ -43,6 +43,7 @@ export interface Booking {
   actualCheckIn?: string
   actualCheckOut?: string
   createdAt: string
+  paymentMethod?: string
 }
 
 export interface Staff {
@@ -50,6 +51,7 @@ export interface Staff {
   userId: string
   name: string
   email: string
+  phone?: string
   role: string
   createdAt: string
 }
@@ -139,3 +141,22 @@ export interface HousekeepingTask {
   createdAt: string
   completedAt: string | null
 }
+
+// Charge categories for guest additional charges
+export type ChargeCategory = 'food_beverage' | 'room_service' | 'minibar' | 'laundry' | 'phone_internet' | 'parking' | 'other'
+
+// Booking charge for additional services during guest stay
+export interface BookingCharge {
+  id: string
+  bookingId: string
+  description: string
+  category: ChargeCategory
+  quantity: number
+  unitPrice: number
+  amount: number // quantity × unitPrice
+  notes?: string
+  createdAt: string
+  createdBy?: string
+  updatedAt?: string
+}
+

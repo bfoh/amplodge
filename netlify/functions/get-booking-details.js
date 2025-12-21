@@ -1,7 +1,7 @@
 
-const { createClient } = require('@supabase/supabase-js');
+import { createClient } from '@supabase/supabase-js';
 
-exports.handler = async (event, context) => {
+export const handler = async (event, context) => {
     const headers = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type',
@@ -36,6 +36,8 @@ exports.handler = async (event, context) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     try {
+        console.log('[get-booking-details] Fetching booking:', bookingId);
+
         // Join with rooms and room_types to get room name
         // Supabase join syntax: select('*, rooms(*, room_types(*))')
         // We only need specific fields
@@ -52,7 +54,10 @@ exports.handler = async (event, context) => {
             .eq('id', bookingId)
             .single();
 
+        console.log('[get-booking-details] Query result:', { booking, error });
+
         if (error || !booking) {
+            console.log('[get-booking-details] Booking not found. Error:', error);
             return { statusCode: 404, headers, body: JSON.stringify({ error: 'Booking not found' }) };
         }
 

@@ -23,7 +23,8 @@ export const ROLE_PERMISSIONS: Record<StaffRole, Permission[]> = {
     { resource: 'invoices', actions: ['create', 'read', 'update', 'delete'] },
     { resource: 'housekeeping', actions: ['read', 'update'] },
     { resource: 'settings', actions: ['read', 'update'] },
-    { resource: 'pricing', actions: ['create', 'read', 'update', 'delete'] }
+    { resource: 'pricing', actions: ['create', 'read', 'update', 'delete'] },
+    { resource: 'reviews', actions: ['read', 'update', 'delete'] }
   ],
   manager: [
     { resource: 'bookings', actions: ['create', 'read', 'update', 'delete'] },
@@ -65,7 +66,8 @@ export const ROUTE_ACCESS: Record<string, StaffRole[]> = {
   '/staff/set-prices': ['owner', 'admin'],
   '/staff/reservations': ['owner', 'admin', 'manager', 'staff'],
   '/staff/reservations/history': ['owner', 'admin', 'manager', 'staff'],
-  '/staff/end-of-day': ['owner', 'admin']
+  '/staff/end-of-day': ['owner', 'admin'],
+  '/staff/reviews': ['owner', 'admin', 'manager', 'staff']
 }
 
 // Navigation items visibility by role
@@ -79,12 +81,14 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { path: '/staff/dashboard', label: 'Dashboard', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/bookings', label: 'Bookings', minRole: ['owner', 'admin', 'manager', 'staff'] },
+  { path: '/staff/reservations', label: 'Reservations', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/onsite-booking', label: 'Onsite Booking', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/calendar', label: 'Calendar', minRole: ['owner', 'admin', 'manager', 'staff'] },
-  { path: '/staff/properties', label: 'Properties', minRole: ['owner', 'admin', 'manager'] },
   { path: '/staff/guests', label: 'Guests', minRole: ['owner', 'admin', 'manager', 'staff'] },
+  { path: '/staff/reviews', label: 'Reviews', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/housekeeping', label: 'Housekeeping', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/invoices', label: 'Invoices', minRole: ['owner', 'admin'] },
+  { path: '/staff/properties', label: 'Properties', minRole: ['owner', 'admin', 'manager'] },
   { path: '/staff/employees', label: 'Employees', minRole: ['owner', 'admin'] },
   { path: '/staff/activity-logs', label: 'Activity Logs', minRole: ['owner', 'admin'] },
   { path: '/staff/settings', label: 'Settings', minRole: ['owner', 'admin'] }

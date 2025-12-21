@@ -1,4 +1,4 @@
-// Alias for create-booking.js (Voice Agent API Compatibility)
-const { handler } = require('./create-booking');
+// Alias for create-booking.js
+import { handler as createHandler } from './create-booking.js';
 
-exports.handler = handler;
+export const handler = createHandler;

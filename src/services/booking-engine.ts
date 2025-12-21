@@ -2,6 +2,7 @@ import { blink, isOnline, syncQueue } from '../blink/client'
 import { v4 as uuidv4 } from 'uuid'
 import { activityLogService } from './activity-log-service'
 import { sendBookingConfirmation } from './notifications'
+import { createPreInvoiceData, generateInvoicePDF, blobToBase64 } from './invoice-service'
 
 export interface LocalBooking {
   _id: string
@@ -41,6 +42,7 @@ export interface LocalBooking {
   checkOutByName?: string
   createdAt: string
   updatedAt: string
+  payment_method?: string
 }
 
 export interface AuditLog {
@@ -333,7 +335,8 @@ class BookingEngine {
       numGuests: bookingData.numGuests ?? 1,
       specialRequests: bookingData.notes || '',
       created_by: bookingData.createdBy,
-      created_by_name: bookingData.createdByName
+      created_by_name: bookingData.createdByName,
+      payment_method: bookingData.payment_method
     }
 
     console.log('[BookingEngine] Creating booking with payload:', JSON.stringify(bookingPayload, null, 2))
@@ -419,6 +422,7 @@ class BookingEngine {
       createdAt: now,
       updatedAt: now,
       synced: true,
+      payment_method: bookingData.payment_method
     }
     console.log('[BookingEngine] Local booking created with createdBy:', local.createdBy)
     console.log('[BookingEngine] Full local booking object:', JSON.stringify(local, null, 2))
@@ -462,8 +466,58 @@ class BookingEngine {
 
       console.log(`[BookingEngine] Attempting to send confirmation email for booking ${local._id}...`)
 
+      // Generate Pre-Invoice PDF
+      let attachments: any[] | undefined = undefined
+      try {
+        console.log('[BookingEngine] Generating pre-invoice PDF for attachment...')
+        const bookingWithDetails = {
+          id: local._id,
+          guestId: guestId!,
+          roomId: room.id,
+          checkIn: local.dates.checkIn,
+          checkOut: local.dates.checkOut,
+          status: local.status,
+          totalPrice: local.amount,
+          numGuests: local.numGuests,
+          guest: {
+            name: local.guest.fullName,
+            email: local.guest.email,
+            phone: local.guest.phone,
+            address: local.guest.address
+          },
+          room: {
+            roomNumber: local.roomNumber,
+            roomType: local.roomType
+          },
+          createdAt: local.createdAt
+        }
+
+        // Ensure we have minimal room details even if room object is partial
+        const roomDetails = {
+          roomNumber: local.roomNumber,
+          roomType: local.roomType
+        }
+
+        const invoiceData = await createPreInvoiceData(bookingWithDetails, roomDetails)
+        const pdfBlob = await generateInvoicePDF(invoiceData)
+        const base64Pdf = await blobToBase64(pdfBlob)
+
+        // Extract base64 part (remove data:application/pdf;base64, prefix if present)
+        const content = base64Pdf.includes(',') ? base64Pdf.split(',')[1] : base64Pdf
+
+        attachments = [{
+          filename: `Pre-Invoice-${invoiceData.invoiceNumber}.pdf`,
+          content: content,
+          contentType: 'application/pdf'
+        }]
+        console.log('[BookingEngine] Pre-invoice PDF generated and attached')
+      } catch (pdfError) {
+        console.error('[BookingEngine] Failed to generate pre-invoice PDF:', pdfError)
+        // Proceed without attachment
+      }
+
       // Fire and forget - don't await the result to block UI
-      sendBookingConfirmation(guestForEmail, roomForEmail, bookingForEmail)
+      sendBookingConfirmation(guestForEmail, roomForEmail, bookingForEmail, attachments)
         .then(() => console.log(`[BookingEngine] Confirmation email request sent for ${local._id}`))
         .catch(err => console.error('[BookingEngine] Failed to send confirmation email:', err))
     }
@@ -774,6 +828,7 @@ class BookingEngine {
         status: b.status || 'confirmed',
         source: b.source || 'online',
         payment,
+        payment_method: b.paymentMethod || b.payment_method,
         createdAt,
         updatedAt: b.updatedAt || createdAt,
         synced: true,

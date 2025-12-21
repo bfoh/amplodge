@@ -9,6 +9,7 @@ import { formatDistanceToNow } from 'date-fns'
 interface Review {
     id: string
     guestId: string
+    guest_name?: string // New column
     rating: number
     comment: string
     createdAt: string
@@ -23,6 +24,7 @@ interface Guest {
 
 export function ReviewsCarousel() {
     const [reviews, setReviews] = useState<Review[]>([])
+    // We can still keep guests map for backward compatibility or if guest_name is missing
     const [guests, setGuests] = useState<Record<string, Guest>>({})
     const [loading, setLoading] = useState(true)
 
@@ -30,8 +32,6 @@ export function ReviewsCarousel() {
         const loadReviews = async () => {
             try {
                 // Fetch approved reviews
-                // Note: For best performance, we prioritize 'isFeatured' reviews if possible, 
-                // but currently we just list all approved ones sorted by date.
                 const allReviews = await blink.db.reviews.list({
                     where: { status: 'approved' },
                     orderBy: { createdAt: 'desc' },
@@ -44,10 +44,6 @@ export function ReviewsCarousel() {
                     return
                 }
 
-                // Ideally, we prioritize featured reviews
-                // Since we fetched recent ones, let's just use them. 
-                // If we want featured on top, we'd need multiple queries or client-side sort if list is small.
-                // Let's sort client-side: Featured first, then new
                 const sorted = (allReviews as Review[]).sort((a, b) => {
                     if (a.isFeatured === b.isFeatured) {
                         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -57,8 +53,14 @@ export function ReviewsCarousel() {
 
                 setReviews(sorted)
 
-                // Fetch Guest Names
-                const guestIds = Array.from(new Set(sorted.map(r => r.guestId)))
+                // Fetch Guest Names only for reviews that might miss it (backward compatibility)
+                // or just fetch all to be safe if `guest_name` isn't fully backfilled yet (though our migration does it)
+                const guestIds = Array.from(new Set(
+                    sorted
+                        .filter(r => !r.guest_name && r.guestId) // Only fetch if name missing
+                        .map(r => r.guestId)
+                ))
+
                 if (guestIds.length > 0) {
                     // @ts-ignore
                     const guestList = await blink.db.guests.list({
@@ -115,16 +117,20 @@ export function ReviewsCarousel() {
                                                     <Star
                                                         key={star}
                                                         className={`w-4 h-4 ${star <= review.rating
-                                                                ? "fill-yellow-400 text-yellow-400"
-                                                                : "fill-gray-100 text-gray-100"
+                                                            ? "fill-yellow-400 text-yellow-400"
+                                                            : "fill-gray-100 text-gray-100"
                                                             }`}
                                                     />
                                                 ))}
                                             </div>
 
-                                            <blockquote className="flex-1 text-muted-foreground italic mb-6 text-sm leading-relaxed">
-                                                "{review.comment}"
-                                            </blockquote>
+                                            <div className="flex-1 mb-6">
+                                                {review.comment && (
+                                                    <blockquote className="text-muted-foreground italic text-sm leading-relaxed">
+                                                        "{review.comment}"
+                                                    </blockquote>
+                                                )}
+                                            </div>
 
                                             <div className="flex items-center mt-auto border-t pt-4">
                                                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mr-3">
@@ -132,7 +138,7 @@ export function ReviewsCarousel() {
                                                 </div>
                                                 <div>
                                                     <p className="font-semibold text-sm">
-                                                        {guests[review.guestId]?.name || 'Verified Guest'}
+                                                        {review.guest_name || guests[review.guestId]?.name || 'Verified Guest'}
                                                     </p>
                                                     <p className="text-xs text-muted-foreground">
                                                         {formatDistanceToNow(new Date(review.createdAt), { addSuffix: true })}

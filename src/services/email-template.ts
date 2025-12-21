@@ -26,7 +26,7 @@ export const EMAIL_STYLES = {
   content: 'padding: 40px 30px;',
   contentTitle: 'color: #2C2416; font-size: 24px; margin-bottom: 25px; text-align: center; border-bottom: 2px solid #F5F1E8; padding-bottom: 15px;',
   footer: 'background-color: #F5F1E8; padding: 30px 20px; text-align: center; font-size: 12px; color: #666666; border-top: 1px solid #E5E1D8;',
-  button: (color: string) => `display: inline-block; padding: 16px 32px; background-color: ${color}; color: #ffffff; text-decoration: none; border-radius: 4px; font-weight: 600; font-size: 16px; margin: 30px 0; text-align: center;`,
+  button: (color: string) => `display: inline-block; padding: 14px 40px; background-color: ${color}; color: #ffffff; text-decoration: none; border-radius: 50px; font-weight: 600; font-size: 15px; margin: 30px 0; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); letter-spacing: 0.5px; text-transform: uppercase; transition: all 0.2s ease;`,
 
   // Helpers for content injection
   infoBox: 'background-color: #F5F1E8; border-left: 4px solid #8B4513; padding: 20px; margin: 20px 0; border-radius: 4px;',
@@ -74,7 +74,7 @@ export function generateEmailHtml(options: EmailTemplateOptions): string {
           <!-- Using a simpler button structure for better email client compatibility -->
           <table border="0" cellspacing="0" cellpadding="0" style="margin: 30px auto;">
             <tr>
-              <td align="center" bgcolor="${buttonColor}" style="border-radius: 4px;">
+              <td align="center" bgcolor="${buttonColor}" style="border-radius: 50px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
                 <a href="${callToAction.url}" style="${EMAIL_STYLES.button(buttonColor)}; border: 1px solid ${buttonColor}; display: inline-block; font-family: sans-serif;">${callToAction.text}</a>
               </td>
             </tr>

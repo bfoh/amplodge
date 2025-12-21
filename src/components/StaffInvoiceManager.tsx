@@ -4,10 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Download, Printer, Search, RefreshCw } from 'lucide-react'
+import { Download, Printer, Search, RefreshCw, Filter } from 'lucide-react'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
-import { createInvoiceData, downloadInvoicePDF, printInvoice } from '@/services/invoice-service'
+import { createInvoiceData, downloadInvoicePDF, printInvoice, createPreInvoiceData, downloadPreInvoicePDF, PreInvoiceData } from '@/services/invoice-service'
 import { blink } from '@/blink/client'
 
 interface InvoiceRecord {
@@ -19,8 +19,9 @@ interface InvoiceRecord {
   checkIn: string
   checkOut: string
   totalAmount: number
-  status: string
+  status: 'paid' | 'pending'
   createdAt: string
+  isPreInvoice: boolean
 }
 
 // Simple loading component
@@ -35,74 +36,98 @@ export function StaffInvoiceManager() {
   const [downloading, setDownloading] = useState<string | null>(null)
   const [printing, setPrinting] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [filter, setFilter] = useState<'all' | 'pending' | 'paid'>('all')
 
   // Fetch real invoice data from database
   const loadInvoices = async () => {
-      try {
-        console.log('🔍 [StaffInvoiceManager] Loading real invoice data...')
-        
-        const db = blink.db as any
-        
-        // Fetch checked-out bookings (these should have invoices)
-        const bookings = await db.bookings.list({ 
+    try {
+      console.log('🔍 [StaffInvoiceManager] Loading invoice data...')
+
+      const db = blink.db as any
+
+      // Fetch BOTH confirmed bookings (pre-invoices) AND checked-out bookings (paid invoices)
+      const [confirmedBookings, checkedOutBookings] = await Promise.all([
+        db.bookings.list({
+          where: { status: 'confirmed' },
+          limit: 100,
+          orderBy: { createdAt: 'desc' }
+        }),
+        db.bookings.list({
           where: { status: 'checked-out' },
           limit: 100,
           orderBy: { createdAt: 'desc' }
         })
-        
-        console.log('📊 [StaffInvoiceManager] Found bookings:', bookings.length)
-        
-        if (bookings.length === 0) {
-          setInvoices([])
-          setLoading(false)
-          return
-        }
-        
-        // Get guest and room data for each booking
-        const guestIds = [...new Set(bookings.map((b: any) => b.guestId))]
-        const roomIds = [...new Set(bookings.map((b: any) => b.roomId))]
-        
-        const [guests, rooms] = await Promise.all([
-          db.guests.list({ where: { id: { in: guestIds } } }),
-          db.rooms.list({ where: { id: { in: roomIds } } })
-        ])
-        
-        // Create maps for quick lookup
-        const guestMap = new Map(guests.map((g: any) => [g.id, g]))
-        const roomMap = new Map(rooms.map((r: any) => [r.id, r]))
-        
-        // Convert bookings to invoice records
-        const invoiceRecords: InvoiceRecord[] = bookings.map((booking: any) => {
-          const guest = guestMap.get(booking.guestId)
-          const room = roomMap.get(booking.roomId)
-          
-          // Generate invoice number if not exists
-          const invoiceNumber = booking.invoiceNumber || `INV-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
-          
-          return {
-            id: booking.id,
-            invoiceNumber: invoiceNumber,
-            guestName: guest?.name || 'Unknown Guest',
-            guestEmail: guest?.email || '',
-            roomNumber: room?.roomNumber || 'N/A',
-            checkIn: booking.checkIn,
-            checkOut: booking.actualCheckOut || booking.checkOut,
-            totalAmount: booking.totalPrice || 0,
-            status: 'paid', // All checked-out bookings are considered paid
-            createdAt: booking.createdAt
-          }
-        })
-        
-        console.log('✅ [StaffInvoiceManager] Loaded invoices:', invoiceRecords.length)
-        setInvoices(invoiceRecords)
-        
-      } catch (error) {
-        console.error('❌ [StaffInvoiceManager] Failed to load invoices:', error)
-        toast.error('Failed to load invoices')
-      } finally {
+      ])
+
+      const allBookings = [...confirmedBookings, ...checkedOutBookings]
+
+      console.log('📊 [StaffInvoiceManager] Found bookings:', {
+        confirmed: confirmedBookings.length,
+        checkedOut: checkedOutBookings.length,
+        total: allBookings.length
+      })
+
+      if (allBookings.length === 0) {
+        setInvoices([])
         setLoading(false)
+        return
       }
+
+      // Get guest and room data for each booking
+      const guestIds = [...new Set(allBookings.map((b: any) => b.guestId))]
+      const roomIds = [...new Set(allBookings.map((b: any) => b.roomId))]
+
+      const [guests, rooms] = await Promise.all([
+        db.guests.list({ where: { id: { in: guestIds } } }),
+        db.rooms.list({ where: { id: { in: roomIds } } })
+      ])
+
+      // Create maps for quick lookup
+      const guestMap = new Map(guests.map((g: any) => [g.id, g]))
+      const roomMap = new Map(rooms.map((r: any) => [r.id, r]))
+
+      // Convert bookings to invoice records
+      const invoiceRecords: InvoiceRecord[] = allBookings.map((booking: any) => {
+        const guest = guestMap.get(booking.guestId)
+        const room = roomMap.get(booking.roomId)
+        const isPreInvoice = booking.status === 'confirmed'
+
+        // Generate invoice number
+        const baseInvoiceNumber = booking.invoiceNumber || `INV-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
+        const invoiceNumber = isPreInvoice ? `PRE-${baseInvoiceNumber}` : baseInvoiceNumber
+
+        return {
+          id: booking.id,
+          invoiceNumber: invoiceNumber,
+          guestName: guest?.name || 'Unknown Guest',
+          guestEmail: guest?.email || '',
+          roomNumber: room?.roomNumber || 'N/A',
+          checkIn: booking.checkIn,
+          checkOut: booking.actualCheckOut || booking.checkOut,
+          totalAmount: booking.totalPrice || 0,
+          status: isPreInvoice ? 'pending' as const : 'paid' as const,
+          createdAt: booking.createdAt,
+          isPreInvoice
+        }
+      })
+
+      // Sort by createdAt descending
+      invoiceRecords.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+
+      console.log('✅ [StaffInvoiceManager] Loaded invoices:', {
+        total: invoiceRecords.length,
+        pending: invoiceRecords.filter(i => i.status === 'pending').length,
+        paid: invoiceRecords.filter(i => i.status === 'paid').length
+      })
+      setInvoices(invoiceRecords)
+
+    } catch (error) {
+      console.error('❌ [StaffInvoiceManager] Failed to load invoices:', error)
+      toast.error('Failed to load invoices')
+    } finally {
+      setLoading(false)
     }
+  }
 
   useEffect(() => {
     loadInvoices()
@@ -114,36 +139,42 @@ export function StaffInvoiceManager() {
     setRefreshing(false)
   }
 
-  const filteredInvoices = invoices.filter(invoice =>
-    invoice.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    invoice.guestName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    invoice.guestEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    invoice.roomNumber.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  // Filter invoices by search term AND status filter
+  const filteredInvoices = invoices.filter(invoice => {
+    const matchesSearch =
+      invoice.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      invoice.guestName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      invoice.guestEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      invoice.roomNumber.toLowerCase().includes(searchTerm.toLowerCase())
+
+    const matchesFilter = filter === 'all' || invoice.status === filter
+
+    return matchesSearch && matchesFilter
+  })
 
   const handleDownloadInvoice = async (invoice: InvoiceRecord) => {
     setDownloading(invoice.id)
     try {
-      console.log('📥 [StaffInvoiceManager] Downloading invoice for booking:', invoice.id)
-      
+      console.log('📥 [StaffInvoiceManager] Downloading invoice for booking:', invoice.id, 'isPreInvoice:', invoice.isPreInvoice)
+
       const db = blink.db as any
-      
+
       // Fetch the actual booking data
       const booking = await db.bookings.get(invoice.id)
       if (!booking) {
         throw new Error('Booking not found')
       }
-      
+
       // Fetch guest and room data
       const [guest, room] = await Promise.all([
         db.guests.get(booking.guestId),
         db.rooms.get(booking.roomId)
       ])
-      
+
       if (!guest || !room) {
         throw new Error('Guest or room data not found')
       }
-      
+
       // Create booking with details for invoice
       const bookingWithDetails = {
         ...booking,
@@ -153,15 +184,21 @@ export function StaffInvoiceManager() {
           roomType: room.roomType || 'Standard Room'
         }
       }
-      
-      // Generate invoice data
-      const invoiceData = await createInvoiceData(bookingWithDetails, room)
-      
-      // Override invoice number to match the record
-      invoiceData.invoiceNumber = invoice.invoiceNumber
-      
-      await downloadInvoicePDF(invoiceData)
-      toast.success(`Invoice ${invoice.invoiceNumber} downloaded successfully!`)
+
+      if (invoice.isPreInvoice || invoice.invoiceNumber.startsWith('PRE-')) {
+        // Use pre-invoice generation for confirmed bookings
+        console.log('📋 [StaffInvoiceManager] Using PRE-INVOICE template')
+        const preInvoiceData = await createPreInvoiceData(bookingWithDetails, room)
+        preInvoiceData.invoiceNumber = invoice.invoiceNumber
+        await downloadPreInvoicePDF(preInvoiceData)
+        toast.success(`Pre-Invoice ${invoice.invoiceNumber} downloaded successfully!`)
+      } else {
+        // Use regular invoice for paid/checked-out bookings
+        const invoiceData = await createInvoiceData(bookingWithDetails, room)
+        invoiceData.invoiceNumber = invoice.invoiceNumber
+        await downloadInvoicePDF(invoiceData)
+        toast.success(`Invoice ${invoice.invoiceNumber} downloaded successfully!`)
+      }
     } catch (error: any) {
       console.error('❌ [StaffInvoiceManager] Failed to download invoice:', error)
       toast.error(`Failed to download invoice: ${error.message}`)
@@ -174,25 +211,25 @@ export function StaffInvoiceManager() {
     setPrinting(invoice.id)
     try {
       console.log('🖨️ [StaffInvoiceManager] Printing invoice for booking:', invoice.id)
-      
+
       const db = blink.db as any
-      
+
       // Fetch the actual booking data
       const booking = await db.bookings.get(invoice.id)
       if (!booking) {
         throw new Error('Booking not found')
       }
-      
+
       // Fetch guest and room data
       const [guest, room] = await Promise.all([
         db.guests.get(booking.guestId),
         db.rooms.get(booking.roomId)
       ])
-      
+
       if (!guest || !room) {
         throw new Error('Guest or room data not found')
       }
-      
+
       // Create booking with details for invoice
       const bookingWithDetails = {
         ...booking,
@@ -202,13 +239,13 @@ export function StaffInvoiceManager() {
           roomType: room.roomType || 'Standard Room'
         }
       }
-      
+
       // Generate invoice data
       const invoiceData = await createInvoiceData(bookingWithDetails, room)
-      
+
       // Override invoice number to match the record
       invoiceData.invoiceNumber = invoice.invoiceNumber
-      
+
       await printInvoice(invoiceData)
       toast.success(`Invoice ${invoice.invoiceNumber} sent to printer!`)
     } catch (error: any) {
@@ -272,6 +309,36 @@ export function StaffInvoiceManager() {
               </div>
             </div>
 
+            {/* Filter Tabs */}
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <div className="flex gap-1">
+                <Button
+                  variant={filter === 'all' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setFilter('all')}
+                >
+                  All ({invoices.length})
+                </Button>
+                <Button
+                  variant={filter === 'pending' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setFilter('pending')}
+                  className={filter === 'pending' ? 'bg-amber-500 hover:bg-amber-600' : ''}
+                >
+                  Pre-Invoice ({invoices.filter(i => i.status === 'pending').length})
+                </Button>
+                <Button
+                  variant={filter === 'paid' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setFilter('paid')}
+                  className={filter === 'paid' ? 'bg-green-600 hover:bg-green-700' : ''}
+                >
+                  Paid ({invoices.filter(i => i.status === 'paid').length})
+                </Button>
+              </div>
+            </div>
+
             {/* Invoices Table */}
             <div className="border rounded-lg">
               <Table>
@@ -319,11 +386,10 @@ export function StaffInvoiceManager() {
                           ${invoice.totalAmount.toFixed(2)}
                         </TableCell>
                         <TableCell>
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            invoice.status === 'paid' 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-yellow-100 text-yellow-800'
-                          }`}>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${invoice.status === 'paid'
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-yellow-100 text-yellow-800'
+                            }`}>
                             {invoice.status}
                           </span>
                         </TableCell>

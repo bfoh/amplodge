@@ -15,6 +15,8 @@ import { toast } from 'sonner'
 import { createInvoiceData, downloadInvoicePDF, generateInvoicePDF, sendInvoiceEmail } from '@/services/invoice-service'
 import { activityLogService } from '@/services/activity-log-service'
 import { housekeepingService } from '@/services/housekeeping-service'
+import { bookingChargesService, CHARGE_CATEGORIES } from '@/services/booking-charges-service'
+import { BookingCharge } from '@/types'
 import {
   Dialog,
   DialogContent,
@@ -25,6 +27,9 @@ import {
 } from '@/components/ui/dialog'
 import { LogIn, LogOut, CheckCircle2 } from 'lucide-react'
 import { calculateNights } from '@/lib/display'
+import { CheckInDialog } from '@/components/dialogs/CheckInDialog'
+import { GuestChargesDialog } from '@/components/dialogs/GuestChargesDialog'
+import { Receipt } from 'lucide-react'
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -59,7 +64,12 @@ export function ReservationsPage() {
   // Check-in/out dialogs
   const [checkInDialog, setCheckInDialog] = useState<Booking | null>(null)
   const [checkOutDialog, setCheckOutDialog] = useState<Booking | null>(null)
+  const [chargesDialog, setChargesDialog] = useState<Booking | null>(null)
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null)
+
+  // Checkout charges summary
+  const [checkoutCharges, setCheckoutCharges] = useState<BookingCharge[]>([])
+  const [checkoutLoading, setCheckoutLoading] = useState(false)
 
   useEffect(() => {
     const unsub = blink.auth.onAuthStateChanged((state) => {
@@ -68,6 +78,22 @@ export function ReservationsPage() {
     })
     return unsub
   }, [navigate])
+
+  // Fetch charges when checkout dialog opens
+  useEffect(() => {
+    if (checkOutDialog) {
+      setCheckoutLoading(true)
+      bookingChargesService.getChargesForBooking(checkOutDialog.id)
+        .then(charges => setCheckoutCharges(charges))
+        .catch(err => {
+          console.error('Failed to fetch checkout charges:', err)
+          setCheckoutCharges([])
+        })
+        .finally(() => setCheckoutLoading(false))
+    } else {
+      setCheckoutCharges([])
+    }
+  }, [checkOutDialog])
 
   useEffect(() => {
     if (!user) return
@@ -212,130 +238,7 @@ export function ReservationsPage() {
     }
   }
 
-  // Check-in handler
-  const handleCheckIn = async (booking: Booking) => {
-    const room = roomMap.get(booking.roomId)
-
-    // Enforce room availability logic
-    if (room && room.status !== 'available') {
-      if (room.status === 'occupied') {
-        toast.error(`Cannot check in: Room ${room.roomNumber} is currently occupied. Check out the previous guest first.`)
-        return
-      }
-      if (room.status === 'cleaning') {
-        toast.error(`Cannot check in: Room ${room.roomNumber} is currently being cleaned. Please complete housekeeping first.`)
-        return
-      }
-      if (room.status === 'maintenance') {
-        toast.error(`Cannot check in: Room ${room.roomNumber} is under maintenance.`)
-        return
-      }
-    }
-
-    setProcessing(true)
-    setCheckInDialog(null) // Close dialog immediately
-    try {
-      // Update booking status to checked-in
-      await db.bookings.update(booking.id, {
-        status: 'checked-in',
-        actualCheckIn: new Date().toISOString()
-      })
-
-      // Update room status to occupied
-      const room = roomMap.get(booking.roomId)
-      if (room) {
-        await db.rooms.update(room.id, { status: 'occupied' })
-        // Optimistically reflect in UI immediately
-        setRooms(prev => prev.map(r => (r.id === room.id ? { ...r, status: 'occupied' } : r)))
-
-        // Log room status change
-        try {
-          await activityLogService.log({
-            action: 'updated',
-            entityType: 'room',
-            entityId: room.id,
-            details: {
-              roomNumber: room.roomNumber,
-              previousStatus: 'available',
-              newStatus: 'occupied',
-              reason: 'guest_check_in',
-              guestName: guestMap.get(booking.guestId)?.name || 'Unknown Guest',
-              bookingId: booking.id
-            },
-            userId: user?.id || 'system'
-          })
-        } catch (logError) {
-          console.error('Failed to log room status change:', logError)
-        }
-
-        // Also update properties table for consistency
-        const props = await db.properties.list({ limit: 500 })
-        const prop = props.find((p: any) => p.id === room.id)
-        if (prop) {
-          await db.properties.update(prop.id, { status: 'occupied' })
-        }
-      }
-
-      // Optimistic UI update
-      setBookings(prev => prev.map(b =>
-        b.id === booking.id ? { ...b, status: 'checked-in' as const } : b
-      ))
-
-      // Send check-in notification
-      const guest = guestMap.get(booking.guestId)
-      if (guest && room) {
-        try {
-          const { sendCheckInNotification } = await import('@/services/notifications')
-
-          // Create booking object with the structure expected by notifications
-          const bookingForNotification = {
-            id: booking.id,
-            checkIn: booking.checkIn,
-            checkOut: booking.checkOut,
-            actualCheckIn: booking.actualCheckIn,
-            actualCheckOut: booking.actualCheckOut
-          }
-
-          await sendCheckInNotification(guest, room, bookingForNotification)
-          console.log('✅ [ReservationsPage] Check-in notification sent successfully!')
-        } catch (notificationError) {
-          console.error('❌ [ReservationsPage] Check-in notification error:', notificationError)
-        }
-      }
-
-      // Log check-in activity
-      try {
-        const guest = guestMap.get(booking.guestId)
-        const room = roomMap.get(booking.roomId)
-        await activityLogService.log({
-          action: 'checked_in',
-          entityType: 'booking',
-          entityId: booking.id,
-          details: {
-            guestName: guest?.name || booking.guestName || 'Unknown Guest',
-            roomNumber: room?.roomNumber || 'Unknown Room',
-            checkInDate: booking.checkIn,
-            actualCheckIn: new Date().toISOString(),
-            bookingId: booking.id
-          },
-          userId: user?.id || 'system'
-        })
-        console.log('✅ [ReservationsPage] Check-in activity logged successfully!')
-      } catch (logError) {
-        console.error('❌ [ReservationsPage] Failed to log check-in activity:', logError)
-      }
-
-      toast.success(`Guest ${guestMap.get(booking.guestId)?.name || 'Guest'} checked in successfully!`)
-    } catch (error) {
-      console.error('Check-in failed:', error)
-      toast.error(error instanceof Error ? error.message : 'Failed to check in guest')
-      // Reload data to restore correct state
-      const [b] = await Promise.all([db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 500 })])
-      setBookings(b)
-    } finally {
-      setProcessing(false)
-    }
-  }
+  // Check-out handler
 
   // Check-out handler
   const handleDownloadInvoice = async (booking: Booking) => {
@@ -624,72 +527,36 @@ export function ReservationsPage() {
   return (
     <>
       {/* Check-In Dialog */}
-      <Dialog open={!!checkInDialog} onOpenChange={(open) => !open && setCheckInDialog(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirm Guest Check-In</DialogTitle>
-            <DialogDescription>
-              Verify guest details before checking in
-            </DialogDescription>
-          </DialogHeader>
-          {checkInDialog && (
-            <div className="space-y-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Guest Name</p>
-                  <p className="text-base font-semibold">{guestMap.get(checkInDialog.guestId)?.name || 'Guest'}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Room Number</p>
-                  <p className="text-base font-semibold">
-                    {roomMap.get(checkInDialog.roomId)?.roomNumber || 'N/A'}
-                  </p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Check-in Date</p>
-                  <p className="text-base">{format(parseISO(checkInDialog.checkIn), 'PPP')}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Check-out Date</p>
-                  <p className="text-base">{format(parseISO(checkInDialog.checkOut), 'PPP')}</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Number of Guests</p>
-                  <p className="text-base">{checkInDialog.numGuests || 1}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Amount</p>
-                  <p className="text-base font-semibold text-primary">
-                    {formatCurrencySync(checkInDialog.totalPrice, currency)}
-                  </p>
-                </div>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Email</p>
-                <p className="text-base">{guestMap.get(checkInDialog.guestId)?.email || 'N/A'}</p>
-              </div>
-              {guestMap.get(checkInDialog.guestId)?.phone && (
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Phone</p>
-                  <p className="text-base">{guestMap.get(checkInDialog.guestId)?.phone}</p>
-                </div>
-              )}
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCheckInDialog(null)} disabled={processing}>
-              Cancel
-            </Button>
-            <Button onClick={() => handleCheckIn(checkInDialog!)} disabled={processing}>
-              {processing ? 'Processing...' : 'Confirm Check-In'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CheckInDialog
+        open={!!checkInDialog}
+        onOpenChange={(open) => !open && setCheckInDialog(null)}
+        booking={checkInDialog}
+        room={checkInDialog ? roomMap.get(checkInDialog.roomId) : null}
+        guest={checkInDialog ? guestMap.get(checkInDialog.guestId) : null}
+        user={user}
+        onSuccess={async () => {
+          // Optimistic UI update or reload
+          if (checkInDialog) {
+            // Reload data to ensure everything is synced
+            const [b] = await Promise.all([db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 500 })])
+            setBookings(b)
+            // Also reload rooms to update status
+            const [r] = await Promise.all([db.rooms.list({ limit: 500 })])
+            setRooms(r)
+          }
+        }}
+      />
+
+      {/* Guest Charges Dialog */}
+      <GuestChargesDialog
+        open={!!chargesDialog}
+        onOpenChange={(open) => !open && setChargesDialog(null)}
+        booking={chargesDialog}
+        guest={chargesDialog ? guestMap.get(chargesDialog.guestId) : null}
+        onChargesUpdated={() => {
+          // Optionally refresh data when charges are updated
+        }}
+      />
 
       {/* Check-Out Dialog */}
       <Dialog open={!!checkOutDialog} onOpenChange={(open) => !open && setCheckOutDialog(null)}>
@@ -722,19 +589,67 @@ export function ReservationsPage() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Charges</p>
-                  <p className="text-base font-semibold text-primary">
+                  <p className="text-sm font-medium text-muted-foreground">Room Cost (Paid)</p>
+                  <p className="text-base font-semibold">
                     {formatCurrencySync(checkOutDialog.totalPrice, currency)}
                   </p>
                 </div>
               </div>
+
+              {/* Charges Summary */}
+              {checkoutLoading ? (
+                <div className="flex items-center gap-2 py-2 text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading charges...
+                </div>
+              ) : checkoutCharges.length > 0 && (
+                <div className="rounded-lg border p-4 space-y-3">
+                  <p className="text-sm font-medium text-muted-foreground">Additional Charges</p>
+                  <div className="space-y-2">
+                    {checkoutCharges.map(charge => (
+                      <div key={charge.id} className="flex justify-between text-sm">
+                        <span>{charge.description} ({charge.quantity}×)</span>
+                        <span className="font-medium">{formatCurrencySync(charge.amount, currency)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="border-t pt-2 flex justify-between font-medium">
+                    <span>Additional Charges Total</span>
+                    <span className="text-primary">
+                      {formatCurrencySync(checkoutCharges.reduce((sum, c) => sum + c.amount, 0), currency)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Grand Total */}
+              {!checkoutLoading && (
+                <div className="rounded-lg bg-muted/50 p-4">
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium">Grand Total</span>
+                    <span className="text-xl font-bold text-primary">
+                      {formatCurrencySync(
+                        checkOutDialog.totalPrice + checkoutCharges.reduce((sum, c) => sum + c.amount, 0),
+                        currency
+                      )}
+                    </span>
+                  </div>
+                  {checkoutCharges.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Room: {formatCurrencySync(checkOutDialog.totalPrice, currency)} +
+                      Charges: {formatCurrencySync(checkoutCharges.reduce((sum, c) => sum + c.amount, 0), currency)}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="rounded-lg bg-blue-50 p-4 border border-blue-200">
                 <p className="text-sm font-medium text-blue-900">What happens next?</p>
                 <ul className="mt-2 text-sm text-blue-700 space-y-1">
                   <li>✓ Booking status updated to "Checked-Out"</li>
                   <li>✓ Room status set to "Cleaning"</li>
                   <li>✓ Housekeeping task automatically created</li>
-                  <li>✓ Room available after cleaning completion</li>
+                  <li>✓ Invoice generated with all charges</li>
                 </ul>
               </div>
             </div>
@@ -813,6 +728,7 @@ export function ReservationsPage() {
                         <TableHead>Dates</TableHead>
                         <TableHead className="text-right">Amount</TableHead>
                         <TableHead>Status</TableHead>
+                        <TableHead>Payment Status</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -838,6 +754,26 @@ export function ReservationsPage() {
                             <TableCell>
                               <StatusBadge status={b.status} />
                             </TableCell>
+                            <TableCell>
+                              {(() => {
+                                const method = b.paymentMethod || 'Not Paid'
+                                const isPaid = method !== 'Not Paid' && method !== 'Not paid'
+
+                                if (!isPaid) {
+                                  return (
+                                    <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-700 font-medium">
+                                      Not Paid
+                                    </span>
+                                  )
+                                }
+
+                                return (
+                                  <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700 font-medium">
+                                    Paid:{method === 'Credit/Debit Card' ? 'Card' : method}
+                                  </span>
+                                )
+                              })()}
+                            </TableCell>
                             <TableCell className="text-right space-x-2">
                               {canCheckIn(b) && (
                                 <Button
@@ -850,14 +786,25 @@ export function ReservationsPage() {
                                 </Button>
                               )}
                               {canCheckOut(b) && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => setCheckOutDialog(b)}
-                                >
-                                  <LogOut className="w-4 h-4 mr-1" />
-                                  Check Out
-                                </Button>
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => setChargesDialog(b)}
+                                    title="View/Add Charges"
+                                  >
+                                    <Receipt className="w-4 h-4 mr-1" />
+                                    Charges
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setCheckOutDialog(b)}
+                                  >
+                                    <LogOut className="w-4 h-4 mr-1" />
+                                    Check Out
+                                  </Button>
+                                </>
                               )}
                               {b.status === 'checked-out' && (
                                 <div className="flex gap-2">

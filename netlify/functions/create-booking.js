@@ -52,13 +52,100 @@ function generateEmailHtml({ title, preheader, content }) {
 }
 // --- Helper End ---
 
+// --- Helper End ---
+
 // Initialize Supabase client
-const { createClient } = require('@supabase/supabase-js');
+import { createClient } from '@supabase/supabase-js';
+import PDFDocument from 'pdfkit';
+import { Buffer } from 'node:buffer';
+
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-exports.handler = async (event, context) => {
+// --- Helper: Generate PDF Buffer ---
+async function generatePreInvoicePdfBuffer(bookingContext) {
+    return new Promise((resolve, reject) => {
+        try {
+            const doc = new PDFDocument({ margin: 50 });
+            const buffers = [];
+
+            doc.on('data', buffers.push.bind(buffers));
+            doc.on('end', () => {
+                const pdfData = Buffer.concat(buffers);
+                resolve(pdfData.toString('base64'));
+            });
+            doc.on('error', reject);
+
+            // Hotel Info
+            doc.fontSize(20).font('Helvetica-Bold').fillColor('#8B4513').text('AMP Lodge', { align: 'left' });
+            doc.fontSize(10).font('Helvetica').fillColor('#666666').text('Abuakwa DKC junction, Kumasi-Sunyani Rd', { align: 'left' });
+            doc.text('Kumasi, Ghana', { align: 'left' });
+            doc.text('Phone: +233 55 500 9697', { align: 'left' });
+            doc.text('Email: info@amplodge.org', { align: 'left' });
+            doc.moveDown();
+
+            // Invoice Title
+            doc.fontSize(24).font('Helvetica-Bold').fillColor('#f59e0b').text('PRE-INVOICE', { align: 'right', valign: 'top' });
+            doc.fontSize(10).font('Helvetica').fillColor('#666666').text(`Date: ${new Date().toLocaleDateString()}`, { align: 'right' });
+            doc.text('Status: UNPAID', { align: 'right' });
+            doc.moveDown(2);
+
+            // Divider
+            doc.moveTo(50, doc.y).lineTo(550, doc.y).strokeColor('#8B4513').lineWidth(1).stroke();
+            doc.moveDown();
+
+            // Bill To
+            doc.fontSize(12).font('Helvetica-Bold').fillColor('#8B4513').text('Bill To:', { align: 'left' });
+            doc.fontSize(10).font('Helvetica').fillColor('#333333');
+            doc.text(bookingContext.guestName);
+            if (bookingContext.guestPhone) doc.text(bookingContext.guestPhone);
+            if (bookingContext.guestEmail) doc.text(bookingContext.guestEmail);
+            doc.moveDown();
+
+            // Booking Details
+            doc.fontSize(12).font('Helvetica-Bold').fillColor('#8B4513').text('Booking Details:', { align: 'left' });
+            doc.fontSize(10).font('Helvetica').fillColor('#333333');
+            doc.text(`Room: ${bookingContext.roomNumber}`);
+            doc.text(`Check-in: ${bookingContext.checkIn}`);
+            doc.text(`Check-out: ${bookingContext.checkOut}`);
+            doc.text(`Nights: ${bookingContext.nights}`);
+            doc.moveDown(2);
+
+            // Table Header
+            const tableTop = doc.y;
+            doc.rect(50, tableTop, 500, 20).fillColor('#8B4513').fill();
+            doc.fillColor('white').font('Helvetica-Bold').text('Description', 60, tableTop + 5);
+            doc.text('Amount', 450, tableTop + 5, { align: 'right', width: 90 });
+            doc.moveDown();
+
+            // Table Row
+            const rowTop = tableTop + 25;
+            doc.fillColor('black').font('Helvetica').text(`Room Charges (${bookingContext.nights} nights)`, 60, rowTop);
+            doc.text(`GHS ${bookingContext.totalPrice}`, 450, rowTop, { align: 'right', width: 90 });
+
+            // Totals
+            const totalTop = rowTop + 40;
+            doc.moveTo(350, totalTop).lineTo(550, totalTop).strokeColor('#e5e7eb').stroke();
+            doc.fontSize(12).font('Helvetica-Bold').fillColor('#8B4513').text('Total Due:', 350, totalTop + 10);
+            doc.text(`GHS ${bookingContext.totalPrice}`, 450, totalTop + 10, { align: 'right', width: 90 });
+
+            // Payment Notice
+            doc.moveDown(4);
+            doc.rect(50, doc.y, 500, 60).fillColor('#fef3c7').strokeColor('#f59e0b').fillAndStroke();
+            doc.fillColor('#92400e').font('Helvetica-Bold').text('Payment Information', 60, doc.y - 45);
+            doc.font('Helvetica').text('Full payment is due upon check-in. We accept Cash, Mobile Money, and Bank Transfers.', 60, doc.y + 5, { width: 480 });
+
+            doc.end();
+
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
+// --- Helper End ---
+
+export const handler = async (event, context) => {
 
     // CORS Headers
     const headers = {
@@ -338,6 +425,26 @@ exports.handler = async (event, context) => {
                         </div>
                     </div>
 
+                    <!-- PRE-INVOICE SECTION -->
+                    <div style="background-color: #fef3c7; border: 2px solid #f59e0b; border-radius: 8px; padding: 20px; margin: 25px 0;">
+                        <h3 style="color: #92400e; font-size: 18px; margin: 0 0 15px 0; display: flex; align-items: center;">
+                            📋 Pre-Invoice / Payment Summary
+                        </h3>
+                        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                            <tr style="border-bottom: 1px solid #fcd34d;">
+                                <td style="padding: 8px 0; color: #78350f;">Room Charge (${nights} night${nights > 1 ? 's' : ''})</td>
+                                <td style="padding: 8px 0; text-align: right; color: #78350f; font-weight: 600;">GHS ${totalPrice}</td>
+                            </tr>
+                            <tr style="background-color: #f59e0b; color: white;">
+                                <td style="padding: 10px; font-weight: bold;">Total Due at Check-in</td>
+                                <td style="padding: 10px; text-align: right; font-weight: bold; font-size: 16px;">GHS ${totalPrice}</td>
+                            </tr>
+                        </table>
+                        <p style="color: #92400e; font-size: 12px; margin: 15px 0 0 0; text-align: center;">
+                            💳 We accept Cash, Mobile Money, and Bank Transfers
+                        </p>
+                    </div>
+
                     <h3 style="margin-top: 30px; font-size: 18px; color: #8B4513;">Check-in Information</h3>
                     <ul>
                         <li>Check-in time is from 2:00 PM</li>
@@ -356,15 +463,48 @@ exports.handler = async (event, context) => {
                 `
                 });
 
+                // Generate PDF attachment
+                const bookingContext = {
+                    guestName,
+                    guestPhone,
+                    guestEmail,
+                    roomNumber: availableRoom.room_number,
+                    checkIn,
+                    checkOut,
+                    nights,
+                    totalPrice
+                };
+
+                let pdfAttachment = null;
+                try {
+                    console.log('[CreateBooking] Generating PDF attachment...');
+                    const pdfBase64 = await generatePreInvoicePdfBuffer(bookingContext);
+                    pdfAttachment = {
+                        filename: `Pre-Invoice-${booking.id.substring(0, 8)}.pdf`,
+                        content: pdfBase64,
+                        contentType: 'application/pdf'
+                    };
+                    console.log('[CreateBooking] PDF attachment generated.');
+                } catch (pdfError) {
+                    console.error('[CreateBooking] Failed to generate PDF attachment:', pdfError);
+                    // Continue without attachment
+                }
+
                 console.log('[CreateBooking] Queueing Email...');
+                const emailPayload = {
+                    to: guestEmail,
+                    subject: `Booking Confirmation - Room ${availableRoom.room_number}`,
+                    html: htmlContent
+                };
+
+                if (pdfAttachment) {
+                    emailPayload.attachments = [pdfAttachment];
+                }
+
                 notificationPromises.push(
                     fetch(`${baseUrl}/.netlify/functions/send-email`, {
                         method: 'POST',
-                        body: JSON.stringify({
-                            to: guestEmail,
-                            subject: `Booking Confirmation - Room ${availableRoom.room_number}`,
-                            html: htmlContent
-                        })
+                        body: JSON.stringify(emailPayload)
                     }).then(res => {
                         if (!res.ok) console.error('[CreateBooking] Email Failed:', res.status);
                         else console.log('[CreateBooking] Email Sent');

@@ -51,7 +51,8 @@ export function CalendarPage() {
     adults: 1,
     children: 0,
     totalPrice: 0,
-    notes: ''
+    notes: '',
+    paymentMethod: 'Not paid'
   })
   const [submitting, setSubmitting] = useState(false)
 
@@ -293,6 +294,7 @@ export function CalendarPage() {
         status: 'confirmed',
         source: 'reception',
         notes: formData.notes,
+        payment_method: formData.paymentMethod,
         createdBy: createdBy
       })
 
@@ -309,7 +311,8 @@ export function CalendarPage() {
         adults: 1,
         children: 0,
         totalPrice: 0,
-        notes: ''
+        notes: '',
+        paymentMethod: 'Not paid'
       })
       // Reload data to refresh calendar timeline with new booking
       await loadData()
@@ -531,6 +534,21 @@ export function CalendarPage() {
                     )
                   })()}
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="paymentMethod">Payment Method</Label>
+                <select
+                  id="paymentMethod"
+                  className="w-full px-3 py-2 border rounded-md"
+                  value={formData.paymentMethod}
+                  onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
+                >
+                  <option value="Not paid">Not paid</option>
+                  <option value="Cash">Cash</option>
+                  <option value="Mobile Money">Mobile Money</option>
+                  <option value="Credit/Debit Card">Credit/Debit Card</option>
+                </select>
               </div>
 
               <div className="space-y-2">

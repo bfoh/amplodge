@@ -9,7 +9,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { blink, blinkManaged } from '@/blink/client'
+import { supabase } from '@/lib/supabase'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -25,6 +25,7 @@ import { ActivityLogViewer } from '@/features/history/ActivityLogViewer'
 const employeeSchema = z.object({
   name: z.string().min(2, 'Name is too short'),
   email: z.string().email('Enter a valid email'),
+  phone: z.string().optional(),
   role: z
     .enum(['staff', 'manager', 'admin', 'owner'])
     .default('staff'),
@@ -37,6 +38,7 @@ interface StaffMember {
   userId: string
   name: string
   email: string
+  phone?: string
   role: string
   createdAt: string
 }
@@ -64,7 +66,7 @@ export function EmployeesPage() {
 
   const form = useForm<EmployeeFormValues>({
     resolver: zodResolver(employeeSchema),
-    defaultValues: { name: '', email: '', role: 'staff' },
+    defaultValues: { name: '', email: '', phone: '', role: 'staff' },
   })
 
   // Fetch employees on mount
@@ -74,9 +76,10 @@ export function EmployeesPage() {
 
   const loadEmployees = async () => {
     try {
-      console.log('🔄 [EmployeesPage] Loading employees...')
+      console.log('🔄 [EmployeesPage] Loading employees from Supabase...')
       setIsLoading(true)
-      const user = await blink.auth.me()
+
+      const { data: { user } } = await supabase.auth.getUser()
       console.log('👤 [EmployeesPage] Current user:', user?.email)
       if (!user?.id) {
         console.log('❌ [EmployeesPage] No user ID, setting empty employees')
@@ -84,38 +87,29 @@ export function EmployeesPage() {
         return
       }
 
-      // Try multiple times to get consistent data
-      let staffList = []
-      let attempts = 0
-      const maxAttempts = 3
+      const { data: staffList, error } = await supabase
+        .from('staff')
+        .select('*')
+        .order('created_at', { ascending: false })
 
-      while (attempts < maxAttempts) {
-        try {
-          staffList = await blink.db.staff.list({
-            orderBy: { createdAt: 'desc' },
-          })
-          console.log(`📋 [EmployeesPage] Loaded staff list (attempt ${attempts + 1}):`, staffList)
-
-          if (staffList && staffList.length > 0) {
-            break
-          }
-
-          attempts++
-          if (attempts < maxAttempts) {
-            console.log(`⏳ [EmployeesPage] Retrying in 1 second... (attempt ${attempts + 1}/${maxAttempts})`)
-            await new Promise(resolve => setTimeout(resolve, 1000))
-          }
-        } catch (listError) {
-          console.error(`❌ [EmployeesPage] Error loading staff list (attempt ${attempts + 1}):`, listError)
-          attempts++
-          if (attempts < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, 1000))
-          }
-        }
+      if (error) {
+        console.error('❌ [EmployeesPage] Error loading staff:', error)
+        throw error
       }
 
-      setEmployees(staffList as StaffMember[])
-      console.log('✅ [EmployeesPage] Employees state updated with', staffList.length, 'employees')
+      // Map snake_case to camelCase
+      const mappedStaff: StaffMember[] = (staffList || []).map((s: any) => ({
+        id: s.id,
+        userId: s.user_id,
+        name: s.name,
+        email: s.email,
+        phone: s.phone,
+        role: s.role,
+        createdAt: s.created_at,
+      }))
+
+      setEmployees(mappedStaff)
+      console.log('✅ [EmployeesPage] Employees state updated with', mappedStaff.length, 'employees')
     } catch (err) {
       console.error('❌ [EmployeesPage] Failed to load employees:', err)
       toast({ title: 'Failed to load employees', description: 'Please refresh the page.' })
@@ -132,7 +126,7 @@ export function EmployeesPage() {
   const handleClose = () => {
     setOpen(false)
     setEditingEmployee(null)
-    form.reset({ name: '', email: '', role: 'staff' })
+    form.reset({ name: '', email: '', phone: '', role: 'staff' })
   }
 
   const handleEdit = (employee: StaffMember) => {
@@ -148,6 +142,7 @@ export function EmployeesPage() {
     form.reset({
       name: employee.name,
       email: employee.email,
+      phone: employee.phone || '',
       role: employee.role as any,
     })
     setOpen(true)
@@ -172,7 +167,7 @@ export function EmployeesPage() {
     const deletedEmployee = { ...employeeToDelete }
 
     try {
-      const currentUser = await blink.auth.me()
+      const { data: { user: currentUser } } = await supabase.auth.getUser()
 
       console.log('🗑️ [EmployeesPage] Starting cascade delete for employee:', deletedEmployee.name)
 
@@ -185,102 +180,49 @@ export function EmployeesPage() {
         otherRecords: 0
       }
 
-      // 1. Delete staff record
-      try {
-        await (blink.db as any).staff.delete(deletingEmployee.id)
-        deletionSummary.staffRecord = true
-        console.log('   ✅ Deleted staff record')
-      } catch (staffErr) {
-        console.error('   ❌ Failed to delete staff record:', staffErr)
-        throw staffErr // Critical - don't continue if this fails
-      }
+      console.log('🗑️ [EmployeesPage] Deleting employee:', deletingEmployee.userId)
 
-      // 2. Delete user authentication account (cascade delete)
-      if (deletedEmployee.userId && deletedEmployee.userId !== 'pending') {
+      // 1. Delete from Supabase Auth (via Netlify function)
+      if (deletingEmployee.userId && deletingEmployee.userId !== 'pending') {
         try {
-          console.log('   🔐 Deleting user authentication account...')
-          // Note: Blink Auth might have a deleteUser method, but we'll try via database
-          await (blink.db as any).users.delete(deletedEmployee.userId)
-          deletionSummary.userAccount = true
-          console.log('   ✅ Deleted user authentication account')
-        } catch (userErr: any) {
-          console.warn('   ⚠️ Could not delete user account:', userErr.message)
-          // Non-critical - continue even if this fails
+          console.log('🗑️ [EmployeesPage] Deleting Auth user...')
+          await fetch('/.netlify/functions/delete-employee', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: deletingEmployee.userId })
+          })
+        } catch (authErr) {
+          console.warn('⚠️ [EmployeesPage] Failed to delete Auth user:', authErr)
+          // Continue to delete staff record anyway
         }
       }
 
-      // 3. Delete or anonymize activity logs related to this employee
-      try {
-        console.log('   📝 Cleaning activity logs...')
-        const employeeLogs = await (blink.db as any).activityLogs.list({
-          where: { userId: deletedEmployee.userId }
-        })
+      // 2. Delete staff record
+      const { error: deleteError } = await supabase
+        .from('staff')
+        .delete()
+        .eq('id', deletingEmployee.id)
 
-        for (const log of employeeLogs) {
-          try {
-            await (blink.db as any).activityLogs.delete(log.id)
-            deletionSummary.activityLogs++
-          } catch (logDelErr) {
-            console.warn('   ⚠️ Could not delete activity log:', logDelErr)
-          }
-        }
-        console.log(`   ✅ Deleted ${deletionSummary.activityLogs} activity logs`)
-      } catch (logsErr) {
-        console.warn('   ⚠️ Could not clean activity logs:', logsErr)
+      if (deleteError) {
+        console.error('❌ [EmployeesPage] Staff deletion error:', deleteError)
+        throw deleteError
       }
 
-      // 4. Handle bookings created by this employee (optional - set creator to null or delete)
+      // 3. Log activity
       try {
-        console.log('   📦 Checking for employee-created bookings...')
-        const employeeBookings = await (blink.db as any).bookings.list({
-          where: { userId: deletedEmployee.userId }
-        })
-
-        // Option A: Delete bookings (uncomment if you want to delete)
-        // for (const booking of employeeBookings) {
-        //   await blink.db.bookings.delete(booking.id)
-        //   deletionSummary.bookings++
-        // }
-
-        // Option B: Anonymize bookings (keep booking data, remove employee reference)
-        for (const booking of employeeBookings) {
-          try {
-            await (blink.db as any).bookings.update(booking.id, {
-              userId: null // Remove reference to deleted employee
-            })
-            deletionSummary.bookings++
-          } catch (bookingErr) {
-            console.warn('   ⚠️ Could not update booking:', bookingErr)
-          }
-        }
-        console.log(`   ✅ Anonymized ${deletionSummary.bookings} bookings`)
-      } catch (bookingsErr) {
-        console.warn('   ⚠️ Could not process bookings:', bookingsErr)
-      }
-
-      // Log the cascade deletion with summary
-      try {
-        await (blink.db as any).activityLogs.create({
+        await supabase.from('activity_logs').insert({
           id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-          userId: currentUser.id,
-          action: 'cascade_delete',
-          entityType: 'employee',
-          entityId: deletedEmployee.id,
+          user_id: currentUser.id,
+          action: 'deleted',
+          entity_type: 'employee',
+          entity_id: deletingEmployee.id,
           details: JSON.stringify({
             adminEmail: currentUser.email,
-            employeeName: deletedEmployee.name,
-            employeeEmail: deletedEmployee.email,
-            employeeUserId: deletedEmployee.userId,
-            role: deletedEmployee.role,
-            deletionSummary: {
-              staffRecord: deletionSummary.staffRecord,
-              userAccount: deletionSummary.userAccount,
-              activityLogs: deletionSummary.activityLogs,
-              bookingsAnonymized: deletionSummary.bookings,
-            },
-            timestamp: new Date().toISOString()
+            employeeName: deletingEmployee.name,
+            employeeEmail: deletingEmployee.email,
+            deletedAt: new Date().toISOString()
           }),
-          createdAt: new Date().toISOString(),
+          created_at: new Date().toISOString(),
         })
         console.log('   ✅ Cascade deletion logged')
       } catch (logErr) {
@@ -353,23 +295,29 @@ export function EmployeesPage() {
       // Handle editing existing employee
       if (editingEmployee) {
         try {
-          const currentUser = await blink.auth.me()
+          const { data: { user: currentUser } } = await supabase.auth.getUser()
 
-          await blink.db.staff.update(editingEmployee.id, {
-            name: values.name,
-            role: values.role,
-          })
+          const { error: updateError } = await supabase
+            .from('staff')
+            .update({
+              name: values.name,
+              role: values.role,
+              phone: values.phone
+            })
+            .eq('id', editingEmployee.id)
+
+          if (updateError) throw updateError
 
           // Log activity
           try {
-            await blink.db.activityLogs.create({
+            await supabase.from('activity_logs').insert({
               id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-              userId: currentUser.id,
+              user_id: currentUser?.id,
               action: 'edited',
-              entityType: 'employee',
-              entityId: editingEmployee.id,
+              entity_type: 'employee',
+              entity_id: editingEmployee.id,
               details: JSON.stringify({
-                adminEmail: currentUser.email,
+                adminEmail: currentUser?.email,
                 employeeName: values.name,
                 employeeEmail: editingEmployee.email,
                 oldRole: editingEmployee.role,
@@ -377,9 +325,10 @@ export function EmployeesPage() {
                 changes: {
                   name: editingEmployee.name !== values.name,
                   role: editingEmployee.role !== values.role,
+                  phone: editingEmployee.phone !== values.phone
                 },
               }),
-              createdAt: new Date().toISOString(),
+              created_at: new Date().toISOString(),
             })
           } catch (logErr) {
             console.error('Activity logging failed:', logErr)
@@ -389,7 +338,7 @@ export function EmployeesPage() {
           setEmployees((prev) =>
             prev.map((emp) =>
               emp.id === editingEmployee.id
-                ? { ...emp, name: values.name, role: values.role }
+                ? { ...emp, name: values.name, role: values.role, phone: values.phone }
                 : emp
             )
           )
@@ -412,15 +361,20 @@ export function EmployeesPage() {
       }
 
       // Handle creating new employee
-      const currentUser = await blink.auth.me()
+      const { data: { user: currentUser } } = await supabase.auth.getUser()
       if (!currentUser?.id) {
         toast({ title: 'Sign in required', description: 'Please sign in to add employees.' })
         return
       }
 
       // Optional: quick pre-check if staff email already exists (backend enforces too)
-      const existingStaff = await blink.db.staff.list({ where: { email: values.email } })
-      if (existingStaff && existingStaff.length > 0) {
+      const { data: existingStaffCheck } = await supabase
+        .from('staff')
+        .select('id')
+        .eq('email', values.email)
+        .limit(1)
+
+      if (existingStaffCheck && existingStaffCheck.length > 0) {
         toast({
           title: 'Email already in use',
           description: 'This email is already registered. Please use a different email.',
@@ -436,6 +390,7 @@ export function EmployeesPage() {
         userId: 'pending',
         name: values.name,
         email: values.email,
+        phone: values.phone,
         role: values.role,
         createdAt: new Date().toISOString(),
       }
@@ -449,34 +404,20 @@ export function EmployeesPage() {
         description: `Adding ${values.name} to the system.`,
       })
 
-      // Create employee directly using Blink SDK instead of external API
-      console.log('📡 [EmployeesPage] Creating employee using Blink SDK...')
+      // Create employee using Netlify function for auth and Supabase for staff record
+      console.log('📡 [EmployeesPage] Creating employee...')
 
       try {
-        // Check if email already exists before creating
-        console.log('🔍 [EmployeesPage] Checking for existing email...')
-        const existingStaff = await blink.db.staff.list({ where: { email: values.email } })
-        if (existingStaff && existingStaff.length > 0) {
-          console.log('❌ [EmployeesPage] Email already exists in staff records:', existingStaff[0])
-          toast({
-            title: 'Email already in use',
-            description: 'This email is already registered. Please use a different email.',
-            variant: 'destructive',
-          })
-          return
-        }
-
         // Use default password that employees must change on first login
         const defaultPassword = 'User@123'
 
-        // Create user account using Supabase Auth
-        // This approach works for both local dev and production
         console.log('👤 [EmployeesPage] Creating user account with Supabase Auth...')
 
         let newUser: { id: string; email: string } | null = null
 
-        // First, try using the Netlify function (production)
+        // First, try using the Netlify function (production) - uses Admin API
         try {
+          console.log('📡 [EmployeesPage] Calling Netlify function to create auth user...')
           const response = await fetch('/.netlify/functions/create-employee', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -484,19 +425,40 @@ export function EmployeesPage() {
               email: values.email,
               password: defaultPassword,
               name: values.name,
-              role: values.role
+              role: values.role,
+              phone: values.phone
             })
           })
 
+          console.log('📡 [EmployeesPage] Netlify function response status:', response.status)
+
+          if (response.status === 409) {
+            console.warn('❌ [EmployeesPage] User already exists (409)')
+            toast({
+              title: 'User already exists',
+              description: 'An account with this email already exists in the system.',
+              variant: 'destructive',
+            })
+            // Remove optimistic entry
+            setEmployees((prev) => prev.filter(e => e.id !== staffId))
+            return
+          }
+
           if (response.ok) {
             const result = await response.json()
+            console.log('📡 [EmployeesPage] Netlify function result:', result)
             if (result.success && result.user?.id) {
               newUser = result.user
               console.log('✅ [EmployeesPage] User created via Netlify function:', newUser.id)
+            } else {
+              console.error('❌ [EmployeesPage] Netlify function returned success:false or no user:', result)
             }
+          } else {
+            const errorResult = await response.text()
+            console.error('❌ [EmployeesPage] Netlify function failed with status', response.status, ':', errorResult)
           }
         } catch (netlifyError) {
-          console.log('ℹ️ [EmployeesPage] Netlify function not available, using direct Supabase signUp')
+          console.error('❌ [EmployeesPage] Netlify function error:', netlifyError)
         }
 
         // Fallback: Use direct Supabase signUp (for local development)
@@ -560,9 +522,9 @@ export function EmployeesPage() {
 
         // Set first login flag to force password change
         try {
-          await (blink.db as any).users.update(newUser.id, {
-            firstLogin: "1"
-          })
+          await supabase.from('users').update({
+            first_login: 1
+          }).eq('id', newUser.id)
           console.log('✅ [EmployeesPage] First login flag set')
         } catch (flagError) {
           console.warn('⚠️ [EmployeesPage] Could not set first login flag:', flagError)
@@ -571,14 +533,24 @@ export function EmployeesPage() {
 
         // Create staff record
         console.log('👥 [EmployeesPage] Creating staff record...')
-        const newStaff = await blink.db.staff.create({
-          id: staffId,
-          userId: newUser.id,
-          name: values.name,
-          email: values.email,
-          role: values.role,
-          createdAt: new Date().toISOString(),
-        })
+        const { data: newStaff, error: staffError } = await supabase
+          .from('staff')
+          .insert({
+            id: staffId,
+            user_id: newUser.id,
+            name: values.name,
+            email: values.email,
+            phone: values.phone || null,
+            role: values.role,
+            created_at: new Date().toISOString(),
+          })
+          .select()
+          .single()
+
+        if (staffError) {
+          console.error('❌ [EmployeesPage] Staff record creation error:', staffError)
+          throw staffError
+        }
 
         console.log('✅ [EmployeesPage] Staff record created:', newStaff)
 
@@ -692,8 +664,12 @@ export function EmployeesPage() {
         console.log('✅ [EmployeesPage] Employee list refreshed successfully')
 
         // Verify the new employee is in the list
-        const updatedList = await blink.db.staff.list({ orderBy: { createdAt: 'desc' } })
-        const newEmployeeInList = updatedList.find(emp => emp.email === values.email)
+        const { data: updatedList } = await supabase
+          .from('staff')
+          .select('*')
+          .order('created_at', { ascending: false })
+
+        const newEmployeeInList = updatedList?.find(emp => emp.email === values.email)
 
         if (newEmployeeInList) {
           console.log('✅ [EmployeesPage] New employee confirmed in database:', newEmployeeInList)
@@ -729,7 +705,8 @@ export function EmployeesPage() {
     return employees.filter(
       (emp) =>
         emp.name.toLowerCase().includes(lowerQuery) ||
-        emp.email.toLowerCase().includes(lowerQuery)
+        emp.email.toLowerCase().includes(lowerQuery) ||
+        (emp.phone && emp.phone.includes(lowerQuery))
     )
   }, [employees, query])
 
@@ -1187,6 +1164,20 @@ export function EmployeesPage() {
                     <FormLabel>Email</FormLabel>
                     <FormControl>
                       <Input type="email" placeholder="jane@example.com" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Phone (Optional)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="+233..." {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

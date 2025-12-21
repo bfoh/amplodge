@@ -1,4 +1,6 @@
 import { hotelSettingsService } from './hotel-settings'
+import { bookingChargesService } from './booking-charges-service'
+import { BookingCharge } from '@/types'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 import { sendTransactionalEmail } from '@/services/email-service'
@@ -27,6 +29,8 @@ interface InvoiceData {
     roomRate: number
     nights: number
     subtotal: number
+    additionalCharges: BookingCharge[]
+    additionalChargesTotal: number
     taxRate: number
     taxAmount: number
     total: number
@@ -72,6 +76,10 @@ export async function createInvoiceData(booking: BookingWithDetails, roomDetails
     // Get real hotel settings from database
     const hotelSettings = await hotelSettingsService.getHotelSettings()
 
+    // Fetch additional charges for this booking
+    const additionalCharges = await bookingChargesService.getChargesForBooking(booking.id)
+    const additionalChargesTotal = additionalCharges.reduce((sum, c) => sum + (c.amount || 0), 0)
+
     const invoiceNumber = `INV-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
     const invoiceDate = new Date().toISOString()
     const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30 days from now
@@ -92,27 +100,29 @@ export async function createInvoiceData(booking: BookingWithDetails, roomDetails
       throw new Error('Check-out date cannot be before check-in date')
     }
 
-    // TAX UPDATE: 17% of the TOTAL amount
+    // TAX UPDATE: 17% of the TOTAL amount (room + additional charges)
     const taxRate = 0.17
 
-    // Booking price is treated as the TOTAL amount
-    const total = booking.totalPrice
-    const taxAmount = total * taxRate
-    const subtotal = total - taxAmount
+    // Room price from booking
+    const roomTotal = booking.totalPrice
 
-    // Note: roomRate calculation needs to adjust if it was derived from total previously
-    // If roomRate was total / nights, now it should conceptually be subtotal / nights?
-    // But usually room rate is presented inclusive or exclusive. 
-    // Let's keep roomRate consistent with how it matches the total.
-    // If the logical "Room Charge" line item should sum to Subtotal:
-    const roomRate = subtotal / nights
+    // Grand total = room cost + additional charges
+    const grandTotal = roomTotal + additionalChargesTotal
+    const taxAmount = grandTotal * taxRate
+    const subtotal = grandTotal - taxAmount
 
-    console.log('✅ [InvoiceData] Invoice data created with updated tax settings:', {
+    // Room rate per night (based on room subtotal)
+    const roomSubtotal = roomTotal - (roomTotal * taxRate)
+    const roomRate = roomSubtotal / nights
+
+    console.log('✅ [InvoiceData] Invoice data created with charges:', {
       hotelName: hotelSettings.name,
       taxRate: `${(taxRate * 100).toFixed(1)}%`,
       invoiceNumber,
       nights,
-      total,
+      roomTotal,
+      additionalChargesTotal,
+      grandTotal,
       taxAmount
     })
 
@@ -139,9 +149,11 @@ export async function createInvoiceData(booking: BookingWithDetails, roomDetails
         roomRate,
         nights,
         subtotal,
+        additionalCharges,
+        additionalChargesTotal,
         taxRate,
         taxAmount,
-        total
+        total: grandTotal
       },
       hotel: {
         name: hotelSettings.name,
@@ -179,18 +191,18 @@ export async function generateInvoiceHTML(invoiceData: InvoiceData): Promise<str
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.4; color: #333; background: #fff; font-size: 12px; }
           .invoice-container { max-width: 800px; margin: 0 auto; padding: 20px 40px; background: #fff; }
-          .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; border-bottom: 2px solid #2563eb; padding-bottom: 10px; }
-          .hotel-info h1 { color: #2563eb; font-size: 24px; font-weight: bold; margin-bottom: 5px; }
+          .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; border-bottom: 2px solid #8B4513; padding-bottom: 10px; }
+          .hotel-info h1 { color: #8B4513; font-size: 24px; font-weight: bold; margin-bottom: 5px; }
           .hotel-info p { color: #666; font-size: 11px; margin: 1px 0; }
           .invoice-meta { text-align: right; }
-          .invoice-meta h2 { color: #2563eb; font-size: 18px; margin-bottom: 5px; }
+          .invoice-meta h2 { color: #8B4513; font-size: 18px; margin-bottom: 5px; }
           .invoice-meta p { color: #666; font-size: 11px; margin: 1px 0; }
           .invoice-details { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
-          .bill-to, .invoice-info { background: #f8fafc; padding: 15px; border-radius: 6px; }
-          .bill-to h3, .invoice-info h3 { color: #2563eb; font-size: 14px; margin-bottom: 5px; font-weight: bold; }
+          .bill-to, .invoice-info { background: #F5F1E8; padding: 15px; border-radius: 6px; }
+          .bill-to h3, .invoice-info h3 { color: #8B4513; font-size: 14px; margin-bottom: 5px; font-weight: bold; }
           .bill-to p, .invoice-info p { color: #555; font-size: 11px; margin: 2px 0; }
           .charges-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 11px; }
-          .charges-table th { background: #2563eb; color: white; padding: 8px; text-align: left; font-weight: bold; }
+          .charges-table th { background: #8B4513; color: white; padding: 8px; text-align: left; font-weight: bold; }
           .charges-table td { padding: 8px; border-bottom: 1px solid #e5e7eb; }
           .charges-table tr:nth-child(even) { background: #f9fafb; }
           .charges-table .text-right { text-align: right; }
@@ -198,11 +210,11 @@ export async function generateInvoiceHTML(invoiceData: InvoiceData): Promise<str
           .totals { display: flex; justify-content: flex-end; margin-bottom: 20px; }
           .totals-table { width: 250px; font-size: 11px; }
           .totals-table td { padding: 5px 10px; border-bottom: 1px solid #e5e7eb; }
-          .totals-table .total-row { background: #2563eb; color: white; font-weight: bold; font-size: 14px; }
+          .totals-table .total-row { background: #8B4513; color: white; font-weight: bold; font-size: 14px; }
           .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #e5e7eb; text-align: center; color: #666; font-size: 10px; }
           .footer p { margin: 2px 0; }
-          .thank-you { background: #f0f9ff; padding: 15px; border-radius: 6px; text-align: center; margin-top: 15px; }
-          .thank-you h3 { color: #2563eb; font-size: 14px; margin-bottom: 5px; }
+          .thank-you { background: #F5F1E8; padding: 15px; border-radius: 6px; text-align: center; margin-top: 15px; }
+          .thank-you h3 { color: #8B4513; font-size: 14px; margin-bottom: 5px; }
           .thank-you p { color: #555; font-size: 11px; }
           @media print { 
             .invoice-container { padding: 10px 20px; } 
@@ -219,7 +231,7 @@ export async function generateInvoiceHTML(invoiceData: InvoiceData): Promise<str
                 <div style="display: flex; align-items: center; margin-right: 15px;">
                   <img src="/amp.png" alt="AMP LODGE" style="height: 40px; width: auto; max-width: 120px;" />
                 </div>
-                <h1 style="margin: 0; color: #2563eb; font-size: 32px; font-weight: bold;">${invoiceData.hotel.name}</h1>
+                <h1 style="margin: 0; color: #8B4513; font-size: 32px; font-weight: bold;">${invoiceData.hotel.name}</h1>
               </div>
               <p>${invoiceData.hotel.address}</p>
               <p>Phone: ${invoiceData.hotel.phone}</p>
@@ -227,7 +239,7 @@ export async function generateInvoiceHTML(invoiceData: InvoiceData): Promise<str
               <p>Website: ${invoiceData.hotel.website}</p>
             </div>
             <div class="invoice-meta">
-              <h2>INVOICE</h2>
+              <h2>${invoiceData.invoiceNumber.startsWith('PRE-') ? 'PRE-INVOICE' : 'INVOICE'}</h2>
               <p><strong>Invoice #:</strong> ${invoiceData.invoiceNumber}</p>
               <p><strong>Date:</strong> ${new Date(invoiceData.invoiceDate).toLocaleDateString()}</p>
               <p><strong>Due Date:</strong> ${new Date(invoiceData.dueDate).toLocaleDateString()}</p>
@@ -259,7 +271,7 @@ export async function generateInvoiceHTML(invoiceData: InvoiceData): Promise<str
             <thead>
               <tr>
                 <th>Description</th>
-                <th class="text-center">Nights</th>
+                <th class="text-center">Qty</th>
                 <th class="text-right">Rate</th>
                 <th class="text-right">Amount</th>
               </tr>
@@ -267,16 +279,34 @@ export async function generateInvoiceHTML(invoiceData: InvoiceData): Promise<str
             <tbody>
               <tr>
                 <td>Room ${invoiceData.booking.roomNumber} - ${invoiceData.booking.roomType}</td>
-                <td class="text-center">${invoiceData.charges.nights}</td>
-                <td class="text-right">${formatCurrencySync(invoiceData.charges.roomRate, currency)}</td>
-                <td class="text-right">${formatCurrencySync(invoiceData.charges.subtotal, currency)}</td>
+                <td class="text-center">${invoiceData.charges.nights} nights</td>
+                <td class="text-right">${formatCurrencySync(invoiceData.charges.roomRate, currency)}/night</td>
+                <td class="text-right">${formatCurrencySync(invoiceData.charges.roomRate * invoiceData.charges.nights, currency)}</td>
               </tr>
+              ${invoiceData.charges.additionalCharges.map(charge => `
+              <tr>
+                <td>${charge.description}</td>
+                <td class="text-center">${charge.quantity}</td>
+                <td class="text-right">${formatCurrencySync(charge.unitPrice, currency)}</td>
+                <td class="text-right">${formatCurrencySync(charge.amount, currency)}</td>
+              </tr>
+              `).join('')}
             </tbody>
           </table>
 
           <!-- Totals -->
           <div class="totals">
             <table class="totals-table">
+              <tr>
+                <td>Room Charges:</td>
+                <td class="text-right">${formatCurrencySync(invoiceData.charges.roomRate * invoiceData.charges.nights, currency)}</td>
+              </tr>
+              ${invoiceData.charges.additionalChargesTotal > 0 ? `
+              <tr>
+                <td>Additional Charges:</td>
+                <td class="text-right">${formatCurrencySync(invoiceData.charges.additionalChargesTotal, currency)}</td>
+              </tr>
+              ` : ''}
               <tr>
                 <td>Subtotal:</td>
                 <td class="text-right">${formatCurrencySync(invoiceData.charges.subtotal, currency)}</td>
@@ -348,7 +378,9 @@ export async function generateInvoicePDF(invoiceData: InvoiceData): Promise<Blob
     document.body.removeChild(element)
 
     // Create PDF
-    const imgData = canvas.toDataURL('image/png')
+    // Use JPEG with quality 0.95 to reduce file size while maintaining good quality
+    // PNG can produce very large files (3-5MB+) which hits Netlify function payload limits (6MB)
+    const imgData = canvas.toDataURL('image/jpeg', 0.95)
     const pdf = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
@@ -363,14 +395,14 @@ export async function generateInvoicePDF(invoiceData: InvoiceData): Promise<Blob
     let position = 0
 
     // Add image to PDF
-    pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
+    pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight)
     heightLeft -= pageHeight
 
     // Add new pages if needed
     while (heightLeft >= 0) {
       position = heightLeft - imgHeight
       pdf.addPage()
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
+      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight)
       heightLeft -= pageHeight
     }
 
@@ -411,19 +443,19 @@ export async function sendInvoiceEmail(invoiceData: InvoiceData, pdfBlob: Blob):
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f4f4f4; }
           .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-          .header { background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; margin: -20px -20px 30px -20px; }
+          .header { background: linear-gradient(135deg, #8B4513 0%, #7a3d11 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; margin: -20px -20px 30px -20px; }
           .header h1 { margin: 0; font-size: 28px; font-weight: bold; }
           .header p { margin: 10px 0 0 0; opacity: 0.9; font-size: 16px; }
-          .invoice-summary { background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 8px; padding: 20px; margin: 20px 0; }
-          .invoice-summary h2 { color: #2563eb; font-size: 20px; margin-bottom: 15px; }
-          .summary-row { display: flex; justify-content: space-between; margin: 8px 0; padding: 5px 0; border-bottom: 1px solid #e2e8f0; }
-          .summary-row:last-child { border-bottom: none; font-weight: bold; color: #2563eb; }
+          .invoice-summary { background: #F5F1E8; border: 2px solid #E5E1D8; border-radius: 8px; padding: 20px; margin: 20px 0; }
+          .invoice-summary h2 { color: #8B4513; font-size: 20px; margin-bottom: 15px; }
+          .summary-row { display: flex; justify-content: space-between; margin: 8px 0; padding: 5px 0; border-bottom: 1px solid #E5E1D8; }
+          .summary-row:last-child { border-bottom: none; font-weight: bold; color: #8B4513; }
           .summary-label { color: #555; }
           .summary-value { color: #333; font-weight: 500; }
-          .download-section { background: #f0f9ff; border: 1px solid #0ea5e9; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center; }
-          .download-section h3 { color: #0c4a6e; margin: 0 0 15px 0; font-size: 18px; }
-          .download-btn { background: #2563eb; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block; margin: 10px; }
-          .download-btn:hover { background: #1d4ed8; }
+          .download-section { background: #F5F1E8; border: 1px solid #8B4513; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center; }
+          .download-section h3 { color: #5c3616; margin: 0 0 15px 0; font-size: 18px; }
+          .download-btn { background: #8B4513; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block; margin: 10px; }
+          .download-btn:hover { background: #7a3d11; }
           .footer { text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e9ecef; color: #6c757d; font-size: 14px; }
           .footer p { margin: 5px 0; }
         </style>
@@ -540,7 +572,7 @@ Website: ${invoiceData.hotel.website}
 
     if (result.success) {
       console.log('✅ [InvoiceEmail] Email sent successfully')
-      return { success: true, result }
+      return { success: true }
     }
 
     console.error('❌ [InvoiceEmail] Email send reported failure:', result.error)
@@ -616,5 +648,265 @@ export async function printInvoice(invoiceData: InvoiceData): Promise<void> {
   } catch (error: any) {
     console.error('❌ [StaffPrint] Failed to print invoice:', error)
     throw new Error(`Failed to print invoice: ${error.message}`)
+  }
+}
+
+// ===================== PRE-INVOICE FUNCTIONS =====================
+
+export interface PreInvoiceData extends InvoiceData {
+  status: 'pending' | 'paid'
+  isPreInvoice: boolean
+}
+
+/**
+ * Create pre-invoice data for a confirmed booking (not yet paid)
+ */
+export async function createPreInvoiceData(booking: BookingWithDetails, roomDetails: any): Promise<PreInvoiceData> {
+  console.log('📋 [PreInvoice] Creating pre-invoice data for booking:', booking.id)
+
+  // Use the existing createInvoiceData function as base
+  const invoiceData = await createInvoiceData(booking, roomDetails)
+
+  // Add pre-invoice specific fields
+  return {
+    ...invoiceData,
+    invoiceNumber: `PRE-${invoiceData.invoiceNumber}`,
+    status: 'pending',
+    isPreInvoice: true
+  }
+}
+
+/**
+ * Generate HTML for a pre-invoice (with PRE-INVOICE header and UNPAID status)
+ */
+export async function generatePreInvoiceHTML(preInvoiceData: PreInvoiceData): Promise<string> {
+  try {
+    console.log('📄 [PreInvoiceHTML] Generating pre-invoice HTML...', {
+      invoiceNumber: preInvoiceData.invoiceNumber,
+      guestName: preInvoiceData.guest.name
+    })
+
+    const settings = await hotelSettingsService.getHotelSettings()
+    const currency = settings.currency || 'GHS'
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Pre-Invoice ${preInvoiceData.invoiceNumber}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.4; color: #333; background: #fff; font-size: 12px; }
+          .invoice-container { max-width: 800px; margin: 0 auto; padding: 20px 40px; background: #fff; }
+          .pre-invoice-banner { background: #f59e0b; color: white; padding: 10px; text-align: center; font-weight: bold; font-size: 14px; margin-bottom: 15px; border-radius: 4px; }
+          .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; border-bottom: 2px solid #8B4513; padding-bottom: 10px; }
+          .hotel-info h1 { color: #8B4513; font-size: 24px; font-weight: bold; margin-bottom: 5px; }
+          .hotel-info p { color: #666; font-size: 11px; margin: 1px 0; }
+          .invoice-meta { text-align: right; }
+          .invoice-meta h2 { color: #f59e0b; font-size: 18px; margin-bottom: 5px; }
+          .invoice-meta p { color: #666; font-size: 11px; margin: 1px 0; }
+          .status-badge { display: inline-block; background: #fef3c7; color: #92400e; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: bold; margin-top: 8px; }
+          .invoice-details { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+          .bill-to, .invoice-info { background: #F5F1E8; padding: 15px; border-radius: 6px; }
+          .bill-to h3, .invoice-info h3 { color: #8B4513; font-size: 14px; margin-bottom: 5px; font-weight: bold; }
+          .bill-to p, .invoice-info p { color: #555; font-size: 11px; margin: 2px 0; }
+          .charges-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 11px; }
+          .charges-table th { background: #8B4513; color: white; padding: 8px; text-align: left; font-weight: bold; }
+          .charges-table td { padding: 8px; border-bottom: 1px solid #e5e7eb; }
+          .charges-table tr:nth-child(even) { background: #f9fafb; }
+          .charges-table .text-right { text-align: right; }
+          .charges-table .text-center { text-align: center; }
+          .totals { display: flex; justify-content: flex-end; margin-bottom: 20px; }
+          .totals-table { width: 250px; font-size: 11px; }
+          .totals-table td { padding: 5px 10px; border-bottom: 1px solid #e5e7eb; }
+          .totals-table .total-row { background: #f59e0b; color: white; font-weight: bold; font-size: 14px; }
+          .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #e5e7eb; text-align: center; color: #666; font-size: 10px; }
+          .footer p { margin: 2px 0; }
+          .payment-notice { background: #fef3c7; border: 2px solid #f59e0b; padding: 15px; border-radius: 6px; text-align: center; margin-top: 15px; }
+          .payment-notice h3 { color: #92400e; font-size: 14px; margin-bottom: 5px; }
+          .payment-notice p { color: #78350f; font-size: 11px; }
+          @media print { 
+            .invoice-container { padding: 10px 20px; } 
+            body { -webkit-print-color-adjust: exact; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="invoice-container">
+          <!-- Pre-Invoice Banner -->
+          <div class="pre-invoice-banner">
+            ⏳ PRE-INVOICE - PAYMENT DUE AT CHECK-IN
+          </div>
+
+          <!-- Header -->
+          <div class="header">
+            <div class="hotel-info">
+              <div style="display: flex; align-items: center; margin-bottom: 15px;">
+                <div style="display: flex; align-items: center; margin-right: 15px;">
+                  <img src="/amp.png" alt="AMP LODGE" style="height: 40px; width: auto; max-width: 120px;" />
+                </div>
+                <h1 style="margin: 0; color: #8B4513; font-size: 32px; font-weight: bold;">${preInvoiceData.hotel.name}</h1>
+              </div>
+              <p>${preInvoiceData.hotel.address}</p>
+              <p>Phone: ${preInvoiceData.hotel.phone}</p>
+              <p>Email: ${preInvoiceData.hotel.email}</p>
+              <p>Website: ${preInvoiceData.hotel.website}</p>
+            </div>
+            <div class="invoice-meta">
+              <h2>PRE-INVOICE</h2>
+              <p><strong>Invoice #:</strong> ${preInvoiceData.invoiceNumber}</p>
+              <p><strong>Date:</strong> ${new Date(preInvoiceData.invoiceDate).toLocaleDateString()}</p>
+              <p><strong>Due Date:</strong> At Check-in</p>
+              <span class="status-badge">⏳ UNPAID</span>
+            </div>
+          </div>
+
+          <!-- Invoice Details -->
+          <div class="invoice-details">
+            <div class="bill-to">
+              <h3>Bill To:</h3>
+              <p><strong>${preInvoiceData.guest.name}</strong></p>
+              ${preInvoiceData.guest.email ? `<p>${preInvoiceData.guest.email}</p>` : ''}
+              ${preInvoiceData.guest.phone ? `<p>Phone: ${preInvoiceData.guest.phone}</p>` : ''}
+              ${preInvoiceData.guest.address ? `<p>${preInvoiceData.guest.address}</p>` : ''}
+            </div>
+            <div class="invoice-info">
+              <h3>Booking Details:</h3>
+              <p><strong>Booking ID:</strong> ${preInvoiceData.booking.id}</p>
+              <p><strong>Room:</strong> ${preInvoiceData.booking.roomNumber} (${preInvoiceData.booking.roomType})</p>
+              <p><strong>Check-in:</strong> ${new Date(preInvoiceData.booking.checkIn).toLocaleDateString()}</p>
+              <p><strong>Check-out:</strong> ${new Date(preInvoiceData.booking.checkOut).toLocaleDateString()}</p>
+              <p><strong>Nights:</strong> ${preInvoiceData.booking.nights}</p>
+              <p><strong>Guests:</strong> ${preInvoiceData.booking.numGuests}</p>
+            </div>
+          </div>
+
+          <!-- Charges Table -->
+          <table class="charges-table">
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th class="text-center">Qty/Nights</th>
+                <th class="text-right">Rate</th>
+                <th class="text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>${preInvoiceData.booking.roomType} - Room ${preInvoiceData.booking.roomNumber}</td>
+                <td class="text-center">${preInvoiceData.charges.nights}</td>
+                <td class="text-right">${formatCurrencySync(preInvoiceData.charges.roomRate, currency)}/night</td>
+                <td class="text-right">${formatCurrencySync(preInvoiceData.charges.subtotal, currency)}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Totals -->
+          <div class="totals">
+            <table class="totals-table">
+              <tr>
+                <td>Subtotal</td>
+                <td class="text-right">${formatCurrencySync(preInvoiceData.charges.subtotal, currency)}</td>
+              </tr>
+              <tr>
+                <td>Tax (${(preInvoiceData.charges.taxRate * 100).toFixed(0)}%)</td>
+                <td class="text-right">${formatCurrencySync(preInvoiceData.charges.taxAmount, currency)}</td>
+              </tr>
+              <tr class="total-row">
+                <td><strong>Total Due</strong></td>
+                <td class="text-right"><strong>${formatCurrencySync(preInvoiceData.charges.total, currency)}</strong></td>
+              </tr>
+            </table>
+          </div>
+
+          <!-- Payment Notice -->
+          <div class="payment-notice">
+            <h3>💳 Payment Information</h3>
+            <p>Full payment of <strong>${formatCurrencySync(preInvoiceData.charges.total, currency)}</strong> is due upon check-in.</p>
+            <p>We accept Cash, Mobile Money, and Bank Transfers.</p>
+          </div>
+
+          <!-- Footer -->
+          <div class="footer">
+            <p>This is a pre-invoice. Final invoice will be issued after checkout.</p>
+            <p>Thank you for choosing ${preInvoiceData.hotel.name}!</p>
+            <p>© ${new Date().getFullYear()} ${preInvoiceData.hotel.name}. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `
+
+    console.log('✅ [PreInvoiceHTML] Pre-invoice HTML generated successfully')
+    return htmlContent
+  } catch (error: any) {
+    console.error('❌ [PreInvoiceHTML] Failed to generate pre-invoice HTML:', error)
+    throw new Error(`Failed to generate pre-invoice HTML: ${error.message}`)
+  }
+}
+
+/**
+ * Generate and download pre-invoice PDF
+ */
+export async function downloadPreInvoicePDF(preInvoiceData: PreInvoiceData): Promise<void> {
+  try {
+    console.log('📥 [PreInvoicePDF] Generating pre-invoice PDF for download...', {
+      invoiceNumber: preInvoiceData.invoiceNumber,
+      guestName: preInvoiceData.guest.name
+    })
+
+    const htmlContent = await generatePreInvoiceHTML(preInvoiceData)
+
+    // Create a temporary element to render the HTML
+    const element = document.createElement('div')
+    element.innerHTML = htmlContent
+    element.style.position = 'absolute'
+    element.style.left = '-9999px'
+    element.style.top = '0'
+    document.body.appendChild(element)
+
+    // Convert HTML to canvas
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#ffffff'
+    })
+
+    // Remove the temporary element
+    document.body.removeChild(element)
+
+    // Create PDF
+    const imgData = canvas.toDataURL('image/jpeg', 0.95)
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    })
+
+    const imgWidth = 210
+    const pageHeight = 295
+    const imgHeight = (canvas.height * imgWidth) / canvas.width
+    let heightLeft = imgHeight
+
+    let position = 0
+    pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight)
+    heightLeft -= pageHeight
+
+    while (heightLeft >= 0) {
+      position = heightLeft - imgHeight
+      pdf.addPage()
+      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight)
+      heightLeft -= pageHeight
+    }
+
+    // Download the PDF
+    pdf.save(`pre-invoice-${preInvoiceData.invoiceNumber}.pdf`)
+
+    console.log('✅ [PreInvoicePDF] Pre-invoice PDF downloaded successfully')
+  } catch (error: any) {
+    console.error('❌ [PreInvoicePDF] Failed to download pre-invoice PDF:', error)
+    throw new Error(`Failed to download pre-invoice PDF: ${error.message}`)
   }
 }

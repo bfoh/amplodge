@@ -162,12 +162,15 @@ export async function sendCheckInSMS(params: {
     guestName: string
     roomNumber: string
     checkOutDate: string
+    paymentMethod?: string
+    totalAmount?: number | string
 }): Promise<SMSResult> {
-    const { phone, guestName, roomNumber, checkOutDate } = params
+    const { phone, guestName, roomNumber, checkOutDate, paymentMethod, totalAmount } = params
 
     const message = `Welcome ${guestName}!
 You are checked in to Room ${roomNumber}.
 Checkout: ${new Date(checkOutDate).toLocaleDateString()} @ 11AM
+${totalAmount && paymentMethod ? `Paid: ${totalAmount} (${paymentMethod})` : ''}
 WiFi password at front desk.
 BFast: 7-10AM
 Dial +233555009697 for help.
@@ -232,4 +235,39 @@ Link: ${completionUrl}
 www.amplodge.org`
 
     return sendSMS(phone, message, 'Task Assignment')
+}
+
+/**
+ * Send manager notification when a guest checks in
+ */
+export async function sendManagerCheckInSMS(params: {
+    phone: string
+    guestName: string
+    roomNumber: string
+    staffName?: string
+    paymentAmount?: string
+    paymentMethod?: string
+}): Promise<SMSResult> {
+    const { phone, guestName, roomNumber, staffName, paymentAmount, paymentMethod } = params
+
+    const now = new Date()
+    const time = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    const date = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+
+    let message = `🔔 CHECK-IN ALERT
+Guest: ${guestName}
+Room: ${roomNumber}
+Time: ${date} ${time}`
+
+    if (staffName) {
+        message += `\nStaff: ${staffName}`
+    }
+
+    if (paymentAmount && paymentMethod) {
+        message += `\nPaid: ${paymentAmount} (${paymentMethod})`
+    }
+
+    message += `\n\nAMP Lodge`
+
+    return sendSMS(phone, message, 'Manager Check-in Alert')
 }

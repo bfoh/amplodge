@@ -16,6 +16,16 @@ import {
   DropdownMenuTrigger
 } from '../../components/ui/dropdown-menu'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../../components/ui/alert-dialog"
+import {
   Table,
   TableBody,
   TableCell,
@@ -35,6 +45,7 @@ export function GuestsPage() {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [formData, setFormData] = useState({
     name: '',
@@ -243,14 +254,19 @@ export function GuestsPage() {
     }
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this guest? This will also delete all their bookings and history. This action cannot be undone.')) return
+  const handleDeleteClick = (id: string) => {
+    setDeleteId(id)
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteId) return
+
     try {
       const user = await blink.auth.me()
-      const guest = guests.find(g => g.id === id)
+      const guest = guests.find(g => g.id === deleteId)
 
       // 1. Delete associated bookings first (Cascade Delete)
-      const guestBookings = await blink.db.bookings.list({ where: { guestId: id } })
+      const guestBookings = await blink.db.bookings.list({ where: { guestId: deleteId } })
 
       if (guestBookings.length > 0) {
         toast.message(`Deleting ${guestBookings.length} associated booking(s)...`)
@@ -265,10 +281,10 @@ export function GuestsPage() {
       }
 
       // 2. Delete the guest
-      await blink.db.guests.delete(id)
+      await blink.db.guests.delete(deleteId)
 
       // Log activity
-      await activityLogService.logGuestDeleted(id, guest?.name || 'Unknown Guest', user.id)
+      await activityLogService.logGuestDeleted(deleteId, guest?.name || 'Unknown Guest', user.id)
         .catch(err => console.error('Failed to log guest deletion:', err))
 
       toast.success('Guest and associated data deleted')
@@ -276,6 +292,8 @@ export function GuestsPage() {
     } catch (error) {
       console.error('Failed to delete guest:', error)
       toast.error('Failed to delete guest')
+    } finally {
+      setDeleteId(null)
     }
   }
 
@@ -573,7 +591,7 @@ export function GuestsPage() {
                         </DropdownMenuItem>
                         {canDeleteGuests && (
                           <DropdownMenuItem
-                            onClick={() => handleDelete(guest.id)}
+                            onClick={() => handleDeleteClick(guest.id)}
                             className="text-destructive"
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
@@ -589,6 +607,24 @@ export function GuestsPage() {
           </TableBody>
         </Table>
       </div>
+
+      <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the guest record,
+              including all their bookings and history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

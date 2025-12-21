@@ -4,6 +4,16 @@ import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../../components/ui/alert-dialog"
 import { Plus, Calendar, User, Home, Search, Trash2 } from 'lucide-react'
 import { blink } from '../../blink/client'
 import { toast } from 'sonner'
@@ -41,6 +51,7 @@ interface BookingWithDetails {
   totalPrice: number
   numGuests: number
   nights: number
+  paymentMethod?: string
 }
 
 export function BookingsPage() {
@@ -54,6 +65,7 @@ export function BookingsPage() {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [formData, setFormData] = useState({
     propertyId: '',
@@ -66,7 +78,8 @@ export function BookingsPage() {
     adults: 1,
     children: 0,
     totalPrice: 0,
-    notes: ''
+    notes: '',
+    paymentMethod: 'Not paid'
   })
 
   const activeStatuses = new Set(['reserved', 'confirmed', 'checked-in'])
@@ -151,7 +164,8 @@ export function BookingsPage() {
           source: b.source,
           totalPrice: b.amount,
           numGuests: b.numGuests,
-          nights
+          nights,
+          paymentMethod: b.payment_method || b.paymentMethod || 'Not paid'
         }
       })
 
@@ -255,8 +269,9 @@ export function BookingsPage() {
         status: 'confirmed',
         source: 'reception',
         notes: formData.notes,
+        payment_method: formData.paymentMethod,
         createdBy: staffData?.userId || staffData?.id,
-        createdByName: staffData?.name || staffData?.user?.name || 'Staff'
+        createdByName: staffData?.name || (staffData as any)?.user?.name || 'Staff'
       }
 
       // Comprehensive fallback: Get current user ID directly if staffData is not available
@@ -314,28 +329,34 @@ export function BookingsPage() {
       adults: 1,
       children: 0,
       totalPrice: 0,
-      notes: ''
+      notes: '',
+      paymentMethod: 'Not paid'
     })
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this booking?')) return
-    try {
-      console.log('[BookingsPage] Deleting booking with ID:', id)
+  const handleDeleteClick = (id: string) => {
+    setDeleteId(id)
+  }
 
-      const booking = bookings.find(b => b.id === id)
+  const confirmDelete = async () => {
+    if (!deleteId) return
+
+    try {
+      console.log('[BookingsPage] Deleting booking with ID:', deleteId)
+
+      const booking = bookings.find(b => b.id === deleteId)
       if (!booking) {
         toast.error('Booking not found')
         return
       }
 
       // Use bookingEngine.deleteBooking() which handles everything properly
-      await bookingEngine.deleteBooking(id)
+      await bookingEngine.deleteBooking(deleteId)
 
       toast.success('Booking deleted successfully')
 
       // Optimistically remove from UI
-      setBookings(prev => prev.filter(b => b.id !== id))
+      setBookings(prev => prev.filter(b => b.id !== deleteId))
 
       // Refresh data to ensure sync with backend
       await loadData()
@@ -344,6 +365,8 @@ export function BookingsPage() {
       toast.error(error instanceof Error ? error.message : 'Failed to delete booking')
       // Reload data to restore UI state if deletion failed
       await loadData()
+    } finally {
+      setDeleteId(null)
     }
   }
 
@@ -530,6 +553,21 @@ export function BookingsPage() {
               </div>
 
               <div className="space-y-2">
+                <Label htmlFor="paymentMethod">Payment Method</Label>
+                <select
+                  id="paymentMethod"
+                  className="w-full px-3 py-2 border rounded-md"
+                  value={formData.paymentMethod}
+                  onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
+                >
+                  <option value="Not paid">Not paid</option>
+                  <option value="Cash">Cash</option>
+                  <option value="Mobile Money">Mobile Money</option>
+                  <option value="Credit/Debit Card">Credit/Debit Card</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="notes">Notes</Label>
                 <textarea
                   id="notes"
@@ -640,11 +678,14 @@ export function BookingsPage() {
                       <p className="text-xs text-muted-foreground">
                         {formatCurrencySync(Number(booking.totalPrice) / booking.nights, currency)} per night
                       </p>
+                      <p className="text-xs text-muted-foreground capitalize mt-1">
+                        {booking.paymentMethod?.replace('_', ' ') || 'Not paid'}
+                      </p>
                     </div>
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => handleDelete(booking.id)}
+                      onClick={() => handleDeleteClick(booking.id)}
                       className="text-destructive hover:text-destructive"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -656,6 +697,24 @@ export function BookingsPage() {
           ))}
         </div>
       )}
+
+      <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the booking
+              and remove the data from our servers.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

@@ -22,6 +22,8 @@ import {
 } from './ui/dialog'
 import { toast } from 'sonner'
 import { blink } from '../blink/client'
+import { CheckInDialog } from '@/components/dialogs/CheckInDialog'
+import { CheckOutDialog } from '@/components/dialogs/CheckOutDialog'
 import { formatCurrencySync } from '../lib/utils'
 import { useCurrency } from '../hooks/use-currency'
 
@@ -285,66 +287,7 @@ export function CalendarTimeline({
   const monthGroups = getMonthGroups()
 
   // Check-in handler
-  const handleCheckIn = async (booking: any) => {
-    setProcessing(true)
-    try {
-      // Use booking engine to handle status update, timestamps, room status, and logging
-      const remoteId = booking.remoteId || booking.id
-      console.log('[CalendarTimeline] Check-in attempt:', {
-        bookingId: booking.id,
-        remoteId,
-        bookingRemoteId: booking.remoteId,
-        guestName: booking.guestName,
-        status: booking.status
-      })
-      await bookingEngine.updateBookingStatus(remoteId, 'checked-in')
-
-      // Send Check-in Notification
-      try {
-        const guest = {
-          id: booking.guestId || '',
-          name: booking.guestName,
-          email: booking.guestEmail || '',
-          phone: booking.guestPhone || null
-        }
-
-        const room = {
-          id: booking.propertyId || booking.roomId,
-          roomNumber: properties.find((p) => p.id === (booking.propertyId || booking.roomId))?.roomNumber || 'N/A'
-        }
-
-        const bookingForEmail = {
-          id: remoteId,
-          checkIn: booking.checkIn,
-          checkOut: booking.checkOut,
-          actualCheckIn: new Date().toISOString()
-        }
-
-        if (guest.email) {
-          sendCheckInNotification(guest, room, bookingForEmail)
-            .catch(err => console.error('[CalendarTimeline] Failed to send check-in email:', err))
-        } else {
-          console.warn('[CalendarTimeline] No guest email, skipping check-in notification')
-        }
-      } catch (emailErr) {
-        console.error('[CalendarTimeline] Failed to trigger check-in notification:', emailErr)
-      }
-
-      setCheckInDialog(null)
-      onBookingUpdate?.()
-      toast.success(`Guest ${booking.guestName || 'Unknown'} checked in successfully!`)
-    } catch (error: any) {
-      console.error('[CalendarTimeline] Check-in failed:', error)
-      console.error('[CalendarTimeline] Error details:', {
-        message: error?.message,
-        stack: error?.stack,
-        booking: booking
-      })
-      toast.error('Failed to check in guest')
-    } finally {
-      setProcessing(false)
-    }
-  }
+  // Check-in handler removed (logic moved to CheckInDialog)
 
   // Check-out handler
   const handleCheckOut = async (booking: any) => {
@@ -525,133 +468,38 @@ export function CalendarTimeline({
   return (
     <>
       {/* Check-In Dialog */}
-      <Dialog open={!!checkInDialog} onOpenChange={(open) => !open && setCheckInDialog(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirm Guest Check-In</DialogTitle>
-            <DialogDescription>
-              Verify guest details before checking in
-            </DialogDescription>
-          </DialogHeader>
-          {checkInDialog && (
-            <div className="space-y-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Guest Name</p>
-                  <p className="text-base font-semibold">{checkInDialog.guestName}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Room Number</p>
-                  <p className="text-base font-semibold">
-                    {properties.find((p) => p.id === (checkInDialog.propertyId || checkInDialog.roomId))?.roomNumber || 'N/A'}
-                  </p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Check-in Date</p>
-                  <p className="text-base">{new Date(checkInDialog.checkIn).toLocaleDateString()}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Check-out Date</p>
-                  <p className="text-base">{new Date(checkInDialog.checkOut).toLocaleDateString()}</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Number of Guests</p>
-                  <p className="text-base">{checkInDialog.numGuests || 1}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Amount</p>
-                  <p className="text-base font-semibold text-primary">
-                    ${Number(checkInDialog.totalPrice || 0).toFixed(2)}
-                  </p>
-                </div>
-              </div>
-              {checkInDialog.guestEmail && (
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Email</p>
-                  <p className="text-base">{checkInDialog.guestEmail}</p>
-                </div>
-              )}
-              {checkInDialog.guestPhone && (
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Phone</p>
-                  <p className="text-base">{checkInDialog.guestPhone}</p>
-                </div>
-              )}
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCheckInDialog(null)} disabled={processing}>
-              Cancel
-            </Button>
-            <Button onClick={() => handleCheckIn(checkInDialog)} disabled={processing}>
-              {processing ? 'Processing...' : 'Confirm Check-In'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CheckInDialog
+        open={!!checkInDialog}
+        onOpenChange={(open) => !open && setCheckInDialog(null)}
+        booking={checkInDialog}
+        room={checkInDialog ? {
+          id: checkInDialog.propertyId || checkInDialog.roomId,
+          roomNumber: properties.find((p) => p.id === (checkInDialog.propertyId || checkInDialog.roomId))?.roomNumber || 'N/A',
+          status: 'available' // Assume available as timeline check-in logic usually implies it, but shared hook validates.
+          // Ideally we pass the real room object if available.
+        } : null}
+        guest={checkInDialog ? {
+          id: checkInDialog.guestId,
+          name: checkInDialog.guestName,
+          email: checkInDialog.guestEmail,
+          phone: checkInDialog.guestPhone
+        } : null}
+        onSuccess={() => {
+          setCheckInDialog(null)
+          onBookingUpdate?.()
+        }}
+      />
 
       {/* Check-Out Dialog */}
-      <Dialog open={!!checkOutDialog} onOpenChange={(open) => !open && setCheckOutDialog(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirm Guest Check-Out</DialogTitle>
-            <DialogDescription>
-              Complete the checkout process and create cleaning task
-            </DialogDescription>
-          </DialogHeader>
-          {checkOutDialog && (
-            <div className="space-y-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Guest Name</p>
-                  <p className="text-base font-semibold">{checkOutDialog.guestName}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Room Number</p>
-                  <p className="text-base font-semibold">
-                    {properties.find((p) => p.id === (checkOutDialog.propertyId || checkOutDialog.roomId))?.roomNumber || 'N/A'}
-                  </p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Stay Duration</p>
-                  <p className="text-base">
-                    {calculateNights(checkOutDialog.checkIn, checkOutDialog.checkOut)} nights
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Charges</p>
-                  <p className="text-base font-semibold text-primary">
-                    ${Number(checkOutDialog.totalPrice || 0).toFixed(2)}
-                  </p>
-                </div>
-              </div>
-              <div className="rounded-lg bg-blue-50 p-4 border border-blue-200">
-                <p className="text-sm font-medium text-blue-900">What happens next?</p>
-                <ul className="mt-2 text-sm text-blue-700 space-y-1">
-                  <li>✓ Booking status updated to "Checked-Out"</li>
-                  <li>✓ Room status set to "Cleaning"</li>
-                  <li>✓ Housekeeping task automatically created</li>
-                  <li>✓ Room available after cleaning completion</li>
-                </ul>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCheckOutDialog(null)} disabled={processing}>
-              Cancel
-            </Button>
-            <Button onClick={() => handleCheckOut(checkOutDialog)} disabled={processing}>
-              {processing ? 'Processing...' : 'Confirm Check-Out'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CheckOutDialog
+        open={!!checkOutDialog}
+        onOpenChange={(open) => !open && setCheckOutDialog(null)}
+        booking={checkOutDialog}
+        room={properties.find((p) => p.id === (checkOutDialog?.propertyId || checkOutDialog?.roomId))}
+        guest={{ name: checkOutDialog?.guestName }}
+        onConfirm={() => handleCheckOut(checkOutDialog)}
+        processing={processing}
+      />
 
       <div className="flex flex-col h-full bg-white">
         {/* Fixed Header - Room Label Column */}

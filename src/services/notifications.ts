@@ -1,7 +1,7 @@
 import { formatCurrencySync } from '@/lib/utils'
 import { hotelSettingsService } from '@/services/hotel-settings'
 import { sendTransactionalEmail } from '@/services/email-service'
-import { sendCheckInSMS, sendCheckOutSMS, sendBookingConfirmationSMS } from '@/services/sms-service'
+import { sendCheckInSMS, sendCheckOutSMS, sendBookingConfirmationSMS, sendManagerCheckInSMS } from '@/services/sms-service'
 import { generateEmailHtml, EMAIL_STYLES } from '@/services/email-template'
 
 interface Guest {
@@ -30,7 +30,8 @@ interface Booking {
 export async function sendBookingConfirmation(
   guest: Guest,
   room: Room,
-  booking: Booking
+  booking: Booking,
+  attachments?: any[]
 ): Promise<void> {
   try {
     console.log('📧 [BookingConfirmation] Starting confirmation email...', {
@@ -135,18 +136,25 @@ The AMP LODGE Team
 export async function sendCheckInNotification(
   guest: Guest,
   room: Room,
-  booking: Booking
+  booking: Booking,
+  paymentDetails?: {
+    method: string
+    amount: number | string
+  }
 ): Promise<void> {
   try {
     console.log('📧 [CheckInNotification] Starting check-in email...', {
       guestEmail: guest.email,
       guestName: guest.name,
       roomNumber: room.roomNumber,
-      bookingId: booking.id
+      bookingId: booking.id,
+      paymentDetails
     })
 
     const checkInDate = new Date(booking.actualCheckIn || booking.checkIn)
     const checkOutDate = new Date(booking.checkOut)
+    const settings = await hotelSettingsService.getHotelSettings()
+    const currency = settings.currency || 'GHS'
 
     const htmlContent = generateEmailHtml({
       title: 'Welcome to AMP Lodge',
@@ -166,8 +174,13 @@ export async function sendCheckInNotification(
             <span style="${EMAIL_STYLES.infoLabel}">Check-Out:</span> ${checkOutDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </div>
           <div style="${EMAIL_STYLES.infoRow}">
+          <div style="${EMAIL_STYLES.infoRow}">
             <span style="${EMAIL_STYLES.infoLabel}">Booking ID:</span> ${booking.id}
           </div>
+          ${paymentDetails ? `
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Payment Verified:</span> ${typeof paymentDetails.amount === 'number' ? formatCurrencySync(paymentDetails.amount, currency) : paymentDetails.amount} via ${paymentDetails.method}
+          </div>` : ''}
         </div>
 
         <div style="background-color: #F5F5F5; border-radius: 4px; padding: 20px; margin-top: 20px;">
@@ -176,7 +189,7 @@ export async function sendCheckInNotification(
             <li><strong>WiFi:</strong> Password available at front desk</li>
             <li><strong>Breakfast:</strong> 7:00 AM - 10:00 AM</li>
             <li><strong>Check-out:</strong> 11:00 AM</li>
-            <li><strong>Reception:</strong> Dial 0</li>
+            <li><strong>Reception:</strong> Dial +233555009697</li>
           </ul>
         </div>
         
@@ -209,7 +222,7 @@ Important Information:
 - WiFi password available at the front desk
 - Breakfast served daily 7:00 AM - 10:00 AM
 - Check-out time is 11:00 AM
-- For assistance, dial 0 from your room phone
+- For assistance, dial +233555009697 from your room phone
 
 Best regards,
 The AMP LODGE Team
@@ -228,7 +241,9 @@ The AMP LODGE Team
         phone: guest.phone,
         guestName: guest.name,
         roomNumber: room.roomNumber,
-        checkOutDate: checkOutDate.toISOString()
+        checkOutDate: checkOutDate.toISOString(),
+        paymentMethod: paymentDetails?.method,
+        totalAmount: paymentDetails?.amount ? (typeof paymentDetails.amount === 'number' ? formatCurrencySync(paymentDetails.amount, currency) : paymentDetails.amount) : undefined
       }).catch(err => console.error('SMS notification failed:', err))
     }
   } catch (error) {
@@ -280,7 +295,7 @@ export async function sendCheckOutNotification(
       callToAction = {
         text: 'Download Invoice',
         url: invoiceData.downloadUrl,
-        color: '#8B4513'
+        color: '#2C2416'
       }
     }
 
@@ -374,5 +389,133 @@ The AMP LODGE Team
     }
   } catch (error) {
     console.error('❌ [CheckOutNotification] Failed to send check-out notification:', error)
+  }
+}
+
+/**
+ * Send manager notification when a guest checks in
+ */
+export async function sendManagerCheckInNotification(
+  guest: Guest,
+  room: Room,
+  booking: Booking,
+  staffName?: string,
+  paymentDetails?: {
+    method: string
+    amount: number | string
+  }
+): Promise<void> {
+  try {
+    // Get hotel settings to check if manager notifications are enabled
+    const settings = await hotelSettingsService.getHotelSettings()
+    const currency = settings.currency || 'GHS'
+
+    // Check if manager notifications are enabled
+    if (!settings.managerNotificationsEnabled) {
+      console.log('📧 [ManagerNotification] Manager notifications disabled, skipping')
+      return
+    }
+
+    // Check if manager contact info exists
+    if (!settings.managerEmail && !settings.managerPhone) {
+      console.log('📧 [ManagerNotification] No manager contact info configured, skipping')
+      return
+    }
+
+    console.log('📧 [ManagerNotification] Sending manager check-in notification...', {
+      guestName: guest.name,
+      roomNumber: room.roomNumber,
+      managerEmail: settings.managerEmail,
+      managerPhone: settings.managerPhone
+    })
+
+    const checkInDate = new Date(booking.actualCheckIn || booking.checkIn)
+    const checkOutDate = new Date(booking.checkOut)
+
+    // Send Email notification to manager
+    if (settings.managerEmail) {
+      const paymentInfo = paymentDetails
+        ? `<strong>${formatCurrencySync(Number(paymentDetails.amount), currency)}</strong> via ${paymentDetails.method}`
+        : 'Not recorded'
+
+      const htmlContent = generateEmailHtml({
+        title: '🔔 Guest Check-In Alert',
+        preheader: `${guest.name} has checked in to Room ${room.roomNumber}`,
+        content: `
+          <p style="margin-bottom: 15px;">A guest has just checked in:</p>
+          
+          <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef;"><strong>Guest Name:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef;">${guest.name}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef;"><strong>Email:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef;">${guest.email}</td>
+              </tr>
+              ${guest.phone ? `
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef;"><strong>Phone:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef;">${guest.phone}</td>
+              </tr>
+              ` : ''}
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef;"><strong>Room:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef;">${room.roomNumber}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef;"><strong>Check-in:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef;">${checkInDate.toLocaleDateString()} at ${checkInDate.toLocaleTimeString()}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef;"><strong>Check-out:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef;">${checkOutDate.toLocaleDateString()}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef;"><strong>Payment:</strong></td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e9ecef;">${paymentInfo}</td>
+              </tr>
+              ${staffName ? `
+              <tr>
+                <td style="padding: 8px 0;"><strong>Checked in by:</strong></td>
+                <td style="padding: 8px 0;">${staffName}</td>
+              </tr>
+              ` : ''}
+            </table>
+          </div>
+          
+          <p style="color: #666; font-size: 14px;">This is an automated notification from the AMP Lodge management system.</p>
+        `
+      })
+
+      const result = await sendTransactionalEmail({
+        to: settings.managerEmail,
+        subject: `🔔 Check-In: ${guest.name} - Room ${room.roomNumber}`,
+        html: htmlContent,
+        text: `Guest Check-In Alert\n\nGuest: ${guest.name}\nRoom: ${room.roomNumber}\nCheck-in: ${checkInDate.toLocaleString()}\nPayment: ${paymentInfo}\n${staffName ? `Staff: ${staffName}` : ''}`
+      })
+
+      if (result.success) {
+        console.log('✅ [ManagerNotification] Email sent successfully')
+      } else {
+        console.error('❌ [ManagerNotification] Email failed:', result.error)
+      }
+    }
+
+    // Send SMS notification to manager
+    if (settings.managerPhone) {
+      sendManagerCheckInSMS({
+        phone: settings.managerPhone,
+        guestName: guest.name,
+        roomNumber: room.roomNumber,
+        staffName,
+        paymentAmount: paymentDetails ? formatCurrencySync(Number(paymentDetails.amount), currency) : undefined,
+        paymentMethod: paymentDetails?.method
+      }).catch(err => console.error('❌ [ManagerNotification] SMS failed:', err))
+    }
+
+  } catch (error) {
+    console.error('❌ [ManagerNotification] Failed to send manager notification:', error)
   }
 }

@@ -7,6 +7,16 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { blink } from '@/blink/client'
@@ -31,6 +41,7 @@ export default function HousekeepingPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [selectedTask, setSelectedTask] = useState<HousekeepingTask | null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
   const [completionNotes, setCompletionNotes] = useState('')
   const [isCompleting, setIsCompleting] = useState(false)
 
@@ -156,6 +167,7 @@ export default function HousekeepingPage() {
         const emailResult = await sendTaskAssignmentEmail({
           employeeName: assignedStaff.name,
           employeeEmail: assignedStaff.email,
+          employeePhone: assignedStaff.phone,
           roomNumber: task.roomNumber,
           taskNotes: task.notes || '',
           taskId: task.id,
@@ -192,21 +204,25 @@ export default function HousekeepingPage() {
     }
   }
 
-  const handleDeleteTask = async (taskId: string) => {
-    if (!confirm('Are you sure you want to delete this task?')) return
+  const handleDeleteClick = (taskId: string) => {
+    setDeleteId(taskId)
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteId) return
 
     // Get task details before deletion for logging
-    const task = tasks.find(t => t.id === taskId)
+    const task = tasks.find(t => t.id === deleteId)
 
     try {
-      await blink.db.housekeepingTasks.delete(taskId)
+      await blink.db.housekeepingTasks.delete(deleteId)
 
       // Log the task deletion
       if (task) {
         await activityLogService.log({
           action: 'deleted',
           entityType: 'task',
-          entityId: taskId,
+          entityId: deleteId,
           details: {
             title: `Room ${task.roomNumber} Cleaning`,
             roomNumber: task.roomNumber,
@@ -221,6 +237,8 @@ export default function HousekeepingPage() {
     } catch (error) {
       console.error('Failed to delete task:', error)
       toast.error('Failed to delete task')
+    } finally {
+      setDeleteId(null)
     }
   }
 
@@ -419,7 +437,7 @@ export default function HousekeepingPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleDeleteTask(task.id)}
+                            onClick={() => handleDeleteClick(task.id)}
                             className="text-muted-foreground hover:text-destructive"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -432,7 +450,7 @@ export default function HousekeepingPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleDeleteTask(task.id)}
+                            onClick={() => handleDeleteClick(task.id)}
                             className="text-muted-foreground hover:text-destructive"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -492,6 +510,23 @@ export default function HousekeepingPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the housekeeping task.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

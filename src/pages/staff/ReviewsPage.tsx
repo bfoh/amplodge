@@ -14,6 +14,7 @@ interface Review {
     id: string
     bookingId: string
     guestId: string
+    guest_name?: string // Persisted guest name
     rating: number
     comment: string
     status: 'pending' | 'approved' | 'rejected'
@@ -48,9 +49,13 @@ export function ReviewsPage() {
 
             setReviews(reviewsList as Review[])
 
-            // Load associated guests
+            // Load associated guests (fallback for old reviews without guest_name)
             if (reviewsList.length > 0) {
-                const guestIds = Array.from(new Set(reviewsList.map((r: any) => r.guestId))).filter(Boolean)
+                const guestIds = Array.from(new Set(
+                    reviewsList
+                        .filter((r: any) => !r.guest_name && r.guestId) // Only need to fetch if guest_name is missing
+                        .map((r: any) => r.guestId)
+                )).filter(Boolean)
                 if (guestIds.length > 0) {
                     // Fetch guests in batches or one by one if wrapper doesn't support 'in' with array properly or if list is short
                     // The wrapper supports 'in' operator: query.in(snakeKey, value.in)
@@ -187,7 +192,7 @@ export function ReviewsPage() {
                                                     {format(new Date(review.createdAt), 'MMM d, yyyy')}
                                                 </TableCell>
                                                 <TableCell>
-                                                    <div className="font-medium">{guests[review.guestId]?.name || 'Unknown Guest'}</div>
+                                                    <div className="font-medium">{review.guest_name || guests[review.guestId]?.name || 'Unknown Guest'}</div>
                                                     <div className="text-xs text-muted-foreground">{guests[review.guestId]?.email}</div>
                                                 </TableCell>
                                                 <TableCell>

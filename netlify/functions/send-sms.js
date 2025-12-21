@@ -1,7 +1,7 @@
 // Arkesel SMS Integration
 // Documentation: https://arkesel.com/developers
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
     // Only allow POST requests
     if (event.httpMethod !== 'POST') {
         return {
@@ -32,16 +32,23 @@ exports.handler = async (event) => {
         }
 
         console.log(`[SMS Function] Configured API Key length: ${apiKey ? apiKey.length : 'undefined'}`);
-        console.log(`[SMS Function] API Key start: ${apiKey ? apiKey.substring(0, 4) + '...' : 'none'}`);
+        // console.log(`[SMS Function] API Key start: ${apiKey ? apiKey.substring(0, 4) + '...' : 'none'}`);
 
-        // Format number for Arkesel (they accept various formats, but E.164 sans + is safest or local)
-        // Arkesel typically expects "233xxxxxxxxx" for Ghana.
-        let recipient = to.replace(/[^\d]/g, ''); // Remove all non-digits
-        // If it starts with 0 (e.g. 055...), replace 0 with 233
+        // --- Phone Number Normalization ---
+        // 1. Remove all non-digits
+        let recipient = to.replace(/[^\d]/g, '');
+
+        // 2. Handle International Format (+233)
+        // If user typed +233... the regex above made it 233... which is correct for Arkesel.
+        // But we need to be careful with double prefixes.
+
+        // 3. Handle Leading Zero (Ghana local format 055...)
         if (recipient.startsWith('0')) {
+            // 055... -> 23355...
             recipient = '233' + recipient.substring(1);
         }
-        // If it doesn't start with 233 and is 9 digits (e.g. 555...), add 233
+
+        // 4. Handle "Missing Prefix" 9-digit numbers (55...) -> 23355...
         if (!recipient.startsWith('233') && recipient.length === 9) {
             recipient = '233' + recipient;
         }
@@ -75,6 +82,7 @@ exports.handler = async (event) => {
         // Simple check for success (Arkesel V1 often returns "Ok" or "Success" or specific codes)
         // Adjust logic based on actual response. Usually a code like "100" or similar implies success, or just HTTP 200.
         // Assuming if response contains "error" or "invalid" it failed.
+        // Arkesel V2 might return JSON, but V1 is typically plain text or simple JSON.
         const isSuccess = response.ok && !responseText.toLowerCase().includes('error') && !responseText.toLowerCase().includes('invalid');
 
         if (isSuccess) {
@@ -89,15 +97,16 @@ exports.handler = async (event) => {
             };
         } else {
             console.error('[SMS Function] Arkesel Error:', responseText);
+            // Return 400 Bad Request instead of 500 if it's an invalid number, so client knows it's data error
+            const statusCode = responseText.toLowerCase().includes('invalid phone') ? 400 : 502;
+
             return {
-                statusCode: 500,
+                statusCode,
                 body: JSON.stringify({
                     success: false,
                     error: responseText || 'Failed to send SMS via Arkesel V1',
                     debug: {
-                        keyLength: apiKey ? apiKey.length : 0,
-                        keyStart: apiKey ? apiKey.substring(0, 4) : 'none',
-                        recipient: recipient,
+                        recipient: recipient, // Helpful to see what was actually sent
                         rawResponse: responseText
                     }
                 })

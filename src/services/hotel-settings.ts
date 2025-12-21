@@ -10,6 +10,10 @@ export interface HotelSettings {
   logoUrl?: string
   taxRate: number
   currency: string
+  // Manager notification settings
+  managerEmail?: string
+  managerPhone?: string
+  managerNotificationsEnabled?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -25,6 +29,10 @@ const DEFAULT_SETTINGS: HotelSettings = {
   logoUrl: '/amp.png',
   taxRate: 0.10,
   currency: 'GHS',
+  // Manager defaults - can be configured in settings
+  managerEmail: 'manager@amplodge.org',
+  managerPhone: '+233555009697',
+  managerNotificationsEnabled: true,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString()
 }

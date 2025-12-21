@@ -21,6 +21,8 @@ import {
   DialogTitle,
 } from './ui/dialog'
 import { toast } from 'sonner'
+import { CheckInDialog } from '@/components/dialogs/CheckInDialog'
+import { CheckOutDialog } from '@/components/dialogs/CheckOutDialog'
 import { blink } from '../blink/client'
 
 interface CalendarGridViewProps {
@@ -105,67 +107,7 @@ export function CalendarGridView({
   }
 
   // Check-in handler
-  const handleCheckIn = async (booking: any) => {
-    setProcessing(true)
-    try {
-      // Use booking engine to handle status update, timestamps, room status, and logging
-      // Ensure we use the remoteId (actual database ID) format
-      const remoteId = booking.remoteId || booking.id
-      console.log('[CalendarGridView] Check-in attempt:', {
-        bookingId: booking.id,
-        remoteId,
-        bookingRemoteId: booking.remoteId,
-        guestName: booking.guestName,
-        status: booking.status
-      })
-      await bookingEngine.updateBookingStatus(remoteId, 'checked-in')
-
-      // Send Check-in Notification
-      try {
-        const guest = {
-          id: booking.guestId || '',
-          name: booking.guestName,
-          email: booking.guestEmail || '',
-          phone: booking.guestPhone || null
-        }
-
-        const room = {
-          id: booking.propertyId || booking.roomId,
-          roomNumber: getRoomForBooking(booking)?.roomNumber || 'N/A'
-        }
-
-        const bookingForEmail = {
-          id: remoteId,
-          checkIn: booking.checkIn,
-          checkOut: booking.checkOut,
-          actualCheckIn: new Date().toISOString()
-        }
-
-        if (guest.email) {
-          sendCheckInNotification(guest, room, bookingForEmail)
-            .catch(err => console.error('[CalendarGridView] Failed to send check-in email:', err))
-        } else {
-          console.warn('[CalendarGridView] No guest email, skipping check-in notification')
-        }
-      } catch (emailErr) {
-        console.error('[CalendarGridView] Failed to trigger check-in notification:', emailErr)
-      }
-
-      setCheckInDialog(null)
-      onBookingUpdate?.()
-      toast.success(`Guest ${booking.guestName} checked in successfully!`)
-    } catch (error: any) {
-      console.error('[CalendarGridView] Check-in failed:', error)
-      console.error('[CalendarGridView] Error details:', {
-        message: error?.message,
-        stack: error?.stack,
-        booking: booking
-      })
-      toast.error('Failed to check in guest')
-    } finally {
-      setProcessing(false)
-    }
-  }
+  // Check-in handler removed (logic moved to CheckInDialog)
 
   // Check-out handler
   const handleCheckOut = async (booking: any) => {
@@ -471,102 +413,36 @@ export function CalendarGridView({
       </div>
 
       {/* Check-In Dialog */}
-      <Dialog open={!!checkInDialog} onOpenChange={(open) => !open && setCheckInDialog(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirm Guest Check-In</DialogTitle>
-            <DialogDescription>
-              Verify guest details before checking in
-            </DialogDescription>
-          </DialogHeader>
-          {checkInDialog && (
-            <div className="space-y-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Guest Name</p>
-                  <p className="text-base font-semibold">{checkInDialog.guestName}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Room Number</p>
-                  <p className="text-base font-semibold">
-                    Room {getRoomForBooking(checkInDialog)?.roomNumber || 'N/A'}
-                  </p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Check-in Date</p>
-                  <p className="text-base">{new Date(checkInDialog.checkIn).toLocaleDateString()}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Check-out Date</p>
-                  <p className="text-base">{new Date(checkInDialog.checkOut).toLocaleDateString()}</p>
-                </div>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCheckInDialog(null)} disabled={processing}>
-              Cancel
-            </Button>
-            <Button onClick={() => handleCheckIn(checkInDialog!)} disabled={processing}>
-              {processing ? 'Processing...' : 'Confirm Check-In'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CheckInDialog
+        open={!!checkInDialog}
+        onOpenChange={(open) => !open && setCheckInDialog(null)}
+        booking={checkInDialog}
+        room={checkInDialog ? {
+          ...getRoomForBooking(checkInDialog),
+          status: 'available' // Assume available for calendar view logic
+        } : null}
+        guest={checkInDialog ? {
+          id: checkInDialog.guestId,
+          name: checkInDialog.guestName,
+          email: checkInDialog.guestEmail,
+          phone: checkInDialog.guestPhone
+        } : null}
+        onSuccess={() => {
+          setCheckInDialog(null)
+          onBookingUpdate?.()
+        }}
+      />
 
       {/* Check-Out Dialog */}
-      <Dialog open={!!checkOutDialog} onOpenChange={(open) => !open && setCheckOutDialog(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirm Guest Check-Out</DialogTitle>
-            <DialogDescription>
-              Complete the checkout process and create cleaning task
-            </DialogDescription>
-          </DialogHeader>
-          {checkOutDialog && (
-            <div className="space-y-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Guest Name</p>
-                  <p className="text-base font-semibold">{checkOutDialog.guestName}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Room Number</p>
-                  <p className="text-base font-semibold">
-                    Room {getRoomForBooking(checkOutDialog)?.roomNumber || 'N/A'}
-                  </p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Check-in Date</p>
-                  <p className="text-base">{new Date(checkOutDialog.checkIn).toLocaleDateString()}</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Check-out Date</p>
-                  <p className="text-base">{new Date(checkOutDialog.checkOut).toLocaleDateString()}</p>
-                </div>
-              </div>
-              <div className="p-3 bg-muted rounded-lg">
-                <p className="text-sm text-muted-foreground">
-                  <CheckCircle2 className="w-4 h-4 inline mr-1" />
-                  This will create a housekeeping task for room cleaning
-                </p>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCheckOutDialog(null)} disabled={processing}>
-              Cancel
-            </Button>
-            <Button onClick={() => handleCheckOut(checkOutDialog!)} disabled={processing}>
-              {processing ? 'Processing...' : 'Confirm Check-Out'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CheckOutDialog
+        open={!!checkOutDialog}
+        onOpenChange={(open) => !open && setCheckOutDialog(null)}
+        booking={checkOutDialog}
+        room={checkOutDialog ? getRoomForBooking(checkOutDialog) : null}
+        guest={{ name: checkOutDialog?.guestName }}
+        onConfirm={() => handleCheckOut(checkOutDialog!)}
+        processing={processing}
+      />
     </>
   )
 }
