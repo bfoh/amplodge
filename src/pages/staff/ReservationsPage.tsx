@@ -227,8 +227,10 @@ export function ReservationsPage() {
   }
 
   // Helper to get total amount (room cost + additional charges)
+  // Uses finalAmount if a discount was applied, otherwise totalPrice
   const getBookingTotal = (booking: Booking): number => {
-    const roomCost = booking.totalPrice || 0
+    // Use finalAmount if discount was applied, otherwise use totalPrice
+    const roomCost = booking.finalAmount ?? booking.totalPrice ?? 0
     const additionalCharges = chargesMap.get(booking.id) || 0
     return roomCost + additionalCharges
   }
@@ -673,8 +675,13 @@ export function ReservationsPage() {
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Room Cost (Paid)</p>
                   <p className="text-base font-semibold">
-                    {formatCurrencySync(checkOutDialog.totalPrice, currency)}
+                    {formatCurrencySync(checkOutDialog.finalAmount ?? checkOutDialog.totalPrice, currency)}
                   </p>
+                  {checkOutDialog.discountAmount && checkOutDialog.discountAmount > 0 && (
+                    <p className="text-xs text-green-600">
+                      Discount applied: -{formatCurrencySync(checkOutDialog.discountAmount, currency)}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -711,14 +718,14 @@ export function ReservationsPage() {
                     <span className="font-medium">Grand Total</span>
                     <span className="text-xl font-bold text-primary">
                       {formatCurrencySync(
-                        checkOutDialog.totalPrice + checkoutCharges.reduce((sum, c) => sum + c.amount, 0),
+                        (checkOutDialog.finalAmount ?? checkOutDialog.totalPrice) + checkoutCharges.reduce((sum, c) => sum + c.amount, 0),
                         currency
                       )}
                     </span>
                   </div>
                   {checkoutCharges.length > 0 && (
                     <p className="text-xs text-muted-foreground mt-1">
-                      Room: {formatCurrencySync(checkOutDialog.totalPrice, currency)} +
+                      Room: {formatCurrencySync(checkOutDialog.finalAmount ?? checkOutDialog.totalPrice, currency)} +
                       Charges: {formatCurrencySync(checkoutCharges.reduce((sum, c) => sum + c.amount, 0), currency)}
                     </p>
                   )}
