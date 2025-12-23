@@ -11,6 +11,7 @@ export const CHARGE_CATEGORIES: Record<ChargeCategory, string> = {
     laundry: 'Laundry',
     phone_internet: 'Phone/Internet',
     parking: 'Parking',
+    room_extension: 'Room Extension',
     other: 'Other'
 }
 

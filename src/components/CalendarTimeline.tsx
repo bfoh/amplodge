@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState } from 'react'
 import { cn } from '../lib/utils'
 import { getRoomDisplayName, calculateNights } from '../lib/display'
-import { Users, CalendarIcon, Mail, Phone, DollarSign, MessageSquare, LogIn, LogOut, CheckCircle2 } from 'lucide-react'
+import { Users, CalendarIcon, Mail, Phone, DollarSign, MessageSquare, LogIn, LogOut, CheckCircle2, CalendarPlus } from 'lucide-react'
 import { createInvoiceData, generateInvoicePDF, blobToBase64 } from '@/services/invoice-service'
 import { bookingEngine } from '../services/booking-engine'
 import { sendCheckInNotification, sendCheckOutNotification } from '@/services/notifications'
@@ -24,6 +24,7 @@ import { toast } from 'sonner'
 import { blink } from '../blink/client'
 import { CheckInDialog } from '@/components/dialogs/CheckInDialog'
 import { CheckOutDialog } from '@/components/dialogs/CheckOutDialog'
+import { ExtendStayDialog } from '@/components/dialogs/ExtendStayDialog'
 import { formatCurrencySync } from '../lib/utils'
 import { useCurrency } from '../hooks/use-currency'
 
@@ -47,6 +48,7 @@ export function CalendarTimeline({
   const { currency } = useCurrency()
   const [checkInDialog, setCheckInDialog] = useState<any>(null)
   const [checkOutDialog, setCheckOutDialog] = useState<any>(null)
+  const [extendStayDialog, setExtendStayDialog] = useState<any>(null)
   const [processing, setProcessing] = useState(false)
   const timelineRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
@@ -348,6 +350,15 @@ export function CalendarTimeline({
         const invoiceData = await createInvoiceData(bookingWithDetails, room)
         console.log('✅ [CalendarTimeline] Invoice data created:', invoiceData.invoiceNumber)
 
+        // IMPORTANT: Save the invoice number to the booking record for consistency
+        try {
+          const db = blink.db as any
+          await db.bookings.update(bookingWithDetails.id, { invoiceNumber: invoiceData.invoiceNumber })
+          console.log('✅ [CalendarTimeline] Invoice number saved to booking:', invoiceData.invoiceNumber)
+        } catch (saveError) {
+          console.error('⚠️ [CalendarTimeline] Failed to save invoice number:', saveError)
+        }
+
         console.log('📄 [CalendarTimeline] Generating invoice PDF...')
         // Generate invoice PDF
         const invoicePdf = await generateInvoicePDF(invoiceData)
@@ -500,6 +511,25 @@ export function CalendarTimeline({
         onConfirm={() => handleCheckOut(checkOutDialog)}
         processing={processing}
       />
+
+      {/* Extend Stay Dialog */}
+      {extendStayDialog && (
+        <ExtendStayDialog
+          open={!!extendStayDialog}
+          onOpenChange={(open) => !open && setExtendStayDialog(null)}
+          booking={extendStayDialog}
+          guest={{
+            id: extendStayDialog.guestId || '',
+            name: extendStayDialog.guestName || 'Guest',
+            email: extendStayDialog.guestEmail || ''
+          }}
+          room={{
+            id: extendStayDialog.propertyId || extendStayDialog.roomId || '',
+            roomNumber: properties.find((p) => p.id === (extendStayDialog?.propertyId || extendStayDialog?.roomId))?.roomNumber || 'N/A'
+          }}
+          onExtensionComplete={() => onBookingUpdate?.()}
+        />
+      )}
 
       <div className="flex flex-col h-full bg-white">
         {/* Fixed Header - Room Label Column */}
@@ -752,18 +782,32 @@ export function CalendarTimeline({
 
                                           {/* Show Check Out button ONLY for checked-in bookings (green) */}
                                           {canCheckOut(bookingStart) && (
-                                            <Button
-                                              size="sm"
-                                              variant="outline"
-                                              className="flex-1"
-                                              onClick={(e) => {
-                                                e.stopPropagation()
-                                                setCheckOutDialog(bookingStart)
-                                              }}
-                                            >
-                                              <LogOut className="w-4 h-4 mr-2" />
-                                              Check Out
-                                            </Button>
+                                            <>
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                className="flex-1 text-amber-600 hover:text-amber-700"
+                                                onClick={(e) => {
+                                                  e.stopPropagation()
+                                                  setExtendStayDialog(bookingStart)
+                                                }}
+                                              >
+                                                <CalendarPlus className="w-4 h-4 mr-2" />
+                                                Extend
+                                              </Button>
+                                              <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="flex-1"
+                                                onClick={(e) => {
+                                                  e.stopPropagation()
+                                                  setCheckOutDialog(bookingStart)
+                                                }}
+                                              >
+                                                <LogOut className="w-4 h-4 mr-2" />
+                                                Check Out
+                                              </Button>
+                                            </>
                                           )}
 
                                           {/* Show completed message for checked-out bookings */}

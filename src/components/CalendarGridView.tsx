@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { cn } from '../lib/utils'
 import { getRoomDisplayName, calculateNights } from '../lib/display'
-import { Users, CalendarIcon, Mail, Phone, DollarSign, MessageSquare, LogIn, LogOut, CheckCircle2 } from 'lucide-react'
+import { Users, CalendarIcon, Mail, Phone, DollarSign, MessageSquare, LogIn, LogOut, CheckCircle2, CalendarPlus } from 'lucide-react'
 import { createInvoiceData, generateInvoicePDF, blobToBase64 } from '@/services/invoice-service'
 import { sendCheckInNotification, sendCheckOutNotification } from '@/services/notifications'
 import { bookingEngine } from '../services/booking-engine'
@@ -23,6 +23,7 @@ import {
 import { toast } from 'sonner'
 import { CheckInDialog } from '@/components/dialogs/CheckInDialog'
 import { CheckOutDialog } from '@/components/dialogs/CheckOutDialog'
+import { ExtendStayDialog } from '@/components/dialogs/ExtendStayDialog'
 import { blink } from '../blink/client'
 
 interface CalendarGridViewProps {
@@ -44,6 +45,7 @@ export function CalendarGridView({
 }: CalendarGridViewProps) {
   const [checkInDialog, setCheckInDialog] = useState<any>(null)
   const [checkOutDialog, setCheckOutDialog] = useState<any>(null)
+  const [extendStayDialog, setExtendStayDialog] = useState<any>(null)
   const [processing, setProcessing] = useState(false)
 
   // Get month details
@@ -166,6 +168,15 @@ export function CalendarGridView({
         // Generate invoice data
         const invoiceData = await createInvoiceData(bookingWithDetails, getRoomForBooking(booking))
         console.log('✅ [CalendarGridView] Invoice data created:', invoiceData.invoiceNumber)
+
+        // IMPORTANT: Save the invoice number to the booking record for consistency
+        try {
+          const db = blink.db as any
+          await db.bookings.update(bookingWithDetails.id, { invoiceNumber: invoiceData.invoiceNumber })
+          console.log('✅ [CalendarGridView] Invoice number saved to booking:', invoiceData.invoiceNumber)
+        } catch (saveError) {
+          console.error('⚠️ [CalendarGridView] Failed to save invoice number:', saveError)
+        }
 
         console.log('📄 [CalendarGridView] Generating invoice PDF...')
         // Generate invoice PDF
@@ -386,15 +397,26 @@ export function CalendarGridView({
                                     )}
 
                                     {canCheckOut(booking) && (
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => setCheckOutDialog(booking)}
-                                        className="h-7 px-2 text-xs"
-                                      >
-                                        <LogOut className="w-3 h-3 mr-1" />
-                                        Check Out
-                                      </Button>
+                                      <>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => setExtendStayDialog(booking)}
+                                          className="h-7 px-2 text-xs text-amber-600 hover:text-amber-700"
+                                        >
+                                          <CalendarPlus className="w-3 h-3 mr-1" />
+                                          Extend
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => setCheckOutDialog(booking)}
+                                          className="h-7 px-2 text-xs"
+                                        >
+                                          <LogOut className="w-3 h-3 mr-1" />
+                                          Check Out
+                                        </Button>
+                                      </>
                                     )}
                                   </div>
                                 </div>
@@ -443,6 +465,25 @@ export function CalendarGridView({
         onConfirm={() => handleCheckOut(checkOutDialog!)}
         processing={processing}
       />
+
+      {/* Extend Stay Dialog */}
+      {extendStayDialog && (
+        <ExtendStayDialog
+          open={!!extendStayDialog}
+          onOpenChange={(open) => !open && setExtendStayDialog(null)}
+          booking={extendStayDialog}
+          guest={{
+            id: extendStayDialog.guestId || '',
+            name: extendStayDialog.guestName || 'Guest',
+            email: extendStayDialog.guestEmail || ''
+          }}
+          room={{
+            id: extendStayDialog.roomId || '',
+            roomNumber: getRoomForBooking(extendStayDialog)?.roomNumber || 'N/A'
+          }}
+          onExtensionComplete={() => onBookingUpdate?.()}
+        />
+      )}
     </>
   )
 }

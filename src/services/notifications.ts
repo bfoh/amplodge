@@ -519,3 +519,171 @@ export async function sendManagerCheckInNotification(
     console.error('❌ [ManagerNotification] Failed to send manager notification:', error)
   }
 }
+
+/**
+ * Send stay extension notification to guest
+ */
+export async function sendStayExtensionNotification(
+  guest: Guest,
+  room: Room,
+  booking: { id: string; checkIn: string; checkOut: string; originalCheckout: string },
+  additionalNights: number,
+  extensionCost: number,
+  newRoomId?: string
+): Promise<void> {
+  try {
+    console.log('📧 [StayExtension] Sending extension notification...', {
+      guestEmail: guest.email,
+      guestName: guest.name,
+      additionalNights,
+      extensionCost
+    })
+
+    const settings = await hotelSettingsService.getHotelSettings()
+    const currency = settings.currency || 'GHS'
+
+    const originalCheckout = new Date(booking.originalCheckout)
+    const newCheckout = new Date(booking.checkOut)
+
+    const roomChangeNote = newRoomId
+      ? `\n\n<p style="color: #D97706;"><strong>📋 Room Change:</strong> You have been moved to a new room. Please check with reception for your new room details.</p>`
+      : ''
+
+    const htmlContent = generateEmailHtml({
+      title: 'Stay Extended!',
+      preheader: `Your stay at ${settings.name} has been extended`,
+      content: `
+        <p>Dear <strong>${guest.name}</strong>,</p>
+        <p>Your stay has been successfully extended! Here are your updated booking details:</p>
+        
+        <div style="${EMAIL_STYLES.infoBox}">
+          <p><strong>🏨 Room:</strong> ${room.roomNumber}</p>
+          <p><strong>📅 Original Checkout:</strong> ${originalCheckout.toLocaleDateString()}</p>
+          <p><strong>📅 New Checkout:</strong> ${newCheckout.toLocaleDateString()}</p>
+          <p><strong>➕ Additional Nights:</strong> ${additionalNights}</p>
+          <p><strong>💰 Extension Cost:</strong> ${formatCurrencySync(extensionCost, currency)}</p>
+        </div>
+        ${roomChangeNote}
+        <p>The extension cost has been added to your bill and will be included in your final invoice at checkout.</p>
+        <p>If you have any questions, please contact our reception desk.</p>
+        <p>Thank you for choosing to extend your stay with us!</p>
+      `
+    })
+
+    if (guest.email) {
+      await sendTransactionalEmail({
+        to: guest.email,
+        subject: `Stay Extended: ${newCheckout.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${settings.name}`,
+        html: htmlContent,
+        text: `Stay Extended!\n\nDear ${guest.name},\n\nYour stay has been extended.\n\nRoom: ${room.roomNumber}\nOriginal Checkout: ${originalCheckout.toLocaleDateString()}\nNew Checkout: ${newCheckout.toLocaleDateString()}\nAdditional Nights: ${additionalNights}\nExtension Cost: ${formatCurrencySync(extensionCost, currency)}\n\nThe extension cost has been added to your bill.\n\nThank you!\n${settings.name}`
+      })
+      console.log('✅ [StayExtension] Email sent successfully')
+    }
+
+    // Send SMS notification
+    if (guest.phone) {
+      const { sendStayExtensionSMS } = await import('@/services/sms-service')
+      await sendStayExtensionSMS({
+        phone: guest.phone,
+        guestName: guest.name,
+        newCheckout: newCheckout.toLocaleDateString(),
+        additionalNights,
+        extensionCost: formatCurrencySync(extensionCost, currency)
+      })
+      console.log('✅ [StayExtension] SMS sent successfully')
+    }
+
+  } catch (error) {
+    console.error('❌ [StayExtension] Failed to send notification:', error)
+  }
+}
+
+/**
+ * Send online booking alert to hotel staff
+ */
+export async function sendOnlineBookingAlert(
+  guest: { name: string; email: string; phone?: string | null },
+  room: { roomNumber: string; roomType?: string },
+  booking: {
+    id: string
+    checkIn: string
+    checkOut: string
+    totalPrice: number
+    numGuests: number
+  },
+  source: 'online' | 'voice_agent' = 'online'
+): Promise<void> {
+  try {
+    console.log('📧 [OnlineBookingAlert] Sending hotel alert...', {
+      guestName: guest.name,
+      roomNumber: room.roomNumber,
+      source
+    })
+
+    const settings = await hotelSettingsService.getHotelSettings()
+    const currency = settings.currency || 'GHS'
+
+    const checkInDate = new Date(booking.checkIn)
+    const checkOutDate = new Date(booking.checkOut)
+    const nights = Math.ceil((checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24))
+
+    const sourceLabel = source === 'voice_agent' ? '🎤 Voice Agent' : '🌐 Online Website'
+    const hotelEmail = 'amplodge0555009697@gmail.com'
+
+    const htmlContent = generateEmailHtml({
+      title: 'New Booking Alert!',
+      preheader: `New ${source === 'voice_agent' ? 'voice agent' : 'online'} booking from ${guest.name}`,
+      content: `
+        <p><strong>🔔 A new booking has been made!</strong></p>
+        
+        <div style="${EMAIL_STYLES.infoBox}">
+          <p><strong>📌 Source:</strong> ${sourceLabel}</p>
+          <p><strong>⏰ Time:</strong> ${new Date().toLocaleString()}</p>
+        </div>
+        
+        <h3 style="color: #1a1a1a; margin-top: 24px;">Guest Information</h3>
+        <div style="${EMAIL_STYLES.infoBox}">
+          <p><strong>👤 Name:</strong> ${guest.name}</p>
+          <p><strong>📧 Email:</strong> ${guest.email}</p>
+          <p><strong>📱 Phone:</strong> ${guest.phone || 'Not provided'}</p>
+          <p><strong>👥 Guests:</strong> ${booking.numGuests}</p>
+        </div>
+        
+        <h3 style="color: #1a1a1a; margin-top: 24px;">Booking Details</h3>
+        <div style="${EMAIL_STYLES.infoBox}">
+          <p><strong>🏨 Room:</strong> ${room.roomNumber} (${room.roomType || 'Standard Room'})</p>
+          <p><strong>📅 Check-in:</strong> ${checkInDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+          <p><strong>📅 Check-out:</strong> ${checkOutDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+          <p><strong>🌙 Nights:</strong> ${nights}</p>
+          <p><strong>💰 Total:</strong> ${formatCurrencySync(booking.totalPrice, currency)}</p>
+        </div>
+      `
+    })
+
+    await sendTransactionalEmail({
+      to: hotelEmail,
+      subject: `🔔 New ${source === 'voice_agent' ? 'Voice' : 'Online'} Booking - ${guest.name} | Room ${room.roomNumber}`,
+      html: htmlContent,
+      text: `New Booking Alert!\n\nSource: ${sourceLabel}\nTime: ${new Date().toLocaleString()}\n\nGuest: ${guest.name}\nEmail: ${guest.email}\nPhone: ${guest.phone || 'Not provided'}\n\nRoom: ${room.roomNumber}\nCheck-in: ${checkInDate.toLocaleDateString()}\nCheck-out: ${checkOutDate.toLocaleDateString()}\nNights: ${nights}\nTotal: ${formatCurrencySync(booking.totalPrice, currency)}`
+    })
+
+    console.log('✅ [OnlineBookingAlert] Email sent to hotel')
+
+    // Send SMS notification
+    const { sendOnlineBookingAlertSMS } = await import('@/services/sms-service')
+    await sendOnlineBookingAlertSMS({
+      guestName: guest.name,
+      roomNumber: room.roomNumber,
+      roomType: room.roomType || 'Standard',
+      checkIn: checkInDate.toLocaleDateString(),
+      nights,
+      totalAmount: formatCurrencySync(booking.totalPrice, currency),
+      source
+    })
+
+    console.log('✅ [OnlineBookingAlert] SMS sent to hotel')
+
+  } catch (error) {
+    console.error('❌ [OnlineBookingAlert] Failed to send alert:', error)
+  }
+}

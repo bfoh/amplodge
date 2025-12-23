@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { cn } from '../lib/utils'
 import { getRoomDisplayName, calculateNights } from '../lib/display'
-import { Users, CalendarIcon, Mail, Phone, DollarSign, MessageSquare, LogIn, LogOut, CheckCircle2, Clock, MapPin } from 'lucide-react'
+import { Users, CalendarIcon, Mail, Phone, DollarSign, MessageSquare, LogIn, LogOut, CheckCircle2, Clock, MapPin, CalendarPlus } from 'lucide-react'
 import { createInvoiceData, generateInvoicePDF, blobToBase64 } from '@/services/invoice-service'
 import { bookingEngine } from '../services/booking-engine'
 import { sendCheckInNotification, sendCheckOutNotification } from '@/services/notifications'
@@ -20,6 +20,7 @@ import { Input } from './ui/input'
 import { toast } from 'sonner'
 import { CheckInDialog } from '@/components/dialogs/CheckInDialog'
 import { CheckOutDialog } from '@/components/dialogs/CheckOutDialog'
+import { ExtendStayDialog } from '@/components/dialogs/ExtendStayDialog'
 import { blink } from '../blink/client'
 
 interface CalendarListViewProps {
@@ -41,6 +42,7 @@ export function CalendarListView({
 }: CalendarListViewProps) {
   const [checkInDialog, setCheckInDialog] = useState<any>(null)
   const [checkOutDialog, setCheckOutDialog] = useState<any>(null)
+  const [extendStayDialog, setExtendStayDialog] = useState<any>(null)
   const [processing, setProcessing] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -144,6 +146,15 @@ export function CalendarListView({
         // Generate invoice data
         const invoiceData = await createInvoiceData(bookingWithDetails, getRoomForBooking(booking))
         console.log('✅ [CalendarListView] Invoice data created:', invoiceData.invoiceNumber)
+
+        // IMPORTANT: Save the invoice number to the booking record for consistency
+        try {
+          const db = blink.db as any
+          await db.bookings.update(bookingWithDetails.id, { invoiceNumber: invoiceData.invoiceNumber })
+          console.log('✅ [CalendarListView] Invoice number saved to booking:', invoiceData.invoiceNumber)
+        } catch (saveError) {
+          console.error('⚠️ [CalendarListView] Failed to save invoice number:', saveError)
+        }
 
         console.log('📄 [CalendarListView] Generating invoice PDF...')
         // Generate invoice PDF
@@ -430,15 +441,26 @@ export function CalendarListView({
                         )}
 
                         {canCheckOut(booking) && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setCheckOutDialog(booking)}
-                            className="h-8"
-                          >
-                            <LogOut className="w-4 h-4 mr-1" />
-                            Check Out
-                          </Button>
+                          <>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setExtendStayDialog(booking)}
+                              className="h-8 text-amber-600 hover:text-amber-700"
+                            >
+                              <CalendarPlus className="w-4 h-4 mr-1" />
+                              Extend
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setCheckOutDialog(booking)}
+                              className="h-8"
+                            >
+                              <LogOut className="w-4 h-4 mr-1" />
+                              Check Out
+                            </Button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -481,6 +503,25 @@ export function CalendarListView({
         onConfirm={() => handleCheckOut(checkOutDialog!)}
         processing={processing}
       />
+
+      {/* Extend Stay Dialog */}
+      {extendStayDialog && (
+        <ExtendStayDialog
+          open={!!extendStayDialog}
+          onOpenChange={(open) => !open && setExtendStayDialog(null)}
+          booking={extendStayDialog}
+          guest={{
+            id: extendStayDialog.guestId || '',
+            name: extendStayDialog.guestName || 'Guest',
+            email: extendStayDialog.guestEmail || ''
+          }}
+          room={{
+            id: extendStayDialog.roomId || '',
+            roomNumber: getRoomForBooking(extendStayDialog)?.roomNumber || 'N/A'
+          }}
+          onExtensionComplete={() => onBookingUpdate?.()}
+        />
+      )}
     </>
   )
 }

@@ -271,3 +271,59 @@ Time: ${date} ${time}`
 
     return sendSMS(phone, message, 'Manager Check-in Alert')
 }
+
+/**
+ * Send stay extension notification SMS to guest
+ */
+export async function sendStayExtensionSMS(params: {
+    phone: string
+    guestName: string
+    newCheckout: string
+    additionalNights: number
+    extensionCost: string
+}): Promise<SMSResult> {
+    const { phone, guestName, newCheckout, additionalNights, extensionCost } = params
+
+    const message = `✅ STAY EXTENDED
+Hi ${guestName.split(' ')[0]},
+
+Your stay has been extended!
+
+📅 New Checkout: ${newCheckout}
+➕ Added: ${additionalNights} night${additionalNights > 1 ? 's' : ''}
+💰 Cost: ${extensionCost}
+
+This has been added to your bill.
+
+AMP Lodge`
+
+    return sendSMS(phone, message, 'Stay Extension')
+}
+
+/**
+ * Send online booking alert SMS to hotel
+ */
+export async function sendOnlineBookingAlertSMS(params: {
+    guestName: string
+    roomNumber: string
+    roomType: string
+    checkIn: string
+    nights: number
+    totalAmount: string
+    source: 'online' | 'voice_agent'
+}): Promise<SMSResult> {
+    const { guestName, roomNumber, roomType, checkIn, nights, totalAmount, source } = params
+
+    const hotelPhone = '+233555009697'
+    const sourceLabel = source === 'voice_agent' ? 'Voice Agent' : 'Online'
+
+    const message = `🔔 NEW BOOKING
+Guest: ${guestName}
+Room: ${roomNumber} (${roomType})
+Check-in: ${checkIn}
+${nights} night${nights > 1 ? 's' : ''} | ${totalAmount}
+Source: ${sourceLabel}
+AMP Lodge`
+
+    return sendSMS(hotelPhone, message, 'Online Booking Alert')
+}

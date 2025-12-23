@@ -493,6 +493,22 @@ This is an automated confirmation. For inquiries, contact us at info@amplodge.or
           }).catch(err => console.error('[BookingPage] SMS confirmation failed:', err))
         }
 
+        // Send hotel alert for online booking (email + SMS to hotel)
+        import('@/services/notifications').then(({ sendOnlineBookingAlert }) => {
+          sendOnlineBookingAlert(
+            { name: guestInfo.name, email: guestInfo.email, phone: guestInfo.phone || null },
+            { roomNumber: availableRoom?.roomNumber || '', roomType: selectedRoomType?.name || '' },
+            {
+              id: createdBookingId || savedBooking._id,
+              checkIn: checkIn.toISOString(),
+              checkOut: checkOut.toISOString(),
+              totalPrice,
+              numGuests
+            },
+            'online'
+          ).catch(err => console.error('[BookingPage] Hotel alert failed:', err))
+        })
+
       }
 
       const offlineMessage = bookingEngine.getOnlineStatus()

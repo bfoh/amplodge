@@ -29,7 +29,8 @@ import { LogIn, LogOut, CheckCircle2 } from 'lucide-react'
 import { calculateNights } from '@/lib/display'
 import { CheckInDialog } from '@/components/dialogs/CheckInDialog'
 import { GuestChargesDialog } from '@/components/dialogs/GuestChargesDialog'
-import { Receipt } from 'lucide-react'
+import { ExtendStayDialog } from '@/components/dialogs/ExtendStayDialog'
+import { Receipt, CalendarPlus } from 'lucide-react'
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -65,6 +66,7 @@ export function ReservationsPage() {
   const [checkInDialog, setCheckInDialog] = useState<Booking | null>(null)
   const [checkOutDialog, setCheckOutDialog] = useState<Booking | null>(null)
   const [chargesDialog, setChargesDialog] = useState<Booking | null>(null)
+  const [extendStayDialog, setExtendStayDialog] = useState<Booking | null>(null)
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null)
 
   // Checkout charges summary
@@ -254,6 +256,7 @@ export function ReservationsPage() {
     try {
       console.log('📄 [ReservationsPage] Generating invoice for staff download...', {
         bookingId: booking.id,
+        existingInvoiceNumber: booking.invoiceNumber,
         guestEmail: guest.email,
         roomNumber: room.roomNumber
       })
@@ -270,6 +273,16 @@ export function ReservationsPage() {
 
       // Generate invoice data
       const invoiceData = await createInvoiceData(bookingWithDetails, room)
+
+      // IMPORTANT: Use existing invoice number if available for consistency
+      if (booking.invoiceNumber) {
+        invoiceData.invoiceNumber = booking.invoiceNumber
+        console.log('✅ [ReservationsPage] Using existing invoice number:', booking.invoiceNumber)
+      } else {
+        // Save the new invoice number to booking for future consistency
+        await db.bookings.update(booking.id, { invoiceNumber: invoiceData.invoiceNumber }).catch(() => { })
+        console.log('✅ [ReservationsPage] Saved new invoice number:', invoiceData.invoiceNumber)
+      }
 
       // Download PDF using service function
       await downloadInvoicePDF(invoiceData)
@@ -356,54 +369,7 @@ export function ReservationsPage() {
       // Get guest and room data for notifications
       const guest = guestMap.get(booking.guestId)
 
-      // Send check-out notification FIRST (before invoice processing)
-      if (guest && room) {
-        console.log('📧 [ReservationsPage] Preparing to send check-out notification...', {
-          guestEmail: guest.email,
-          guestName: guest.name,
-          roomNumber: room.roomNumber,
-          bookingId: booking.id
-        })
-
-        try {
-          // Import notification service directly
-          const { sendCheckOutNotification } = await import('@/services/notifications')
-
-          // Create booking object with the structure expected by notifications
-          // Use the updated actualCheckOut from the database update
-          const bookingForNotification = {
-            id: booking.id,
-            checkIn: booking.checkIn,
-            checkOut: booking.checkOut,
-            actualCheckIn: booking.actualCheckIn,
-            actualCheckOut: new Date().toISOString() // Use the same timestamp as the database update
-          }
-
-          // Prepare invoice data for the notification
-          const invoiceData = {
-            invoiceNumber: `INV-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
-            totalAmount: booking.totalPrice || 0,
-            downloadUrl: `${window.location.origin}/invoice/INV-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
-          }
-
-          console.log('📧 [ReservationsPage] Calling sendCheckOutNotification with invoice data:', invoiceData)
-
-          // Call notification service directly
-          await sendCheckOutNotification(guest, room, bookingForNotification, invoiceData)
-          console.log('✅ [ReservationsPage] Check-out notification sent successfully!')
-        } catch (notificationError) {
-          console.error('❌ [ReservationsPage] Check-out notification error:', notificationError)
-        }
-      } else {
-        console.warn('⚠️ [ReservationsPage] Cannot send check-out notification - missing guest or room data:', {
-          hasGuest: !!guest,
-          hasRoom: !!room,
-          guestId: booking.guestId,
-          roomId: booking.roomId
-        })
-      }
-
-      // Generate and send invoice (separate from check-out notification)
+      // Generate invoice and send notifications (invoice data contains correct total including additional charges)
       if (guest && room) {
         try {
           console.log('🚀 [ReservationsPage] Starting invoice generation...', {
@@ -416,6 +382,7 @@ export function ReservationsPage() {
           // Create booking with details for invoice
           const bookingWithDetails = {
             ...booking,
+            actualCheckOut: new Date().toISOString(),
             guest: guest,
             room: {
               roomNumber: room.roomNumber,
@@ -424,14 +391,59 @@ export function ReservationsPage() {
           }
 
           console.log('📊 [ReservationsPage] Creating invoice data...')
-          // Generate invoice data
+          // Generate invoice data (this includes additional charges in the total!)
           const invoiceData = await createInvoiceData(bookingWithDetails, room)
-          console.log('✅ [ReservationsPage] Invoice data created:', invoiceData.invoiceNumber)
+          console.log('✅ [ReservationsPage] Invoice data created:', {
+            invoiceNumber: invoiceData.invoiceNumber,
+            roomTotal: booking.totalPrice,
+            additionalChargesTotal: invoiceData.charges.additionalChargesTotal,
+            grandTotal: invoiceData.charges.total
+          })
+
+          // IMPORTANT: Save the invoice number to the booking record for consistency
+          try {
+            await db.bookings.update(booking.id, { invoiceNumber: invoiceData.invoiceNumber })
+            console.log('✅ [ReservationsPage] Invoice number saved to booking:', invoiceData.invoiceNumber)
+          } catch (saveError) {
+            console.error('⚠️ [ReservationsPage] Failed to save invoice number to booking:', saveError)
+          }
 
           console.log('📄 [ReservationsPage] Generating invoice PDF...')
           // Generate invoice PDF
           const invoicePdf = await generateInvoicePDF(invoiceData)
           console.log('✅ [ReservationsPage] Invoice PDF generated')
+
+          // Send check-out notification with CORRECT total (room + additional charges)
+          try {
+            const { sendCheckOutNotification } = await import('@/services/notifications')
+
+            // Create booking object with the structure expected by notifications
+            const bookingForNotification = {
+              id: booking.id,
+              checkIn: booking.checkIn,
+              checkOut: booking.checkOut,
+              actualCheckIn: booking.actualCheckIn,
+              actualCheckOut: new Date().toISOString()
+            }
+
+            // Use invoiceData.charges.total which includes room + additional charges
+            const notificationInvoiceData = {
+              invoiceNumber: invoiceData.invoiceNumber,
+              totalAmount: invoiceData.charges.total, // CORRECT: includes additional charges
+              downloadUrl: `${window.location.origin}/invoice/${invoiceData.invoiceNumber}`
+            }
+
+            console.log('📧 [ReservationsPage] Sending check-out notification with total (room + charges):', {
+              roomCost: booking.totalPrice,
+              additionalCharges: invoiceData.charges.additionalChargesTotal,
+              grandTotal: invoiceData.charges.total
+            })
+
+            await sendCheckOutNotification(guest, room, bookingForNotification, notificationInvoiceData)
+            console.log('✅ [ReservationsPage] Check-out notification sent successfully!')
+          } catch (notificationError) {
+            console.error('❌ [ReservationsPage] Check-out notification error:', notificationError)
+          }
 
           console.log('📧 [ReservationsPage] Sending invoice email...')
           // Send invoice email
@@ -557,6 +569,22 @@ export function ReservationsPage() {
           // Optionally refresh data when charges are updated
         }}
       />
+
+      {/* Extend Stay Dialog */}
+      {extendStayDialog && (
+        <ExtendStayDialog
+          open={!!extendStayDialog}
+          onOpenChange={(open) => !open && setExtendStayDialog(null)}
+          booking={extendStayDialog}
+          guest={guestMap.get(extendStayDialog.guestId) || { id: '', name: 'Guest', email: '' }}
+          room={roomMap.get(extendStayDialog.roomId) || { id: '', roomNumber: 'N/A' }}
+          onExtensionComplete={async () => {
+            // Refresh bookings data after extension
+            const b = await db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 500 })
+            setBookings(b)
+          }}
+        />
+      )}
 
       {/* Check-Out Dialog */}
       <Dialog open={!!checkOutDialog} onOpenChange={(open) => !open && setCheckOutDialog(null)}>
@@ -795,6 +823,16 @@ export function ReservationsPage() {
                                   >
                                     <Receipt className="w-4 h-4 mr-1" />
                                     Charges
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => setExtendStayDialog(b)}
+                                    className="text-amber-600 hover:text-amber-700"
+                                    title="Extend Stay"
+                                  >
+                                    <CalendarPlus className="w-4 h-4 mr-1" />
+                                    Extend
                                   </Button>
                                   <Button
                                     size="sm"
