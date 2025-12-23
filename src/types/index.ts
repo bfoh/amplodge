@@ -45,6 +45,11 @@ export interface Booking {
   createdAt: string
   paymentMethod?: string
   invoiceNumber?: string
+  // Discount fields
+  discountAmount?: number      // Discount applied at check-in (in GH₵)
+  discountReason?: string      // Reason for discount
+  finalAmount?: number         // Amount after discount (totalPrice - discountAmount)
+  discountedBy?: string        // Staff ID who applied discount
 }
 
 export interface Staff {

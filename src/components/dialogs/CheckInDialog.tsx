@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { format, parseISO } from 'date-fns'
 import {
     Dialog,
@@ -9,10 +9,13 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { formatCurrencySync } from '@/lib/utils'
+import { formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { useCheckIn, CheckInOptions } from '@/hooks/use-check-in'
+import { Percent, Tag } from 'lucide-react'
 
 interface CheckInDialogProps {
     open: boolean
@@ -23,6 +26,15 @@ interface CheckInDialogProps {
     onSuccess?: () => void
     user?: any
 }
+
+const DISCOUNT_REASONS = [
+    { value: 'loyalty', label: 'Loyalty Discount' },
+    { value: 'promo', label: 'Promo Code' },
+    { value: 'manager', label: 'Manager Approval' },
+    { value: 'corporate', label: 'Corporate Rate' },
+    { value: 'repeat', label: 'Repeat Guest' },
+    { value: 'other', label: 'Other' }
+]
 
 export function CheckInDialog({
     open,
@@ -36,30 +48,19 @@ export function CheckInDialog({
     const { currency } = useCurrency()
     const { checkIn, isProcessing } = useCheckIn()
     const [paymentMethod, setPaymentMethod] = useState<string>('Cash')
+    const [discountAmount, setDiscountAmount] = useState<string>('')
+    const [discountReason, setDiscountReason] = useState<string>('')
 
-    // Reset payment method when dialog opens
+    // Reset form when dialog opens
     useEffect(() => {
         if (open) {
             setPaymentMethod('Cash')
+            setDiscountAmount('')
+            setDiscountReason('')
         }
     }, [open])
 
     if (!booking || !guest) return null
-
-    const handleConfirm = async () => {
-        const success = await checkIn({
-            booking,
-            room,
-            guest,
-            paymentMethod,
-            user
-        })
-
-        if (success) {
-            onSuccess?.()
-            onOpenChange(false)
-        }
-    }
 
     // Parse dates safely
     const checkInDate = booking.checkIn || booking.dates?.checkIn
@@ -69,13 +70,37 @@ export function CheckInDialog({
     const totalAmount = booking.totalPrice || booking.amount || 0
     const roomNumber = room?.roomNumber || booking.roomNumber || 'N/A'
 
+    // Calculate final amount with discount
+    const discount = parseFloat(discountAmount) || 0
+    const finalAmount = Math.max(0, totalAmount - discount)
+    const discountError = discount > totalAmount ? 'Discount cannot exceed total amount' : ''
+
+    const handleConfirm = async () => {
+        if (discountError) return
+
+        const success = await checkIn({
+            booking,
+            room,
+            guest,
+            paymentMethod,
+            discountAmount: discount > 0 ? discount : undefined,
+            discountReason: discount > 0 && discountReason ? discountReason : undefined,
+            user
+        })
+
+        if (success) {
+            onSuccess?.()
+            onOpenChange(false)
+        }
+    }
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent>
+            <DialogContent className="max-w-lg">
                 <DialogHeader>
                     <DialogTitle>Confirm Guest Check-In</DialogTitle>
                     <DialogDescription>
-                        Verify guest details before checking in
+                        Verify guest details and apply any discounts before checking in
                     </DialogDescription>
                 </DialogHeader>
 
@@ -108,29 +133,79 @@ export function CheckInDialog({
                             <p className="text-base">{booking.numGuests || 1}</p>
                         </div>
                         <div>
-                            <p className="text-sm font-medium text-muted-foreground">Total Amount</p>
-                            <p className="text-base font-semibold text-primary">
+                            <p className="text-sm font-medium text-muted-foreground">Room Rate (Original)</p>
+                            <p className="text-base font-semibold">
                                 {formatCurrencySync(totalAmount, currency)}
                             </p>
                         </div>
                     </div>
 
-                    {guest.email && (
-                        <div>
-                            <p className="text-sm font-medium text-muted-foreground">Email</p>
-                            <p className="text-base">{guest.email}</p>
+                    {/* Discount Section */}
+                    <div className="border-t pt-4 space-y-3">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                            <Tag className="w-4 h-4" />
+                            <span>Apply Discount (Optional)</span>
                         </div>
-                    )}
 
-                    {guest.phone && (
-                        <div>
-                            <p className="text-sm font-medium text-muted-foreground">Phone</p>
-                            <p className="text-base">{guest.phone}</p>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="discountAmount">Discount Amount</Label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                                        {getCurrencySymbol(currency)}
+                                    </span>
+                                    <Input
+                                        id="discountAmount"
+                                        type="number"
+                                        min="0"
+                                        max={totalAmount}
+                                        step="1"
+                                        placeholder="0"
+                                        value={discountAmount}
+                                        onChange={(e) => setDiscountAmount(e.target.value)}
+                                        className="pl-8"
+                                    />
+                                </div>
+                                {discountError && (
+                                    <p className="text-xs text-destructive">{discountError}</p>
+                                )}
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="discountReason">Reason</Label>
+                                <Select value={discountReason} onValueChange={setDiscountReason}>
+                                    <SelectTrigger id="discountReason">
+                                        <SelectValue placeholder="Select reason" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {DISCOUNT_REASONS.map((reason) => (
+                                            <SelectItem key={reason.value} value={reason.value}>
+                                                {reason.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </div>
-                    )}
+                    </div>
 
-                    <div className="col-span-2">
-                        <p className="text-sm font-medium text-muted-foreground mb-2">Customer Paid By</p>
+                    {/* Final Amount */}
+                    <div className="bg-muted/50 rounded-lg p-4 border">
+                        <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium">Final Amount to Pay</span>
+                            <span className="text-xl font-bold text-primary">
+                                {formatCurrencySync(finalAmount, currency)}
+                            </span>
+                        </div>
+                        {discount > 0 && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                                Discount applied: -{formatCurrencySync(discount, currency)}
+                            </p>
+                        )}
+                    </div>
+
+                    {/* Payment Method */}
+                    <div className="space-y-2">
+                        <Label>Customer Paid By</Label>
                         <Select value={paymentMethod} onValueChange={setPaymentMethod}>
                             <SelectTrigger>
                                 <SelectValue placeholder="Select payment method" />
@@ -148,7 +223,7 @@ export function CheckInDialog({
                     <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isProcessing}>
                         Cancel
                     </Button>
-                    <Button onClick={handleConfirm} disabled={isProcessing}>
+                    <Button onClick={handleConfirm} disabled={isProcessing || !!discountError}>
                         {isProcessing ? 'Processing...' : 'Confirm Check-In'}
                     </Button>
                 </DialogFooter>

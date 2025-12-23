@@ -10,13 +10,15 @@ export interface CheckInOptions {
     room: Room | any
     guest: Guest | any
     paymentMethod: string
+    discountAmount?: number      // Discount applied at check-in
+    discountReason?: string      // Reason for discount
     user?: any // Current user for logging
 }
 
 export function useCheckIn() {
     const [isProcessing, setIsProcessing] = useState(false)
 
-    const checkIn = async ({ booking, room, guest, paymentMethod, user }: CheckInOptions) => {
+    const checkIn = async ({ booking, room, guest, paymentMethod, discountAmount, discountReason, user }: CheckInOptions) => {
         setIsProcessing(true)
         const db = (blink.db as any)
 
@@ -86,15 +88,35 @@ export function useCheckIn() {
                 console.log('[useCheckIn] Using resolved booking ID:', bookingId)
             }
 
-            // 3. Update Booking with the resolved ID
-            console.log('[useCheckIn] Attempting to update booking:', bookingId)
+            // 3. Calculate final amount if discount is applied
+            const totalPrice = actualBooking?.totalPrice || booking.totalPrice || booking.amount || 0
+            const finalAmount = discountAmount && discountAmount > 0
+                ? Math.max(0, totalPrice - discountAmount)
+                : totalPrice
+
+            // 4. Update Booking with the resolved ID
+            console.log('[useCheckIn] Attempting to update booking:', bookingId, 'with discount:', discountAmount)
             try {
-                await db.bookings.update(bookingId, {
+                const updateData: any = {
                     status: 'checked-in',
                     actualCheckIn: new Date().toISOString(),
                     paymentMethod: paymentMethod
-                })
-                console.log('[useCheckIn] Booking updated successfully')
+                }
+
+                // Add discount fields if discount is applied
+                if (discountAmount && discountAmount > 0) {
+                    updateData.discountAmount = discountAmount
+                    updateData.finalAmount = finalAmount
+                    if (discountReason) {
+                        updateData.discountReason = discountReason
+                    }
+                    if (user?.id) {
+                        updateData.discountedBy = user.id
+                    }
+                }
+
+                await db.bookings.update(bookingId, updateData)
+                console.log('[useCheckIn] Booking updated successfully with discount:', discountAmount || 0)
             } catch (bookingUpdateError) {
                 console.error('[useCheckIn] Booking update failed:', bookingUpdateError)
                 throw bookingUpdateError
@@ -146,25 +168,31 @@ export function useCheckIn() {
                     checkIn: booking.checkIn || booking.dates?.checkIn,
                     checkOut: booking.checkOut || booking.dates?.checkOut,
                     actualCheckIn: new Date().toISOString(),
-                    totalPrice: booking.totalPrice || booking.amount
+                    totalPrice: booking.totalPrice || booking.amount,
+                    discountAmount: discountAmount || 0,
+                    finalAmount: finalAmount
                 }
 
-                // Send notification to guest
+                // Send notification to guest - use final amount (after discount)
                 await sendCheckInNotification(guest, room, bookingForNotification, {
                     method: paymentMethod,
-                    amount: booking.totalPrice || booking.amount || 0
+                    amount: finalAmount
                 })
                 console.log('✅ [useCheckIn] Guest notification sent')
 
-                // Send notification to manager
+                // Send notification to manager - include discount info in method field if applicable
+                const paymentInfo = discountAmount && discountAmount > 0
+                    ? `${paymentMethod} (Discount: ${discountAmount})`
+                    : paymentMethod
+
                 sendManagerCheckInNotification(
                     guest,
                     room,
                     bookingForNotification,
                     user?.email || user?.name || 'Staff',
                     {
-                        method: paymentMethod,
-                        amount: booking.totalPrice || booking.amount || 0
+                        method: paymentInfo,
+                        amount: finalAmount
                     }
                 ).catch(err => console.error('❌ [useCheckIn] Manager notification failed:', err))
                 console.log('✅ [useCheckIn] Manager notification triggered')
@@ -184,7 +212,11 @@ export function useCheckIn() {
                         checkInDate: booking.checkIn || booking.dates?.checkIn,
                         actualCheckIn: new Date().toISOString(),
                         bookingId: bookingId,
-                        paymentMethod
+                        paymentMethod,
+                        originalAmount: totalPrice,
+                        discountAmount: discountAmount || 0,
+                        discountReason: discountReason || null,
+                        finalAmount: finalAmount
                     },
                     userId: user?.id || 'system'
                 })
