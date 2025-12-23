@@ -150,8 +150,7 @@ class StayExtensionService {
      */
     async calculateExtensionCost(roomId: string, additionalNights: number): Promise<number> {
         try {
-            const room = await db.rooms.get(roomId)
-            const pricePerNight = room?.pricePerNight || room?.price || 0
+            const pricePerNight = await this.getRoomRate(roomId)
             return pricePerNight * additionalNights
         } catch (error) {
             console.error('[StayExtension] Error calculating cost:', error)
@@ -160,12 +159,53 @@ class StayExtensionService {
     }
 
     /**
-     * Get room rate per night
+     * Get room rate per night - looks up from room.price or roomType.basePrice
      */
     async getRoomRate(roomId: string): Promise<number> {
         try {
+            console.log('[StayExtension] Getting room rate for roomId:', roomId)
+
+            // First try to get from rooms table
             const room = await db.rooms.get(roomId)
-            return room?.pricePerNight || room?.price || 0
+            console.log('[StayExtension] Room data:', room)
+
+            // Priority 1: look up roomType by roomTypeId and use basePrice (Source of Truth)
+            if (room?.roomTypeId) {
+                const roomType = await db.roomTypes.get(room.roomTypeId)
+                console.log('[StayExtension] RoomType data:', roomType)
+                if (roomType?.basePrice && roomType.basePrice > 0) {
+                    console.log('[StayExtension] Using roomType.basePrice:', roomType.basePrice)
+                    return roomType.basePrice
+                }
+            }
+
+            // Priority 2: If room has a direct price override and it's > 0, use it
+            if (room?.price && room.price > 0) {
+                console.log('[StayExtension] Using room.price:', room.price)
+                return room.price
+            }
+
+            // Alternative: try to find in properties table (some setups use this)
+            try {
+                const properties = await db.properties.list({ limit: 100 })
+                const property = properties.find((p: any) =>
+                    p.id === roomId ||
+                    p.roomNumber === room?.roomNumber
+                )
+                if (property?.displayPrice && property.displayPrice > 0) {
+                    console.log('[StayExtension] Using property.displayPrice:', property.displayPrice)
+                    return property.displayPrice
+                }
+                if (property?.pricePerNight && property.pricePerNight > 0) {
+                    console.log('[StayExtension] Using property.pricePerNight:', property.pricePerNight)
+                    return property.pricePerNight
+                }
+            } catch (propError) {
+                console.log('[StayExtension] Properties lookup failed:', propError)
+            }
+
+            console.warn('[StayExtension] Could not find valid price, returning 0')
+            return 0
         } catch (error) {
             console.error('[StayExtension] Error getting room rate:', error)
             return 0
@@ -239,7 +279,7 @@ class StayExtensionService {
             const charge = await bookingChargesService.addCharge({
                 bookingId,
                 description: `Stay Extension (${additionalNights} night${additionalNights > 1 ? 's' : ''})`,
-                category: 'room_extension',
+                category: 'other',
                 quantity: additionalNights,
                 unitPrice: extensionCost / additionalNights,
                 notes: `Extended from ${currentCheckout.toLocaleDateString()} to ${newCheckout.toLocaleDateString()}`,

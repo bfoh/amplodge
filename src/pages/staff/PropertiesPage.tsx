@@ -96,10 +96,11 @@ export function PropertiesPage() {
 
       // Ensure default types exist (robust check)
       const defaults = [
-        { name: 'Deluxe Room', capacity: 2, basePrice: 150 },
-        { name: 'Executive Suite', capacity: 2, basePrice: 250 },
         { name: 'Standard Room', capacity: 2, basePrice: 100 },
-        { name: 'Family Room', capacity: 4, basePrice: 200 }
+        { name: 'Executive Suite', capacity: 2, basePrice: 250 },
+        { name: 'Deluxe Room', capacity: 2, basePrice: 150 },
+        { name: 'Family Room', capacity: 4, basePrice: 200 },
+        { name: 'Presidential Suite', capacity: 5, basePrice: 500 }
       ]
 
       let seeded = false
@@ -365,10 +366,11 @@ export function PropertiesPage() {
                     ) : (
                       /* Fallback options if room types not loaded from database */
                       <>
-                        <option value="deluxe_room">Deluxe Room</option>
-                        <option value="executive_suite">Executive Suite</option>
                         <option value="standard_room">Standard Room</option>
+                        <option value="executive_suite">Executive Suite</option>
+                        <option value="deluxe_room">Deluxe Room</option>
                         <option value="family_room">Family Room</option>
+                        <option value="presidential_suite">Presidential Suite</option>
                       </>
                     )}
                   </select>

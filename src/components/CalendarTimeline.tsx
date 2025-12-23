@@ -399,7 +399,7 @@ export function CalendarTimeline({
         const invoiceInfo = {
           invoiceNumber: invoiceData.invoiceNumber,
           totalAmount: invoiceData.charges.total,
-          downloadUrl: `${window.location.origin}/invoice/${invoiceData.invoiceNumber}`
+          downloadUrl: `${window.location.origin}/invoice/${invoiceData.invoiceNumber}?bookingId=${bookingWithDetails.id}`
         }
 
         // Send standardized check-out email

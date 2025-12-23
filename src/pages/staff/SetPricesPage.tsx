@@ -20,10 +20,11 @@ export function SetPricesPage() {
 
   // Default room types to seed if none exist
   const defaultRoomTypes = [
-    { name: 'Deluxe Room', capacity: 2, basePrice: 150 },
-    { name: 'Executive Suite', capacity: 2, basePrice: 250 },
     { name: 'Standard Room', capacity: 2, basePrice: 100 },
-    { name: 'Family Room', capacity: 4, basePrice: 200 }
+    { name: 'Executive Suite', capacity: 2, basePrice: 250 },
+    { name: 'Deluxe Room', capacity: 2, basePrice: 150 },
+    { name: 'Family Room', capacity: 4, basePrice: 200 },
+    { name: 'Presidential Suite', capacity: 5, basePrice: 500 }
   ]
 
   const loadRoomTypes = async () => {

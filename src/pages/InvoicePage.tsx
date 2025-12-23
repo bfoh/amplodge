@@ -30,22 +30,52 @@ export function InvoicePage() {
       try {
         console.log('🔍 [InvoicePage] Loading invoice:', invoiceNumber)
 
+        // Check for bookingId in query params (Added for robustness)
+        const searchParams = new URLSearchParams(window.location.search)
+        const bookingIdParam = searchParams.get('bookingId')
+
+        let booking = null
         const db = blink.db as any
 
-        // Try to find a booking with this invoice number
-        // Since invoice numbers are generated at checkout, we need to find the booking
-        // For now, we'll fetch all checked-out bookings and find the matching one
-        const bookings = await db.bookings.list({
-          where: { status: 'checked-out' },
-          limit: 500
-        })
-
-        // For this demo, we'll use the most recent checked-out booking
-        // In production, you'd want to store invoiceNumber in the booking record
-        const booking = bookings[0]
+        if (bookingIdParam) {
+          console.log('🆔 [InvoicePage] Looking up by bookingId param:', bookingIdParam)
+          try {
+            booking = await db.bookings.get(bookingIdParam)
+          } catch (e) {
+            console.warn('Failed to find booking by ID param:', e)
+          }
+        }
 
         if (!booking) {
-          setError('Invoice not found. No checked-out bookings available.')
+          // Try to look up by invoice_number if column exists
+          try {
+            const bookings = await db.bookings.list({
+              where: { invoice_number: invoiceNumber },
+              limit: 1
+            })
+            if (bookings && bookings.length > 0) {
+              booking = bookings[0]
+              console.log('✅ [InvoicePage] Found booking by invoice_number')
+            }
+          } catch (e) {
+            console.warn('Failed to look up by invoice_number column:', e)
+          }
+        }
+
+        // Fallback for legacy data: Check if invoiceNumber matches ID (some old links used ID)
+        if (!booking) {
+          try {
+            const b = await db.bookings.get(invoiceNumber)
+            if (b) {
+              booking = b
+              console.log('✅ [InvoicePage] Found booking by treating invoiceNumber as ID')
+            }
+          } catch (e) { }
+        }
+
+        if (!booking) {
+          console.error('❌ [InvoicePage] Booking not found for invoice:', invoiceNumber)
+          setError('Invoice not found. The link may be expired or invalid.')
           setLoading(false)
           return
         }
@@ -72,11 +102,12 @@ export function InvoicePage() {
           }
         }
 
+        // Generate the invoice data fresh from the booking details
+        // prioritizing the invoice number from URL
         const generatedInvoice = await createInvoiceData(bookingWithDetails, room)
-        // Use the invoice number from URL
         generatedInvoice.invoiceNumber = invoiceNumber
-        setInvoiceData(generatedInvoice)
 
+        setInvoiceData(generatedInvoice)
         console.log('✅ [InvoicePage] Invoice loaded successfully')
       } catch (err: any) {
         console.error('❌ [InvoicePage] Failed to load invoice:', err)

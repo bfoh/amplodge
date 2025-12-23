@@ -94,10 +94,11 @@ Our tagline: "Your Premium Retreat in the Heart of Ghana"
 
 === ROOM TYPES ===
 We offer several room categories:
-1. Standard Room - Comfortable and affordable, perfect for budget travelers
-2. Deluxe Room - More spacious with upgraded amenities
-3. Executive Suite - Premium accommodation with extra space and luxury features
-4. Family Room - Ideal for families, accommodates more guests
+1. Standard Room - Comfortable and affordable, perfect for budget travelers (capacity: 2 guests)
+2. Executive Suite - Premium accommodation with extra space and luxury features (capacity: 2 guests)
+3. Deluxe Room - More spacious with upgraded amenities (capacity: 2 guests)
+4. Family Room - Ideal for families, accommodates more guests (capacity: 4 guests)
+5. Presidential Suite - Our most luxurious accommodation with exclusive amenities and premium services (capacity: 5 guests)
 
 Note: Use the checkRoomAvailability function to get current prices and availability.
 

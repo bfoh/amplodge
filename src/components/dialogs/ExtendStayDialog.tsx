@@ -29,6 +29,7 @@ interface ExtendStayDialogProps {
         checkIn: string
         checkOut: string
         status: string
+        totalPrice?: number
     }
     guest: {
         id: string
@@ -40,6 +41,7 @@ interface ExtendStayDialogProps {
         id: string
         roomNumber: string
         roomType?: string
+        price?: number  // Room price per night from roomType
     }
     onExtensionComplete?: () => void
 }
@@ -68,10 +70,23 @@ export function ExtendStayDialog({
     const minDate = format(addDays(new Date(booking.checkOut), 1), 'yyyy-MM-dd')
     const currentCheckout = format(new Date(booking.checkOut), 'MMM dd, yyyy')
 
-    // Fetch room rate on open
+    // Fetch room rate on open - use booking rate if available (to match current stay), otherwise room.price
     useEffect(() => {
         if (open) {
-            stayExtensionService.getRoomRate(room.id).then(setRoomRate)
+            // Priority: 1. Room price (actual room rate), 2. Service lookup
+            // Note: We deliberately do NOT use the booking's effective rate because extension
+            // should always be at the current room rate, not necessarily what the guest paid before.
+            if (room.price && room.price > 0) {
+                console.log('[ExtendStayDialog] Using room.price from prop:', room.price)
+                setRoomRate(room.price)
+            } else {
+                // Fallback to service lookup
+                stayExtensionService.getRoomRate(room.id).then(rate => {
+                    console.log('[ExtendStayDialog] Using service rate:', rate)
+                    setRoomRate(rate)
+                })
+            }
+
             // Reset state
             setNewCheckoutDate('')
             setAdditionalNights(0)
@@ -81,7 +96,7 @@ export function ExtendStayDialog({
             setSelectedRoomId(null)
             setShowRoomSelector(false)
         }
-    }, [open, room.id])
+    }, [open, room.id, room.price, booking.checkIn, booking.checkOut, booking.totalPrice])
 
     // Calculate costs and check availability when date changes
     useEffect(() => {

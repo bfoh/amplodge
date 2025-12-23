@@ -51,6 +51,7 @@ export function ReservationsPage() {
   const [user, setUser] = useState<any>(null)
   const [bookings, setBookings] = useState<Booking[]>([])
   const [rooms, setRooms] = useState<Room[]>([])
+  const [roomTypes, setRoomTypes] = useState<any[]>([])
   const [guests, setGuests] = useState<Guest[]>([])
 
   // Filters
@@ -72,6 +73,9 @@ export function ReservationsPage() {
   // Checkout charges summary
   const [checkoutCharges, setCheckoutCharges] = useState<BookingCharge[]>([])
   const [checkoutLoading, setCheckoutLoading] = useState(false)
+
+  // All booking charges for displaying totals
+  const [allCharges, setAllCharges] = useState<BookingCharge[]>([])
 
   useEffect(() => {
     const unsub = blink.auth.onAuthStateChanged((state) => {
@@ -101,11 +105,16 @@ export function ReservationsPage() {
     if (!user) return
     const load = async () => {
       try {
-        const [b, r, g] = await Promise.all([
+        const [b, r, g, rt, charges] = await Promise.all([
           db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 500 }),
           db.rooms.list({ limit: 500 }),
-          db.guests.list({ limit: 500 })
+          db.guests.list({ limit: 500 }),
+          db.roomTypes.list({ limit: 100 }),
+          db.bookingCharges?.list({ limit: 1000 }) || Promise.resolve([])
         ])
+
+        // Store charges for calculating totals
+        setAllCharges(charges || [])
 
         // Create temporary maps for lookup during deduplication
         const tempRoomMap = new Map(r.map((rm: Room) => [rm.id, rm]))
@@ -181,6 +190,7 @@ export function ReservationsPage() {
         setBookings(uniqueBookings)
         setRooms(r)
         setGuests(g)
+        setRoomTypes(rt)
       } catch (e) {
         console.error('Failed to load reservations', e)
       } finally {
@@ -192,6 +202,36 @@ export function ReservationsPage() {
 
   const roomMap = useMemo(() => new Map(rooms.map(r => [r.id, r])), [rooms])
   const guestMap = useMemo(() => new Map(guests.map(g => [g.id, g])), [guests])
+  const roomTypeMap = useMemo(() => new Map(roomTypes.map(rt => [rt.id, rt])), [roomTypes])
+
+  // Calculate total charges per booking
+  const chargesMap = useMemo(() => {
+    const map = new Map<string, number>()
+    allCharges.forEach((charge: BookingCharge) => {
+      const current = map.get(charge.bookingId) || 0
+      map.set(charge.bookingId, current + charge.amount)
+    })
+    return map
+  }, [allCharges])
+
+  // Helper to get room price from roomType
+  const getRoomPrice = (room: Room | undefined): number => {
+    if (!room) return 0
+    // Try to get basePrice from roomType
+    const roomType = roomTypeMap.get(room.roomTypeId)
+    if (roomType?.basePrice && roomType.basePrice > 0) {
+      return roomType.basePrice
+    }
+    // Fallback to room's price field
+    return room.price || 0
+  }
+
+  // Helper to get total amount (room cost + additional charges)
+  const getBookingTotal = (booking: Booking): number => {
+    const roomCost = booking.totalPrice || 0
+    const additionalCharges = chargesMap.get(booking.id) || 0
+    return roomCost + additionalCharges
+  }
 
   const resolveRoomStatus = (booking: Booking, room?: Room) => {
     if (booking.status === 'checked-in') return 'occupied'
@@ -430,7 +470,7 @@ export function ReservationsPage() {
             const notificationInvoiceData = {
               invoiceNumber: invoiceData.invoiceNumber,
               totalAmount: invoiceData.charges.total, // CORRECT: includes additional charges
-              downloadUrl: `${window.location.origin}/invoice/${invoiceData.invoiceNumber}`
+              downloadUrl: `${window.location.origin}/invoice/${invoiceData.invoiceNumber}?bookingId=${booking.id}`
             }
 
             console.log('📧 [ReservationsPage] Sending check-out notification with total (room + charges):', {
@@ -565,26 +605,40 @@ export function ReservationsPage() {
         onOpenChange={(open) => !open && setChargesDialog(null)}
         booking={chargesDialog}
         guest={chargesDialog ? guestMap.get(chargesDialog.guestId) : null}
-        onChargesUpdated={() => {
-          // Optionally refresh data when charges are updated
+        onChargesUpdated={async () => {
+          // Refresh charges data when charges are updated
+          const charges = await db.bookingCharges?.list({ limit: 1000 }) || []
+          setAllCharges(charges)
         }}
       />
 
       {/* Extend Stay Dialog */}
-      {extendStayDialog && (
-        <ExtendStayDialog
-          open={!!extendStayDialog}
-          onOpenChange={(open) => !open && setExtendStayDialog(null)}
-          booking={extendStayDialog}
-          guest={guestMap.get(extendStayDialog.guestId) || { id: '', name: 'Guest', email: '' }}
-          room={roomMap.get(extendStayDialog.roomId) || { id: '', roomNumber: 'N/A' }}
-          onExtensionComplete={async () => {
-            // Refresh bookings data after extension
-            const b = await db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 500 })
-            setBookings(b)
-          }}
-        />
-      )}
+      {extendStayDialog && (() => {
+        const extendRoom = roomMap.get(extendStayDialog.roomId)
+        return (
+          <ExtendStayDialog
+            open={!!extendStayDialog}
+            onOpenChange={(open) => !open && setExtendStayDialog(null)}
+            booking={extendStayDialog}
+            guest={guestMap.get(extendStayDialog.guestId) || { id: '', name: 'Guest', email: '' }}
+            room={{
+              id: extendRoom?.id || '',
+              roomNumber: extendRoom?.roomNumber || 'N/A',
+              roomType: roomTypeMap.get(extendRoom?.roomTypeId)?.name,
+              price: getRoomPrice(extendRoom)
+            }}
+            onExtensionComplete={async () => {
+              // Refresh bookings and charges data after extension
+              const [b, charges] = await Promise.all([
+                db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 500 }),
+                db.bookingCharges?.list({ limit: 1000 }) || Promise.resolve([])
+              ])
+              setBookings(b)
+              setAllCharges(charges || [])
+            }}
+          />
+        )
+      })()}
 
       {/* Check-Out Dialog */}
       <Dialog open={!!checkOutDialog} onOpenChange={(open) => !open && setCheckOutDialog(null)}>
@@ -778,7 +832,7 @@ export function ReservationsPage() {
                             <TableCell>
                               {format(parseISO(b.checkIn), 'MMM dd, yyyy')} → {format(parseISO(b.checkOut), 'MMM dd, yyyy')}
                             </TableCell>
-                            <TableCell className="text-right">{formatCurrencySync(b.totalPrice, currency)}</TableCell>
+                            <TableCell className="text-right">{formatCurrencySync(getBookingTotal(b), currency)}</TableCell>
                             <TableCell>
                               <StatusBadge status={b.status} />
                             </TableCell>

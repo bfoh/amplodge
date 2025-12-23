@@ -248,9 +248,11 @@ export function GuestChargesDialog({
                                                     <SelectValue />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    {Object.entries(CHARGE_CATEGORIES).map(([key, label]) => (
-                                                        <SelectItem key={key} value={key}>{label}</SelectItem>
-                                                    ))}
+                                                    {Object.entries(CHARGE_CATEGORIES)
+                                                        .filter(([key]) => key !== 'room_extension')
+                                                        .map(([key, label]) => (
+                                                            <SelectItem key={key} value={key}>{label}</SelectItem>
+                                                        ))}
                                                 </SelectContent>
                                             </Select>
                                         </div>
