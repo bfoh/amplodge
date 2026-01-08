@@ -98,7 +98,12 @@ export const handler = async (event) => {
         } else {
             console.error('[SMS Function] Arkesel Error:', responseText);
             // Return 400 Bad Request instead of 500 if it's an invalid number, so client knows it's data error
-            const statusCode = responseText.toLowerCase().includes('invalid phone') ? 400 : 502;
+            let statusCode = 502;
+            if (responseText.toLowerCase().includes('invalid phone') || responseText.toLowerCase().includes('invalid number')) {
+                statusCode = 400;
+            } else if (responseText.toLowerCase().includes('balance') || responseText.toLowerCase().includes('credit')) {
+                statusCode = 402; // Payment Required
+            }
 
             return {
                 statusCode,

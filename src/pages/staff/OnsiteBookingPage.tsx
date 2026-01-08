@@ -371,6 +371,12 @@ For inquiries, contact us at info@amplodge.org
             checkIn: checkIn.toISOString(),
             checkOut: checkOut.toISOString(),
             bookingId: bookingId
+          }).then(result => {
+            if (!result.success) {
+              console.error('[OnsiteBookingPage] SMS failed:', result.error)
+              // Show warning for SMS failure (e.g. Insufficient Balance)
+              toast.warning(`Booking saved, but SMS failed: ${result.error}`)
+            }
           }).catch(err => console.error('[OnsiteBookingPage] SMS confirmation failed:', err))
         }
       }

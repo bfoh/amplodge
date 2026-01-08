@@ -490,6 +490,11 @@ This is an automated confirmation. For inquiries, contact us at info@amplodge.or
             checkIn: checkIn.toISOString(),
             checkOut: checkOut.toISOString(),
             bookingId: createdBookingId || savedBooking._id
+          }).then(result => {
+            if (!result.success && isReceptionBooking) {
+              console.error('[BookingPage] SMS failed:', result.error)
+              toast.warning(`Booking confirmed, but SMS failed: ${result.error}`)
+            }
           }).catch(err => console.error('[BookingPage] SMS confirmation failed:', err))
         }
 
