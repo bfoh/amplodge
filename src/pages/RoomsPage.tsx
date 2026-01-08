@@ -151,7 +151,7 @@ export function RoomsPage() {
       {/* Room Types */}
       <section className="py-20 bg-gradient-to-b from-background to-secondary/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-10">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 lg:gap-10">
             {roomTypes.map((roomType) => {
               const availableCount = getAvailableRoomCount(roomType.id)
               // Ensure amenities is a string before splitting
