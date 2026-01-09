@@ -147,22 +147,30 @@ export function ReservationsPage() {
 
 
         const hydratedBookings = (b as Booking[]).map(booking => {
-          if (!booking.specialRequests) return booking;
-          const match = booking.specialRequests.match(/<!-- GROUP_DATA:(.*?) -->/);
+          // Preserve the raw special_requests field for invoice generation
+          // Note: Supabase returns snake_case, our interface uses camelCase
+          const rawSpecialRequests = (booking as any).special_requests || booking.specialRequests || ''
+
+          if (!rawSpecialRequests) return { ...booking, _rawSpecialRequests: '' };
+
+          const match = rawSpecialRequests.match(/<!-- GROUP_DATA:(.*?) -->/)
           if (match && match[1]) {
             try {
               const groupData = JSON.parse(match[1]);
               return {
                 ...booking,
                 ...groupData,
-                // Clean the specialRequests to not show technical data to user
-                specialRequests: booking.specialRequests.replace(/<!-- GROUP_DATA:.*? -->/g, '').trim()
+                // Preserve raw special requests for invoice generation
+                _rawSpecialRequests: rawSpecialRequests,
+                special_requests: rawSpecialRequests, // Keep snake_case for DB compatibility
+                // Clean the specialRequests for UI display (so user doesn't see technical data)
+                specialRequests: rawSpecialRequests.replace(/<!-- GROUP_DATA:.*? -->/g, '').trim()
               };
             } catch (e) {
               console.warn('Failed to parse group data for booking', booking.id, e);
             }
           }
-          return booking;
+          return { ...booking, _rawSpecialRequests: rawSpecialRequests, special_requests: rawSpecialRequests };
         });
 
         const uniqueBookings = hydratedBookings.reduce((acc: Booking[], current) => {
@@ -341,6 +349,10 @@ export function ReservationsPage() {
       // Create booking with details for invoice
       const bookingWithDetails = {
         ...booking,
+        // CRITICAL: specific invoice data (discounts/charges) is in the raw specialRequests
+        // The 'specialRequests' field on the booking object is cleaned for UI display
+        // We must use _rawSpecialRequests or special_requests to get the metadata
+        specialRequests: (booking as any)._rawSpecialRequests || (booking as any).special_requests || booking.specialRequests,
         guest: guest,
         room: {
           roomNumber: room.roomNumber,

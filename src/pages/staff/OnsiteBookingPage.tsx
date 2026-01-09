@@ -9,7 +9,7 @@ import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { CalendarIcon, Check, ArrowLeft, Plus, Trash, ShoppingCart, Users, ArrowRight } from 'lucide-react'
+import { CalendarIcon, Check, ArrowLeft, Plus, Trash, ShoppingCart, Users, ArrowRight, Minus } from 'lucide-react'
 import { format, differenceInDays } from 'date-fns'
 import { toast } from 'sonner'
 import { formatCurrencySync } from '@/lib/utils'
@@ -57,6 +57,11 @@ export function OnsiteBookingPage() {
   })
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'mobile_money' | 'card' | 'not_paid'>('not_paid')
   const [loading, setLoading] = useState(false)
+
+  // Billing Adjustments State
+  const [additionalCharges, setAdditionalCharges] = useState<{ id: string, description: string, amount: number }[]>([])
+  const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('fixed')
+  const [discountValue, setDiscountValue] = useState<number>(0)
 
   useEffect(() => {
     const unsubscribe = blink.auth.onAuthStateChanged((state) => {
@@ -297,6 +302,13 @@ export function OnsiteBookingPage() {
     return sum + (Number(item.price) * itemNights)
   }, 0)
 
+  const chargesTotal = additionalCharges.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+  const totalBeforeDiscount = totalPrice + chargesTotal
+  const discountAmount = discountType === 'percentage'
+    ? (totalBeforeDiscount * (discountValue / 100))
+    : discountValue
+  const grandTotal = Math.max(0, totalBeforeDiscount - discountAmount)
+
   const handleBooking = async () => {
     if (cart.length === 0 || !guestInfo.name || !guestInfo.email) {
       toast.error('Please fill in all required fields and select at least one room')
@@ -307,7 +319,10 @@ export function OnsiteBookingPage() {
     try {
       const groupBookings: Omit<LocalBooking, '_id' | 'createdAt' | 'updatedAt' | 'synced'>[] = cart.map((item, index) => {
         const itemNights = differenceInDays(item.checkOut, item.checkIn)
+        // Room amount is just price * nights
+        // Charges and discounts are tracked separately in GROUP_DATA metadata
         const itemTotal = Number(item.price) * itemNights
+
         const assigned = guestAssignments[item.id] || { name: guestInfo.name, email: guestInfo.email }
         return {
           guest: {
@@ -334,7 +349,8 @@ export function OnsiteBookingPage() {
             paidAt: paymentMethod === 'not_paid' ? undefined : new Date().toISOString()
           },
           createdBy: user?.id,
-          createdByName: user?.user_metadata?.full_name || user?.email
+          createdByName: user?.user_metadata?.full_name || user?.email,
+          ...(index === 0 ? { subtotal: totalPrice } : {}) // Store subtotal reference
         }
       })
 
@@ -345,7 +361,11 @@ export function OnsiteBookingPage() {
         address: guestInfo.address
       }
 
-      await bookingEngine.createGroupBooking(groupBookings, billingContact)
+      await bookingEngine.createGroupBooking(groupBookings, billingContact, additionalCharges, {
+        type: discountType,
+        value: discountValue,
+        amount: discountAmount
+      })
 
       if (bookingEngine.getOnlineStatus()) {
         const onsiteEmailPayload = {
@@ -358,7 +378,7 @@ export function OnsiteBookingPage() {
                 <p>Dear ${guestInfo.name},</p>
                 <p>Your group reservation for ${cart.length} room(s) has been confirmed.</p>
                 <p><strong>Total Rooms:</strong> ${cart.length}</p>
-                <p><strong>Total Amount:</strong> ${formatCurrencySync(totalPrice, currency)}</p>
+                <p><strong>Total Amount:</strong> ${formatCurrencySync(grandTotal, currency)}</p>
                 <br/>
                 <h3>Rooms Reserved:</h3>
                 <ul>
@@ -370,7 +390,7 @@ export function OnsiteBookingPage() {
                 <p>We look forward to welcoming your group!</p>
               </div>
             `,
-          text: `Group Booking Confirmed for ${cart.length} rooms.\nTotal: ${formatCurrencySync(totalPrice, currency)}`
+          text: `Group Booking Confirmed for ${cart.length} rooms.\nTotal: ${formatCurrencySync(grandTotal, currency)}`
         }
 
         await sendTransactionalEmail(onsiteEmailPayload, 'Onsite group booking confirmation')
@@ -817,10 +837,103 @@ export function OnsiteBookingPage() {
                     <span className="font-medium">Total Guests:</span>
                     <span>{numGuests} (Group Total)</span>
                   </div>
+
+                  {/* Additional Charges Section */}
                   <div className="border-t pt-4">
-                    <div className="flex justify-between items-center">
+                    <h4 className="font-medium mb-3">Additional Charges</h4>
+                    <div className="space-y-2 mb-3">
+                      {additionalCharges.map((charge, idx) => (
+                        <div key={charge.id} className="flex gap-2 items-center">
+                          <Input
+                            value={charge.description}
+                            onChange={(e) => {
+                              const newCharges = [...additionalCharges]
+                              newCharges[idx].description = e.target.value
+                              setAdditionalCharges(newCharges)
+                            }}
+                            placeholder="Description"
+                            className="flex-grow h-9"
+                          />
+                          <Input
+                            type="number"
+                            value={charge.amount}
+                            onChange={(e) => {
+                              const newCharges = [...additionalCharges]
+                              newCharges[idx].amount = parseFloat(e.target.value) || 0
+                              setAdditionalCharges(newCharges)
+                            }}
+                            placeholder="Amount"
+                            className="w-24 h-9"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setAdditionalCharges(additionalCharges.filter((_, i) => i !== idx))
+                            }}
+                            className="h-9 w-9"
+                          >
+                            <Trash className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAdditionalCharges([...additionalCharges, { id: Math.random().toString(36), description: '', amount: 0 }])}
+                      className="w-full border-dashed"
+                    >
+                      <Plus className="h-4 w-4 mr-2" /> Add Charge
+                    </Button>
+                  </div>
+
+                  {/* Discount Section */}
+                  <div className="border-t pt-4">
+                    <h4 className="font-medium mb-3">Discount</h4>
+                    <div className="flex gap-2">
+                      <Select value={discountType} onValueChange={(v: any) => setDiscountType(v)}>
+                        <SelectTrigger className="w-[140px] h-9">
+                          <SelectValue placeholder="Type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="fixed">Fixed Amount</SelectItem>
+                          <SelectItem value="percentage">Percentage (%)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        type="number"
+                        value={discountValue}
+                        onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}
+                        placeholder="Value"
+                        min="0"
+                        className="h-9"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Totals Breakdown */}
+                  <div className="border-t pt-4 space-y-2">
+                    <div className="flex justify-between text-sm text-gray-500">
+                      <span>Room Subtotal:</span>
+                      <span>{formatCurrencySync(totalPrice, currency)}</span>
+                    </div>
+                    {chargesTotal > 0 && (
+                      <div className="flex justify-between text-sm text-gray-500">
+                        <span>Additional Charges:</span>
+                        <span>+ {formatCurrencySync(chargesTotal, currency)}</span>
+                      </div>
+                    )}
+                    {discountAmount > 0 && (
+                      <div className="flex justify-between text-sm text-destructive">
+                        <span>Discount:</span>
+                        <span>- {formatCurrencySync(discountAmount, currency)}</span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between items-center pt-2 border-t mt-2">
                       <span className="font-bold text-lg">Grand Total:</span>
-                      <span className="text-primary text-2xl font-bold">{formatCurrencySync(totalPrice, currency)}</span>
+                      <span className="text-primary text-2xl font-bold">{formatCurrencySync(grandTotal, currency)}</span>
                     </div>
                   </div>
                 </div>

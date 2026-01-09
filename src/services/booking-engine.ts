@@ -54,6 +54,18 @@ export interface LocalBooking {
     phone: string
     address: string
   }
+
+  // Billing Adjustments (typically on primary booking of a group)
+  additionalCharges?: {
+    description: string
+    amount: number
+  }[]
+  discount?: {
+    type: 'percentage' | 'fixed'
+    value: number
+    amount: number
+  }
+  subtotal?: number
 }
 
 export interface AuditLog {
@@ -355,6 +367,31 @@ class BookingEngine {
     const currentUser = await blink.auth.me().catch(() => null)
     console.log('[BookingEngine] Current user:', currentUser?.id || 'No user authenticated')
 
+    // ROBUST METADATA EXTRACTION
+    const groupData = {
+      groupId: (bookingData as any).groupId,
+      groupReference: (bookingData as any).groupReference,
+      isPrimaryBooking: (bookingData as any).isPrimaryBooking,
+      billingContact: (bookingData as any).billingContact,
+      additionalCharges: (bookingData as any).additionalCharges,
+      discount: (bookingData as any).discount,
+      subtotal: (bookingData as any).subtotal
+    }
+
+    // Determine if we need to attach metadata
+    // We attach if there is a group ID OR if there are billing adjustments (charges/discount)
+    const hasGroupData = !!groupData.groupId ||
+      (groupData.additionalCharges && groupData.additionalCharges.length > 0) ||
+      !!groupData.discount
+
+    const specialRequests = (bookingData.notes || '') +
+      (hasGroupData ? `\n\n<!-- GROUP_DATA:${JSON.stringify(groupData)} -->` : '')
+
+    console.log('[BookingEngine Debug] Generated specialRequests length:', specialRequests.length)
+    if (hasGroupData) {
+      console.log('[BookingEngine Debug] Attached Group Data:', JSON.stringify(groupData, null, 2))
+    }
+
     const bookingPayload = {
       userId: currentUser?.id || null,
       guestId,
@@ -367,13 +404,7 @@ class BookingEngine {
       numGuests: bookingData.numGuests ?? 1,
       payment_method: bookingData.payment_method,
       createdBy: bookingData.createdBy || currentUser?.id || null,
-      specialRequests: (bookingData.notes || '') +
-        ((bookingData as any).groupId ? `\n\n<!-- GROUP_DATA:${JSON.stringify({
-          groupId: (bookingData as any).groupId,
-          groupReference: (bookingData as any).groupReference,
-          isPrimaryBooking: (bookingData as any).isPrimaryBooking,
-          billingContact: (bookingData as any).billingContact
-        })} -->` : '')
+      specialRequests: specialRequests
     }
 
     console.log('[BookingEngine] Creating booking with payload:', JSON.stringify(bookingPayload, null, 2))
@@ -459,7 +490,10 @@ class BookingEngine {
       createdAt: now,
       updatedAt: now,
       synced: true,
-      payment_method: bookingData.payment_method
+      payment_method: bookingData.payment_method,
+      additionalCharges: bookingData.additionalCharges,
+      discount: bookingData.discount,
+      subtotal: bookingData.subtotal
     }
     console.log('[BookingEngine] Local booking created with createdBy:', local.createdBy)
     console.log('[BookingEngine] Full local booking object:', JSON.stringify(local, null, 2))
@@ -588,7 +622,12 @@ class BookingEngine {
     return local
   }
 
-  async createGroupBooking(bookingsData: Array<Omit<LocalBooking, '_id' | 'createdAt' | 'updatedAt' | 'synced'>>, billingContact: any): Promise<LocalBooking[]> {
+  async createGroupBooking(
+    bookingsData: Array<Omit<LocalBooking, '_id' | 'createdAt' | 'updatedAt' | 'synced'>>,
+    billingContact: any,
+    additionalCharges: { description: string, amount: number }[] = [],
+    discount: { type: 'percentage' | 'fixed', value: number, amount: number } | undefined = undefined
+  ): Promise<LocalBooking[]> {
     const groupId = uuidv4()
     // Generate a short human-readable reference for the group (e.g. GRP-A1B2)
     const shortRef = Math.random().toString(36).substring(2, 6).toUpperCase()
@@ -608,7 +647,8 @@ class BookingEngine {
         groupId,
         groupReference,
         isPrimaryBooking: i === 0, // Mark the first one as primary for logic that needs a "main" record
-        billingContact // Attach billing contact to all records for invoice grouping
+        billingContact, // Attach billing contact to all records for invoice grouping
+        ...(i === 0 ? { additionalCharges, discount } : {}) // Attach changes only to primary booking
       }
 
       try {

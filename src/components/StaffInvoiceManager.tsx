@@ -206,8 +206,9 @@ export function StaffInvoiceManager() {
       const groupBookingsRaw = recentBookings.filter((b: any) => {
         // Check direct property
         if (b.groupId === invoice.groupId) return true;
-        // Check metadata
-        if (b.specialRequests && b.specialRequests.includes(invoice.groupId)) {
+        // Check metadata (support both camelCase and snake_case)
+        const specialReq = b.special_requests || b.specialRequests || ''
+        if (specialReq && specialReq.includes(invoice.groupId)) {
           return true;
         }
         return false;
@@ -229,17 +230,19 @@ export function StaffInvoiceManager() {
 
       const fullBookingDetails = groupBookingsRaw.map((b: any) => ({
         ...b,
+        // Ensure special_requests is available for invoice-service
+        special_requests: b.special_requests || b.specialRequests || '',
         guest: guestMap.get(b.guestId),
         room: roomMap.get(b.roomId)
       }));
 
       // Determine billing contact (try to find from metadata of the triggered invoice's booking)
-      // Since we don't have the parsing logic here for billingContact, we might need to re-parse specific booking
-      // Or just default to the guest of the clicked invoice as the "primary" for now if metadata is tricky
       const triggerBooking = groupBookingsRaw.find((b: any) => b.id === invoice.id);
       let billingContact = null;
-      if (triggerBooking && triggerBooking.specialRequests) {
-        const match = triggerBooking.specialRequests.match(/<!-- GROUP_DATA:(.*?) -->/);
+      // Support both camelCase and snake_case for special_requests
+      const triggerSpecialReq = triggerBooking?.special_requests || triggerBooking?.specialRequests || ''
+      if (triggerSpecialReq) {
+        const match = triggerSpecialReq.match(/<!-- GROUP_DATA:(.*?) -->/);
         if (match && match[1]) {
           try {
             const data = JSON.parse(match[1]);
