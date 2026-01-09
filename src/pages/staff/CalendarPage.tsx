@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Card, CardContent } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
-import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, List, LayoutGrid, Filter } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, List, LayoutGrid, Filter, Users } from 'lucide-react'
 import { blink } from '../../blink/client'
 import { cn } from '../../lib/utils'
 import { getRoomDisplayName, calculateNights } from '../../lib/display'
@@ -27,6 +28,7 @@ import { formatCurrencySync } from '@/lib/utils'
 type ViewMode = 'timeline' | 'grid' | 'list'
 
 export function CalendarPage() {
+  const navigate = useNavigate()
   const { staffRecord: staffData, role, loading: staffLoading } = useStaffRole()
   const { currency } = useCurrency()
 
@@ -423,146 +425,151 @@ export function CalendarPage() {
             <span className="text-muted-foreground">Checked In</span>
           </div>
         </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => navigate('/staff/onsite')}>
+            <Users className="w-4 h-4 mr-2" />
+            Group / Walk-in
+          </Button>
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-primary hover:bg-primary/90">
+                <Plus className="w-4 h-4 mr-2" />
+                New Booking
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Create New Booking</DialogTitle>
+                <DialogDescription>Enter booking details</DialogDescription>
+              </DialogHeader>
 
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-primary hover:bg-primary/90">
-              <Plus className="w-4 h-4 mr-2" />
-              New Booking
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Create New Booking</DialogTitle>
-              <DialogDescription>Enter booking details</DialogDescription>
-            </DialogHeader>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="propertyId">Room*</Label>
+                  <select
+                    id="propertyId"
+                    className="w-full px-3 py-2 border rounded-md"
+                    value={formData.propertyId}
+                    onChange={(e) => setFormData({ ...formData, propertyId: e.target.value })}
+                    required
+                  >
+                    <option value="">Select a room</option>
+                    {availableProperties.map((property: any) => {
+                      const roomType = roomTypes.find((rt: any) => rt.id === property.propertyTypeId)
+                      const pricePerNight = Number(roomType?.basePrice) || 0
+                      return (
+                        <option key={property.id} value={property.id}>
+                          {property.name} (Room {property.roomNumber}) - {roomType?.name || ''} - {formatCurrencySync(pricePerNight, currency)}/night
+                        </option>
+                      )
+                    })}
+                  </select>
+                </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="propertyId">Room*</Label>
-                <select
-                  id="propertyId"
-                  className="w-full px-3 py-2 border rounded-md"
-                  value={formData.propertyId}
-                  onChange={(e) => setFormData({ ...formData, propertyId: e.target.value })}
-                  required
-                >
-                  <option value="">Select a room</option>
-                  {availableProperties.map((property: any) => {
-                    const roomType = roomTypes.find((rt: any) => rt.id === property.propertyTypeId)
-                    const pricePerNight = Number(roomType?.basePrice) || 0
-                    return (
-                      <option key={property.id} value={property.id}>
-                        {property.name} (Room {property.roomNumber}) - {roomType?.name || ''} - {formatCurrencySync(pricePerNight, currency)}/night
-                      </option>
-                    )
-                  })}
-                </select>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="guestName">Guest Name*</Label>
-                  <Input id="guestName" value={formData.guestName} onChange={(e) => setFormData({ ...formData, guestName: e.target.value })} required />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="guestEmail">Guest Email*</Label>
-                  <Input id="guestEmail" type="email" value={formData.guestEmail} onChange={(e) => setFormData({ ...formData, guestEmail: e.target.value })} required />
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="guestPhone">Guest Phone</Label>
-                  <Input id="guestPhone" value={formData.guestPhone} onChange={(e) => setFormData({ ...formData, guestPhone: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="guestAddress">Guest Address</Label>
-                  <Input id="guestAddress" value={formData.guestAddress} onChange={(e) => setFormData({ ...formData, guestAddress: e.target.value })} />
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="checkIn">Check-in Date*</Label>
-                  <Input id="checkIn" type="date" value={formData.checkIn} onChange={(e) => setFormData({ ...formData, checkIn: e.target.value })} required />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="checkOut">Check-out Date*</Label>
-                  <Input id="checkOut" type="date" value={formData.checkOut} onChange={(e) => setFormData({ ...formData, checkOut: e.target.value })} required />
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="adults">Adults</Label>
-                  <Input
-                    id="adults"
-                    type="number"
-                    min="1"
-                    value={formData.adults}
-                    onChange={(e) => setFormData({ ...formData, adults: parseInt(e.target.value) || 1 })}
-                    className="h-10"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="children">Children</Label>
-                  <Input
-                    id="children"
-                    type="number"
-                    min="0"
-                    value={formData.children}
-                    onChange={(e) => setFormData({ ...formData, children: parseInt(e.target.value) || 0 })}
-                    className="h-10"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="totalPrice" className="h-6 flex items-center">
-                    Total Price (auto-calculated)*
-                  </Label>
-                  <div className="flex items-center h-10 px-3 py-2 border rounded-md bg-secondary text-lg font-semibold text-primary">
-                    {formatCurrencySync(formData.totalPrice, currency)}
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="guestName">Guest Name*</Label>
+                    <Input id="guestName" value={formData.guestName} onChange={(e) => setFormData({ ...formData, guestName: e.target.value })} required />
                   </div>
-                  {formData.checkIn && formData.checkOut && formData.propertyId && (() => {
-                    const selectedProperty = properties.find((p: any) => p.id === formData.propertyId)
-                    const roomType = selectedProperty ? roomTypes.find((rt: any) => rt.id === selectedProperty.propertyTypeId) : null
-                    const pricePerNight = roomType ? Number(roomType.basePrice) : 0
-                    return (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {calculateNights(formData.checkIn, formData.checkOut)} night(s) × {formatCurrencySync(pricePerNight, currency)}/night
-                      </p>
-                    )
-                  })()}
+                  <div className="space-y-2">
+                    <Label htmlFor="guestEmail">Guest Email*</Label>
+                    <Input id="guestEmail" type="email" value={formData.guestEmail} onChange={(e) => setFormData({ ...formData, guestEmail: e.target.value })} required />
+                  </div>
                 </div>
-              </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="paymentMethod">Payment Method</Label>
-                <select
-                  id="paymentMethod"
-                  className="w-full px-3 py-2 border rounded-md"
-                  value={formData.paymentMethod}
-                  onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
-                >
-                  <option value="Not paid">Not paid</option>
-                  <option value="Cash">Cash</option>
-                  <option value="Mobile Money">Mobile Money</option>
-                  <option value="Credit/Debit Card">Credit/Debit Card</option>
-                </select>
-              </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="guestPhone">Guest Phone</Label>
+                    <Input id="guestPhone" value={formData.guestPhone} onChange={(e) => setFormData({ ...formData, guestPhone: e.target.value })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="guestAddress">Guest Address</Label>
+                    <Input id="guestAddress" value={formData.guestAddress} onChange={(e) => setFormData({ ...formData, guestAddress: e.target.value })} />
+                  </div>
+                </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="notes">Notes</Label>
-                <textarea id="notes" className="w-full px-3 py-2 border rounded-md min-h-[80px]" value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} />
-              </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="checkIn">Check-in Date*</Label>
+                    <Input id="checkIn" type="date" value={formData.checkIn} onChange={(e) => setFormData({ ...formData, checkIn: e.target.value })} required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="checkOut">Check-out Date*</Label>
+                    <Input id="checkOut" type="date" value={formData.checkOut} onChange={(e) => setFormData({ ...formData, checkOut: e.target.value })} required />
+                  </div>
+                </div>
 
-              <div className="flex justify-end gap-3 pt-2">
-                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={submitting}>Cancel</Button>
-                <Button type="submit" disabled={submitting}>{submitting ? 'Creating…' : 'Create Booking'}</Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="adults">Adults</Label>
+                    <Input
+                      id="adults"
+                      type="number"
+                      min="1"
+                      value={formData.adults}
+                      onChange={(e) => setFormData({ ...formData, adults: parseInt(e.target.value) || 1 })}
+                      className="h-10"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="children">Children</Label>
+                    <Input
+                      id="children"
+                      type="number"
+                      min="0"
+                      value={formData.children}
+                      onChange={(e) => setFormData({ ...formData, children: parseInt(e.target.value) || 0 })}
+                      className="h-10"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="totalPrice" className="h-6 flex items-center">
+                      Total Price (auto-calculated)*
+                    </Label>
+                    <div className="flex items-center h-10 px-3 py-2 border rounded-md bg-secondary text-lg font-semibold text-primary">
+                      {formatCurrencySync(formData.totalPrice, currency)}
+                    </div>
+                    {formData.checkIn && formData.checkOut && formData.propertyId && (() => {
+                      const selectedProperty = properties.find((p: any) => p.id === formData.propertyId)
+                      const roomType = selectedProperty ? roomTypes.find((rt: any) => rt.id === selectedProperty.propertyTypeId) : null
+                      const pricePerNight = roomType ? Number(roomType.basePrice) : 0
+                      return (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {calculateNights(formData.checkIn, formData.checkOut)} night(s) × {formatCurrencySync(pricePerNight, currency)}/night
+                        </p>
+                      )
+                    })()}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="paymentMethod">Payment Method</Label>
+                  <select
+                    id="paymentMethod"
+                    className="w-full px-3 py-2 border rounded-md"
+                    value={formData.paymentMethod}
+                    onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
+                  >
+                    <option value="Not paid">Not paid</option>
+                    <option value="Cash">Cash</option>
+                    <option value="Mobile Money">Mobile Money</option>
+                    <option value="Credit/Debit Card">Credit/Debit Card</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="notes">Notes</Label>
+                  <textarea id="notes" className="w-full px-3 py-2 border rounded-md min-h-[80px]" value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={submitting}>Cancel</Button>
+                  <Button type="submit" disabled={submitting}>{submitting ? 'Creating…' : 'Create Booking'}</Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
     </div>
   )

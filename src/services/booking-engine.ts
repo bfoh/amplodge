@@ -27,7 +27,7 @@ export interface LocalBooking {
   synced: boolean
   conflict?: boolean
   payment?: {
-    method: 'cash' | 'mobile_money' | 'card'
+    method: 'cash' | 'mobile_money' | 'card' | 'not_paid'
     status: 'pending' | 'completed' | 'failed'
     amount: number
     reference?: string
@@ -43,6 +43,17 @@ export interface LocalBooking {
   createdAt: string
   updatedAt: string
   payment_method?: string
+
+  // Group Booking Fields
+  groupId?: string
+  groupReference?: string
+  isPrimaryBooking?: boolean
+  billingContact?: {
+    fullName: string
+    email: string
+    phone: string
+    address: string
+  }
 }
 
 export interface AuditLog {
@@ -292,18 +303,39 @@ class BookingEngine {
     // Check for date overlaps with existing active bookings
     const existingForRoom = await db.bookings.list({ where: { roomId: room.id } })
     const activeStatues = ['reserved', 'confirmed', 'checked-in']
-    const newStart = new Date(bookingData.dates.checkIn).getTime()
-    const newEnd = new Date(bookingData.dates.checkOut).getTime()
+
+    // Parse the new booking dates - use YYYY-MM-DD string comparison for consistency
+    const newCheckIn = bookingData.dates.checkIn
+    const newCheckOut = bookingData.dates.checkOut
+    const newStart = typeof newCheckIn === 'string' ? newCheckIn.split('T')[0] : ''
+    const newEnd = typeof newCheckOut === 'string' ? newCheckOut.split('T')[0] : ''
+
+    console.log('[BookingEngine] Checking overlap for dates:', newStart, 'to', newEnd)
+    console.log('[BookingEngine] Found', existingForRoom.length, 'existing bookings for room', room.roomNumber)
 
     const hasOverlap = existingForRoom.some((b: any) => {
       // Ignore cancelled or checked-out bookings
-      if (!activeStatues.includes(b.status)) return false
+      if (!activeStatues.includes(b.status)) {
+        console.log('[BookingEngine] Skipping booking with status:', b.status)
+        return false
+      }
 
-      const bStart = new Date(b.checkIn).getTime()
-      const bEnd = new Date(b.checkOut).getTime()
+      // Handle both data structures: raw DB (checkIn) and if any normalized (dates.checkIn)
+      const bCheckIn = b.checkIn || b.dates?.checkIn
+      const bCheckOut = b.checkOut || b.dates?.checkOut
+
+      // Convert to YYYY-MM-DD strings for consistent comparison
+      const bStart = typeof bCheckIn === 'string' ? bCheckIn.split('T')[0] : ''
+      const bEnd = typeof bCheckOut === 'string' ? bCheckOut.split('T')[0] : ''
+
+      console.log('[BookingEngine] Comparing with existing booking:', b.id, 'dates:', bStart, 'to', bEnd, 'status:', b.status)
 
       // Check for overlap: (StartA < EndB) and (EndA > StartB)
-      return (newStart < bEnd && newEnd > bStart)
+      const overlaps = (newStart < bEnd && newEnd > bStart)
+      if (overlaps) {
+        console.log('[BookingEngine] OVERLAP DETECTED with booking:', b.id)
+      }
+      return overlaps
     })
 
     if (hasOverlap) {
@@ -333,10 +365,15 @@ class BookingEngine {
       source: bookingData.source,
       totalPrice: bookingData.amount ?? 0,
       numGuests: bookingData.numGuests ?? 1,
-      specialRequests: bookingData.notes || '',
-      created_by: bookingData.createdBy,
-      created_by_name: bookingData.createdByName,
-      payment_method: bookingData.payment_method
+      payment_method: bookingData.payment_method,
+      createdBy: bookingData.createdBy || currentUser?.id || null,
+      specialRequests: (bookingData.notes || '') +
+        ((bookingData as any).groupId ? `\n\n<!-- GROUP_DATA:${JSON.stringify({
+          groupId: (bookingData as any).groupId,
+          groupReference: (bookingData as any).groupReference,
+          isPrimaryBooking: (bookingData as any).isPrimaryBooking,
+          billingContact: (bookingData as any).billingContact
+        })} -->` : '')
     }
 
     console.log('[BookingEngine] Creating booking with payload:', JSON.stringify(bookingPayload, null, 2))
@@ -442,6 +479,30 @@ class BookingEngine {
       console.error('[BookingEngine] Failed to log activity:', err)
     })
 
+    // Update Guest record with latest booking details for persistence
+    // This ensures that even if the booking is deleted (and guest is kept), we know the source
+    if (guestId) {
+      try {
+        const guestUpdatePayload = {
+          last_booking_date: now,
+          last_room_number: local.roomNumber,
+          last_check_in: local.dates.checkIn,
+          last_check_out: local.dates.checkOut,
+          last_source: local.source || 'reception',
+          last_created_by: local.createdBy,
+          last_created_by_name: local.createdByName,
+          total_revenue: (await db.guests.get(guestId).then((g: any) => g.total_revenue || 0).catch(() => 0)) + Number(local.amount || 0),
+          total_stays: (await db.guests.get(guestId).then((g: any) => g.total_stays || 0).catch(() => 0)) + 1,
+          updatedAt: now
+        }
+
+        console.log('[BookingEngine] Persisting booking source to guest record:', guestId, guestUpdatePayload)
+        await db.guests.update(guestId, guestUpdatePayload)
+      } catch (guestUpdateErr) {
+        console.warn('[BookingEngine] Failed to persist booking source to guest record:', guestUpdateErr)
+      }
+    }
+
     // Send Booking Confirmation Email
     // Only send if it's a confirmed/reserved booking (not a draft or cancelled one)
     if (['confirmed', 'reserved'].includes(local.status)) {
@@ -525,6 +586,44 @@ class BookingEngine {
     console.log('[BookingEngine] Booking completed successfully:', localId)
     this.notifySyncHandlers('synced', 'Booking saved to database')
     return local
+  }
+
+  async createGroupBooking(bookingsData: Array<Omit<LocalBooking, '_id' | 'createdAt' | 'updatedAt' | 'synced'>>, billingContact: any): Promise<LocalBooking[]> {
+    const groupId = uuidv4()
+    // Generate a short human-readable reference for the group (e.g. GRP-A1B2)
+    const shortRef = Math.random().toString(36).substring(2, 6).toUpperCase()
+    const groupReference = `GRP-${new Date().getFullYear()}-${shortRef}`
+
+    console.log(`[BookingEngine] Starting Group Booking ${groupReference} (${groupId}) with ${bookingsData.length} rooms`)
+
+    const createdBookings: LocalBooking[] = []
+
+    // Process sequentially to avoid race conditions on guest creation if guests are shared
+    for (let i = 0; i < bookingsData.length; i++) {
+      const data = bookingsData[i]
+
+      // Inject group metadata
+      const bookingWithGroup = {
+        ...data,
+        groupId,
+        groupReference,
+        isPrimaryBooking: i === 0, // Mark the first one as primary for logic that needs a "main" record
+        billingContact // Attach billing contact to all records for invoice grouping
+      }
+
+      try {
+        const created = await this.createBooking(bookingWithGroup)
+        createdBookings.push(created)
+      } catch (error) {
+        console.error(`[BookingEngine] Failed to create booking ${i + 1}/${bookingsData.length} in group:`, error)
+        // In a real transactional DB we would rollback here. 
+        // For PouchDB/CouchDB, we might want to delete the ones created so far?
+        // For now, we'll throw and let the UI handle the partial state or retry.
+        throw error
+      }
+    }
+
+    return createdBookings
   }
 
   // No-op compatibility for existing calls
@@ -827,7 +926,10 @@ class BookingEngine {
         amount: Number(b.totalPrice || 0),
         status: b.status || 'confirmed',
         source: b.source || 'online',
-        payment,
+        payment: payment ? {
+          ...payment,
+          amount: Number(b.totalPrice || 0)
+        } : undefined,
         payment_method: b.paymentMethod || b.payment_method,
         createdAt,
         updatedAt: b.updatedAt || createdAt,

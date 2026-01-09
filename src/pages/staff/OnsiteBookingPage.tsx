@@ -9,7 +9,7 @@ import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { CalendarIcon, Check, ArrowLeft } from 'lucide-react'
+import { CalendarIcon, Check, ArrowLeft, Plus, Trash, ShoppingCart, Users, ArrowRight } from 'lucide-react'
 import { format, differenceInDays } from 'date-fns'
 import { toast } from 'sonner'
 import { formatCurrencySync } from '@/lib/utils'
@@ -28,8 +28,23 @@ export function OnsiteBookingPage() {
   const [rooms, setRooms] = useState<Room[]>([])
   const [bookings, setBookings] = useState<any[]>([])
   const [properties, setProperties] = useState<any[]>([])
-  const [selectedRoomTypeId, setSelectedRoomTypeId] = useState<string>('')
-  const [selectedRoomId, setSelectedRoomId] = useState<string>('')
+
+  // Cart state for multiple rooms
+  interface CartItem {
+    id: string // temporary id for the cart item
+    roomTypeId: string
+    roomTypeName: string
+    roomId: string
+    roomNumber: string
+    price: number
+    checkIn: Date
+    checkOut: Date
+    numGuests: number
+  }
+  const [cart, setCart] = useState<CartItem[]>([])
+  // Map of tempId (from cart) -> Guest Details
+  const [guestAssignments, setGuestAssignments] = useState<Record<string, { name: string, email: string }>>({})
+
   const [checkIn, setCheckIn] = useState<Date>()
   const [checkOut, setCheckOut] = useState<Date>()
   const [numGuests, setNumGuests] = useState(1)
@@ -40,7 +55,7 @@ export function OnsiteBookingPage() {
     address: '',
     specialRequests: ''
   })
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'mobile_money' | 'card'>('cash')
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'mobile_money' | 'card' | 'not_paid'>('not_paid')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -65,12 +80,12 @@ export function OnsiteBookingPage() {
         db.roomTypes.list(),
         db.rooms.list(),
         db.properties.list({ orderBy: { createdAt: 'desc' } }),
-        db.bookings.list({ limit: 500 })
+        bookingEngine.getAllBookings()
       ])
       const normalize = (s: string) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
       const filteredTypes = (typesData as RoomType[]).filter((t: any) => {
         const n = normalize(t.name)
-        return n && !n.includes('executive suite')
+        return n && n.length > 0
       })
 
       // Process properties data to match room types
@@ -85,8 +100,12 @@ export function OnsiteBookingPage() {
         }
       })
 
-      // Process bookings to resolve roomId to roomNumber
+      // Process bookings - bookingEngine.getAllBookings() already provides roomNumber
+      // Only resolve roomId if roomNumber is missing
       const processedBookings = bookingsData.map((booking: any) => {
+        if (booking.roomNumber) {
+          return booking // Already has roomNumber from bookingEngine
+        }
         const room = roomsData.find((r: any) => r.id === booking.roomId)
         return {
           ...booking,
@@ -103,289 +122,265 @@ export function OnsiteBookingPage() {
     }
   }
 
-  const selectedRoomType = roomTypes.find(rt => rt.id === selectedRoomTypeId)
-  const selectedRoom = rooms.find(r => r.id === selectedRoomId)
+  // Helper function to check if dates overlap using strict YYYY-MM-DD comparison
+  // This avoids timezone issues where "Jan 8 00:00" might be != "Jan 8 00:00" in different zones
+  // Helper function to check if dates overlap using strict YYYY-MM-DD comparison
+  // This avoids timezone issues where "Jan 8 00:00" might be != "Jan 8 00:00" in different zones
+  const isOverlap = (start1: Date | undefined, end1: Date | undefined, start2: string | Date | undefined, end2: string | Date | undefined) => {
+    // Return false if any date is missing
+    if (!start1 || !end1 || !start2 || !end2) return false
 
-  const isOverlap = (aStart?: Date, aEnd?: Date, bStartIso?: string, bEndIso?: string) => {
-    if (!aStart || !aEnd || !bStartIso || !bEndIso) return false
-    const aS = aStart.getTime()
-    const aE = aEnd.getTime()
-    const bS = new Date(bStartIso).getTime()
-    const bE = new Date(bEndIso).getTime()
-    return aS < bE && bS < aE
+    // Normalize all inputs to YYYY-MM-DD strings
+    const toDateStr = (d: string | Date): string => {
+      if (typeof d === 'string') return d.split('T')[0]
+      if (d instanceof Date && !isNaN(d.getTime())) {
+        return format(d, 'yyyy-MM-dd')
+      }
+      return ''
+    }
+
+    const s1 = toDateStr(start1)
+    const e1 = toDateStr(end1)
+    const s2 = toDateStr(start2)
+    const e2 = toDateStr(end2)
+
+    // If any date string is empty, return false
+    if (!s1 || !e1 || !s2 || !e2) return false
+
+    return s1 < e2 && s2 < e1
   }
 
   // Calculate available rooms for a specific room type and date range
   const getAvailableRoomCount = (roomTypeId: string, checkInDate?: Date, checkOutDate?: Date) => {
-    // Use properties data to match backend data source
     const propertiesOfType = properties.filter(prop => {
       const matchingType = roomTypes.find(rt => rt.id === prop.propertyTypeId) ||
         roomTypes.find(rt => rt.name.toLowerCase() === (prop.propertyType || '').toLowerCase())
       return matchingType?.id === roomTypeId
     })
 
-    // If no dates provided, just return total properties of this type
     if (!checkInDate || !checkOutDate) {
-      return propertiesOfType.length
-    }
+      // If no dates selected, show "Available Now" (Today's availability)
+      // This matches Dashboard and BookingPage logic
+      const todayIso = new Date().toISOString().split('T')[0]
 
-    // Filter out properties that have overlapping bookings
-    const availableProperties = propertiesOfType.filter(property => {
-      const hasOverlappingBooking = bookings.some(booking => {
-        // Skip cancelled bookings
-        if (booking.status === 'cancelled') return false
+      const availableToday = propertiesOfType.filter(property => {
+        if (property.status === 'maintenance') return false
 
-        // Check if this booking is for the same room (match by room number)
-        if (booking.roomNumber !== property.roomNumber) return false
+        const hasActiveBooking = bookings.some(booking => {
+          if (booking.status === 'cancelled') return false
+          if (!['reserved', 'confirmed', 'checked-in'].includes(booking.status)) return false
 
-        // Check if booking status indicates it's active
-        if (!['reserved', 'confirmed', 'checked-in'].includes(booking.status)) return false
+          // Match room
+          if (booking.roomNumber !== property.roomNumber) return false
 
-        // Check if dates overlap
-        return isOverlap(checkInDate, checkOutDate, booking.checkIn, booking.checkOut)
+          // Handle data structure
+          const bCheckIn = (booking.checkIn || booking.dates?.checkIn || '').split('T')[0]
+          const bCheckOut = (booking.checkOut || booking.dates?.checkOut || '').split('T')[0]
+
+          // Occupied if: checkIn <= today < checkOut
+          return bCheckIn <= todayIso && bCheckOut > todayIso
+        })
+
+        return !hasActiveBooking
       })
 
-      return !hasOverlappingBooking
+      return availableToday.length
+    }
+
+    const availableProperties = propertiesOfType.filter(property => {
+      // 1. Check if room is under maintenance
+      if (property.status === 'maintenance') return false
+
+      // 2. Check for overlapping existing bookings
+      const hasOverlappingBooking = bookings.some(booking => {
+        if (booking.status === 'cancelled') return false
+        if (!['reserved', 'confirmed', 'checked-in'].includes(booking.status)) return false
+
+        // Handle both data structures: raw DB and normalized
+        const bookingCheckIn = booking.checkIn || booking.dates?.checkIn
+        const bookingCheckOut = booking.checkOut || booking.dates?.checkOut
+
+        if (booking.roomNumber !== property.roomNumber) return false
+        return isOverlap(checkInDate, checkOutDate, bookingCheckIn, bookingCheckOut)
+      })
+      if (hasOverlappingBooking) return false
+
+      // 3. Check if room is already in cart
+      const isInCart = cart.some(item =>
+        item.roomNumber === property.roomNumber &&
+        isOverlap(checkInDate, checkOutDate, item.checkIn, item.checkOut)
+      )
+      if (isInCart) return false
+
+      return true
     })
 
     return availableProperties.length
   }
 
-  const isBooked = (roomNumber: string) => {
-    return bookings.some((b: any) =>
-      b.roomNumber === roomNumber && ['reserved', 'confirmed', 'checked-in'].includes(b.status) &&
-      isOverlap(checkIn, checkOut, b.checkIn, b.checkOut)
-    )
-  }
-
-  const availableRooms = rooms.filter(
-    r => r.roomTypeId === selectedRoomTypeId && r.status === 'available' && (!checkIn || !checkOut || !isBooked(r.roomNumber))
-  )
-
-  // Auto-assign first available room when a room type is selected
-  useEffect(() => {
-    if (!selectedRoomTypeId) {
-      setSelectedRoomId('')
+  const addToCart = (roomType: RoomType) => {
+    if (!checkIn || !checkOut) {
+      toast.error('Please select check-in and check-out dates')
       return
     }
-    const first = availableRooms.find(r => r.roomTypeId === selectedRoomTypeId)
-    setSelectedRoomId(first?.id || '')
-  }, [selectedRoomTypeId, rooms, bookings, checkIn, checkOut])
 
-  // Calculate price based on current room type pricing
-  const nights = checkIn && checkOut ? differenceInDays(checkOut, checkIn) : 0
-  const pricePerNight = selectedRoomType?.basePrice || 0
-  const totalPrice = nights > 0 ? nights * Number(pricePerNight) : 0
+    // Find ALL properties of this type
+    const propertiesOfType = properties.filter(prop => {
+      const matchingType = roomTypes.find(rt => rt.id === prop.propertyTypeId) ||
+        roomTypes.find(rt => rt.name.toLowerCase() === (prop.propertyType || '').toLowerCase())
+      return matchingType?.id === roomType.id
+    })
 
-  // Generate a proper booking reference
-  const generateBookingReference = (bookingId: string | null) => {
-    if (!bookingId) return 'BOOKING'
+    // Find first available property
+    const availableProperty = propertiesOfType.find(property => {
+      // 1. Check maintenance
+      if (property.status === 'maintenance') return false
 
-    // Extract the last 8 characters and convert to uppercase
-    const shortId = bookingId.slice(-8).toUpperCase()
+      // 2. Check bookings
+      const hasOverlappingBooking = bookings.some(booking => {
+        if (booking.status === 'cancelled') return false
+        if (booking.roomNumber !== property.roomNumber) return false
+        if (!['reserved', 'confirmed', 'checked-in'].includes(booking.status)) return false
+        return isOverlap(checkIn, checkOut, booking.checkIn, booking.checkOut)
+      })
+      if (hasOverlappingBooking) return false
 
-    // Format as AMP-XXXX-XXXX (e.g., AMP-A1B2C3D4)
-    return `AMP-${shortId.slice(0, 4)}-${shortId.slice(4, 8)}`
+      // 3. Check cart
+      const isInCart = cart.some(item =>
+        item.roomNumber === property.roomNumber &&
+        isOverlap(checkIn, checkOut, item.checkIn.toISOString(), item.checkOut.toISOString())
+      )
+      if (isInCart) return false
+
+      return true
+    })
+
+    if (!availableProperty) {
+      toast.error('No more rooms of this type available for selected dates')
+      return
+    }
+
+    // Resolve to a Room object (or best effort)
+    // We prefer finding a matching Room entity, but if not found we might need to rely on Property
+    const roomObj = rooms.find(r => r.roomNumber === availableProperty.roomNumber)
+
+    if (!roomObj) {
+      console.warn(`[OnsiteBooking] Found available property ${availableProperty.roomNumber} but no matching Room entity found.`)
+      // Fallback or error? For now, we need an ID. 
+      // If rooms are auto-created, maybe we can't add it yet? 
+      // Let's iterate: if we can't find a room object, we can't get a roomId safely unless we use property.id
+      // But the system seems to parallel properties and rooms.
+      toast.error(`System error: Room ${availableProperty.roomNumber} configuration incomplete.`)
+      return
+    }
+
+    setCart([...cart, {
+      id: Math.random().toString(36).substr(2, 9),
+      roomTypeId: roomType.id,
+      roomTypeName: roomType.name,
+      roomId: roomObj.id,
+      roomNumber: availableProperty.roomNumber,
+      price: roomType.basePrice,
+      checkIn: checkIn as Date,
+      checkOut: checkOut as Date,
+      numGuests: numGuests
+    }])
+    toast.success(`Added ${roomType.name} (${availableProperty.roomNumber}) to booking`)
   }
+
+  const removeFromCart = (itemId: string) => {
+    setCart(cart.filter(i => i.id !== itemId))
+  }
+
+  const totalPrice = cart.reduce((sum, item) => {
+    const itemNights = differenceInDays(item.checkOut, item.checkIn)
+    return sum + (Number(item.price) * itemNights)
+  }, 0)
 
   const handleBooking = async () => {
-    if (!checkIn || !checkOut || !selectedRoomId || !guestInfo.name || !guestInfo.email) {
-      toast.error('Please fill in all required fields')
-      return
-    }
-
-    // Check if the selected room is still available for the selected dates
-    if (!selectedRoom) {
-      toast.error('Selected room not found. Please refresh and try again.')
-      return
-    }
-
-    // Double-check room availability to prevent double bookings
-    if (isBooked(selectedRoom.roomNumber)) {
-      toast.error('This room is no longer available for the selected dates. Please refresh the page and try again.')
+    if (cart.length === 0 || !guestInfo.name || !guestInfo.email) {
+      toast.error('Please fill in all required fields and select at least one room')
       return
     }
 
     setLoading(true)
     try {
-      // Save to local PouchDB first (works offline)
-      const localBooking: Omit<LocalBooking, '_id' | 'createdAt' | 'updatedAt' | 'synced'> = {
-        guest: {
-          fullName: guestInfo.name,
-          email: guestInfo.email,
-          phone: guestInfo.phone,
-          address: guestInfo.address
-        },
-        roomType: selectedRoomType?.name || '',
-        roomNumber: selectedRoom?.roomNumber || '',
-        dates: {
-          checkIn: checkIn.toISOString(),
-          checkOut: checkOut.toISOString()
-        },
-        numGuests,
-        amount: totalPrice,
-        status: 'confirmed',
-        source: 'reception',
-        payment: {
-          method: paymentMethod,
-          status: 'completed',
-          amount: totalPrice,
-          reference: `PAY-${Date.now()}`,
-          paidAt: new Date().toISOString()
+      const groupBookings: Omit<LocalBooking, '_id' | 'createdAt' | 'updatedAt' | 'synced'>[] = cart.map((item, index) => {
+        const itemNights = differenceInDays(item.checkOut, item.checkIn)
+        const itemTotal = Number(item.price) * itemNights
+        const assigned = guestAssignments[item.id] || { name: guestInfo.name, email: guestInfo.email }
+        return {
+          guest: {
+            fullName: assigned.name,
+            email: assigned.email,
+            phone: guestInfo.phone,
+            address: guestInfo.address
+          },
+          roomType: item.roomTypeName,
+          roomNumber: item.roomNumber,
+          dates: {
+            checkIn: item.checkIn.toISOString(),
+            checkOut: item.checkOut.toISOString()
+          },
+          numGuests: item.numGuests,
+          amount: itemTotal,
+          status: 'confirmed',
+          source: 'reception',
+          payment: {
+            method: paymentMethod,
+            status: paymentMethod === 'not_paid' ? 'pending' : 'completed',
+            amount: itemTotal,
+            reference: `PAY-${Date.now()}-${index}`,
+            paidAt: paymentMethod === 'not_paid' ? undefined : new Date().toISOString()
+          },
+          createdBy: user?.id,
+          createdByName: user?.user_metadata?.full_name || user?.email
         }
+      })
+
+      const billingContact = {
+        name: guestInfo.name,
+        email: guestInfo.email,
+        phone: guestInfo.phone,
+        address: guestInfo.address
       }
 
-      const savedBooking = await bookingEngine.createBooking(localBooking)
-
-      // bookingEngine.createBooking() already handles all remote database operations
-      // including guest resolution and booking creation, so we don't need to create
-      // another booking here.
-      const bookingId = savedBooking._id.replace('booking_', 'booking-')
+      await bookingEngine.createGroupBooking(groupBookings, billingContact)
 
       if (bookingEngine.getOnlineStatus()) {
-        // Mark local booking as synced
-        await bookingEngine.updateBooking(savedBooking._id, { synced: true })
-
         const onsiteEmailPayload = {
           to: guestInfo.email,
           from: 'AMP Lodge Bookings <bookings@updates.amplodge.org>',
-          subject: 'Booking Confirmation - AMP Lodge',
+          subject: 'Group Booking Confirmation - AMP Lodge',
           html: `
-            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px;">
-              <div style="text-align: center; margin-bottom: 40px;">
-                <h1 style="color: #8B6F47; font-family: 'Playfair Display', serif; font-size: 32px; margin: 0 0 8px 0;">AMP Lodge</h1>
-                <p style="color: #666; font-size: 16px; margin: 0;">Your Serene and Affordable Hotel</p>
+              <div style="font-family: sans-serif; padding: 20px;">
+                <h1>Booking Confirmed!</h1>
+                <p>Dear ${guestInfo.name},</p>
+                <p>Your group reservation for ${cart.length} room(s) has been confirmed.</p>
+                <p><strong>Total Rooms:</strong> ${cart.length}</p>
+                <p><strong>Total Amount:</strong> ${formatCurrencySync(totalPrice, currency)}</p>
+                <br/>
+                <h3>Rooms Reserved:</h3>
+                <ul>
+                  ${cart.map(c => {
+            const assigned = guestAssignments[c.id] || { name: guestInfo.name }
+            return `<li>Room ${c.roomNumber} (${c.roomTypeName}) - ${assigned.name}<br/>${format(c.checkIn, 'MMM dd')} to ${format(c.checkOut, 'MMM dd')}</li>`
+          }).join('')}
+                </ul>
+                <p>We look forward to welcoming your group!</p>
               </div>
-              
-              <div style="background: #F5F1E8; padding: 24px; border-radius: 12px; margin-bottom: 32px;">
-                <h2 style="color: #2C2416; font-size: 24px; margin: 0 0 16px 0;">Booking Confirmed!</h2>
-                <p style="color: #666; font-size: 16px; line-height: 1.6; margin: 0;">
-                  Dear ${guestInfo.name},<br><br>
-                  Thank you for choosing AMP Lodge. Your reservation has been confirmed.
-                </p>
-              </div>
-              
-              <div style="background: white; border: 1px solid #E5E5E5; border-radius: 12px; padding: 24px; margin-bottom: 32px;">
-                <h3 style="color: #2C2416; font-size: 18px; margin: 0 0 16px 0; border-bottom: 2px solid #8B6F47; padding-bottom: 8px;">Reservation Details</h3>
-                
-                <div style="margin-bottom: 16px;">
-                  <p style="color: #666; font-size: 14px; margin: 0 0 4px 0;">Booking Reference</p>
-                  <p style="color: #2C2416; font-size: 16px; font-weight: 600; margin: 0;">${generateBookingReference(bookingId)}</p>
-                </div>
-                
-                <div style="margin-bottom: 16px;">
-                  <p style="color: #666; font-size: 14px; margin: 0 0 4px 0;">Room Type</p>
-                  <p style="color: #2C2416; font-size: 16px; font-weight: 600; margin: 0;">${selectedRoomType?.name}</p>
-                </div>
-                
-                <div style="margin-bottom: 16px;">
-                  <p style="color: #666; font-size: 14px; margin: 0 0 4px 0;">Room Number</p>
-                  <p style="color: #2C2416; font-size: 16px; font-weight: 600; margin: 0;">${selectedRoom?.roomNumber}</p>
-                </div>
-                
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
-                  <div>
-                    <p style="color: #666; font-size: 14px; margin: 0 0 4px 0;">Check-in</p>
-                    <p style="color: #2C2416; font-size: 16px; font-weight: 600; margin: 0;">${format(checkIn, 'MMM dd, yyyy')}</p>
-                    <p style="color: #666; font-size: 14px; margin: 0;">After 3:00 PM</p>
-                  </div>
-                  <div>
-                    <p style="color: #666; font-size: 14px; margin: 0 0 4px 0;">Check-out</p>
-                    <p style="color: #2C2416; font-size: 16px; font-weight: 600; margin: 0;">${format(checkOut, 'MMM dd, yyyy')}</p>
-                    <p style="color: #666; font-size: 14px; margin: 0;">Before 11:00 AM</p>
-                  </div>
-                </div>
-                
-                <div style="margin-bottom: 16px;">
-                  <p style="color: #666; font-size: 14px; margin: 0 0 4px 0;">Number of Nights</p>
-                  <p style="color: #2C2416; font-size: 16px; font-weight: 600; margin: 0;">${nights} night${nights > 1 ? 's' : ''}</p>
-                </div>
-                
-                <div style="margin-bottom: 16px;">
-                  <p style="color: #666; font-size: 14px; margin: 0 0 4px 0;">Number of Guests</p>
-                  <p style="color: #2C2416; font-size: 16px; font-weight: 600; margin: 0;">${numGuests} guest${numGuests > 1 ? 's' : ''}</p>
-                </div>
-                
-                ${guestInfo.specialRequests ? `
-                <div style="margin-bottom: 16px;">
-                  <p style="color: #666; font-size: 14px; margin: 0 0 4px 0;">Special Requests</p>
-                  <p style="color: #2C2416; font-size: 16px; margin: 0;">${guestInfo.specialRequests}</p>
-                </div>
-                ` : ''}
-                
-                <div style="border-top: 2px solid #E5E5E5; padding-top: 16px; margin-top: 16px;">
-                  <p style="color: #2C2416; font-size: 18px; font-weight: 700; margin: 0;">Total Amount: <span style="color: #8B6F47; font-size: 24px;">${formatCurrencySync(totalPrice, currency)}</span></p>
-                  <p style="color: #666; font-size: 14px; margin: 8px 0 0 0;">Payment Method: ${paymentMethod === 'cash' ? 'Cash' : paymentMethod === 'mobile_money' ? 'Mobile Money' : 'Credit/Debit Card'}</p>
-                  <p style="color: #22c55e; font-size: 14px; font-weight: 600; margin: 4px 0 0 0;">✓ Payment Received</p>
-                </div>
-              </div>
-              
-              <div style="text-align: center; padding-top: 24px; border-top: 1px solid #E5E5E5;">
-                <p style="color: #666; font-size: 14px; margin: 0 0 16px 0;">
-                  We look forward to welcoming you to AMP Lodge!
-                </p>
-                <p style="color: #999; font-size: 12px; margin: 0;">
-                  This is an automated confirmation. For inquiries, contact us at info@amplodge.org
-                </p>
-              </div>
-            </div>
-          `,
-          text: `
-AMP Lodge - Booking Confirmation
-
-Dear ${guestInfo.name},
-
-Thank you for choosing AMP Lodge. Your reservation has been confirmed.
-
-Booking Reference: ${generateBookingReference(bookingId)}
-Room Type: ${selectedRoomType?.name}
-Room Number: ${selectedRoom?.roomNumber}
-Check-in: ${format(checkIn, 'MMM dd, yyyy')} (After 3:00 PM)
-Check-out: ${format(checkOut, 'MMM dd, yyyy')} (Before 11:00 AM)
-Number of Nights: ${nights}
-Number of Guests: ${numGuests}
-${guestInfo.specialRequests ? `Special Requests: ${guestInfo.specialRequests}` : ''}
-
-Total Amount: ${formatCurrencySync(totalPrice, currency)}
-Payment Method: ${paymentMethod === 'cash' ? 'Cash' : paymentMethod === 'mobile_money' ? 'Mobile Money' : 'Credit/Debit Card'}
-Payment Status: Received
-
-We look forward to welcoming you to AMP Lodge!
-
-For inquiries, contact us at info@amplodge.org
-          `
+            `,
+          text: `Group Booking Confirmed for ${cart.length} rooms.\nTotal: ${formatCurrencySync(totalPrice, currency)}`
         }
 
-        sendTransactionalEmail(onsiteEmailPayload, 'Onsite booking confirmation').then(result => {
-          if (!result.success) {
-            console.error('[OnsiteBookingPage] Onsite confirmation email failed:', result.error)
-          }
-        })
-
-        // Send SMS/WhatsApp confirmation (if phone number provided)
-        if (guestInfo.phone) {
-          sendBookingConfirmationSMS({
-            phone: guestInfo.phone,
-            guestName: guestInfo.name,
-            roomNumber: selectedRoom?.roomNumber || '',
-            checkIn: checkIn.toISOString(),
-            checkOut: checkOut.toISOString(),
-            bookingId: bookingId
-          }).then(result => {
-            if (!result.success) {
-              console.error('[OnsiteBookingPage] SMS failed:', result.error)
-              // Show warning for SMS failure (e.g. Insufficient Balance)
-              toast.warning(`Booking saved, but SMS failed: ${result.error}`)
-            }
-          }).catch(err => console.error('[OnsiteBookingPage] SMS confirmation failed:', err))
-        }
+        await sendTransactionalEmail(onsiteEmailPayload, 'Onsite group booking confirmation')
       }
 
-      toast.success('Walk-in booking completed successfully!')
+      toast.success(`Group booking for ${cart.length} rooms completed successfully!`)
       navigate('/staff/dashboard')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Booking failed:', error)
-      toast.error('Booking failed. Please try again.')
+      toast.error(`Booking failed: ${error.message}`)
     } finally {
       setLoading(false)
     }
@@ -404,7 +399,6 @@ For inquiries, contact us at info@amplodge.org
 
   return (
     <div className="min-h-screen bg-secondary/30">
-      {/* Header */}
       <header className="bg-background border-b sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -427,11 +421,9 @@ For inquiries, contact us at info@amplodge.org
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Progress Steps */}
         <div className="flex items-center justify-center mb-8">
-          {[1, 2, 3, 4].map((s) => (
+          {[1, 2, 3, 4, 5].map((s) => (
             <div key={s} className="flex items-center">
               <div
                 className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center font-bold text-base transition-all duration-300 ${step >= s ? 'bg-gradient-to-br from-primary to-accent text-white shadow-lg' : 'bg-white border-2 border-secondary text-muted-foreground'
@@ -439,129 +431,246 @@ For inquiries, contact us at info@amplodge.org
               >
                 {step > s ? <Check className="w-6 h-6" /> : s}
               </div>
-              {s < 4 && (
+              {s < 5 && (
                 <div
-                  className={`w-12 sm:w-20 h-1 mx-2 rounded-full transition-all duration-300 ${step > s ? 'bg-gradient-to-r from-primary to-accent' : 'bg-secondary'}`}
+                  className={`w-8 sm:w-16 h-1 mx-2 rounded-full transition-all duration-300 ${step > s ? 'bg-gradient-to-r from-primary to-accent' : 'bg-secondary'}`}
                 />
               )}
             </div>
           ))}
         </div>
 
-        {/* Step Content */}
         <Card className="border-primary/10 shadow-xl bg-white">
           <CardHeader className="pb-6">
             <CardTitle className="text-3xl font-serif mb-2">
-              {step === 1 && 'Select Dates'}
-              {step === 2 && 'Choose Room'}
-              {step === 3 && 'Guest Details'}
-              {step === 4 && 'Confirm & Process Payment'}
+              {step === 1 && 'Search & Add Rooms'}
+              {step === 2 && 'Review Cart'}
+              {step === 3 && 'Billing Information'}
+              {step === 4 && 'Guest Assignments'}
+              {step === 5 && 'Confirm & Process Payment'}
             </CardTitle>
             <CardDescription className="text-base">
-              {step === 1 && 'When will the guest stay?'}
-              {step === 2 && 'Select an available room'}
-              {step === 3 && 'Enter guest information'}
-              {step === 4 && 'Review booking and collect payment'}
+              {step === 1 && 'Select dates and add rooms to your group booking'}
+              {step === 2 && 'Review your selections'}
+              {step === 3 && 'Enter billing contact information'}
+              {step === 4 && 'Assign guests to each room'}
+              {step === 5 && 'Review booking and collect payment'}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {/* Step 1: Dates */}
+            {/* Step 1: Search & Add Rooms */}
             {step === 1 && (
-              <div className="space-y-6">
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Check-in Date</label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" className="w-full justify-start">
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {checkIn ? format(checkIn, 'PPP') : 'Select date'}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0">
-                        <Calendar
-                          mode="single"
-                          selected={checkIn}
-                          onSelect={setCheckIn}
-                          disabled={(date) => {
-                            const today = new Date()
-                            today.setHours(0, 0, 0, 0)
-                            return date < today
-                          }}
+              <div className="grid md:grid-cols-3 gap-6">
+                <div className="md:col-span-2 space-y-6">
+                  {/* Search Criteria */}
+                  <div className="bg-secondary/10 p-4 rounded-lg space-y-4">
+                    <h3 className="font-semibold text-lg flex items-center gap-2">
+                      <CalendarIcon className="h-5 w-5" /> Select Dates for Your Room
+                    </h3>
+                    <div className="grid md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Check-in</label>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" className="w-full justify-start h-9 text-xs">
+                              <CalendarIcon className="mr-2 h-3 w-3" />
+                              {checkIn ? format(checkIn, 'MMM dd') : 'Select'}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0">
+                            <Calendar
+                              mode="single"
+                              selected={checkIn}
+                              onSelect={setCheckIn}
+                              disabled={(date) => {
+                                const today = new Date()
+                                today.setHours(0, 0, 0, 0)
+                                return date < today
+                              }}
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Check-out</label>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" className="w-full justify-start h-9 text-xs">
+                              <CalendarIcon className="mr-2 h-3 w-3" />
+                              {checkOut ? format(checkOut, 'MMM dd') : 'Select'}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0">
+                            <Calendar
+                              mode="single"
+                              selected={checkOut}
+                              onSelect={setCheckOut}
+                              disabled={(date) => !checkIn || date <= checkIn}
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Guests</label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={numGuests}
+                          onChange={(e) => setNumGuests(parseInt(e.target.value))}
+                          className="h-9"
                         />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Check-out Date</label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" className="w-full justify-start">
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {checkOut ? format(checkOut, 'PPP') : 'Select date'}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0">
-                        <Calendar
-                          mode="single"
-                          selected={checkOut}
-                          onSelect={setCheckOut}
-                          disabled={(date) => !checkIn || date <= checkIn}
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2">Number of Guests</label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={numGuests}
-                    onChange={(e) => setNumGuests(parseInt(e.target.value))}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Step 2: Room Selection */}
-            {step === 2 && (
-              <div className="space-y-4">
-                {roomTypes.map((roomType) => {
-                  const available = getAvailableRoomCount(roomType.id, checkIn, checkOut)
-                  return (
-                    <div
-                      key={roomType.id}
-                      onClick={() => available > 0 && setSelectedRoomTypeId(roomType.id)}
-                      className={`p-4 border rounded-lg cursor-pointer transition-all ${selectedRoomTypeId === roomType.id
-                        ? 'border-primary bg-primary/5'
-                        : 'hover:border-primary/50'
-                        } ${available === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div className="flex-1">
-                          <h3 className="font-semibold text-lg">{roomType.name}</h3>
-                          <p className="text-sm text-muted-foreground">{roomType.description}</p>
-                          <p className="text-sm mt-2">
-                            <span className="font-medium">Capacity:</span> {roomType.capacity} guests
-                          </p>
-                          <p className="text-sm">
-                            <span className="font-medium">Available:</span> {available} rooms
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-2xl font-bold text-primary">{formatCurrencySync(roomType.basePrice, currency)}</p>
-                          <p className="text-sm text-muted-foreground">per night</p>
-                        </div>
                       </div>
                     </div>
-                  )
-                })}
+                  </div>
+
+                  {/* Room List */}
+                  <div>
+                    <h3 className="font-semibold text-lg flex items-center gap-2 mb-4">
+                      <Plus className="h-5 w-5" /> Available Rooms
+                    </h3>
+                    <div className="grid gap-4">
+                      {roomTypes.map((roomType) => {
+                        const available = getAvailableRoomCount(roomType.id, checkIn, checkOut)
+                        return (
+                          <div
+                            key={roomType.id}
+                            className={`p-4 border rounded-lg transition-all hover:border-primary/50 relative overflow-hidden ${available === 0 ? 'opacity-50' : 'bg-white'
+                              }`}
+                          >
+                            <div className="flex justify-between items-start">
+                              <div className="flex-1">
+                                <h3 className="font-semibold text-lg">{roomType.name}</h3>
+                                <p className="text-sm text-muted-foreground">{roomType.description}</p>
+                                <p className="text-sm mt-2">
+                                  <span className="font-medium">Capacity:</span> {roomType.capacity} guests
+                                </p>
+                                <p className="text-sm">
+                                  <span className="font-medium">Available:</span> {available} rooms
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-2xl font-bold text-primary">{formatCurrencySync(roomType.basePrice, currency)}</p>
+                                <p className="text-sm text-muted-foreground">per night</p>
+                                <Button
+                                  size="sm"
+                                  className="mt-2 text-white"
+                                  disabled={available === 0 || !checkIn || !checkOut}
+                                  onClick={() => addToCart(roomType)}
+                                >
+                                  {available === 0 ? 'Sold Out' : (!checkIn || !checkOut) ? 'Select Dates' : 'Add Room'}
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cart Column */}
+                <div className="md:col-span-1">
+                  <div className="sticky top-24 border rounded-lg p-4 bg-secondary/10">
+                    <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
+                      <ShoppingCart className="h-5 w-5" /> Selected Rooms
+                    </h3>
+
+                    {cart.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <p>No rooms selected.</p>
+                        <p className="text-xs">Add rooms from the list.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {cart.map((item, idx) => (
+                          <div key={item.id} className="bg-white p-3 rounded border shadow-sm flex justify-between group flex-col">
+                            <div className="flex justify-between items-start w-full">
+                              <div>
+                                <p className="font-medium">{item.roomTypeName}</p>
+                                <p className="text-xs text-muted-foreground">Room {item.roomNumber}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => removeFromCart(item.id)}
+                                  className="text-red-400 hover:text-red-600 p-1 opacity-100 transition-opacity"
+                                >
+                                  <Trash className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-2 border-t pt-2 w-full">
+                              <p>{format(item.checkIn, 'MMM dd')} - {format(item.checkOut, 'MMM dd')}</p>
+                              <div className="flex justify-between mt-1">
+                                <span>{differenceInDays(item.checkOut, item.checkIn)} nights</span>
+                                <span className="font-semibold">{formatCurrencySync(Number(item.price) * differenceInDays(item.checkOut, item.checkIn), currency)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+
+                        <div className="border-t pt-3 mt-4">
+                          <div className="flex justify-between items-center font-bold">
+                            <span>Total:</span>
+                            <span>{formatCurrencySync(totalPrice, currency)}</span>
+                          </div>
+                          {totalPrice > 0 && (
+                            <Button size="sm" className="w-full mt-2" onClick={() => setStep(2)}>
+                              Review Cart <ArrowRight className="w-3 h-3 ml-1" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 
-            {/* Step 3: Guest Info */}
+            {/* Step 2: Review Cart */}
+            {step === 2 && (
+              <div className="space-y-6">
+                <h3 className="text-xl font-bold">Review Your Cart</h3>
+                {cart.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-muted-foreground mb-4">Your cart is empty.</p>
+                    <Button variant="outline" onClick={() => setStep(1)}>Go to Search</Button>
+                  </div>
+                ) : (
+                  <div className="grid gap-4">
+                    {cart.map((item) => (
+                      <div key={item.id} className="border p-4 rounded-lg flex flex-col md:flex-row justify-between items-center bg-card">
+                        <div className="mb-2 md:mb-0">
+                          <h4 className="font-bold text-lg">{item.roomTypeName} <span className="text-muted-foreground text-sm">(Room {item.roomNumber})</span></h4>
+                          <p className="text-sm">
+                            <span className="font-medium">Dates:</span> {format(item.checkIn, 'PPP')} - {format(item.checkOut, 'PPP')}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {differenceInDays(item.checkOut, item.checkIn)} nights &bull; {item.numGuests} guests
+                          </p>
+                        </div>
+                        <div className="text-right flex items-center gap-4">
+                          <p className="font-bold text-xl">{formatCurrencySync(Number(item.price) * differenceInDays(item.checkOut, item.checkIn), currency)}</p>
+                          <Button variant="ghost" size="sm" onClick={() => removeFromCart(item.id)} className="text-destructive hover:bg-destructive/10">
+                            <Trash className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex flex-col md:flex-row justify-between items-center border-t pt-6 mt-2">
+                      <Button variant="outline" onClick={() => setStep(1)} className="mb-4 md:mb-0">
+                        <Plus className="w-4 h-4 mr-2" /> Add Another Room
+                      </Button>
+                      <div className="text-right">
+                        <div className="text-2xl font-bold mb-2">Total: {formatCurrencySync(totalPrice, currency)}</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Step 3: Billing Information */}
             {step === 3 && (
               <div className="space-y-4">
                 <div>
@@ -612,39 +721,111 @@ For inquiries, contact us at info@amplodge.org
               </div>
             )}
 
-            {/* Step 4: Confirmation & Payment */}
+            {/* Step 4: Guest Assignments */}
             {step === 4 && (
               <div className="space-y-6">
+                <p className="text-sm text-muted-foreground">Please provide details for the primary guest staying in each room.</p>
+                <div className="space-y-6">
+                  {cart.map((item, idx) => {
+                    const assigned = guestAssignments[item.id] || { name: '', email: '' }
+                    return (
+                      <div key={item.id} className="border p-4 rounded-lg bg-card">
+                        <div className="flex items-center justify-between mb-4">
+                          <h4 className="font-bold">Room {idx + 1}: {item.roomTypeName}</h4>
+                          <span className="text-sm text-muted-foreground">Room {item.roomNumber}</span>
+                        </div>
+
+                        <div className="space-y-4">
+                          <div className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              id={`same-${item.id}`}
+                              className="rounded border-gray-300"
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setGuestAssignments(prev => ({
+                                    ...prev,
+                                    [item.id]: {
+                                      name: guestInfo.name,
+                                      email: guestInfo.email
+                                    }
+                                  }))
+                                }
+                              }}
+                            />
+                            <label htmlFor={`same-${item.id}`} className="text-sm cursor-pointer">
+                              Same as billing contact ({guestInfo.name})
+                            </label>
+                          </div>
+
+                          <div className="grid md:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium mb-1">Guest Name *</label>
+                              <Input
+                                value={assigned.name}
+                                onChange={(e) => setGuestAssignments(prev => ({
+                                  ...prev,
+                                  [item.id]: { ...assigned, name: e.target.value }
+                                }))}
+                                placeholder="Guest Name"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium mb-1">Guest Email</label>
+                              <Input
+                                value={assigned.email}
+                                onChange={(e) => setGuestAssignments(prev => ({
+                                  ...prev,
+                                  [item.id]: { ...assigned, email: e.target.value }
+                                }))}
+                                placeholder="guest@example.com"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Step 5: Confirmation & Payment */}
+            {step === 5 && (
+              <div className="space-y-6">
                 <div className="bg-secondary/50 p-6 rounded-lg space-y-4">
-                  <div className="flex justify-between">
-                    <span className="font-medium">Room:</span>
-                    <span>{selectedRoomType?.name} - Room {selectedRoom?.roomNumber}</span>
+                  <div className="flex justify-between items-center border-bottom pb-2">
+                    <h3 className="font-bold flex items-center gap-2"><ShoppingCart className="h-4 w-4" /> Booking Summary</h3>
+                  </div>
+
+                  {cart.map((item, i) => (
+                    <div key={i} className="flex justify-between text-sm py-1 border-b border-dashed border-gray-300 last:border-0">
+                      <span>{item.roomTypeName} ({item.roomNumber}) - {guestAssignments[item.id]?.name}</span>
+                      <span>{formatCurrencySync(Number(item.price) * differenceInDays(item.checkOut, item.checkIn), currency)}</span>
+                    </div>
+                  ))}
+
+                  <div className="flex justify-between pt-2">
+                    <span className="font-medium">Stay Duration:</span>
+                    <span>Varies ({cart.length} bookings)</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="font-medium">Check-in:</span>
-                    <span>{checkIn && format(checkIn, 'PPP')}</span>
+                    <span className="font-medium">Total Rooms:</span>
+                    <span>{cart.length}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="font-medium">Check-out:</span>
-                    <span>{checkOut && format(checkOut, 'PPP')}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="font-medium">Nights:</span>
-                    <span>{nights}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="font-medium">Guests:</span>
-                    <span>{numGuests}</span>
+                    <span className="font-medium">Total Guests:</span>
+                    <span>{numGuests} (Group Total)</span>
                   </div>
                   <div className="border-t pt-4">
                     <div className="flex justify-between items-center">
-                      <span className="font-bold text-lg">Total Amount:</span>
+                      <span className="font-bold text-lg">Grand Total:</span>
                       <span className="text-primary text-2xl font-bold">{formatCurrencySync(totalPrice, currency)}</span>
                     </div>
                   </div>
                 </div>
                 <div className="bg-secondary/50 p-6 rounded-lg">
-                  <h3 className="font-semibold mb-2">Guest Information</h3>
+                  <h3 className="font-semibold mb-2">Billing Contact</h3>
                   <p className="text-sm">{guestInfo.name}</p>
                   <p className="text-sm">{guestInfo.email}</p>
                   {guestInfo.phone && <p className="text-sm">{guestInfo.phone}</p>}
@@ -656,6 +837,7 @@ For inquiries, contact us at info@amplodge.org
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="not_paid">🚫 Not Paid</SelectItem>
                       <SelectItem value="cash">💵 Cash</SelectItem>
                       <SelectItem value="mobile_money">📱 Mobile Money</SelectItem>
                       <SelectItem value="card">💳 Credit/Debit Card</SelectItem>
@@ -673,13 +855,14 @@ For inquiries, contact us at info@amplodge.org
               >
                 {step === 1 ? 'Cancel' : 'Back'}
               </Button>
-              {step < 4 ? (
+              {step < 5 ? (
                 <Button
                   onClick={() => setStep(step + 1)}
                   disabled={
-                    (step === 1 && (!checkIn || !checkOut)) ||
-                    (step === 2 && !selectedRoomTypeId) ||
-                    (step === 3 && (!guestInfo.name || !guestInfo.email))
+                    (step === 1 && cart.length === 0) ||
+                    (step === 2 && cart.length === 0) ||
+                    (step === 3 && (!guestInfo.name || !guestInfo.email)) ||
+                    (step === 4 && cart.some(item => !guestAssignments[item.id]?.name))
                   }
                 >
                   Next
@@ -693,6 +876,6 @@ For inquiries, contact us at info@amplodge.org
           </CardContent>
         </Card>
       </main>
-    </div>
+    </div >
   )
 }

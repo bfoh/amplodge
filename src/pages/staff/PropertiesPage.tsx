@@ -6,6 +6,7 @@ import { Label } from '../../components/ui/label'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog'
 import { Plus, Building2, Bed, Users, DollarSign, MoreVertical, Pencil, Trash2, ShieldAlert } from 'lucide-react'
 import { blink } from '../../blink/client'
+import { bookingEngine } from '@/services/booking-engine'
 import type { RoomType } from '@/types'
 import { toast } from 'sonner'
 import {
@@ -33,6 +34,7 @@ export function PropertiesPage() {
   const permissions = usePermissions()
   const { currency } = useCurrency()
   const [properties, setProperties] = useState<any[]>([])
+  const [bookings, setBookings] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -63,11 +65,15 @@ export function PropertiesPage() {
       // Wait for authentication to be fully initialized
       const user = await blink.auth.me()
 
-      // Load ALL properties without userId filter to prevent data loss
-      // Properties are already scoped to the project, so userId filtering is not necessary
-      const data = await blink.db.properties.list({
-        orderBy: { column: 'createdAt', ascending: false }
-      })
+      // Load properties AND bookings
+      const [data, allBookings] = await Promise.all([
+        blink.db.properties.list({
+          orderBy: { column: 'createdAt', ascending: false }
+        }),
+        bookingEngine.getAllBookings()
+      ])
+
+      setBookings(allBookings)
 
       // Derive room type by id first, fallback to name, and compute display fields
       const propertiesWithPrices = data.map((prop: any) => {
@@ -88,6 +94,36 @@ export function PropertiesPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // Helper to check room status
+  const getRoomStatus = (property: any): { status: 'available' | 'occupied' | 'maintenance', booking?: any } => {
+    if (!property.roomNumber) return { status: 'unknown' as any }
+    if (property.status === 'maintenance') return { status: 'maintenance' }
+
+    // Normalize today
+    const todayIso = new Date().toISOString().split('T')[0]
+
+    const activeBooking = bookings.find((b: any) => {
+      // Check status
+      if (b.status === 'cancelled' || !['reserved', 'confirmed', 'checked-in'].includes(b.status)) {
+        return false
+      }
+
+      // Match room (handle both Room Number strings/numbers)
+      // Note: bookingEngine returns bookings with normalized roomNumber usually
+      if (String(b.roomNumber) !== String(property.roomNumber)) return false
+
+      // Check date overlap with TODAY
+      const checkIn = (b.dates?.checkIn || b.checkIn || '').split('T')[0]
+      const checkOut = (b.dates?.checkOut || b.checkOut || '').split('T')[0]
+
+      return checkIn <= todayIso && checkOut > todayIso
+    })
+
+    return activeBooking
+      ? { status: 'occupied', booking: activeBooking }
+      : { status: 'available' }
   }
 
   const loadRoomTypes = async () => {
@@ -460,83 +496,109 @@ export function PropertiesPage() {
         </Card>
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {properties.map((property: any) => (
-            <Card key={property.id} className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <CardTitle className="line-clamp-1">{property.name}</CardTitle>
-                    <CardDescription className="line-clamp-1 mt-1">
-                      {property.roomNumber ? `Room ${property.roomNumber}` : ''}
-                      {property.roomNumber && (property.roomTypeName || property.propertyType) ? ' • ' : ''}
-                      {property.roomTypeName || property.propertyType || ''}
-                    </CardDescription>
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => {
-                        setEditingId(property.id)
-                        setFormData({
-                          name: property.name || '',
-                          roomNumber: property.roomNumber || '',
-                          address: property.address || '',
-                          propertyTypeId: property.propertyTypeId || (roomTypes.find(rt => rt.name.toLowerCase() === (property.propertyType || '').toLowerCase())?.id || ''),
-                          bedrooms: Number(property.bedrooms ?? 1),
-                          bathrooms: Number(property.bathrooms ?? 1),
-                          maxGuests: Number(property.maxGuests ?? 2),
-                          basePrice: Number(property.basePrice ?? 0),
-                          description: property.description || ''
-                        })
-                        setDialogOpen(true)
-                      }}>
-                        <Pencil className="h-4 w-4 mr-2" />
-                        Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => handleDeleteClick(property.id)}
-                        className="text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+          {properties.map((property: any) => {
+            const { status, booking } = getRoomStatus(property)
+
+            let statusColor = 'bg-green-500'
+            let statusText = 'Available'
+            let tooltipText = 'Room is available for booking'
+
+            if (status === 'occupied') {
+              statusColor = 'bg-red-500'
+              statusText = 'Occupied'
+              if (booking) {
+                const guestName = booking.guest?.fullName || booking.guest?.name || 'Guest'
+                const checkOut = (booking.dates?.checkOut || booking.checkOut || '').split('T')[0]
+                tooltipText = `Occupied by ${guestName} until ${checkOut}`
+              }
+            } else if (status === 'maintenance') {
+              statusColor = 'bg-yellow-500'
+              statusText = 'Maintenance'
+              tooltipText = 'Room is under maintenance'
+            }
+
+            return (
+              <Card key={property.id} className="hover:shadow-lg transition-shadow relative overflow-hidden" title={tooltipText}>
+                {/* Status Badge */}
+                <div className={`absolute top-0 right-0 px-3 py-1 text-xs font-bold text-white rounded-bl-lg z-10 ${statusColor}`}>
+                  {statusText}
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {property.roomNumber && (
+
+                <CardHeader>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 pr-8">
+                      <CardTitle className="line-clamp-1">{property.name}</CardTitle>
+                      <CardDescription className="line-clamp-1 mt-1">
+                        {property.roomNumber ? `Room ${property.roomNumber}` : ''}
+                        {property.roomNumber && (property.roomTypeName || property.propertyType) ? ' • ' : ''}
+                        {property.roomTypeName || property.propertyType || ''}
+                      </CardDescription>
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => {
+                          setEditingId(property.id)
+                          setFormData({
+                            name: property.name || '',
+                            roomNumber: property.roomNumber || '',
+                            address: property.address || '',
+                            propertyTypeId: property.propertyTypeId || (roomTypes.find(rt => rt.name.toLowerCase() === (property.propertyType || '').toLowerCase())?.id || ''),
+                            bedrooms: Number(property.bedrooms ?? 1),
+                            bathrooms: Number(property.bathrooms ?? 1),
+                            maxGuests: Number(property.maxGuests ?? 2),
+                            basePrice: Number(property.basePrice ?? 0),
+                            description: property.description || ''
+                          })
+                          setDialogOpen(true)
+                        }}>
+                          <Pencil className="h-4 w-4 mr-2" />
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => handleDeleteClick(property.id)}
+                          className="text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {property.roomNumber && (
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-1">
+                        <Building2 className="w-4 h-4" />
+                        <span>{property.roomNumber}</span>
+                      </div>
+                    </div>
+                  )}
                   <div className="flex items-center gap-4 text-sm text-muted-foreground">
                     <div className="flex items-center gap-1">
-                      <Building2 className="w-4 h-4" />
-                      <span>{property.roomNumber}</span>
+                      <Bed className="w-4 h-4" />
+                      <span>{property.bedrooms}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Users className="w-4 h-4" />
+                      <span>{property.maxGuests}</span>
                     </div>
                   </div>
-                )}
-                <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                  <div className="flex items-center gap-1">
-                    <Bed className="w-4 h-4" />
-                    <span>{property.bedrooms}</span>
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <div className="flex items-center gap-1 text-primary font-semibold">
+                      <span>{formatCurrencySync(property.displayPrice, currency)}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">per night</span>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Users className="w-4 h-4" />
-                    <span>{property.maxGuests}</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between pt-2 border-t">
-                  <div className="flex items-center gap-1 text-primary font-semibold">
-                    <DollarSign className="w-4 h-4" />
-                    <span>{formatCurrencySync(property.displayPrice, currency)}</span>
-                  </div>
-                  <span className="text-xs text-muted-foreground">per night</span>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            )
+          })}
         </div>
       )}
 

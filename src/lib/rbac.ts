@@ -48,7 +48,7 @@ export const ROLE_PERMISSIONS: Record<StaffRole, Permission[]> = {
 export const ROUTE_ACCESS: Record<string, StaffRole[]> = {
   '/staff/dashboard': ['owner', 'admin', 'manager', 'staff'],
   '/staff/bookings': ['owner', 'admin', 'manager', 'staff'],
-  '/staff/onsite-booking': ['owner', 'admin', 'manager', 'staff'],
+  '/staff/onsite': ['owner', 'admin', 'manager', 'staff'],
   '/staff/guests': ['owner', 'admin', 'manager', 'staff'],
   '/staff/properties': ['owner', 'admin', 'manager'],
   '/staff/housekeeping': ['owner', 'admin', 'manager', 'staff'],
@@ -82,7 +82,8 @@ export const NAV_ITEMS: NavItem[] = [
   { path: '/staff/dashboard', label: 'Dashboard', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/bookings', label: 'Bookings', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/reservations', label: 'Reservations', minRole: ['owner', 'admin', 'manager', 'staff'] },
-  { path: '/staff/onsite-booking', label: 'Onsite Booking', minRole: ['owner', 'admin', 'manager', 'staff'] },
+  { path: '/staff/reservations', label: 'Reservations', minRole: ['owner', 'admin', 'manager', 'staff'] },
+  { path: '/staff/onsite', label: 'Onsite Booking', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/calendar', label: 'Calendar', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/guests', label: 'Guests', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/reviews', label: 'Reviews', minRole: ['owner', 'admin', 'manager', 'staff'] },

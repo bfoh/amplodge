@@ -17,6 +17,7 @@ interface Stats {
   todayCheckIns: number
   todayCheckOuts: number
   availableRooms: number
+  availableDetails: { name: string; count: number }[]
 }
 
 export function DashboardPage() {
@@ -31,19 +32,20 @@ export function DashboardPage() {
     avgNightlyRate: 0,
     todayCheckIns: 0,
     todayCheckOuts: 0,
-    availableRooms: 0
+    availableRooms: 0,
+    availableDetails: []
   })
   const [recentBookings, setRecentBookings] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     loadDashboardData()
-    
+
     // Set up polling for real-time updates every 30 seconds
     const interval = setInterval(() => {
       loadDashboardData()
     }, 30000)
-    
+
     return () => clearInterval(interval)
   }, [])
 
@@ -58,38 +60,85 @@ export function DashboardPage() {
       ])
 
       const todayIso = new Date().toISOString().split('T')[0]
-      
+
+      const normalize = (s: string) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
+      const roomTypesData = roomTypes as any[]
+
+      // 1. Group Total Rooms by Type
+      const totalByType: Record<string, number> = {}
+      // Map propertyId -> TypeName
+      const propertyTypeMap: Record<string, string> = {}
+
+      properties.forEach((p: any) => {
+        // Resolve type name
+        const matchingType = roomTypesData.find(rt => rt.id === p.propertyTypeId) ||
+          roomTypesData.find(rt => normalize(rt.name) === normalize(p.propertyType))
+        const typeName = matchingType ? matchingType.name : (p.propertyType || 'Other')
+
+        // Count totals (excluding maintenance)
+        if (p.status !== 'maintenance') {
+          totalByType[typeName] = (totalByType[typeName] || 0) + 1
+        }
+
+        propertyTypeMap[p.roomNumber] = typeName
+      })
+
+      // 2. Count Occupied Rooms by Type (Today)
+      const occupiedByType: Record<string, number> = {}
+
+      const bookingsActiveToday = allBookings.filter((b: any) => {
+        const checkIn = (b.dates.checkIn || b.checkIn || '').split('T')[0]
+        const checkOut = (b.dates?.checkOut || b.checkOut || '').split('T')[0]
+        const isActiveStatus = b.status === 'confirmed' || b.status === 'checked-in' || b.status === 'reserved'
+
+        if (isActiveStatus && checkIn <= todayIso && checkOut > todayIso) {
+          // Find room type for this booking
+          let typeName = 'Other'
+          // Try to find via property map using roomNumber
+          if (b.roomNumber && propertyTypeMap[b.roomNumber]) {
+            typeName = propertyTypeMap[b.roomNumber]
+          }
+          // Fallback: use booking's roomType if valid
+          else if (b.roomType) {
+            const match = roomTypesData.find(rt => rt.id === b.roomType || normalize(rt.name) === normalize(b.roomType))
+            typeName = match ? match.name : b.roomType
+          }
+
+          occupiedByType[typeName] = (occupiedByType[typeName] || 0) + 1
+          return true
+        }
+        return false
+      })
+
+      // 3. Calculate Available by Type
+      const availableDetails = Object.keys(totalByType).map(name => ({
+        name,
+        count: Math.max(0, totalByType[name] - (occupiedByType[name] || 0))
+      })).filter(d => d.count > 0).sort((a, b) => a.name.localeCompare(b.name))
+
+
       // Calculate active bookings (current and future confirmed bookings)
-      const activeBookings = allBookings.filter((b: any) => 
-        b.dates.checkOut >= todayIso && 
+      const activeBookings = allBookings.filter((b: any) =>
+        b.dates.checkOut >= todayIso &&
         (b.status === 'confirmed' || b.status === 'checked-in' || b.status === 'reserved')
       )
 
-      // Calculate bookings active TODAY ONLY (check-in <= today AND check-out > today)
-      const bookingsActiveToday = allBookings.filter((b: any) => {
-        const checkIn = b.dates.checkIn
-        const checkOut = b.dates.checkOut
-        const isActiveStatus = b.status === 'confirmed' || b.status === 'checked-in' || b.status === 'reserved'
-        // Room is occupied if: check-in date <= today AND check-out date > today
-        return isActiveStatus && checkIn <= todayIso && checkOut > todayIso
-      })
-
       // Calculate today's check-ins and check-outs
-      const todayCheckIns = allBookings.filter((b: any) => 
-        b.dates.checkIn === todayIso && 
+      const todayCheckIns = allBookings.filter((b: any) =>
+        b.dates.checkIn === todayIso &&
         (b.status === 'confirmed' || b.status === 'reserved')
       )
-      
-      const todayCheckOuts = allBookings.filter((b: any) => 
-        b.dates.checkOut === todayIso && 
+
+      const todayCheckOuts = allBookings.filter((b: any) =>
+        b.dates.checkOut === todayIso &&
         (b.status === 'confirmed' || b.status === 'checked-in')
       )
 
       // Calculate total revenue from all confirmed bookings
-      const confirmedBookings = allBookings.filter((b: any) => 
+      const confirmedBookings = allBookings.filter((b: any) =>
         b.status === 'confirmed' || b.status === 'checked-in' || b.status === 'checked-out'
       )
-      const totalRevenue = confirmedBookings.reduce((sum: number, b: any) => 
+      const totalRevenue = confirmedBookings.reduce((sum: number, b: any) =>
         sum + (Number(b.totalPrice) || 0), 0
       )
 
@@ -111,11 +160,11 @@ export function DashboardPage() {
 
       // Use bookingsActiveToday for current occupancy (rooms occupied specifically today)
       const occupiedRooms = bookingsActiveToday.length
-      const occupancyRate = totalAvailableRooms > 0 
-        ? Math.round((occupiedRooms / totalAvailableRooms) * 100) 
+      const occupancyRate = totalAvailableRooms > 0
+        ? Math.round((occupiedRooms / totalAvailableRooms) * 100)
         : 0
-      
-      const availableRooms = Math.max(0, totalAvailableRooms - occupiedRooms)
+
+      const availableRooms = availableDetails.reduce((sum, detail) => sum + detail.count, 0)
 
       // Map recent bookings with guest names and room details
       // Build maps for resolving actual room type names
@@ -130,7 +179,7 @@ export function DashboardPage() {
       )
 
       const recent = (allBookings as any[])
-        .sort((a: any, b: any) => 
+        .sort((a: any, b: any) =>
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         )
         .slice(0, 5)
@@ -171,7 +220,8 @@ export function DashboardPage() {
         avgNightlyRate: avgRate || 0,
         todayCheckIns: todayCheckIns.length,
         todayCheckOuts: todayCheckOuts.length,
-        availableRooms
+        availableRooms,
+        availableDetails
       })
 
       setRecentBookings(recent)
@@ -196,14 +246,23 @@ export function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <Card className="hover:shadow-lg transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Rooms</CardTitle>
+            <CardTitle className="text-sm font-medium">Available Rooms</CardTitle>
             <Building2 className="h-5 w-5 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-primary">{stats.totalRooms}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {stats.availableRooms} available now
-            </p>
+            <div className="text-2xl font-bold">{stats.availableRooms}</div>
+            <div className="text-xs text-muted-foreground mt-2 space-y-1">
+              {stats.availableDetails.length > 0 ? (
+                stats.availableDetails.map((detail, i) => (
+                  <div key={i} className="flex justify-between">
+                    <span>{detail.name}</span>
+                    <span className="font-medium">{detail.count} available</span>
+                  </div>
+                ))
+              ) : (
+                <span>ALL ROOMS OCCUPIED</span>
+              )}
+            </div>
           </CardContent>
         </Card>
 

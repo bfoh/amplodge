@@ -93,7 +93,11 @@ export async function createInvoiceData(booking: BookingWithDetails, roomDetails
       throw new Error('Invalid date values in booking data')
     }
 
-    const nights = Math.ceil((checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24))
+    // Normalize to midnight UTC for consistent night calculation
+    const d1 = new Date(Date.UTC(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate()))
+    const d2 = new Date(Date.UTC(checkOutDate.getFullYear(), checkOutDate.getMonth(), checkOutDate.getDate()))
+
+    const nights = Math.max(1, Math.ceil((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24)))
 
     // Validate nights calculation
     if (nights < 0) {
@@ -908,5 +912,326 @@ export async function downloadPreInvoicePDF(preInvoiceData: PreInvoiceData): Pro
   } catch (error: any) {
     console.error('❌ [PreInvoicePDF] Failed to download pre-invoice PDF:', error)
     throw new Error(`Failed to download pre-invoice PDF: ${error.message}`)
+  }
+}
+
+// ===================== GROUP INVOICE FUNCTIONS =====================
+
+export interface GroupInvoiceData {
+  invoiceNumber: string
+  invoiceDate: string
+  dueDate: string
+  groupReference: string
+  billingContact: {
+    name: string
+    email: string
+    phone?: string
+    address?: string
+  }
+  bookings: Array<{
+    id: string
+    guestName: string
+    roomNumber: string
+    roomType: string
+    checkIn: string
+    checkOut: string
+    nights: number
+    roomRate: number
+    subtotal: number // This is total with tax for this line item
+    additionalCharges: BookingCharge[]
+    additionalChargesTotal: number
+  }>
+  summary: {
+    totalRooms: number
+    totalNights: number
+    subtotal: number // Pre-tax subtotal
+    taxRate: number
+    taxAmount: number
+    total: number // Grand total
+  }
+  hotel: {
+    name: string
+    address: string
+    phone: string
+    email: string
+    website: string
+  }
+}
+
+export async function createGroupInvoiceData(bookings: BookingWithDetails[], billingContact: any): Promise<GroupInvoiceData> {
+  console.log('📊 [GroupInvoiceData] Creating group invoice data with real hotel information...')
+
+  try {
+    const hotelSettings = await hotelSettingsService.getHotelSettings()
+
+    // Create new group invoice number if not exists, or reuse logic?
+    // For now, generate a fresh one representing this aggregated view
+    const invoiceNumber = `GRP-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`
+    const invoiceDate = new Date().toISOString()
+    const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+
+    // Group reference from first booking
+    let groupReference = 'N/A'
+    if (bookings.length > 0 && (bookings[0] as any).groupReference) {
+      groupReference = (bookings[0] as any).groupReference
+    }
+
+    const processedBookings = await Promise.all(bookings.map(async (booking) => {
+      // Get additional charges
+      const additionalCharges = await bookingChargesService.getChargesForBooking(booking.id)
+      const additionalChargesTotal = additionalCharges.reduce((sum, c) => sum + (c.amount || 0), 0)
+
+      const checkIn = new Date(booking.checkIn)
+      const checkOut = new Date(booking.actualCheckOut || booking.checkOut)
+      // Normalize to midnight UTC for consistent night calculation
+      const d1 = new Date(Date.UTC(checkIn.getFullYear(), checkIn.getMonth(), checkIn.getDate()))
+      const d2 = new Date(Date.UTC(checkOut.getFullYear(), checkOut.getMonth(), checkOut.getDate()))
+
+      const nights = Math.max(1, Math.ceil((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24)))
+
+      const taxRate = 0.17
+      const roomTotal = booking.totalPrice // Total room price (likely strictly room cost or whatever stored in DB)
+
+      const grandTotalForRoom = roomTotal + additionalChargesTotal // This line item total
+
+      // Calculate room rate per night (removing tax from roomTotal portion?)
+      // Assuming totalPrice in DB includes tax if that's the convention, OR adds tax later.
+      // Based on createInvoiceData logic:
+      // const grandTotal = roomTotal + additionalChargesTotal
+      // const taxAmount = grandTotal * taxRate
+      // const subtotal = grandTotal - taxAmount
+      // This implies "grandTotal" is the base, and tax is EXTRACTED. Wait.
+      // Line 110: const grandTotal = roomTotal + additionalChargesTotal
+      // Line 111: const taxAmount = grandTotal * taxRate
+      // This means tax is calculated ON TOP of the total? No, line 112 says subtotal = grandTotal - taxAmount
+      // This implies grandTotal is INCLUSIVE of tax. 
+      // Tax = 17% of total? That's unusual (usually total = sub * 1.17).
+      // But adhering to existing logic:
+
+      const totalInclusive = grandTotalForRoom
+      const taxAmountForItem = totalInclusive * taxRate
+      const subtotalForItem = totalInclusive - taxAmountForItem
+
+      const roomSubtotal = roomTotal - (roomTotal * taxRate)
+      const roomRate = roomSubtotal / nights
+
+      return {
+        id: booking.id,
+        guestName: booking.guest?.name || 'Guest',
+        roomNumber: booking.room?.roomNumber || 'N/A',
+        roomType: booking.room?.roomType || 'Standard Room',
+        checkIn: booking.checkIn,
+        checkOut: booking.actualCheckOut || booking.checkOut,
+        nights,
+        roomRate,
+        subtotal: totalInclusive, // Display total per line item
+        additionalCharges,
+        additionalChargesTotal,
+        // Internal fields for summary calc
+        _subtotalExclTax: subtotalForItem,
+        _taxAmount: taxAmountForItem
+      }
+    }))
+
+    // Calculate Summary
+    const totalWithTax = processedBookings.reduce((sum, b) => sum + b.subtotal, 0)
+    const totalSubtotalExclTax = processedBookings.reduce((sum, b) => sum + b._subtotalExclTax, 0)
+    const totalTaxAmount = processedBookings.reduce((sum, b) => sum + b._taxAmount, 0)
+
+    // Recalculate precisely
+    const taxRate = 0.17
+
+    return {
+      invoiceNumber,
+      invoiceDate,
+      dueDate,
+      groupReference,
+      billingContact: {
+        name: billingContact?.fullName || billingContact?.name || 'Group Contact',
+        email: billingContact?.email || '',
+        phone: billingContact?.phone,
+        address: billingContact?.address
+      },
+      bookings: processedBookings,
+      summary: {
+        totalRooms: bookings.length,
+        totalNights: processedBookings.reduce((acc, b) => acc + b.nights, 0),
+        subtotal: totalSubtotalExclTax,
+        taxRate,
+        taxAmount: totalTaxAmount,
+        total: totalWithTax
+      },
+      hotel: {
+        name: hotelSettings.name,
+        address: hotelSettings.address,
+        phone: hotelSettings.phone,
+        email: hotelSettings.email,
+        website: hotelSettings.website
+      }
+    }
+
+  } catch (error: any) {
+    console.error('❌ [GroupInvoiceData] Failed to create group invoice data:', error)
+    throw new Error(`Failed to create group invoice data: ${error.message}`)
+  }
+}
+
+export async function generateGroupInvoiceHTML(data: GroupInvoiceData): Promise<string> {
+  const { formatCurrencySync } = await import('@/lib/utils')
+  const settings = await hotelSettingsService.getHotelSettings()
+  const currency = settings.currency || 'GHS'
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>Group Invoice ${data.invoiceNumber}</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.4; color: #333; background: #fff; font-size: 12px; }
+        .invoice-container { max-width: 800px; margin: 0 auto; padding: 20px 40px; background: #fff; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; border-bottom: 2px solid #8B4513; padding-bottom: 10px; }
+        .hotel-info h1 { color: #8B4513; font-size: 24px; font-weight: bold; margin-bottom: 5px; }
+        .hotel-info p { color: #666; font-size: 11px; margin: 1px 0; }
+        .invoice-meta { text-align: right; }
+        .invoice-meta h2 { color: #8B4513; font-size: 18px; margin-bottom: 5px; }
+        .invoice-details { display: flex; justify-content: space-between; margin-bottom: 20px; background: #F5F1E8; padding: 15px; border-radius: 6px; }
+        .bill-to h3 { color: #8B4513; font-size: 14px; margin-bottom: 5px; font-weight: bold; }
+        .charges-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 11px; }
+        .charges-table th { background: #8B4513; color: white; padding: 8px; text-align: left; }
+        .charges-table td { padding: 8px; border-bottom: 1px solid #e5e7eb; }
+        .sub-row td { background-color: #f9fafb; color: #666; font-style: italic; padding-left: 20px; }
+        .totals { display: flex; justify-content: flex-end; }
+        .totals-table { width: 250px; }
+        .totals-table td { padding: 5px; border-bottom: 1px solid #eee; }
+        .total-row { background: #8B4513; color: white; font-weight: bold; }
+        .footer { margin-top: 30px; text-align: center; font-size: 10px; color: #666; border-top: 1px solid #eee; padding-top: 10px; }
+      </style>
+    </head>
+    <body>
+      <div class="invoice-container">
+        <div class="header">
+          <div class="hotel-info">
+            <h1>${data.hotel.name}</h1>
+            <p>${data.hotel.address}</p>
+            <p>${data.hotel.phone} | ${data.hotel.email}</p>
+          </div>
+          <div class="invoice-meta">
+            <h2>GROUP INVOICE</h2>
+            <p><strong>Invoice #:</strong> ${data.invoiceNumber}</p>
+            <p><strong>Date:</strong> ${new Date(data.invoiceDate).toLocaleDateString()}</p>
+            <p><strong>Ref:</strong> ${data.groupReference}</p>
+          </div>
+        </div>
+
+        <div class="invoice-details">
+          <div class="bill-to">
+            <h3>Bill To (Group Contact):</h3>
+            <p><strong>${data.billingContact.name}</strong></p>
+            <p>${data.billingContact.email}</p>
+            ${data.billingContact.phone ? `<p>${data.billingContact.phone}</p>` : ''}
+          </div>
+          <div class="summary-stats">
+            <p><strong>Total Rooms:</strong> ${data.summary.totalRooms}</p>
+            <p><strong>Total Nights:</strong> ${data.summary.totalNights}</p>
+          </div>
+        </div>
+
+        <table class="charges-table">
+          <thead>
+            <tr>
+              <th>Room / Guest</th>
+              <th class="text-center">Dates</th>
+              <th class="text-right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.bookings.map(b => `
+              <tr>
+                <td>
+                  <strong>Room ${b.roomNumber} (${b.roomType})</strong><br/>
+                  Guest: ${b.guestName}
+                </td>
+                <td class="text-center">
+                  ${new Date(b.checkIn).toLocaleDateString()} - ${new Date(b.checkOut).toLocaleDateString()}<br/>
+                  (${b.nights} nights)
+                </td>
+                <td class="text-right">
+                  <strong>${formatCurrencySync(b.subtotal, currency)}</strong>
+                </td>
+              </tr>
+              ${b.additionalCharges.length > 0 ? b.additionalCharges.map(ch => `
+                <tr class="sub-row">
+                  <td colspan="2">↳ ${ch.description} (x${ch.quantity})</td>
+                  <td class="text-right">${formatCurrencySync(ch.amount, currency)}</td>
+                </tr>
+              `).join('') : ''}
+            `).join('')}
+          </tbody>
+        </table>
+
+        <div class="totals">
+          <table class="totals-table">
+            <tr>
+              <td>Subtotal</td>
+              <td class="text-right">${formatCurrencySync(data.summary.subtotal, currency)}</td>
+            </tr>
+            <tr>
+              <td>Tax (${(data.summary.taxRate * 100).toFixed(0)}%)</td>
+              <td class="text-right">${formatCurrencySync(data.summary.taxAmount, currency)}</td>
+            </tr>
+            <tr class="total-row">
+              <td>Grand Total</td>
+              <td class="text-right">${formatCurrencySync(data.summary.total, currency)}</td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="footer">
+          <p>Thank you for choosing ${data.hotel.name} for your group stay.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `
+}
+
+export async function generateGroupInvoicePDF(data: GroupInvoiceData): Promise<Blob> {
+  console.log('📄 [GroupInvoicePDF] Generating PDF...')
+  const htmlContent = await generateGroupInvoiceHTML(data)
+
+  const element = document.createElement('div')
+  element.innerHTML = htmlContent
+  element.style.position = 'absolute'
+  element.style.left = '-9999px'
+  document.body.appendChild(element)
+
+  const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff' })
+  document.body.removeChild(element)
+
+  const imgData = canvas.toDataURL('image/jpeg', 0.95)
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const imgWidth = 210
+  const imgHeight = (canvas.height * imgWidth) / canvas.width
+
+  pdf.addImage(imgData, 'JPEG', 0, 0, imgWidth, imgHeight)
+  return pdf.output('blob')
+}
+
+export async function downloadGroupInvoicePDF(data: GroupInvoiceData): Promise<void> {
+  try {
+    const pdfBlob = await generateGroupInvoicePDF(data)
+    const url = URL.createObjectURL(pdfBlob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `group-invoice-${data.invoiceNumber}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (e: any) {
+    console.error('Failed to download group invoice', e)
+    throw e
   }
 }

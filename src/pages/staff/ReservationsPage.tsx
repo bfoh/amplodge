@@ -12,7 +12,7 @@ import { format, parseISO, isBefore, isAfter } from 'date-fns'
 import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { toast } from 'sonner'
-import { createInvoiceData, downloadInvoicePDF, generateInvoicePDF, sendInvoiceEmail } from '@/services/invoice-service'
+import { createInvoiceData, downloadInvoicePDF, generateInvoicePDF, sendInvoiceEmail, createGroupInvoiceData, downloadGroupInvoicePDF } from '@/services/invoice-service'
 import { activityLogService } from '@/services/activity-log-service'
 import { housekeepingService } from '@/services/housekeeping-service'
 import { bookingChargesService, CHARGE_CATEGORIES } from '@/services/booking-charges-service'
@@ -30,18 +30,33 @@ import { calculateNights } from '@/lib/display'
 import { CheckInDialog } from '@/components/dialogs/CheckInDialog'
 import { GuestChargesDialog } from '@/components/dialogs/GuestChargesDialog'
 import { ExtendStayDialog } from '@/components/dialogs/ExtendStayDialog'
-import { Receipt, CalendarPlus } from 'lucide-react'
+import { Receipt, CalendarPlus, MoreHorizontal, CreditCard, User, Users, Mail, Ban } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    confirmed: 'bg-emerald-100 text-emerald-700',
-    'checked-in': 'bg-blue-100 text-blue-700',
-    'checked-out': 'bg-gray-100 text-gray-700',
-    cancelled: 'bg-rose-100 text-rose-700',
-    reserved: 'bg-amber-100 text-amber-700'
+  const styles: Record<string, string> = {
+    confirmed: 'bg-emerald-50 text-emerald-700 border-emerald-200 ring-emerald-600/20',
+    'checked-in': 'bg-blue-50 text-blue-700 border-blue-200 ring-blue-600/20',
+    'checked-out': 'bg-slate-50 text-slate-700 border-slate-200 ring-slate-600/20',
+    cancelled: 'bg-rose-50 text-rose-700 border-rose-200 ring-rose-600/20',
+    reserved: 'bg-amber-50 text-amber-700 border-amber-200 ring-amber-600/20'
   }
-  const cls = map[status] || 'bg-secondary text-foreground'
-  return <span className={`text-xs px-2 py-1 rounded-full ${cls}`}>{status}</span>
+
+  const defaultStyle = 'bg-gray-50 text-gray-700 border-gray-200 ring-gray-600/20'
+  const style = styles[status] || defaultStyle
+
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ring-1 ring-inset ${style} capitalize shadow-sm`}>
+      {status.replace('-', ' ')}
+    </span>
+  )
 }
 
 export function ReservationsPage() {
@@ -130,7 +145,27 @@ export function ReservationsPage() {
           'cancelled': 1
         }
 
-        const uniqueBookings = (b as Booking[]).reduce((acc: Booking[], current) => {
+
+        const hydratedBookings = (b as Booking[]).map(booking => {
+          if (!booking.specialRequests) return booking;
+          const match = booking.specialRequests.match(/<!-- GROUP_DATA:(.*?) -->/);
+          if (match && match[1]) {
+            try {
+              const groupData = JSON.parse(match[1]);
+              return {
+                ...booking,
+                ...groupData,
+                // Clean the specialRequests to not show technical data to user
+                specialRequests: booking.specialRequests.replace(/<!-- GROUP_DATA:.*? -->/g, '').trim()
+              };
+            } catch (e) {
+              console.warn('Failed to parse group data for booking', booking.id, e);
+            }
+          }
+          return booking;
+        });
+
+        const uniqueBookings = hydratedBookings.reduce((acc: Booking[], current) => {
           // Helper to normalize date (strip time)
           const normalizeDate = (d: string) => d ? format(parseISO(d), 'yyyy-MM-dd') : ''
 
@@ -309,7 +344,7 @@ export function ReservationsPage() {
         guest: guest,
         room: {
           roomNumber: room.roomNumber,
-          roomType: room.roomType || 'Standard Room'
+          roomType: roomTypeMap.get(room.roomTypeId)?.name || 'Standard Room'
         }
       }
 
@@ -339,6 +374,64 @@ export function ReservationsPage() {
     }
   }
 
+  // Group Invoice Download handler
+  const handleGroupInvoiceDownload = async (booking: Booking) => {
+    if (!booking.groupId) return
+
+    setDownloadingInvoice(booking.id)
+    try {
+      console.log('📄 [ReservationsPage] Generating GROUP invoice...', { groupId: booking.groupId })
+
+      // Find all bookings for this group
+      // Ideally we should refetch to be sure, but using local state is faster
+      // and sufficient for now since we just loaded.
+      const groupBookings = bookings.filter(b => b.groupId === booking.groupId)
+
+      if (groupBookings.length === 0) {
+        throw new Error('No bookings found for this group')
+      }
+
+      // Collect all necessary details for each booking
+      const fullBookingDetails = groupBookings.map(b => {
+        const guest = guestMap.get(b.guestId)
+        const room = roomMap.get(b.roomId)
+        return {
+          ...b,
+          guest,
+          room: {
+            roomNumber: room?.roomNumber || 'N/A',
+            roomType: room?.roomType || 'Standard'
+            // We could resolve roomType name from ID if needed, but room object usually has type ID.
+            // However, let's stick to what createInvoiceData expects or what we have.
+            // If room.roomType is just an ID, we might want to map it.
+            // Let's improve:
+            // roomType: roomTypeMap.get(room?.roomTypeId)?.name || 'Standard Room'
+          }
+        }
+      }).map(b => ({
+        ...b,
+        // Enhance room type to be human readable
+        room: {
+          ...b.room,
+          roomType: roomTypeMap.get(roomMap.get(b.roomId)?.roomTypeId || '')?.name || b.room.roomType
+        }
+      }))
+
+      // Use billing contact from the clicked booking (or the first one)
+      const billingContact = booking.billingContact || (booking.guestId ? guestMap.get(booking.guestId) : null)
+
+      const groupInvoiceData = await createGroupInvoiceData(fullBookingDetails as any, billingContact)
+
+      await downloadGroupInvoicePDF(groupInvoiceData)
+      toast.success('Group invoice downloaded')
+
+    } catch (error: any) {
+      console.error('Group invoice failed', error)
+      toast.error('Failed to generate group invoice')
+    } finally {
+      setDownloadingInvoice(null)
+    }
+  }
   // Check-out handler
   const handleCheckOut = async (booking: Booking) => {
     setProcessing(true)
@@ -428,7 +521,7 @@ export function ReservationsPage() {
             guest: guest,
             room: {
               roomNumber: room.roomNumber,
-              roomType: room.roomType || 'Standard Room'
+              roomType: roomTypeMap.get(room.roomTypeId)?.name || 'Standard Room'
             }
           }
 
@@ -527,7 +620,7 @@ export function ReservationsPage() {
           entityType: 'booking',
           entityId: booking.id,
           details: {
-            guestName: guest?.name || booking.guestName || 'Unknown Guest',
+            guestName: guest?.name || 'Unknown Guest',
             roomNumber: room?.roomNumber || 'Unknown Room',
             checkOutDate: booking.checkOut,
             actualCheckOut: new Date().toISOString(),
@@ -810,137 +903,161 @@ export function ReservationsPage() {
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>Reference</TableHead>
-                        <TableHead>Guest</TableHead>
-                        <TableHead>Room</TableHead>
-                        <TableHead>Dates</TableHead>
-                        <TableHead className="text-right">Amount</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Payment Status</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                      <TableRow className="hover:bg-transparent border-b border-border/60">
+                        <TableHead className="w-[140px] text-xs font-semibold text-muted-foreground uppercase tracking-wider">Reference</TableHead>
+                        <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Guest</TableHead>
+                        <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Room</TableHead>
+                        <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Dates</TableHead>
+                        <TableHead className="text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Amount</TableHead>
+                        <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</TableHead>
+                        <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Payment</TableHead>
+                        <TableHead className="text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filtered.map((b) => {
                         const guest = guestMap.get(b.guestId)
                         const room = roomMap.get(b.roomId)
+                        const isMainActionLoading = downloadingInvoice === b.id || updatingId === b.id
+
+                        // Determine Valid Actions
+                        const canShowCheckIn = canCheckIn(b)
+                        const canShowCheckOut = canCheckOut(b)
+                        const isCheckedOut = b.status === 'checked-out'
+                        const isCancelled = b.status === 'cancelled'
+                        const isGroup = !!b.groupId
+
                         return (
-                          <TableRow key={b.id}>
-                            <TableCell className="font-medium">#{b.id.slice(-8)}</TableCell>
+                          <TableRow key={b.id} className="hover:bg-muted/30 transition-colors cursor-default group">
                             <TableCell>
-                              <div className="font-medium">{guest?.name || 'Guest'}</div>
-                              <div className="text-xs text-muted-foreground">{guest?.email}</div>
+                              <div className="font-mono text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded w-fit">
+                                #{b.id.slice(-8)}
+                              </div>
+                              {isGroup && (
+                                <div className="mt-1 text-[10px] text-amber-600 font-medium flex items-center gap-1">
+                                  <Users className="w-3 h-3" /> Group
+                                </div>
+                              )}
                             </TableCell>
                             <TableCell>
-                              <div>Room {room?.roomNumber}</div>
-                              <div className="text-xs text-muted-foreground">{resolveRoomStatus(b, room)}</div>
+                              <div className="flex flex-col">
+                                <span className="font-medium text-sm text-foreground">{guest?.name || 'Guest'}</span>
+                                {guest?.email && <span className="text-xs text-muted-foreground truncate max-w-[180px]">{guest.email}</span>}
+                              </div>
                             </TableCell>
                             <TableCell>
-                              {format(parseISO(b.checkIn), 'MMM dd, yyyy')} → {format(parseISO(b.checkOut), 'MMM dd, yyyy')}
+                              <div className="flex flex-col">
+                                <span className="font-medium text-sm">Room {room?.roomNumber || 'N/A'}</span>
+                                <span className="text-[10px] text-muted-foreground capitalize">{resolveRoomStatus(b, room).replace('-', ' ')}</span>
+                              </div>
                             </TableCell>
-                            <TableCell className="text-right">{formatCurrencySync(getBookingTotal(b), currency)}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-col text-sm">
+                                <span className="font-medium">{format(parseISO(b.checkIn), 'MMM dd')} <span className="text-muted-foreground">-</span> {format(parseISO(b.checkOut), 'MMM dd')}</span>
+                                <span className="text-xs text-muted-foreground">{format(parseISO(b.checkOut), 'yyyy')}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right font-medium text-sm">
+                              {formatCurrencySync(getBookingTotal(b), currency)}
+                            </TableCell>
                             <TableCell>
                               <StatusBadge status={b.status} />
                             </TableCell>
                             <TableCell>
                               {(() => {
                                 const method = b.paymentMethod || 'Not Paid'
-                                const isPaid = method !== 'Not Paid' && method !== 'Not paid'
+                                const isUnpaid = method === 'Not Paid' || method === 'Not paid' || method === 'not_paid'
 
-                                if (!isPaid) {
+                                if (isUnpaid) {
                                   return (
-                                    <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-700 font-medium">
-                                      Not Paid
+                                    <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-gray-100 text-gray-600 text-[10px] font-medium border border-gray-200">
+                                      <Ban className="w-3 h-3" />
+                                      Unpaid
                                     </span>
                                   )
                                 }
 
                                 return (
-                                  <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700 font-medium">
-                                    Paid:{method === 'Credit/Debit Card' ? 'Card' : method}
+                                  <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-medium border border-emerald-100 ring-1 ring-emerald-600/10">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    {method === 'Credit/Debit Card' ? 'Card' : (method === 'mobile_money' ? 'Momo' : method)}
                                   </span>
                                 )
                               })()}
                             </TableCell>
-                            <TableCell className="text-right space-x-2">
-                              {canCheckIn(b) && (
-                                <Button
-                                  size="sm"
-                                  variant="default"
-                                  onClick={() => setCheckInDialog(b)}
-                                >
-                                  <LogIn className="w-4 h-4 mr-1" />
-                                  Check In
-                                </Button>
-                              )}
-                              {canCheckOut(b) && (
-                                <>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => setChargesDialog(b)}
-                                    title="View/Add Charges"
-                                  >
-                                    <Receipt className="w-4 h-4 mr-1" />
-                                    Charges
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-2 opacity-100 group-hover:opacity-100 transition-opacity">
+                                {/* Primary Action Button */}
+                                {canShowCheckIn && (
+                                  <Button size="sm" onClick={() => setCheckInDialog(b)} className="h-8 shadow-sm">
+                                    <LogIn className="w-3.5 h-3.5 mr-1.5" /> Check In
                                   </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => setExtendStayDialog(b)}
-                                    className="text-amber-600 hover:text-amber-700"
-                                    title="Extend Stay"
-                                  >
-                                    <CalendarPlus className="w-4 h-4 mr-1" />
-                                    Extend
+                                )}
+
+                                {canShowCheckOut && (
+                                  <Button size="sm" variant="outline" onClick={() => setCheckOutDialog(b)} className="h-8 border-primary/20 text-primary hover:bg-primary/5 hover:text-primary shadow-sm text-xs">
+                                    <LogOut className="w-3.5 h-3.5 mr-1.5" /> Check Out
                                   </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => setCheckOutDialog(b)}
-                                  >
-                                    <LogOut className="w-4 h-4 mr-1" />
-                                    Check Out
+                                )}
+
+                                {isCheckedOut && (
+                                  <Button size="sm" variant="ghost" onClick={() => handleDownloadInvoice(b)} disabled={downloadingInvoice === b.id} className="h-8 text-muted-foreground hover:text-foreground">
+                                    {downloadingInvoice === b.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
                                   </Button>
-                                </>
-                              )}
-                              {b.status === 'checked-out' && (
-                                <div className="flex gap-2">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => handleDownloadInvoice(b)}
-                                    disabled={downloadingInvoice === b.id}
-                                  >
-                                    {downloadingInvoice === b.id ? (
+                                )}
+
+                                {/* Secondary Actions Dropdown */}
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                                      <MoreHorizontal className="w-4 h-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-[180px]">
+                                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
+
+                                    {isGroup && (
+                                      <DropdownMenuItem onClick={() => handleGroupInvoiceDownload(b)}>
+                                        <Users className="w-4 h-4 mr-2 text-amber-600" />
+                                        <span>Group Invoice</span>
+                                      </DropdownMenuItem>
+                                    )}
+
+                                    {canShowCheckOut && (
                                       <>
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                        Generating...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Download className="mr-2 h-4 w-4" />
-                                        Invoice
+                                        <DropdownMenuItem onClick={() => setChargesDialog(b)}>
+                                          <Receipt className="w-4 h-4 mr-2" />
+                                          <span>Add Charges</span>
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => setExtendStayDialog(b)}>
+                                          <CalendarPlus className="w-4 h-4 mr-2" />
+                                          <span>Extend Stay</span>
+                                        </DropdownMenuItem>
                                       </>
                                     )}
-                                  </Button>
-                                  <span className="inline-flex items-center gap-1 text-sm text-green-600">
-                                    <CheckCircle2 className="w-4 h-4" />
-                                    Completed
-                                  </span>
-                                </div>
-                              )}
-                              {b.status !== 'checked-out' && b.status !== 'checked-in' && b.status !== 'confirmed' && (
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  disabled={b.status === 'cancelled' || updatingId === b.id}
-                                  onClick={() => cancelBooking(b.id)}
-                                >
-                                  {updatingId === b.id ? 'Cancelling…' : 'Cancel'}
-                                </Button>
-                              )}
+
+                                    <DropdownMenuSeparator />
+
+                                    <DropdownMenuItem onClick={() => handleDownloadInvoice(b)}>
+                                      <Download className="w-4 h-4 mr-2" />
+                                      <span>Download Invoice</span>
+                                    </DropdownMenuItem>
+
+                                    {!isCheckedOut && !isCancelled && (
+                                      <>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                          onClick={() => cancelBooking(b.id)}
+                                          className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                                        >
+                                          <LogOut className="w-4 h-4 mr-2 rotate-180" />
+                                          <span>Cancel Booking</span>
+                                        </DropdownMenuItem>
+                                      </>
+                                    )}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
                             </TableCell>
                           </TableRow>
                         )
@@ -952,7 +1069,7 @@ export function ReservationsPage() {
             </CardContent>
           </Card>
         </main>
-      </div>
+      </div >
     </>
   )
 }

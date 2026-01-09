@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Users, DollarSign } from 'lucide-react'
 import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
+import { bookingEngine } from '@/services/booking-engine'
 
 export function RoomsPage() {
   const db = (blink.db as any)
@@ -40,12 +41,12 @@ export function RoomsPage() {
   const loadRooms = async () => {
     setLoading(true)
     try {
-      // Force fresh fetch - no caching
+      // Force fresh fetch - use bookingEngine.getAllBookings() for consistent data structure
       const [typesData, roomsData, propertiesData, bookingsData] = await Promise.all([
-        db.roomTypes.list<RoomType>({ orderBy: { createdAt: 'asc' } }),
-        db.rooms.list<Room>({ orderBy: { createdAt: 'asc' } }),
+        db.roomTypes.list({ orderBy: { createdAt: 'asc' } }),
+        db.rooms.list({ orderBy: { createdAt: 'asc' } }),
         db.properties.list({ orderBy: { createdAt: 'desc' } }),
-        db.bookings.list()
+        bookingEngine.getAllBookings()
       ])
 
       // Add fallback images to room types that don't have them
@@ -99,29 +100,44 @@ export function RoomsPage() {
       return matchingType?.id === typeId
     })
 
-    // Filter out properties that have current bookings (today's date range)
-    const today = new Date()
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
+    // Get today's date in YYYY-MM-DD format for consistent comparison
+    const todayIso = new Date().toISOString().split('T')[0]
 
     const availableProperties = propertiesOfType.filter(property => {
-      const hasCurrentBooking = bookings.some(booking => {
+      // Skip rooms under maintenance
+      if (property.status === 'maintenance') return false
+
+      const hasCurrentBooking = bookings.some((booking: any) => {
         // Skip cancelled bookings
         if (booking.status === 'cancelled') return false
 
-        // Check if this booking is for the same room (match by room number)
+        // Only consider active booking statuses (match Dashboard logic)
+        if (!['reserved', 'confirmed', 'checked-in'].includes(booking.status)) return false
+
+        // bookingEngine.getAllBookings() returns dates.checkIn/checkOut structure
+        const checkIn = booking.dates?.checkIn
+        const checkOut = booking.dates?.checkOut
+
+        // Check if this booking is for the same room
         if (booking.roomNumber !== property.roomNumber) return false
 
-        // Check if booking is currently active (guest is checked in or will check in today)
-        const checkInDate = new Date(booking.checkIn)
-        const checkOutDate = new Date(booking.checkOut)
+        // Check if booking is currently active: checkIn <= today AND checkOut > today
+        const checkInStr = typeof checkIn === 'string' ? checkIn.split('T')[0] : ''
+        const checkOutStr = typeof checkOut === 'string' ? checkOut.split('T')[0] : ''
 
-        return today >= checkInDate && today < checkOutDate
+        const isActive = checkInStr <= todayIso && checkOutStr > todayIso
+
+        if (isActive) {
+          console.log(`[RoomsPage] Room ${property.roomNumber} blocked by booking: status=${booking.status}, checkIn=${checkInStr}, checkOut=${checkOutStr}, today=${todayIso}`)
+        }
+
+        return isActive
       })
 
       return !hasCurrentBooking
     })
 
+    console.log(`[RoomsPage] Type ${typeId}: ${propertiesOfType.length} total, ${availableProperties.length} available`)
     return availableProperties.length
   }
 

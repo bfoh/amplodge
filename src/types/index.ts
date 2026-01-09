@@ -50,6 +50,39 @@ export interface Booking {
   discountReason?: string      // Reason for discount
   finalAmount?: number         // Amount after discount (totalPrice - discountAmount)
   discountedBy?: string        // Staff ID who applied discount
+
+  // Group Booking Fields
+  groupId?: string             // Shared ID for all bookings in a group
+  groupReference?: string      // Human readable reference (e.g. GRP-2024-ABCD)
+  isPrimaryBooking?: boolean   // True if this is the main booking record for the group
+
+  billingContact?: {
+    fullName: string
+    email: string
+    phone: string
+    address: string
+  }
+}
+
+export interface BillingContact {
+  fullName: string
+  email: string
+  phone: string
+  address: string
+}
+
+export interface CartItem {
+  tempId: string
+  roomTypeId: string
+  roomTypeName: string
+  checkIn: Date
+  checkOut: Date
+  numGuests: number
+  price: number
+  guest?: {
+    name: string
+    email?: string // Optional for secondary guests
+  }
 }
 
 export interface Staff {
