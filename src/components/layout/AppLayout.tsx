@@ -275,57 +275,59 @@ export function AppLayout() {
                 to={item.href}
                 onClick={() => setMobileMenuOpen(false)}
                 className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                  'group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ease-in-out',
                   isActive
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                    ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-black/5 translate-x-1'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:translate-x-1'
                 )}
               >
-                <Icon className="w-5 h-5 flex-shrink-0" />
+                <Icon className={cn("w-5 h-5 flex-shrink-0 transition-transform duration-200", isActive && "scale-110")} />
                 <span>{item.name}</span>
               </Link>
             )
           })}
 
           {/* Reservations collapsible */}
-          <div className="mt-3">
+          <div className="mt-4">
             <button
               type="button"
               onClick={handleReservationsToggle}
               className={cn(
-                'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
-                reservationsOpen ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ease-in-out group',
+                reservationsOpen
+                  ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-black/5 translate-x-1'
+                  : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:translate-x-1'
               )}
             >
-              <List className="w-5 h-5" />
+              <List className={cn("w-5 h-5 transition-transform duration-200", reservationsOpen && "scale-110")} />
               <span className="flex-1 text-left">Reservations</span>
-              <ChevronDown className={cn('w-4 h-4 transition-transform', reservationsOpen ? 'rotate-180' : 'rotate-0')} />
+              <ChevronDown className={cn('w-4 h-4 transition-transform duration-300', reservationsOpen ? 'rotate-180' : 'rotate-0')} />
             </button>
             {reservationsOpen && (
-              <div className="mt-1 space-y-1">
+              <div className="mt-2 space-y-1 pl-1">
                 <Link
                   to="/staff/reservations"
                   onClick={() => setMobileMenuOpen(false)}
                   className={cn(
-                    'ml-7 flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                    'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ml-4 border-l-2 pl-4',
                     location.pathname === '/staff/reservations'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                      ? 'border-primary text-primary bg-primary/5'
+                      : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
                   )}
                 >
-                  <span>Reservation list</span>
+                  <span className="text-[13px]">Reservation list</span>
                 </Link>
                 <Link
                   to="/staff/reservations/history"
                   onClick={() => setMobileMenuOpen(false)}
                   className={cn(
-                    'ml-7 flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                    'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ml-4 border-l-2 pl-4',
                     location.pathname.startsWith('/staff/reservations/history')
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                      ? 'border-primary text-primary bg-primary/5'
+                      : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
                   )}
                 >
-                  <span>History</span>
+                  <span className="text-[13px]">History</span>
                 </Link>
               </div>
             )}
@@ -333,49 +335,51 @@ export function AppLayout() {
 
           {/* Admin Section - Show for admin users */}
           {isAdmin && (
-            <div className="mt-3 pt-3 border-t border-border">
-              <p className="px-3 py-2 text-xs uppercase tracking-widest text-muted-foreground">Admin</p>
+            <div className="mt-6 pt-6 border-t border-border/50">
+              <p className="px-3 py-2 text-xs uppercase tracking-widest text-muted-foreground font-semibold opacity-70 mb-1">Admin</p>
               <Link
                 to="/staff/employees"
                 onClick={() => setMobileMenuOpen(false)}
                 className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ease-in-out',
                   location.pathname === '/staff/employees'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                    ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-black/5 translate-x-1'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:translate-x-1'
                 )}
               >
-                <UserCheck className="w-5 h-5" />
+                <UserCheck className="w-5 h-5 flex-shrink-0" />
                 <span>Employees</span>
               </Link>
 
               {/* Price list collapsible - Admin only */}
-              <div className="mt-3">
+              <div className="mt-1">
                 <button
                   type="button"
                   onClick={handlePriceToggle}
                   className={cn(
-                    'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
-                    priceOpen ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                    'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ease-in-out group',
+                    priceOpen
+                      ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-black/5 translate-x-1'
+                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:translate-x-1'
                   )}
                 >
-                  <Tag className="w-5 h-5" />
+                  <Tag className={cn("w-5 h-5 transition-transform duration-200", priceOpen && "scale-110")} />
                   <span className="flex-1 text-left">Price list</span>
-                  <ChevronDown className={cn('w-4 h-4 transition-transform', priceOpen ? 'rotate-180' : 'rotate-0')} />
+                  <ChevronDown className={cn('w-4 h-4 transition-transform duration-300', priceOpen ? 'rotate-180' : 'rotate-0')} />
                 </button>
                 {priceOpen && (
-                  <div className="mt-1 space-y-1">
+                  <div className="mt-2 space-y-1 pl-1">
                     <Link
                       to="/staff/set-prices"
                       onClick={() => setMobileMenuOpen(false)}
                       className={cn(
-                        'ml-7 flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                        'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ml-4 border-l-2 pl-4',
                         location.pathname === '/staff/set-prices'
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                          ? 'border-primary text-primary bg-primary/5'
+                          : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
                       )}
                     >
-                      <span>Set prices</span>
+                      <span className="text-[13px]">Set prices</span>
                     </Link>
                   </div>
                 )}
@@ -385,65 +389,65 @@ export function AppLayout() {
                 to="/staff/invoices"
                 onClick={() => setMobileMenuOpen(false)}
                 className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ease-in-out',
                   location.pathname === '/staff/invoices'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                    ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-black/5 translate-x-1'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:translate-x-1'
                 )}
               >
-                <ReceiptText className="w-5 h-5" />
+                <ReceiptText className="w-5 h-5 flex-shrink-0" />
                 <span>Invoices</span>
               </Link>
               <Link
                 to="/staff/analytics"
                 onClick={() => setMobileMenuOpen(false)}
                 className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ease-in-out',
                   location.pathname === '/staff/analytics'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                    ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-black/5 translate-x-1'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:translate-x-1'
                 )}
               >
-                <TrendingUp className="w-5 h-5" />
+                <TrendingUp className="w-5 h-5 flex-shrink-0" />
                 <span>Analytics</span>
               </Link>
               <Link
                 to="/staff/activity-logs"
                 onClick={() => setMobileMenuOpen(false)}
                 className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ease-in-out',
                   location.pathname === '/staff/activity-logs'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                    ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-black/5 translate-x-1'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:translate-x-1'
                 )}
               >
-                <FileText className="w-5 h-5" />
+                <FileText className="w-5 h-5 flex-shrink-0" />
                 <span>Activity Logs</span>
               </Link>
               <Link
                 to="/staff/email-diagnostics"
                 onClick={() => setMobileMenuOpen(false)}
                 className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ease-in-out',
                   location.pathname === '/staff/email-diagnostics'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                    ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-black/5 translate-x-1'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:translate-x-1'
                 )}
               >
-                <Network className="w-5 h-5" />
+                <Network className="w-5 h-5 flex-shrink-0" />
                 <span>Email Diagnostics</span>
               </Link>
               <Link
                 to="/staff/settings"
                 onClick={() => setMobileMenuOpen(false)}
                 className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ease-in-out',
                   location.pathname === '/staff/settings'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                    ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-black/5 translate-x-1'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:translate-x-1'
                 )}
               >
-                <Settings className="w-5 h-5" />
+                <Settings className="w-5 h-5 flex-shrink-0" />
                 <span>Settings</span>
               </Link>
             </div>
@@ -451,11 +455,11 @@ export function AppLayout() {
         </nav>
       </ScrollArea>
 
-      <div className="border-t p-4">
+      <div className="border-t p-4 bg-sidebar/50 backdrop-blur-sm">
         <Button
           onClick={handleLogout}
           variant="ghost"
-          className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive"
+          className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
         >
           <LogOut className="w-5 h-5" />
           <span>Logout</span>
@@ -467,7 +471,7 @@ export function AppLayout() {
   return (
     <div className="flex h-screen bg-background">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex lg:flex-col lg:w-64 border-r bg-card">
+      <aside className="hidden lg:flex lg:flex-col lg:w-64 border-r border-border/60 bg-sidebar shadow-xl z-20">
         <SidebarContent />
       </aside>
 

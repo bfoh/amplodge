@@ -7,62 +7,73 @@
 @layer base {
   :root {
     /* Colors - Premium Lodge Aesthetic */
-    --background: 0 0% 100%;
-    --foreground: 30 20% 12%;
+    --background: 30 15% 98%;
+    --foreground: 30 15% 15%;
+
     --card: 0 0% 100%;
-    --card-foreground: 30 20% 12%;
+    --card-foreground: 30 15% 15%;
+
     --popover: 0 0% 100%;
-    --popover-foreground: 30 20% 12%;
-    --primary: 32 38% 40%;
+    --popover-foreground: 30 15% 15%;
+
+    --primary: 32 45% 35%;
+    /* Deeper, richer bronze */
     --primary-foreground: 0 0% 100%;
-    --secondary: 38 45% 96%;
-    --secondary-foreground: 30 20% 12%;
-    --muted: 38 30% 96%;
-    --muted-foreground: 30 18% 45%;
-    --accent: 42 70% 55%;
-    --accent-foreground: 30 20% 12%;
+
+    --secondary: 40 10% 94%;
+    --secondary-foreground: 30 15% 15%;
+
+    --muted: 40 10% 96%;
+    --muted-foreground: 30 10% 45%;
+
+    --accent: 32 60% 92%;
+    /* Subtle gold tint for hover states */
+    --accent-foreground: 32 45% 35%;
+
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 38 20% 88%;
-    --input: 38 20% 94%;
-    --ring: 32 38% 40%;
+
+    --border: 40 10% 90%;
+    --input: 40 10% 90%;
+    --ring: 32 45% 35%;
 
     /* Charts */
-    --chart-1: 142.0859 70.5628% 45.2941%;
-    --chart-2: 160.1183 84.0796% 39.4118%;
-    --chart-3: 161.3793 93.5484% 30.3922%;
-    --chart-4: 162.931 93.5484% 24.3137%;
-    --chart-5: 163.1461 88.1188% 19.8039%;
+    --chart-1: 32 45% 35%;
+    --chart-2: 35 40% 50%;
+    --chart-3: 142 50% 45%;
+    --chart-4: 30 20% 60%;
+    --chart-5: 200 20% 40%;
 
     /* Sidebar */
-    --sidebar: 204 93.75% 93.7255%;
-    --sidebar-foreground: 216.9231 19.1176% 26.6667%;
-    --sidebar-primary: 142.0859 70.5628% 45.2941%;
+    --sidebar: 0 0% 100%;
+    --sidebar-foreground: 30 15% 15%;
+    --sidebar-primary: 32 45% 35%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 149.2683 80.3922% 90%;
-    --sidebar-accent-foreground: 216.9231 19.1176% 26.6667%;
-    --sidebar-border: 220 13.0435% 90.9804%;
-    --sidebar-ring: 142.0859 70.5628% 45.2941%;
+    --sidebar-accent: 40 20% 96%;
+    --sidebar-accent-foreground: 32 45% 35%;
+    --sidebar-border: 40 10% 90%;
+    --sidebar-ring: 32 45% 35%;
 
     /* Fonts */
-    --font-sans: Inter, sans-serif;
-    --font-serif: Playfair Display, serif;
-    --font-mono: ui-monospace, monospace;
+    --font-sans: 'Inter', -apple-system, system-ui, sans-serif;
+    --font-serif: 'Playfair Display', serif;
+    --font-mono: ui-monospace, SFMono-Regular, monospace;
 
-    /* Shadows */
-    --shadow-2xs: 0px 4px 8px -1px hsl(0 0% 0% / 0.05);
-    --shadow-xs: 0px 4px 8px -1px hsl(0 0% 0% / 0.05);
-    --shadow-sm: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 1px 2px -2px hsl(0 0% 0% / 0.10);
-    --shadow: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 1px 2px -2px hsl(0 0% 0% / 0.10);
-    --shadow-md: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 2px 4px -2px hsl(0 0% 0% / 0.10);
-    --shadow-lg: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 4px 6px -2px hsl(0 0% 0% / 0.10);
-    --shadow-xl: 0px 4px 8px -1px hsl(0 0% 0% / 0.10), 0px 8px 10px -2px hsl(0 0% 0% / 0.10);
-    --shadow-2xl: 0px 4px 8px -1px hsl(0 0% 0% / 0.25);
+    /* Shadows - softer and more diffused */
+    --shadow-2xs: 0 1px 2px hsl(0 0% 0% / 0.05);
+    --shadow-xs: 0 2px 4px hsl(0 0% 0% / 0.04);
+    --shadow-sm: 0 4px 6px -1px hsl(30 10% 10% / 0.02), 0 2px 4px -2px hsl(30 10% 10% / 0.02);
+    --shadow: 0 10px 15px -3px hsl(30 10% 10% / 0.03), 0 4px 6px -4px hsl(30 10% 10% / 0.03);
+    --shadow-md: 0 12px 20px -6px hsl(30 10% 10% / 0.04), 0 6px 10px -4px hsl(30 10% 10% / 0.04);
+    --shadow-lg: 0 20px 25px -5px hsl(30 10% 10% / 0.05), 0 8px 10px -6px hsl(30 10% 10% / 0.05);
+    --shadow-xl: 0 25px 50px -12px hsl(30 10% 10% / 0.15);
+    --shadow-2xl: 0 35px 60px -15px hsl(30 10% 10% / 0.2);
 
     /* Misc */
     --tracking-normal: 0em;
     --spacing: 0.25rem;
-    --radius: 0.5rem;
+    --radius: 0.75rem;
+    /* Sleeker, rounder corners */
   }
 
   .dark {
