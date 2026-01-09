@@ -60,29 +60,42 @@ export function InvoicePage() {
           throw new Error(errData.error || `Server Error: ${response.status}`)
         }
 
+
         const data = await response.json()
         console.log('✅ [InvoicePage] Secure Data Fetched:', data)
+
+        // Helper to map snake_case DB result to camelCase application model
+        const mapBooking = (b: any) => ({
+          ...b,
+          checkIn: b.check_in,
+          checkOut: b.check_out,
+          guestId: b.guest_id,
+          roomId: b.room_id,
+          totalPrice: b.total_price,
+          numGuests: b.num_guests,
+          roomType: b.rooms?.room_types?.name || 'Standard Room',
+          roomNumber: b.rooms?.room_number || 'N/A',
+          // Preserve nested objects
+          guest: b.guests,
+          room: {
+            roomNumber: b.rooms?.room_number || 'N/A',
+            roomType: b.rooms?.room_types?.name || 'Standard Room',
+            basePrice: b.rooms?.room_types?.base_price || 0
+          }
+        })
 
         // 1. Process Single Invoice Data
         const { booking, type, bookings: groupBookings } = data
 
-        // We need to re-construct the full object structure expected by `createInvoiceData`
-        // The function returns flat Supabase objects, we might need to conform them
+        if (!booking) throw new Error('No booking data returned')
+
+        const mappedBooking = mapBooking(booking)
 
         // Re-hydrate single booking
-        const singleInvoice = await createInvoiceData({
-          ...booking,
-          // Ensure nested objects are present as expected by service
-          guest: booking.guests,
-          room: {
-            roomNumber: booking.rooms?.room_number || 'N/A',
-            roomType: booking.rooms?.room_types?.name || 'Standard Room'
-          }
-        }, {
-          roomNumber: booking.rooms?.room_number || 'N/A',
-          roomType: booking.rooms?.room_types?.name || 'Standard Room',
-          // Add room type base price if available in nested data
-          basePrice: booking.rooms?.room_types?.base_price || 0
+        const singleInvoice = await createInvoiceData(mappedBooking, {
+          roomNumber: mappedBooking.room.roomNumber,
+          roomType: mappedBooking.room.roomType,
+          basePrice: mappedBooking.room.basePrice
         })
 
         // Override invoice number with the one from URL/Response to match context
@@ -95,30 +108,21 @@ export function InvoicePage() {
           console.log('👥 [InvoicePage] Processing Group Data...')
 
           // Format siblings for createGroupInvoiceData
-          const formattedSiblings = groupBookings.map((b: any) => ({
-            ...b,
-            guest: b.guests,
-            room: {
-              roomNumber: b.rooms?.room_number || 'N/A',
-              roomType: b.rooms?.room_types?.name || 'Standard Room'
-            }
-          }))
+          const formattedSiblings = groupBookings.map((b: any) => mapBooking(b))
 
           // Find primary or use the one returned
-          const primary = data.primaryBooking || booking
+          const primary = data.primaryBooking ? mapBooking(data.primaryBooking) : mappedBooking
 
           const groupInvoice = await createGroupInvoiceData(formattedSiblings, {
             ...primary,
-            guest: primary.guests, // Ensure guest data is attached
-            room: primary.rooms
+            guest: primary.guest,
+            room: primary.room
           })
 
           // Sync voice number
           groupInvoice.invoiceNumber = `GRP-${data.invoiceNumber || invoiceNumber}`
 
           setGroupInvoiceData(groupInvoice)
-          // Optional: Default to 'group' if it's a group booking? 
-          // Stick to single unless user switches to avoid confusion, or check generic "View Group Invoice" link
         }
 
       } catch (err: any) {
