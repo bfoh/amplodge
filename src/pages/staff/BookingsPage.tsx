@@ -408,7 +408,10 @@ export function BookingsPage() {
           <p className="text-muted-foreground mt-1">Manage all your room bookings</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => navigate('/staff/onsite')}>
+          <Button
+            className="bg-accent text-accent-foreground hover:bg-accent/80 border border-accent-foreground/20 shadow-sm font-medium transition-all duration-200 hover:shadow-md"
+            onClick={() => navigate('/staff/onsite')}
+          >
             <Users className="w-4 h-4 mr-2" />
             Group / Walk-in
           </Button>
