@@ -3,6 +3,8 @@
     "version": "1.0.0",
     "description": "Netlify Functions for AMP Lodge",
     "dependencies": {
+        "@google/generative-ai": "^0.24.1",
+        "@netlify/functions": "^5.1.2",
         "@supabase/supabase-js": "^2.43.0",
         "resend": "^6.6.0",
         "twilio": "^5.10.7"

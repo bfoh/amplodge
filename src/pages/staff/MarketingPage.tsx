@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
-import { Send, Users, CheckCircle, AlertCircle, Sparkles } from "lucide-react"
+import { Send, Users, CheckCircle, AlertCircle, Sparkles, Wand2 } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 
 // Types
@@ -26,6 +26,10 @@ export default function MarketingPage() {
     const [templates, setTemplates] = useState<Template[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null)
+
+    // AI State
+    const [aiPrompt, setAiPrompt] = useState("")
+    const [generating, setGenerating] = useState(false)
 
     // Editor State
     const [editContent, setEditContent] = useState("")
@@ -120,6 +124,40 @@ export default function MarketingPage() {
         }
     }
 
+    const handleGenerateAI = async () => {
+        if (!selectedTemplate) return
+        if (!aiPrompt.trim()) {
+            toast.error("Please enter an instruction for the AI")
+            return
+        }
+
+        setGenerating(true)
+        try {
+            const response = await fetch('/.netlify/functions/generate-marketing-copy', {
+                method: 'POST',
+                body: JSON.stringify({
+                    currentContent: editContent,
+                    userPrompt: aiPrompt,
+                    channel: selectedTemplate.channel
+                })
+            })
+            const data = await response.json()
+
+            if (response.ok) {
+                setEditContent(data.generatedText)
+                toast.success("Content generated!")
+                setAiPrompt("") // Clear prompt after success? Or keep it? keeping it might be better for iteration.
+            } else {
+                throw new Error(data.error)
+            }
+        } catch (err: any) {
+            console.error(err)
+            toast.error("AI Generation failed: " + err.message)
+        } finally {
+            setGenerating(false)
+        }
+    }
+
     if (loading) return <div className="p-8">Loading templates...</div>
 
     return (
@@ -198,6 +236,45 @@ export default function MarketingPage() {
                                         </p>
                                     )}
                                 </div>
+
+
+                                {/* AI Generator Section */}
+                                <div className="pt-4 border-t space-y-3 bg-muted/20 p-4 rounded-lg">
+                                    <div className="flex items-center gap-2">
+                                        <Wand2 className="w-4 h-4 text-purple-600" />
+                                        <Label className="text-purple-900 font-semibold">AI Assistant</Label>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <Input
+                                            value={aiPrompt}
+                                            onChange={e => setAiPrompt(e.target.value)}
+                                            placeholder="E.g., 'Make it more exciting for Christmas' or 'Shorten this'"
+                                            className="bg-white"
+                                            onKeyDown={e => {
+                                                if (e.key === 'Enter' && !e.shiftKey) {
+                                                    e.preventDefault()
+                                                    handleGenerateAI()
+                                                }
+                                            }}
+                                        />
+                                        <Button
+                                            onClick={handleGenerateAI}
+                                            disabled={generating || !aiPrompt.trim()}
+                                            variant="secondary"
+                                            className="shrink-0 bg-purple-100 text-purple-700 hover:bg-purple-200"
+                                        >
+                                            {generating ? (
+                                                <Sparkles className="w-4 h-4 animate-spin mr-2" />
+                                            ) : (
+                                                <Sparkles className="w-4 h-4 mr-2" />
+                                            )}
+                                            {generating ? 'Writing...' : 'Generate'}
+                                        </Button>
+                                    </div>
+                                    <p className="text-[10px] text-muted-foreground">
+                                        Powered by Gemini. The AI will rewrite your current message based on your instructions.
+                                    </p>
+                                </div>
                             </CardContent>
                             <CardFooter className="justify-between border-t p-6">
                                 <Button variant="outline" onClick={() => setSelectedTemplate(null)}>Cancel</Button>
@@ -244,7 +321,7 @@ export default function MarketingPage() {
                     )}
                 </div>
             </div>
-        </div>
+        </div >
     )
 }
 
