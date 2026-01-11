@@ -26,7 +26,8 @@ import {
   ReceiptText,
   TrendingUp,
   FileText,
-  Star
+  Star,
+  Megaphone
 } from 'lucide-react'
 import { blink } from '../../blink/client'
 import { cn } from '../../lib/utils'
@@ -40,7 +41,8 @@ const navigation = [
   { name: 'Guests', href: '/staff/guests', icon: Users },
   { name: 'Housekeeping', href: '/staff/housekeeping', icon: Sparkles },
   { name: 'Channels', href: '/staff/channels', icon: Network },
-  { name: 'Reviews', href: '/staff/reviews', icon: Star }
+  { name: 'Reviews', href: '/staff/reviews', icon: Star },
+  { name: 'Marketing', href: '/staff/marketing', icon: Megaphone }
 ]
 
 export function AppLayout() {
@@ -249,6 +251,7 @@ export function AppLayout() {
     if (location.pathname === '/staff/set-prices') return 'Set prices'
     if (location.pathname === '/staff/analytics') return 'Analytics'
     if (location.pathname === '/staff/reviews') return 'Guest Reviews'
+    if (location.pathname === '/staff/marketing') return 'Marketing Center'
     return 'Dashboard'
   })()
 

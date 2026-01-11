@@ -35,6 +35,7 @@ import { AnalyticsPage } from './pages/staff/AnalyticsPage'
 import { ActivityLogsPage } from './pages/staff/ActivityLogsPage'
 import { DiagnoseEmailPage } from './pages/staff/DiagnoseEmailPage'
 import { ReviewsPage } from './pages/staff/ReviewsPage'
+import MarketingPage from './pages/staff/MarketingPage'
 // import './utils/test-activity-logs-fix'
 import VoiceWidget from './components/voice-agent/VoiceWidget'
 const HomePage = lazy(() => import('./pages/HomePage').then(m => ({ default: m.HomePage })))
@@ -253,6 +254,7 @@ function App() {
                 <Route path="set-prices" element={<SetPricesPage />} />
                 <Route path="settings" element={<SettingsPage />} />
                 <Route path="reviews" element={<ReviewsPage />} />
+                <Route path="marketing" element={<MarketingPage />} />
               </Route>
 
               {/* Invoice debug route */}
