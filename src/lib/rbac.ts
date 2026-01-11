@@ -67,7 +67,8 @@ export const ROUTE_ACCESS: Record<string, StaffRole[]> = {
   '/staff/reservations': ['owner', 'admin', 'manager', 'staff'],
   '/staff/reservations/history': ['owner', 'admin', 'manager', 'staff'],
   '/staff/end-of-day': ['owner', 'admin'],
-  '/staff/reviews': ['owner', 'admin', 'manager', 'staff']
+  '/staff/reviews': ['owner', 'admin', 'manager', 'staff'],
+  '/staff/marketing': ['owner', 'admin', 'manager', 'staff']
 }
 
 // Navigation items visibility by role
@@ -82,7 +83,6 @@ export const NAV_ITEMS: NavItem[] = [
   { path: '/staff/dashboard', label: 'Dashboard', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/bookings', label: 'Bookings', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/reservations', label: 'Reservations', minRole: ['owner', 'admin', 'manager', 'staff'] },
-  { path: '/staff/reservations', label: 'Reservations', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/onsite', label: 'Onsite Booking', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/calendar', label: 'Calendar', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/guests', label: 'Guests', minRole: ['owner', 'admin', 'manager', 'staff'] },
@@ -92,7 +92,8 @@ export const NAV_ITEMS: NavItem[] = [
   { path: '/staff/properties', label: 'Properties', minRole: ['owner', 'admin', 'manager'] },
   { path: '/staff/employees', label: 'Employees', minRole: ['owner', 'admin'] },
   { path: '/staff/activity-logs', label: 'Activity Logs', minRole: ['owner', 'admin'] },
-  { path: '/staff/settings', label: 'Settings', minRole: ['owner', 'admin'] }
+  { path: '/staff/settings', label: 'Settings', minRole: ['owner', 'admin'] },
+  { path: '/staff/marketing', label: 'Marketing', minRole: ['owner', 'admin', 'manager', 'staff'] }
 ]
 
 /**
