@@ -9,7 +9,7 @@ exports.handler = async (event) => {
         const body = JSON.parse(event.body);
         const { currentContent, userPrompt, channel } = body;
 
-        const apiKey = process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GOOGLE_AI_API_KEY;
+        const apiKey = process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GOOGLE_AI_API_KEY || process.env.GOOGLE_API_KEY;
 
         if (!apiKey) {
             console.error("Missing Google AI API Key");
