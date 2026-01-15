@@ -3,10 +3,8 @@ import { Suspense, lazy, useEffect, useState } from 'react'
 import { Toaster } from 'sonner'
 import { Navbar } from './components/Navbar'
 import { Footer } from './components/Footer'
-// import { seedAdminAccount } from './services/seed-admin'
 import { blink } from './blink/client'
 import { initializeDatabaseSchema } from './blink/database-schema'
-// import { seedSampleData } from './services/seed-sample-data'
 import { activityLogService } from './services/activity-log-service'
 import { StaffLoginPage } from './pages/staff/StaffLoginPage'
 import { ProtectedRoute } from './components/ProtectedRoute'
@@ -36,8 +34,13 @@ import { ActivityLogsPage } from './pages/staff/ActivityLogsPage'
 import { DiagnoseEmailPage } from './pages/staff/DiagnoseEmailPage'
 import { ReviewsPage } from './pages/staff/ReviewsPage'
 import MarketingPage from './pages/staff/MarketingPage'
-// import './utils/test-activity-logs-fix'
+import { ServiceRequestsPage } from './pages/staff/ServiceRequestsPage'
+import GuestLayout from './layouts/GuestLayout'
+import GuestDashboard from './pages/guest/GuestDashboard'
+import { ConciergePage } from './pages/guest/ConciergePage'
+import { ServicesPage } from './pages/guest/ServicesPage'
 import VoiceWidget from './components/voice-agent/VoiceWidget'
+
 const HomePage = lazy(() => import('./pages/HomePage').then(m => ({ default: m.HomePage })))
 const RoomsPage = lazy(() => import('./pages/RoomsPage').then(m => ({ default: m.RoomsPage })))
 const GalleryPage = lazy(() => import('./pages/GalleryPage').then(m => ({ default: m.GalleryPage })))
@@ -45,9 +48,7 @@ const ContactPage = lazy(() => import('./pages/ContactPage').then(m => ({ defaul
 const BookingPage = lazy(() => import('./pages/BookingPage').then(m => ({ default: m.BookingPage })))
 const VirtualTourPage = lazy(() => import('./pages/VirtualTourPage').then(m => ({ default: m.VirtualTourPage })))
 
-import { forceResetGuests } from './utils/force-cleanup-guests'
 import { BookingCartProvider } from './context/BookingCartContext'
-import { forceResetRooms } from './utils/force-reset-rooms'
 
 function App() {
   const [adminSeeded, setAdminSeeded] = useState(() => {
@@ -58,9 +59,7 @@ function App() {
     }
   })
 
-  // Initialize database schema and seed data on first launch
   useEffect(() => {
-    // Expose test function to window for verification
     import('./services/test-group-booking').then(({ testGroupBooking }) => {
       (window as any).testGroupBooking = testGroupBooking
       console.log('🧪 `testGroupBooking()` is available in the console for verification.')
@@ -68,19 +67,11 @@ function App() {
 
     const initializeApp = async () => {
       try {
-        // Legacy cleanup scripts disabled - they cause foreign key constraint errors
-        // when guests have associated bookings
-        // await forceResetGuests()
-        // await forceResetRooms()
-
         console.log('🚀 App running with Supabase backend')
-
-        // Initialize database schema first
         console.log('🔧 Initializing database schema...')
         await initializeDatabaseSchema()
         console.log('✅ Database schema initialized')
 
-        // Initialize activity log service
         console.log('📝 Initializing activity log service...')
         try {
           const currentUser = await blink.auth.me()
@@ -95,25 +86,6 @@ function App() {
           console.warn('⚠️ Failed to initialize activity log service with user, using system:', error)
           activityLogService.setCurrentUser('system')
         }
-
-        // Seeding disabled for production
-        // console.log('🌱 Seeding sample data...')
-        // await seedSampleData()
-        // console.log('✅ Sample data seeded')
-
-        // Admin auto-seeding disabled for production
-        /*
-        if (!adminSeeded) {
-          const result = await seedAdminAccount()
-          if (result.success) {
-            setAdminSeeded(true)
-            try { localStorage.setItem('adminSeeded', '1') } catch (err) { console.debug('localStorage set failed', err) }
-            if (!result.alreadyExists) {
-              console.log('✅ Admin account created successfully')
-            }
-          }
-        }
-        */
       } catch (error) {
         console.error('❌ Failed to initialize app:', error)
       }
@@ -121,7 +93,6 @@ function App() {
     initializeApp()
   }, [adminSeeded])
 
-  // Monitor authentication changes and update activity log service
   useEffect(() => {
     const checkAuthStatus = async () => {
       try {
@@ -139,35 +110,21 @@ function App() {
       }
     }
 
-    // Check immediately
     checkAuthStatus()
-
-    // Set up interval to check periodically (every 30 seconds)
     const interval = setInterval(checkAuthStatus, 30000)
-
     return () => clearInterval(interval)
   }, [])
 
-  // Ensure admin staff record exists when logged in as admin
   useEffect(() => {
-    let isCreating = false // Prevent concurrent creation attempts
+    let isCreating = false
 
     const ensureAdminStaffRecord = async (userId: string, email: string) => {
-      if (isCreating) {
-        console.log('⏳ [App] Admin staff record creation already in progress')
-        return
-      }
-
+      if (isCreating) return
       try {
         isCreating = true
-
-        // Check if staff record exists
-        const existingStaff = await (blink.db as any).staff.list({
-          where: { userId }
-        })
+        const existingStaff = await (blink.db as any).staff.list({ where: { userId } })
 
         if (!existingStaff || existingStaff.length === 0) {
-          console.log('🔧 [App] Creating admin staff record...')
           await (blink.db as any).staff.create({
             id: `staff_admin_${Date.now()}`,
             userId,
@@ -176,20 +133,15 @@ function App() {
             role: 'admin',
             createdAt: new Date().toISOString()
           })
-          console.log('✅ [App] Admin staff record created')
-        } else {
-          console.log('✅ [App] Admin staff record already exists')
         }
       } catch (error) {
-        console.log('ℹ️ [App] Admin staff record already exists or error:', error)
+        console.log('ℹ️ [App] Admin staff record error:', error)
       } finally {
         isCreating = false
       }
     }
 
-    // Run after auth state changes (with proper checks)
     const unsubscribe = blink.auth.onAuthStateChanged(async (state) => {
-      // Only process when fully loaded and user is admin
       if (!state.isLoading && state.user?.email === import.meta.env.VITE_ADMIN_EMAIL && state.user?.id) {
         await ensureAdminStaffRecord(state.user.id, state.user.email)
       }
@@ -206,7 +158,15 @@ function App() {
           <VoiceWidget />
           <Suspense fallback={<div className="flex items-center justify-center py-12"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
             <Routes>
-              {/* Guest Portal */}
+              {/* Guest Portal Routes */}
+              <Route path="/guest/:token" element={<GuestLayout />}>
+                <Route index element={<GuestDashboard />} />
+                <Route path="concierge" element={<ConciergePage />} />
+                <Route path="services" element={<ServicesPage />} />
+                <Route path="help" element={<ServicesPage />} />
+              </Route>
+
+              {/* Guest Portal - Legacy/Public Web Handling */}
               <Route
                 path="/*"
                 element={
@@ -255,6 +215,7 @@ function App() {
                 <Route path="settings" element={<SettingsPage />} />
                 <Route path="reviews" element={<ReviewsPage />} />
                 <Route path="marketing" element={<MarketingPage />} />
+                <Route path="requests" element={<ServiceRequestsPage />} />
               </Route>
 
               {/* Invoice debug route */}
