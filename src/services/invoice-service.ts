@@ -1429,24 +1429,51 @@ export async function generateGroupInvoiceHTML(data: GroupInvoiceData): Promise<
 }
 
 export async function generateGroupInvoicePDF(data: GroupInvoiceData): Promise<Blob> {
-  console.log('📄 [GroupInvoicePDF] Generating PDF...')
+  console.log('📄 [GroupInvoicePDF] Generating PDF with', data.bookings.length, 'bookings...')
   const htmlContent = await generateGroupInvoiceHTML(data)
 
   const element = document.createElement('div')
   element.innerHTML = htmlContent
   element.style.position = 'absolute'
   element.style.left = '-9999px'
+  element.style.top = '0'
+  // Set a fixed width to ensure consistent rendering
+  element.style.width = '800px'
   document.body.appendChild(element)
 
-  const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff' })
+  const canvas = await html2canvas(element, {
+    scale: 2,
+    useCORS: true,
+    allowTaint: true,
+    backgroundColor: '#ffffff',
+    // Ensure full height is captured
+    windowHeight: element.scrollHeight,
+    height: element.scrollHeight
+  })
   document.body.removeChild(element)
 
   const imgData = canvas.toDataURL('image/jpeg', 0.95)
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const imgWidth = 210
-  const imgHeight = (canvas.height * imgWidth) / canvas.width
 
-  pdf.addImage(imgData, 'JPEG', 0, 0, imgWidth, imgHeight)
+  const imgWidth = 210 // A4 width in mm
+  const pageHeight = 297 // A4 height in mm
+  const imgHeight = (canvas.height * imgWidth) / canvas.width
+  let heightLeft = imgHeight
+  let position = 0
+
+  // Add first page
+  pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight)
+  heightLeft -= pageHeight
+
+  // Add additional pages if content extends beyond first page
+  while (heightLeft > 0) {
+    position = heightLeft - imgHeight
+    pdf.addPage()
+    pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight)
+    heightLeft -= pageHeight
+  }
+
+  console.log('✅ [GroupInvoicePDF] PDF generated with', pdf.getNumberOfPages(), 'page(s)')
   return pdf.output('blob')
 }
 
