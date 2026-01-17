@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { cn } from '../lib/utils'
+import { cn, formatCurrencySync } from '../lib/utils'
+import { useCurrency } from '../hooks/use-currency'
 import { getRoomDisplayName, calculateNights } from '../lib/display'
 import { Users, CalendarIcon, Mail, Phone, DollarSign, MessageSquare, LogIn, LogOut, CheckCircle2, Clock, MapPin, CalendarPlus } from 'lucide-react'
 import { createInvoiceData, generateInvoicePDF, blobToBase64 } from '@/services/invoice-service'
@@ -46,6 +47,7 @@ export function CalendarListView({
   const [processing, setProcessing] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const { currency } = useCurrency()
 
   // Filter and sort bookings
   const filteredBookings = useMemo(() => {
@@ -402,7 +404,7 @@ export function CalendarListView({
                             <DollarSign className="w-4 h-4 text-muted-foreground" />
                             <div>
                               <p className="text-muted-foreground">Total</p>
-                              <p className="font-medium">${booking.totalPrice?.toFixed(2) || '0.00'}</p>
+                              <p className="font-medium">{formatCurrencySync(booking.totalPrice || 0, currency)}</p>
                             </div>
                           </div>
                         </div>

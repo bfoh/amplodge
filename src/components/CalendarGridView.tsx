@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { cn } from '../lib/utils'
+import { cn, formatCurrencySync } from '../lib/utils'
+import { useCurrency } from '../hooks/use-currency'
 import { getRoomDisplayName, calculateNights } from '../lib/display'
 import { Users, CalendarIcon, Mail, Phone, DollarSign, MessageSquare, LogIn, LogOut, CheckCircle2, CalendarPlus } from 'lucide-react'
 import { createInvoiceData, generateInvoicePDF, blobToBase64 } from '@/services/invoice-service'
@@ -47,6 +48,7 @@ export function CalendarGridView({
   const [checkOutDialog, setCheckOutDialog] = useState<any>(null)
   const [extendStayDialog, setExtendStayDialog] = useState<any>(null)
   const [processing, setProcessing] = useState(false)
+  const { currency } = useCurrency()
 
   // Get month details
   const year = currentDate.getFullYear()
@@ -356,7 +358,7 @@ export function CalendarGridView({
                                     <DollarSign className="w-4 h-4 text-muted-foreground" />
                                     <div>
                                       <p className="text-muted-foreground">Total</p>
-                                      <p className="font-medium">${booking.totalPrice?.toFixed(2) || '0.00'}</p>
+                                      <p className="font-medium">{formatCurrencySync(booking.totalPrice || 0, currency)}</p>
                                     </div>
                                   </div>
                                 </div>
