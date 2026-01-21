@@ -223,7 +223,16 @@ export function GroupManageDialog({
     const getSelectedRoomPrice = () => {
         const property = properties.find((p: any) => p.id === selectedRoomId)
         if (!property) return 0
-        return (property.basePrice || 0) * Math.max(1, newMemberNights)
+        // Get price from roomType, falling back to property.basePrice
+        const roomType = roomTypes.find((rt: any) => rt.id === property.propertyTypeId || rt.name === property.name)
+        const pricePerNight = roomType?.basePrice || property.basePrice || 100
+        return pricePerNight * Math.max(1, newMemberNights)
+    }
+
+    // Get price per night for a property
+    const getRoomPricePerNight = (property: any) => {
+        const roomType = roomTypes.find((rt: any) => rt.id === property.propertyTypeId || rt.name === property.name)
+        return roomType?.basePrice || property.basePrice || 100
     }
 
     // Handle add member
@@ -264,7 +273,7 @@ export function GroupManageDialog({
                     checkOut: newCheckOut
                 },
                 numGuests: 1,
-                amount: property.basePrice * newMemberNights,
+                amount: getRoomPricePerNight(property) * newMemberNights,
                 status: 'confirmed' as const,
                 source: 'reception' as const,
                 notes: ''
@@ -432,7 +441,7 @@ export function GroupManageDialog({
                                                             ) : (
                                                                 availableRooms.map((p: any) => (
                                                                     <SelectItem key={p.id} value={p.id}>
-                                                                        Room {p.roomNumber} - {p.name || 'Standard'} ({formatCurrencySync(p.basePrice, currency)}/night)
+                                                                        Room {p.roomNumber} - {p.name || 'Standard'} ({formatCurrencySync(getRoomPricePerNight(p), currency)}/night)
                                                                     </SelectItem>
                                                                 ))
                                                             )}
