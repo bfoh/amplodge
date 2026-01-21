@@ -881,56 +881,103 @@ export function ReservationsPage() {
         </DialogContent>
       </Dialog>
 
-      <div className="min-h-screen bg-secondary/30">
-        <header className="bg-background border-b sticky top-0 z-10">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-serif font-bold">Reservations</h1>
-              <p className="text-sm text-muted-foreground">Search, filter and manage bookings</p>
+      <div className="min-h-screen bg-gradient-to-br from-stone-50 via-amber-50/30 to-stone-100">
+        <header className="bg-white/80 backdrop-blur-md border-b border-stone-200/60 sticky top-0 z-10 shadow-sm">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-serif font-bold text-stone-800">Reservations</h1>
+                <span className="inline-flex items-center justify-center px-3 py-1 text-sm font-medium rounded-full bg-amber-100 text-amber-800 border border-amber-200/60">
+                  {filtered.length}
+                </span>
+              </div>
+              <span className="hidden lg:block text-stone-400">|</span>
+              <p className="hidden lg:block text-sm text-stone-500">Search, filter and manage bookings</p>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => navigate('/staff/onsite-booking')}>+ New Booking</Button>
-              <Button variant="outline" onClick={() => navigate('/staff/calendar')}>Calendar View</Button>
-              <Button variant="outline" onClick={() => navigate('/staff/invoices')}>🧾 Manage Invoices</Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                className="border-stone-200 hover:bg-stone-50 hover:border-stone-300 transition-all"
+                onClick={() => navigate('/staff/onsite-booking')}
+              >
+                <span className="mr-1">+</span> New Booking
+              </Button>
+              <Button
+                variant="outline"
+                className="border-stone-200 hover:bg-stone-50 hover:border-stone-300 transition-all"
+                onClick={() => navigate('/staff/calendar')}
+              >
+                Calendar View
+              </Button>
+              <Button
+                variant="outline"
+                className="border-stone-200 hover:bg-stone-50 hover:border-stone-300 transition-all"
+                onClick={() => navigate('/staff/invoices')}
+              >
+                <Receipt className="w-4 h-4 mr-1.5" />
+                Manage Invoices
+              </Button>
             </div>
           </div>
         </header>
 
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <Card className="mb-6">
-            <CardContent className="pt-6 grid grid-cols-1 md:grid-cols-5 gap-3">
-              <div className="md:col-span-2">
-                <Input placeholder="Search by guest, email, room or reference…" value={query} onChange={(e) => setQuery(e.target.value)} />
-              </div>
-              <div>
-                <Select value={status} onValueChange={(v: any) => setStatus(v)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All statuses</SelectItem>
-                    <SelectItem value="confirmed">Confirmed</SelectItem>
-                    <SelectItem value="reserved">Reserved</SelectItem>
-                    <SelectItem value="checked-in">Checked-in</SelectItem>
-                    <SelectItem value="checked-out">Checked-out</SelectItem>
-                    <SelectItem value="cancelled">Cancelled</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-              </div>
-              <div>
-                <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          {/* Filters Section */}
+          <Card className="mb-6 border-stone-200/60 shadow-sm bg-white/90 backdrop-blur-sm">
+            <CardContent className="pt-5 pb-5">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                <div className="md:col-span-4">
+                  <Input
+                    placeholder="Search by guest, email, room or reference…"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    className="bg-white border-stone-200 focus:border-amber-400 focus:ring-amber-400/20"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <Select value={status} onValueChange={(v: any) => setStatus(v)}>
+                    <SelectTrigger className="bg-white border-stone-200">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All statuses</SelectItem>
+                      <SelectItem value="confirmed">Confirmed</SelectItem>
+                      <SelectItem value="reserved">Reserved</SelectItem>
+                      <SelectItem value="checked-in">Checked-in</SelectItem>
+                      <SelectItem value="checked-out">Checked-out</SelectItem>
+                      <SelectItem value="cancelled">Cancelled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="md:col-span-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-stone-500 whitespace-nowrap">From:</span>
+                    <Input
+                      type="date"
+                      value={from}
+                      onChange={(e) => setFrom(e.target.value)}
+                      className="bg-white border-stone-200"
+                    />
+                  </div>
+                </div>
+                <div className="md:col-span-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-stone-500 whitespace-nowrap">To:</span>
+                    <Input
+                      type="date"
+                      value={to}
+                      onChange={(e) => setTo(e.target.value)}
+                      className="bg-white border-stone-200"
+                    />
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Reservations ({filtered.length})</CardTitle>
-            </CardHeader>
-            <CardContent>
+          {/* Reservations Table */}
+          <Card className="border-stone-200/60 shadow-sm bg-white/90 backdrop-blur-sm overflow-hidden">
+            <CardContent className="p-0">
               {filtered.length === 0 ? (
                 <p className="text-center text-muted-foreground py-8">No bookings found.</p>
               ) : (
