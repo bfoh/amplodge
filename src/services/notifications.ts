@@ -687,3 +687,211 @@ export async function sendOnlineBookingAlert(
     console.error('❌ [OnlineBookingAlert] Failed to send alert:', error)
   }
 }
+
+/**
+ * Send notification when a new member is added to a group booking
+ * Notifies both the billing contact (primary booker) and the new guest
+ */
+export async function sendGroupMemberAddedNotification(
+  newGuest: { name: string; email: string; phone?: string | null },
+  billingContact: { name: string; email: string; phone?: string | null } | null,
+  room: { roomNumber: string; roomType?: string },
+  booking: { checkIn: string; checkOut: string },
+  groupReference: string
+): Promise<void> {
+  try {
+    console.log('📧 [GroupMemberAdded] Sending notifications...', {
+      newGuest: newGuest.name,
+      billingContact: billingContact?.name,
+      groupReference
+    })
+
+    const settings = await hotelSettingsService.getHotelSettings()
+    const checkInDate = new Date(booking.checkIn)
+    const checkOutDate = new Date(booking.checkOut)
+
+    // Notify the new guest
+    if (newGuest.email && !newGuest.email.includes('@guest.local')) {
+      const guestHtml = generateEmailHtml({
+        title: 'You\'ve Been Added to a Group Booking!',
+        preheader: `Welcome to the group ${groupReference} at AMP Lodge`,
+        content: `
+          <p>Dear <strong>${newGuest.name}</strong>,</p>
+          <p>You have been added to a group booking at AMP LODGE. Here are your reservation details:</p>
+          
+          <div style="${EMAIL_STYLES.infoBox}">
+            <div style="${EMAIL_STYLES.infoRow}">
+              <span style="${EMAIL_STYLES.infoLabel}">Group Reference:</span> ${groupReference}
+            </div>
+            <div style="${EMAIL_STYLES.infoRow}">
+              <span style="${EMAIL_STYLES.infoLabel}">Room:</span> ${room.roomNumber}${room.roomType ? ` (${room.roomType})` : ''}
+            </div>
+            <div style="${EMAIL_STYLES.infoRow}">
+              <span style="${EMAIL_STYLES.infoLabel}">Check-In:</span> ${checkInDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </div>
+            <div style="${EMAIL_STYLES.infoRow}">
+              <span style="${EMAIL_STYLES.infoLabel}">Check-Out:</span> ${checkOutDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </div>
+          </div>
+
+          <p style="margin-top: 20px;">
+            <strong>Important:</strong>
+          </p>
+          <ul>
+            <li>Check-in time is from 2:00 PM</li>
+            <li>Please present valid ID upon arrival</li>
+          </ul>
+          
+          <p style="margin-top: 30px;">
+            We look forward to welcoming you!<br>
+            <strong>The AMP LODGE Team</strong>
+          </p>
+        `
+      })
+
+      await sendTransactionalEmail({
+        to: newGuest.email,
+        subject: `Group Booking Confirmation - ${groupReference} | AMP Lodge`,
+        html: guestHtml,
+        text: `Welcome to AMP LODGE!\n\nYou have been added to group booking ${groupReference}.\n\nRoom: ${room.roomNumber}\nCheck-in: ${checkInDate.toLocaleDateString()}\nCheck-out: ${checkOutDate.toLocaleDateString()}\n\nWe look forward to welcoming you!`
+      })
+      console.log('✅ [GroupMemberAdded] Email sent to new guest')
+    }
+
+    // Send SMS to new guest
+    if (newGuest.phone) {
+      const { sendSMS } = await import('@/services/sms-service')
+      const smsMessage = `AMP LODGE: Hi ${newGuest.name}, you've been added to group booking ${groupReference}. Room ${room.roomNumber}, Check-in: ${checkInDate.toLocaleDateString()}. We look forward to hosting you!`
+      await sendSMS(newGuest.phone, smsMessage, 'Group Member Added').catch(err => console.error('SMS to new guest failed:', err))
+      console.log('✅ [GroupMemberAdded] SMS sent to new guest')
+    }
+
+    // Notify the billing contact (primary booker) about the addition
+    if (billingContact && billingContact.email && billingContact.email !== newGuest.email) {
+      const contactHtml = generateEmailHtml({
+        title: 'Group Booking Updated',
+        preheader: `A new member has been added to ${groupReference}`,
+        content: `
+          <p>Dear <strong>${billingContact.name}</strong>,</p>
+          <p>A new member has been added to your group booking:</p>
+          
+          <div style="${EMAIL_STYLES.infoBox}">
+            <div style="${EMAIL_STYLES.infoRow}">
+              <span style="${EMAIL_STYLES.infoLabel}">Group Reference:</span> ${groupReference}
+            </div>
+            <div style="${EMAIL_STYLES.infoRow}">
+              <span style="${EMAIL_STYLES.infoLabel}">New Guest:</span> ${newGuest.name}
+            </div>
+            <div style="${EMAIL_STYLES.infoRow}">
+              <span style="${EMAIL_STYLES.infoLabel}">Room Assigned:</span> ${room.roomNumber}${room.roomType ? ` (${room.roomType})` : ''}
+            </div>
+            <div style="${EMAIL_STYLES.infoRow}">
+              <span style="${EMAIL_STYLES.infoLabel}">Dates:</span> ${checkInDate.toLocaleDateString()} - ${checkOutDate.toLocaleDateString()}
+            </div>
+          </div>
+          
+          <p style="margin-top: 30px;">
+            Best regards,<br>
+            <strong>The AMP LODGE Team</strong>
+          </p>
+        `
+      })
+
+      await sendTransactionalEmail({
+        to: billingContact.email,
+        subject: `Group Update: New Member Added - ${groupReference} | AMP Lodge`,
+        html: contactHtml,
+        text: `Group Booking Updated\n\nA new member has been added to your group ${groupReference}.\n\nNew Guest: ${newGuest.name}\nRoom: ${room.roomNumber}\nDates: ${checkInDate.toLocaleDateString()} - ${checkOutDate.toLocaleDateString()}`
+      })
+      console.log('✅ [GroupMemberAdded] Email sent to billing contact')
+    }
+
+    // Send SMS to billing contact
+    if (billingContact?.phone && billingContact.phone !== newGuest.phone) {
+      const { sendSMS } = await import('@/services/sms-service')
+      const smsMessage = `AMP LODGE: ${newGuest.name} has been added to your group booking ${groupReference} (Room ${room.roomNumber}).`
+      await sendSMS(billingContact.phone, smsMessage, 'Group Member Added - Billing Contact').catch(err => console.error('SMS to billing contact failed:', err))
+      console.log('✅ [GroupMemberAdded] SMS sent to billing contact')
+    }
+
+  } catch (error) {
+    console.error('❌ [GroupMemberAdded] Failed to send notifications:', error)
+  }
+}
+
+/**
+ * Send notification when a group member's information is updated
+ */
+export async function sendGroupMemberUpdatedNotification(
+  guest: { name: string; email: string; phone?: string | null },
+  room: { roomNumber: string },
+  changes: { field: string; oldValue: string; newValue: string }[],
+  groupReference: string
+): Promise<void> {
+  try {
+    console.log('📧 [GroupMemberUpdated] Sending update notification...', {
+      guestName: guest.name,
+      groupReference,
+      changesCount: changes.length
+    })
+
+    if (!guest.email || guest.email.includes('@guest.local')) {
+      console.log('📧 [GroupMemberUpdated] No valid email, skipping')
+      return
+    }
+
+    const changesHtml = changes.map(c =>
+      `<li><strong>${c.field}:</strong> ${c.oldValue} → ${c.newValue}</li>`
+    ).join('')
+
+    const htmlContent = generateEmailHtml({
+      title: 'Booking Information Updated',
+      preheader: `Your reservation details have been updated`,
+      content: `
+        <p>Dear <strong>${guest.name}</strong>,</p>
+        <p>Your reservation information has been updated:</p>
+        
+        <div style="${EMAIL_STYLES.infoBox}">
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Group Reference:</span> ${groupReference}
+          </div>
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Room:</span> ${room.roomNumber}
+          </div>
+        </div>
+
+        <h3 style="margin-top: 20px; color: #8B4513;">Changes Made:</h3>
+        <ul>
+          ${changesHtml}
+        </ul>
+        
+        <p style="margin-top: 20px;">If you have any questions about these changes, please contact our reception.</p>
+        
+        <p style="margin-top: 30px;">
+          Best regards,<br>
+          <strong>The AMP LODGE Team</strong>
+        </p>
+      `
+    })
+
+    await sendTransactionalEmail({
+      to: guest.email,
+      subject: `Booking Updated - ${groupReference} | AMP Lodge`,
+      html: htmlContent,
+      text: `Booking Updated\n\nDear ${guest.name},\n\nYour reservation information has been updated.\n\nChanges:\n${changes.map(c => `- ${c.field}: ${c.oldValue} → ${c.newValue}`).join('\n')}\n\nBest regards,\nThe AMP LODGE Team`
+    })
+    console.log('✅ [GroupMemberUpdated] Email sent successfully')
+
+    // Send SMS notification
+    if (guest.phone) {
+      const { sendSMS } = await import('@/services/sms-service')
+      const smsMessage = `AMP LODGE: Your booking info for group ${groupReference} has been updated. ${changes.map(c => `${c.field}: ${c.newValue}`).join(', ')}.`
+      await sendSMS(guest.phone, smsMessage, 'Group Member Updated').catch(err => console.error('SMS notification failed:', err))
+      console.log('✅ [GroupMemberUpdated] SMS sent successfully')
+    }
+
+  } catch (error) {
+    console.error('❌ [GroupMemberUpdated] Failed to send notification:', error)
+  }
+}
+

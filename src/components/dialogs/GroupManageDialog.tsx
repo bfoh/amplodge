@@ -5,6 +5,7 @@ import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { toast } from 'sonner'
 import { format, parseISO, differenceInDays } from 'date-fns'
+import { sendGroupMemberAddedNotification, sendGroupMemberUpdatedNotification } from '@/services/notifications'
 import {
     Dialog,
     DialogContent,
@@ -76,6 +77,7 @@ export function GroupManageDialog({
     const [selectedRoomId, setSelectedRoomId] = useState('')
     const [newGuestName, setNewGuestName] = useState('')
     const [newGuestEmail, setNewGuestEmail] = useState('')
+    const [newGuestPhone, setNewGuestPhone] = useState('')
     const [newCheckIn, setNewCheckIn] = useState('')
     const [newCheckOut, setNewCheckOut] = useState('')
     const [addingMember, setAddingMember] = useState(false)
@@ -263,7 +265,7 @@ export function GroupManageDialog({
                 guest: {
                     fullName: newGuestName.trim(),
                     email: newGuestEmail.trim() || `guest-${Date.now()}@guest.local`,
-                    phone: '',
+                    phone: newGuestPhone.trim() || '',
                     address: ''
                 },
                 roomType: roomType?.name || 'Standard Room',
@@ -283,10 +285,31 @@ export function GroupManageDialog({
 
             toast.success(`Added ${newGuestName} to group`)
 
+            // Send notifications to new guest and billing contact
+            const primaryMember = members.find(m => m.isPrimary)
+            const billingContact = primaryMember ? {
+                name: primaryMember.guestName,
+                email: primaryMember.guestEmail || '',
+                phone: null // We don't have phone in the members list, but email is sufficient
+            } : null
+
+            sendGroupMemberAddedNotification(
+                {
+                    name: newGuestName.trim(),
+                    email: newGuestEmail.trim() || `guest-${Date.now()}@guest.local`,
+                    phone: newGuestPhone.trim() || null
+                },
+                billingContact,
+                { roomNumber: property.roomNumber, roomType: roomType?.name },
+                { checkIn: newCheckIn, checkOut: newCheckOut },
+                groupReference || groupId
+            ).catch(err => console.error('Failed to send notifications:', err))
+
             // Reset form
             setSelectedRoomId('')
             setNewGuestName('')
             setNewGuestEmail('')
+            setNewGuestPhone('')
             if (groupDates) {
                 setNewCheckIn(groupDates.checkIn.split('T')[0])
                 setNewCheckOut(groupDates.checkOut.split('T')[0])
@@ -463,6 +486,15 @@ export function GroupManageDialog({
                                                         placeholder="guest@example.com"
                                                         value={newGuestEmail}
                                                         onChange={(e) => setNewGuestEmail(e.target.value)}
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Phone (optional)</Label>
+                                                    <Input
+                                                        type="tel"
+                                                        placeholder="+233 XX XXX XXXX"
+                                                        value={newGuestPhone}
+                                                        onChange={(e) => setNewGuestPhone(e.target.value)}
                                                     />
                                                 </div>
                                             </div>
@@ -765,6 +797,35 @@ export function GroupManageDialog({
                                     ))
 
                                     toast.success('Member updated successfully')
+
+                                    // Send notification about the update
+                                    const changes: { field: string; oldValue: string; newValue: string }[] = []
+                                    if (editGuestName.trim() !== editMember.guestName) {
+                                        changes.push({ field: 'Name', oldValue: editMember.guestName, newValue: editGuestName.trim() })
+                                    }
+                                    if (editGuestEmail.trim() && editGuestEmail.trim() !== (editMember.guestEmail || '')) {
+                                        changes.push({ field: 'Email', oldValue: editMember.guestEmail || 'Not set', newValue: editGuestEmail.trim() })
+                                    }
+                                    if (editCheckIn && editCheckIn !== editMember.checkIn.split('T')[0]) {
+                                        changes.push({ field: 'Check-in', oldValue: format(parseISO(editMember.checkIn), 'MMM d, yyyy'), newValue: format(parseISO(editCheckIn), 'MMM d, yyyy') })
+                                    }
+                                    if (editCheckOut && editCheckOut !== editMember.checkOut.split('T')[0]) {
+                                        changes.push({ field: 'Check-out', oldValue: format(parseISO(editMember.checkOut), 'MMM d, yyyy'), newValue: format(parseISO(editCheckOut), 'MMM d, yyyy') })
+                                    }
+
+                                    if (changes.length > 0) {
+                                        sendGroupMemberUpdatedNotification(
+                                            {
+                                                name: editGuestName.trim(),
+                                                email: editGuestEmail.trim() || editMember.guestEmail || '',
+                                                phone: null // We don't have phone in the edit form yet
+                                            },
+                                            { roomNumber: editMember.roomNumber },
+                                            changes,
+                                            groupReference || groupId
+                                        ).catch(err => console.error('Failed to send update notification:', err))
+                                    }
+
                                     setEditMember(null)
                                     onUpdate()
                                 } catch (error: any) {
