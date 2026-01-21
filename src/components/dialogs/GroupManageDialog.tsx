@@ -20,7 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Loader2, Plus, Trash2, Users, AlertTriangle, Crown } from 'lucide-react'
+import { Loader2, Plus, Trash2, Users, AlertTriangle, Crown, Pencil } from 'lucide-react'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -83,6 +83,14 @@ export function GroupManageDialog({
     // Remove confirmation
     const [removeConfirm, setRemoveConfirm] = useState<GroupMember | null>(null)
     const [removing, setRemoving] = useState(false)
+
+    // Edit member
+    const [editMember, setEditMember] = useState<GroupMember | null>(null)
+    const [editGuestName, setEditGuestName] = useState('')
+    const [editGuestEmail, setEditGuestEmail] = useState('')
+    const [editCheckIn, setEditCheckIn] = useState('')
+    const [editCheckOut, setEditCheckOut] = useState('')
+    const [saving, setSaving] = useState(false)
 
     // Load group data
     useEffect(() => {
@@ -503,7 +511,7 @@ export function GroupManageDialog({
                                                 <TableHead>Dates</TableHead>
                                                 <TableHead>Status</TableHead>
                                                 <TableHead className="text-right">Amount</TableHead>
-                                                <TableHead className="w-[80px]"></TableHead>
+                                                <TableHead className="w-[100px]"></TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -541,16 +549,33 @@ export function GroupManageDialog({
                                                         {formatCurrencySync(member.totalPrice, currency)}
                                                     </TableCell>
                                                     <TableCell>
-                                                        <Button
-                                                            size="icon"
-                                                            variant="ghost"
-                                                            className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                                            onClick={() => setRemoveConfirm(member)}
-                                                            disabled={member.status === 'checked-in'}
-                                                            title={member.status === 'checked-in' ? 'Cannot remove checked-in guest' : 'Remove from group'}
-                                                        >
-                                                            <Trash2 className="w-4 h-4" />
-                                                        </Button>
+                                                        <div className="flex items-center gap-1">
+                                                            <Button
+                                                                size="icon"
+                                                                variant="ghost"
+                                                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                                                onClick={() => {
+                                                                    setEditMember(member)
+                                                                    setEditGuestName(member.guestName)
+                                                                    setEditGuestEmail(member.guestEmail || '')
+                                                                    setEditCheckIn(member.checkIn.split('T')[0])
+                                                                    setEditCheckOut(member.checkOut.split('T')[0])
+                                                                }}
+                                                                title="Edit member"
+                                                            >
+                                                                <Pencil className="w-4 h-4" />
+                                                            </Button>
+                                                            <Button
+                                                                size="icon"
+                                                                variant="ghost"
+                                                                className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                                                onClick={() => setRemoveConfirm(member)}
+                                                                disabled={member.status === 'checked-in'}
+                                                                title={member.status === 'checked-in' ? 'Cannot remove checked-in guest' : 'Remove from group'}
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </Button>
+                                                        </div>
                                                     </TableCell>
                                                 </TableRow>
                                             ))}
@@ -614,6 +639,140 @@ export function GroupManageDialog({
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            {/* Edit Member Dialog */}
+            <Dialog open={!!editMember} onOpenChange={(open) => !open && setEditMember(null)}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Pencil className="w-5 h-5" />
+                            Edit Member
+                        </DialogTitle>
+                        <DialogDescription>
+                            Update guest information for Room {editMember?.roomNumber}
+                        </DialogDescription>
+                    </DialogHeader>
+                    {editMember && (
+                        <div className="space-y-4 py-4">
+                            <div className="space-y-2">
+                                <Label>Guest Name *</Label>
+                                <Input
+                                    placeholder="Enter guest name"
+                                    value={editGuestName}
+                                    onChange={(e) => setEditGuestName(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Email</Label>
+                                <Input
+                                    type="email"
+                                    placeholder="guest@example.com"
+                                    value={editGuestEmail}
+                                    onChange={(e) => setEditGuestEmail(e.target.value)}
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label>Check-in Date</Label>
+                                    <Input
+                                        type="date"
+                                        value={editCheckIn}
+                                        onChange={(e) => setEditCheckIn(e.target.value)}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Check-out Date</Label>
+                                    <Input
+                                        type="date"
+                                        value={editCheckOut}
+                                        onChange={(e) => setEditCheckOut(e.target.value)}
+                                        min={editCheckIn}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setEditMember(null)} disabled={saving}>
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={async () => {
+                                if (!editMember || !editGuestName.trim()) {
+                                    toast.error('Guest name is required')
+                                    return
+                                }
+
+                                setSaving(true)
+                                try {
+                                    // Find the booking and guest records
+                                    const bookings = await db.bookings.list({ limit: 500 })
+                                    const booking = bookings.find((b: any) => b.id === editMember.id)
+
+                                    if (!booking) throw new Error('Booking not found')
+
+                                    // Update guest record
+                                    const guestUpdates: any = { name: editGuestName.trim() }
+                                    if (editGuestEmail.trim()) {
+                                        guestUpdates.email = editGuestEmail.trim()
+                                    }
+                                    await db.guests.update(booking.guestId, guestUpdates)
+
+                                    // Update booking dates if changed
+                                    const bookingUpdates: any = {}
+                                    if (editCheckIn && editCheckIn !== editMember.checkIn.split('T')[0]) {
+                                        bookingUpdates.checkIn = editCheckIn
+                                    }
+                                    if (editCheckOut && editCheckOut !== editMember.checkOut.split('T')[0]) {
+                                        bookingUpdates.checkOut = editCheckOut
+                                    }
+
+                                    // Recalculate price if dates changed
+                                    if (Object.keys(bookingUpdates).length > 0) {
+                                        const room = rooms.find((r: any) => r.roomNumber === editMember.roomNumber)
+                                        if (room) {
+                                            const roomType = roomTypes.find((rt: any) => rt.id === room.roomTypeId)
+                                            const pricePerNight = roomType?.basePrice || 0
+                                            const checkInDate = parseISO(bookingUpdates.checkIn || editMember.checkIn)
+                                            const checkOutDate = parseISO(bookingUpdates.checkOut || editMember.checkOut)
+                                            const nights = differenceInDays(checkOutDate, checkInDate)
+                                            bookingUpdates.totalPrice = pricePerNight * nights
+                                        }
+                                        await db.bookings.update(editMember.id, bookingUpdates)
+                                    }
+
+                                    // Update local state
+                                    setMembers(prev => prev.map(m =>
+                                        m.id === editMember.id
+                                            ? {
+                                                ...m,
+                                                guestName: editGuestName.trim(),
+                                                guestEmail: editGuestEmail.trim() || m.guestEmail,
+                                                checkIn: editCheckIn || m.checkIn,
+                                                checkOut: editCheckOut || m.checkOut,
+                                                totalPrice: bookingUpdates.totalPrice ?? m.totalPrice
+                                            }
+                                            : m
+                                    ))
+
+                                    toast.success('Member updated successfully')
+                                    setEditMember(null)
+                                    onUpdate()
+                                } catch (error: any) {
+                                    console.error('Failed to update member:', error)
+                                    toast.error(error.message || 'Failed to update member')
+                                } finally {
+                                    setSaving(false)
+                                }
+                            }}
+                            disabled={saving || !editGuestName.trim()}
+                        >
+                            {saving && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                            Save Changes
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </>
     )
 }
