@@ -76,6 +76,8 @@ export function GroupManageDialog({
     const [selectedRoomId, setSelectedRoomId] = useState('')
     const [newGuestName, setNewGuestName] = useState('')
     const [newGuestEmail, setNewGuestEmail] = useState('')
+    const [newCheckIn, setNewCheckIn] = useState('')
+    const [newCheckOut, setNewCheckOut] = useState('')
     const [addingMember, setAddingMember] = useState(false)
 
     // Remove confirmation
@@ -122,9 +124,9 @@ export function GroupManageDialog({
 
                 // Map to members
                 const membersList: GroupMember[] = groupBookings.map((b: any) => {
-                    const guest = guestMap.get(b.guestId)
-                    const room = roomMap.get(b.roomId)
-                    const roomType = room ? roomTypeMap.get(room.roomTypeId) : null
+                    const guest = guestMap.get(b.guestId) as any
+                    const room = roomMap.get(b.roomId) as any
+                    const roomType = room ? roomTypeMap.get(room?.roomTypeId) as any : null
 
                     let isPrimary = false
                     const specialReq = b.special_requests || b.specialRequests || ''
@@ -171,35 +173,49 @@ export function GroupManageDialog({
         }
     }, [members])
 
-    // Calculate nights
+    // Set default dates when group dates are available
+    useEffect(() => {
+        if (groupDates && !newCheckIn && !newCheckOut) {
+            setNewCheckIn(groupDates.checkIn.split('T')[0])
+            setNewCheckOut(groupDates.checkOut.split('T')[0])
+        }
+    }, [groupDates])
+
+    // Calculate nights for display purposes
     const nights = useMemo(() => {
         if (!groupDates) return 0
         return differenceInDays(parseISO(groupDates.checkOut), parseISO(groupDates.checkIn))
     }, [groupDates])
+
+    // Calculate nights for new member (based on selected dates)
+    const newMemberNights = useMemo(() => {
+        if (!newCheckIn || !newCheckOut) return 0
+        return differenceInDays(parseISO(newCheckOut), parseISO(newCheckIn))
+    }, [newCheckIn, newCheckOut])
 
     // Available rooms (not already in group and available for dates)
     const availableRooms = useMemo(() => {
         if (!groupDates) return []
 
         const usedRoomIds = new Set(members.map(m => {
-            const room = rooms.find(r => r.roomNumber === m.roomNumber)
+            const room = rooms.find((r: any) => r.roomNumber === m.roomNumber)
             return room?.id
         }))
 
         return properties.filter((p: any) => {
             // Must be active and not already in group
             if (p.status !== 'active') return false
-            const room = rooms.find(r => r.roomNumber === p.roomNumber)
+            const room = rooms.find((r: any) => r.roomNumber === p.roomNumber)
             if (room && usedRoomIds.has(room.id)) return false
             return true
         })
     }, [properties, rooms, members, groupDates])
 
-    // Get room price
+    // Get room price based on new member nights
     const getSelectedRoomPrice = () => {
-        const property = properties.find(p => p.id === selectedRoomId)
+        const property = properties.find((p: any) => p.id === selectedRoomId)
         if (!property) return 0
-        return (property.basePrice || 0) * nights
+        return (property.basePrice || 0) * Math.max(1, newMemberNights)
     }
 
     // Handle add member
@@ -209,17 +225,22 @@ export function GroupManageDialog({
             return
         }
 
-        if (!groupDates) {
-            toast.error('Could not determine group dates')
+        if (!newCheckIn || !newCheckOut) {
+            toast.error('Please select check-in and check-out dates')
+            return
+        }
+
+        if (newMemberNights < 1) {
+            toast.error('Check-out date must be after check-in date')
             return
         }
 
         setAddingMember(true)
         try {
-            const property = properties.find(p => p.id === selectedRoomId)
+            const property = properties.find((p: any) => p.id === selectedRoomId)
             if (!property) throw new Error('Room not found')
 
-            const roomType = roomTypes.find(rt => rt.id === property.propertyTypeId)
+            const roomType = roomTypes.find((rt: any) => rt.id === property.propertyTypeId)
 
             const bookingData = {
                 guest: {
@@ -231,11 +252,11 @@ export function GroupManageDialog({
                 roomType: roomType?.name || 'Standard Room',
                 roomNumber: property.roomNumber,
                 dates: {
-                    checkIn: groupDates.checkIn,
-                    checkOut: groupDates.checkOut
+                    checkIn: newCheckIn,
+                    checkOut: newCheckOut
                 },
                 numGuests: 1,
-                amount: property.basePrice * nights,
+                amount: property.basePrice * newMemberNights,
                 status: 'confirmed' as const,
                 source: 'reception' as const,
                 notes: ''
@@ -249,14 +270,21 @@ export function GroupManageDialog({
             setSelectedRoomId('')
             setNewGuestName('')
             setNewGuestEmail('')
+            if (groupDates) {
+                setNewCheckIn(groupDates.checkIn.split('T')[0])
+                setNewCheckOut(groupDates.checkOut.split('T')[0])
+            }
             setShowAddForm(false)
 
             // Refresh data
             onUpdate()
 
-            // Reload members
-            const [bookings] = await Promise.all([db.bookings.list({ limit: 500 })])
-            const guestMap = new Map(guests.map((g: any) => [g.id, g]))
+            // Reload members with fresh guest data
+            const [bookings, freshGuests] = await Promise.all([
+                db.bookings.list({ limit: 500 }),
+                db.guests.list({ limit: 500 })
+            ])
+            const guestMap = new Map(freshGuests.map((g: any) => [g.id, g]))
             const roomMap = new Map(rooms.map((r: any) => [r.id, r]))
             const roomTypeMap = new Map(roomTypes.map((rt: any) => [rt.id, rt]))
 
@@ -273,9 +301,9 @@ export function GroupManageDialog({
             })
 
             const membersList: GroupMember[] = groupBookings.map((b: any) => {
-                const guest = guestMap.get(b.guestId)
-                const room = roomMap.get(b.roomId)
-                const roomType = room ? roomTypeMap.get(room.roomTypeId) : null
+                const guest = guestMap.get(b.guestId) as any
+                const room = roomMap.get(b.roomId) as any
+                const roomType = room ? roomTypeMap.get(room?.roomTypeId) as any : null
 
                 let isPrimary = false
                 const specialReq = b.special_requests || b.specialRequests || ''
@@ -396,7 +424,7 @@ export function GroupManageDialog({
                                                             ) : (
                                                                 availableRooms.map((p: any) => (
                                                                     <SelectItem key={p.id} value={p.id}>
-                                                                        Room {p.roomNumber} - {p.name || 'Standard'} ({formatCurrencySync(p.basePrice * nights, currency)})
+                                                                        Room {p.roomNumber} - {p.name || 'Standard'} ({formatCurrencySync(p.basePrice, currency)}/night)
                                                                     </SelectItem>
                                                                 ))
                                                             )}
@@ -421,17 +449,36 @@ export function GroupManageDialog({
                                                     />
                                                 </div>
                                             </div>
-                                            {selectedRoomId && (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label>Check-in Date *</Label>
+                                                    <Input
+                                                        type="date"
+                                                        value={newCheckIn}
+                                                        onChange={(e) => setNewCheckIn(e.target.value)}
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Check-out Date *</Label>
+                                                    <Input
+                                                        type="date"
+                                                        value={newCheckOut}
+                                                        onChange={(e) => setNewCheckOut(e.target.value)}
+                                                        min={newCheckIn}
+                                                    />
+                                                </div>
+                                            </div>
+                                            {selectedRoomId && newMemberNights > 0 && (
                                                 <div className="text-sm text-muted-foreground">
                                                     Price: <span className="font-medium text-foreground">{formatCurrencySync(getSelectedRoomPrice(), currency)}</span>
-                                                    {' '}for {nights} night{nights !== 1 ? 's' : ''}
+                                                    {' '}for {newMemberNights} night{newMemberNights !== 1 ? 's' : ''}
                                                 </div>
                                             )}
                                             <div className="flex gap-2">
                                                 <Button
                                                     size="sm"
                                                     onClick={handleAddMember}
-                                                    disabled={addingMember || !selectedRoomId || !newGuestName.trim()}
+                                                    disabled={addingMember || !selectedRoomId || !newGuestName.trim() || !newCheckIn || !newCheckOut || newMemberNights < 1}
                                                 >
                                                     {addingMember && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
                                                     Add to Group
