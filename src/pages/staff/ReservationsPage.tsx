@@ -30,6 +30,8 @@ import { calculateNights } from '@/lib/display'
 import { CheckInDialog } from '@/components/dialogs/CheckInDialog'
 import { GuestChargesDialog } from '@/components/dialogs/GuestChargesDialog'
 import { ExtendStayDialog } from '@/components/dialogs/ExtendStayDialog'
+import { GroupManageDialog } from '@/components/dialogs/GroupManageDialog'
+import { Settings } from 'lucide-react'
 import { Receipt, CalendarPlus, MoreHorizontal, CreditCard, User, Users, Mail, Ban } from 'lucide-react'
 import {
   DropdownMenu,
@@ -84,6 +86,7 @@ export function ReservationsPage() {
   const [chargesDialog, setChargesDialog] = useState<Booking | null>(null)
   const [extendStayDialog, setExtendStayDialog] = useState<Booking | null>(null)
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null)
+  const [manageGroupDialog, setManageGroupDialog] = useState<{ groupId: string; groupReference: string } | null>(null)
 
   // Checkout charges summary
   const [checkoutCharges, setCheckoutCharges] = useState<BookingCharge[]>([])
@@ -747,6 +750,25 @@ export function ReservationsPage() {
         )
       })()}
 
+      {/* Group Manage Dialog */}
+      {manageGroupDialog && (
+        <GroupManageDialog
+          open={!!manageGroupDialog}
+          onOpenChange={(open) => !open && setManageGroupDialog(null)}
+          groupId={manageGroupDialog.groupId}
+          groupReference={manageGroupDialog.groupReference}
+          onUpdate={async () => {
+            // Refresh bookings data
+            const [b, charges] = await Promise.all([
+              db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 500 }),
+              db.bookingCharges?.list({ limit: 1000 }) || Promise.resolve([])
+            ])
+            setBookings(b)
+            setAllCharges(charges || [])
+          }}
+        />
+      )}
+
       {/* Check-Out Dialog */}
       <Dialog open={!!checkOutDialog} onOpenChange={(open) => !open && setCheckOutDialog(null)}>
         <DialogContent>
@@ -1029,10 +1051,16 @@ export function ReservationsPage() {
                                     <DropdownMenuLabel>Actions</DropdownMenuLabel>
 
                                     {isGroup && (
-                                      <DropdownMenuItem onClick={() => handleGroupInvoiceDownload(b)}>
-                                        <Users className="w-4 h-4 mr-2 text-amber-600" />
-                                        <span>Group Invoice</span>
-                                      </DropdownMenuItem>
+                                      <>
+                                        <DropdownMenuItem onClick={() => setManageGroupDialog({ groupId: b.groupId!, groupReference: (b as any).groupReference || 'Group' })}>
+                                          <Settings className="w-4 h-4 mr-2 text-blue-600" />
+                                          <span>Manage Group</span>
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => handleGroupInvoiceDownload(b)}>
+                                          <Users className="w-4 h-4 mr-2 text-amber-600" />
+                                          <span>Group Invoice</span>
+                                        </DropdownMenuItem>
+                                      </>
                                     )}
 
                                     {canShowCheckOut && (

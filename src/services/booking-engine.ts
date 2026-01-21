@@ -666,6 +666,206 @@ class BookingEngine {
     return createdBookings
   }
 
+  /**
+   * Add a new member to an existing group booking
+   * Finds the group metadata from existing bookings and creates a new booking with matching settings
+   */
+  async addToGroup(
+    groupId: string,
+    bookingData: Omit<LocalBooking, '_id' | 'createdAt' | 'updatedAt' | 'synced'>
+  ): Promise<LocalBooking> {
+    const db = blink.db as any
+    console.log(`[BookingEngine] Adding new member to group: ${groupId}`)
+
+    // Find existing bookings in this group to get group metadata
+    const allBookings = await db.bookings.list({ limit: 500 })
+    const groupBookings = allBookings.filter((b: any) => {
+      // Check for groupId in the booking or in specialRequests metadata
+      if (b.groupId === groupId) return true
+
+      const specialReq = b.special_requests || b.specialRequests || ''
+      const match = specialReq.match(/<!-- GROUP_DATA:(.*?) -->/)
+      if (match) {
+        try {
+          const data = JSON.parse(match[1])
+          return data.groupId === groupId
+        } catch { return false }
+      }
+      return false
+    })
+
+    if (groupBookings.length === 0) {
+      throw new Error(`No bookings found for group ${groupId}`)
+    }
+
+    // Find the primary booking to get group reference and billing contact
+    let primaryBooking = groupBookings.find((b: any) => {
+      const specialReq = b.special_requests || b.specialRequests || ''
+      const match = specialReq.match(/<!-- GROUP_DATA:(.*?) -->/)
+      if (match) {
+        try {
+          const data = JSON.parse(match[1])
+          return data.isPrimaryBooking === true
+        } catch { return false }
+      }
+      return false
+    }) || groupBookings[0]
+
+    // Extract group metadata from primary booking
+    let groupReference = ''
+    let billingContact = null
+
+    const specialReq = primaryBooking.special_requests || primaryBooking.specialRequests || ''
+    const match = specialReq.match(/<!-- GROUP_DATA:(.*?) -->/)
+    if (match) {
+      try {
+        const data = JSON.parse(match[1])
+        groupReference = data.groupReference || ''
+        billingContact = data.billingContact || null
+      } catch (e) {
+        console.warn('[BookingEngine] Failed to parse group data from primary booking', e)
+      }
+    }
+
+    console.log(`[BookingEngine] Found group: ${groupReference} with ${groupBookings.length} existing members`)
+
+    // Create new booking with group metadata (NOT primary, no charges/discount)
+    const bookingWithGroup = {
+      ...bookingData,
+      groupId,
+      groupReference,
+      isPrimaryBooking: false,
+      billingContact
+    }
+
+    const created = await this.createBooking(bookingWithGroup)
+    console.log(`[BookingEngine] Added new member to group ${groupReference}:`, created._id)
+
+    return created
+  }
+
+  /**
+   * Remove a member from a group booking
+   * If removing the primary booking, transfers primary status to another member
+   */
+  async removeFromGroup(bookingId: string): Promise<{ remainingCount: number; newPrimaryId?: string }> {
+    const db = blink.db as any
+    console.log(`[BookingEngine] Removing booking from group: ${bookingId}`)
+
+    // Find the booking
+    let booking = await db.bookings.get(bookingId).catch(() => null)
+
+    // Try alternative ID formats if not found
+    if (!booking) {
+      const allBookings = await db.bookings.list({ limit: 500 })
+      booking = allBookings.find((b: any) =>
+        b.id === bookingId ||
+        b.id === bookingId.replace(/^booking_/, 'booking-') ||
+        b.id === bookingId.replace(/^booking-/, 'booking_')
+      )
+    }
+
+    if (!booking) {
+      throw new Error(`Booking not found: ${bookingId}`)
+    }
+
+    // Prevent removal if checked in
+    if (booking.status === 'checked-in') {
+      throw new Error('Cannot remove a booking that is currently checked in. Please check out the guest first.')
+    }
+
+    // Extract group info from booking
+    let groupId = ''
+    let isPrimary = false
+    let additionalCharges: any[] = []
+    let discount: any = null
+    let billingContact: any = null
+
+    const specialReq = booking.special_requests || booking.specialRequests || ''
+    const match = specialReq.match(/<!-- GROUP_DATA:(.*?) -->/)
+    if (match) {
+      try {
+        const data = JSON.parse(match[1])
+        groupId = data.groupId || ''
+        isPrimary = data.isPrimaryBooking === true
+        additionalCharges = data.additionalCharges || []
+        discount = data.discount || null
+        billingContact = data.billingContact || null
+      } catch (e) {
+        console.warn('[BookingEngine] Failed to parse group data', e)
+      }
+    }
+
+    if (!groupId) {
+      throw new Error('This booking is not part of a group')
+    }
+
+    // Find all other bookings in this group
+    const allBookings = await db.bookings.list({ limit: 500 })
+    const groupBookings = allBookings.filter((b: any) => {
+      if (b.id === booking.id) return false // Exclude current booking
+
+      const bSpecialReq = b.special_requests || b.specialRequests || ''
+      const bMatch = bSpecialReq.match(/<!-- GROUP_DATA:(.*?) -->/)
+      if (bMatch) {
+        try {
+          const bData = JSON.parse(bMatch[1])
+          return bData.groupId === groupId
+        } catch { return false }
+      }
+      return false
+    })
+
+    // Cannot remove if this is the last member
+    if (groupBookings.length === 0) {
+      throw new Error('Cannot remove the last member from a group. Delete the entire group booking instead.')
+    }
+
+    let newPrimaryId: string | undefined
+
+    // If we're removing the primary booking, transfer metadata to another booking
+    if (isPrimary && groupBookings.length > 0) {
+      const newPrimary = groupBookings[0]
+      console.log(`[BookingEngine] Transferring primary status to: ${newPrimary.id}`)
+
+      // Update the new primary booking with group metadata
+      const existingSpecialReq = newPrimary.special_requests || newPrimary.specialRequests || ''
+      const existingMatch = existingSpecialReq.match(/<!-- GROUP_DATA:(.*?) -->/)
+      let existingGroupData: any = {}
+      let cleanSpecialReq = existingSpecialReq
+
+      if (existingMatch) {
+        try {
+          existingGroupData = JSON.parse(existingMatch[1])
+          cleanSpecialReq = existingSpecialReq.replace(/<!-- GROUP_DATA:.*? -->/g, '').trim()
+        } catch { }
+      }
+
+      const newGroupData = {
+        ...existingGroupData,
+        isPrimaryBooking: true,
+        additionalCharges,
+        discount,
+        billingContact
+      }
+
+      const newSpecialReq = cleanSpecialReq + `\n\n<!-- GROUP_DATA:${JSON.stringify(newGroupData)} -->`
+
+      await db.bookings.update(newPrimary.id, { specialRequests: newSpecialReq })
+      newPrimaryId = newPrimary.id
+      console.log(`[BookingEngine] Primary status transferred to: ${newPrimaryId}`)
+    }
+
+    // Delete the booking
+    await db.bookings.delete(booking.id)
+    console.log(`[BookingEngine] Removed booking ${bookingId} from group. Remaining members: ${groupBookings.length}`)
+
+    return {
+      remainingCount: groupBookings.length,
+      newPrimaryId
+    }
+  }
+
   // No-op compatibility for existing calls
   async updateBooking(_id: string, _updates: Partial<LocalBooking>): Promise<void> {
     return
