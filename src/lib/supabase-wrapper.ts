@@ -205,6 +205,10 @@ export const db = {
     housekeepingTasks: createTableWrapper('housekeeping_tasks'),
     notifications: createTableWrapper('notifications'),
     reviews: createTableWrapper('reviews'),
+    // Channel Manager Tables
+    channelConnections: createTableWrapper('channel_connections'),
+    channelRoomMappings: createTableWrapper('channel_room_mappings'),
+    externalBookings: createTableWrapper('external_bookings'),
 }
 
 // Auth wrapper that matches Blink's auth interface
