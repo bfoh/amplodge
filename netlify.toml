@@ -1,3 +1,6 @@
+[functions.sync-channels]
+  schedule = "*/30 * * * *"
+
 [build]
   command = "npm run build && cd netlify/functions && npm install"
   publish = "dist"
