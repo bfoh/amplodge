@@ -199,3 +199,37 @@ export interface BookingCharge {
   updatedAt?: string
 }
 
+// Channel Manager Types
+export interface ChannelConnection {
+  id: string
+  channelId: 'airbnb' | 'booking' | 'expedia' | 'vrbo' | 'tripadvisor' | 'hotels'
+  name: string
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ChannelRoomMapping {
+  id: string
+  channelConnectionId: string
+  localRoomTypeId: string
+  importUrl?: string
+  exportToken: string
+  lastSyncedAt?: string
+  syncStatus: 'pending' | 'success' | 'error'
+  syncMessage?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ExternalBooking {
+  id: string
+  mappingId: string
+  externalId: string
+  startDate: string // YYYY-MM-DD
+  endDate: string // YYYY-MM-DD
+  summary?: string
+  rawData?: any
+  createdAt: string
+  updatedAt: string
+}
