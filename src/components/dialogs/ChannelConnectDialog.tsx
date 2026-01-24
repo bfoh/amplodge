@@ -180,7 +180,7 @@ export function ChannelConnectDialog({ open, onOpenChange, channelId, channelNam
                     <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-4">
                         <TabsList className="grid w-full grid-cols-2">
                             <TabsTrigger value="settings">General Settings</TabsTrigger>
-                            <TabsTrigger value="mappings" disabled={!connection}>Room Mappings</TabsTrigger>
+                            <TabsTrigger value="mappings">Room Mappings</TabsTrigger>
                         </TabsList>
 
                         <TabsContent value="settings" className="space-y-6 py-4">
@@ -206,104 +206,109 @@ export function ChannelConnectDialog({ open, onOpenChange, channelId, channelNam
                         </TabsContent>
 
                         <TabsContent value="mappings" className="space-y-6 py-4">
-                            {!connection?.isActive && (
+                            {(!connection || !connection.isActive) && (
                                 <div className="p-4 bg-amber-50 text-amber-800 rounded-lg flex items-center gap-2 text-sm">
                                     <AlertCircle className="w-4 h-4" />
-                                    Please enable the channel first to manage mappings.
+                                    Please enable and save the channel first to manage mappings.
                                 </div>
                             )}
 
-                            {/* Existing Mappings */}
-                            <div className="space-y-4">
-                                <h3 className="text-sm font-medium text-muted-foreground">Active Mappings ({mappings.length})</h3>
+                            {/* Only show content if connection exists */}
+                            {connection && (
+                                <>
+                                    {/* Existing Mappings */}
+                                    <div className="space-y-4">
+                                        <h3 className="text-sm font-medium text-muted-foreground">Active Mappings ({mappings.length})</h3>
 
-                                {mappings.length === 0 ? (
-                                    <div className="text-center py-8 border-2 border-dashed rounded-lg text-muted-foreground text-sm">
-                                        No rooms mapped yet. Add a mapping below.
-                                    </div>
-                                ) : (
-                                    mappings.map(mapping => (
-                                        <div key={mapping.id} className="border rounded-lg p-4 space-y-4">
-                                            <div className="flex justify-between items-start">
-                                                <div>
-                                                    <h4 className="font-semibold">{getRoomTypeName(mapping.localRoomTypeId)}</h4>
-                                                    <div className="flex items-center gap-2 mt-1">
-                                                        <Badge variant={mapping.syncStatus === 'success' ? 'outline' : 'secondary'} className={mapping.syncStatus === 'success' ? 'border-emerald-500 text-emerald-600' : ''}>
-                                                            {mapping.syncStatus === 'success' ? 'Synced' : mapping.syncStatus}
-                                                        </Badge>
-                                                        {mapping.lastSyncedAt && (
-                                                            <span className="text-xs text-muted-foreground">
-                                                                Last sync: {new Date(mapping.lastSyncedAt).toLocaleString()}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleDeleteMapping(mapping.id)}>
-                                                    Remove
-                                                </Button>
+                                        {mappings.length === 0 ? (
+                                            <div className="text-center py-8 border-2 border-dashed rounded-lg text-muted-foreground text-sm">
+                                                No rooms mapped yet. Add a mapping below.
                                             </div>
-
-                                            <div className="grid gap-4 md:grid-cols-2">
-                                                <div className="space-y-2">
-                                                    <Label className="text-xs font-semibold text-muted-foreground uppercase">Import URL (From {channelName})</Label>
-                                                    <div className="flex gap-2">
-                                                        <Input value={mapping.importUrl || ''} readOnly className="text-sm bg-muted/50" placeholder="Not configured" />
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <Label className="text-xs font-semibold text-muted-foreground uppercase">Export URL (To {channelName})</Label>
-                                                    <div className="flex gap-2">
-                                                        <Input value={getExportUrl(mapping)} readOnly className="text-sm font-mono bg-muted/50" />
-                                                        <Button variant="outline" size="icon" onClick={() => copyToClipboard(getExportUrl(mapping))}>
-                                                            <Copy className="w-4 h-4" />
+                                        ) : (
+                                            mappings.map(mapping => (
+                                                <div key={mapping.id} className="border rounded-lg p-4 space-y-4">
+                                                    <div className="flex justify-between items-start">
+                                                        <div>
+                                                            <h4 className="font-semibold">{getRoomTypeName(mapping.localRoomTypeId)}</h4>
+                                                            <div className="flex items-center gap-2 mt-1">
+                                                                <Badge variant={mapping.syncStatus === 'success' ? 'outline' : 'secondary'} className={mapping.syncStatus === 'success' ? 'border-emerald-500 text-emerald-600' : ''}>
+                                                                    {mapping.syncStatus === 'success' ? 'Synced' : mapping.syncStatus}
+                                                                </Badge>
+                                                                {mapping.lastSyncedAt && (
+                                                                    <span className="text-xs text-muted-foreground">
+                                                                        Last sync: {new Date(mapping.lastSyncedAt).toLocaleString()}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleDeleteMapping(mapping.id)}>
+                                                            Remove
                                                         </Button>
                                                     </div>
-                                                    <p className="text-[10px] text-muted-foreground">
-                                                        Paste this URL into {channelName}'s "Import Calendar" setting.
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
 
-                            <div className="border-t pt-6">
-                                <h3 className="font-medium mb-4">Add New Mapping</h3>
-                                <div className="grid gap-4 p-4 bg-muted/30 rounded-lg">
-                                    <div className="space-y-2">
-                                        <Label>Room Type</Label>
-                                        <Select value={selectedRoomTypeId} onValueChange={setSelectedRoomTypeId}>
-                                            <SelectTrigger>
-                                                <SelectValue placeholder="Select a room type to map" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {roomTypes
-                                                    .filter(rt => !mappings.some(m => m.localRoomTypeId === rt.id)) // Filter out already mapped
-                                                    .map(rt => (
-                                                        <SelectItem key={rt.id} value={rt.id}>{rt.name}</SelectItem>
-                                                    ))
-                                                }
-                                            </SelectContent>
-                                        </Select>
+                                                    <div className="grid gap-4 md:grid-cols-2">
+                                                        <div className="space-y-2">
+                                                            <Label className="text-xs font-semibold text-muted-foreground uppercase">Import URL (From {channelName})</Label>
+                                                            <div className="flex gap-2">
+                                                                <Input value={mapping.importUrl || ''} readOnly className="text-sm bg-muted/50" placeholder="Not configured" />
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <Label className="text-xs font-semibold text-muted-foreground uppercase">Export URL (To {channelName})</Label>
+                                                            <div className="flex gap-2">
+                                                                <Input value={getExportUrl(mapping)} readOnly className="text-sm font-mono bg-muted/50" />
+                                                                <Button variant="outline" size="icon" onClick={() => copyToClipboard(getExportUrl(mapping))}>
+                                                                    <Copy className="w-4 h-4" />
+                                                                </Button>
+                                                            </div>
+                                                            <p className="text-[10px] text-muted-foreground">
+                                                                Paste this URL into {channelName}'s "Import Calendar" setting.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
                                     </div>
-                                    <div className="space-y-2">
-                                        <Label>Import URL (Optional)</Label>
-                                        <Input
-                                            placeholder={`Paste ${channelName} iCal export URL here...`}
-                                            value={importUrl}
-                                            onChange={(e) => setImportUrl(e.target.value)}
-                                        />
-                                        <p className="text-xs text-muted-foreground">
-                                            If provided, we will import bookings from this URL to block your calendar.
-                                        </p>
+
+                                    <div className="border-t pt-6">
+                                        <h3 className="font-medium mb-4">Add New Mapping</h3>
+                                        <div className="grid gap-4 p-4 bg-muted/30 rounded-lg">
+                                            <div className="space-y-2">
+                                                <Label>Room Type</Label>
+                                                <Select value={selectedRoomTypeId} onValueChange={setSelectedRoomTypeId}>
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Select a room type to map" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {roomTypes
+                                                            .filter(rt => !mappings.some(m => m.localRoomTypeId === rt.id)) // Filter out already mapped
+                                                            .map(rt => (
+                                                                <SelectItem key={rt.id} value={rt.id}>{rt.name}</SelectItem>
+                                                            ))
+                                                        }
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Import URL (Optional)</Label>
+                                                <Input
+                                                    placeholder={`Paste ${channelName} iCal export URL here...`}
+                                                    value={importUrl}
+                                                    onChange={(e) => setImportUrl(e.target.value)}
+                                                />
+                                                <p className="text-xs text-muted-foreground">
+                                                    If provided, we will import bookings from this URL to block your calendar.
+                                                </p>
+                                            </div>
+                                            <Button onClick={handleAddMapping} disabled={!selectedRoomTypeId || addingMapping} className="w-full sm:w-auto">
+                                                {addingMapping ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <LinkIcon className="w-4 h-4 mr-2" />}
+                                                Create Mapping
+                                            </Button>
+                                        </div>
                                     </div>
-                                    <Button onClick={handleAddMapping} disabled={!selectedRoomTypeId || addingMapping} className="w-full sm:w-auto">
-                                        {addingMapping ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <LinkIcon className="w-4 h-4 mr-2" />}
-                                        Create Mapping
-                                    </Button>
-                                </div>
-                            </div>
+                                </>
+                            )}
                         </TabsContent>
                     </Tabs>
                 )}
