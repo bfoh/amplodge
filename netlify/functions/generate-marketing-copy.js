@@ -1,3 +1,4 @@
+// This environment uses CommonJS
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 exports.handler = async (event) => {
@@ -17,7 +18,7 @@ exports.handler = async (event) => {
         }
 
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 
         // Construct a focused system prompt
         let prompt = `You are an expert hotel marketing copywriter for AMP Lodge (a premium, serene lodge).

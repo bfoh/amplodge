@@ -42,7 +42,8 @@ const navigation = [
   { name: 'Housekeeping', href: '/staff/housekeeping', icon: Sparkles },
   { name: 'Channels', href: '/staff/channels', icon: Network },
   { name: 'Reviews', href: '/staff/reviews', icon: Star },
-  { name: 'Marketing', href: '/staff/marketing', icon: Megaphone }
+  { name: 'Marketing', href: '/staff/marketing', icon: Megaphone },
+  { name: 'Guest Requests', href: '/staff/requests', icon: Bell }
 ]
 
 export function AppLayout() {
@@ -252,6 +253,7 @@ export function AppLayout() {
     if (location.pathname === '/staff/analytics') return 'Analytics'
     if (location.pathname === '/staff/reviews') return 'Guest Reviews'
     if (location.pathname === '/staff/marketing') return 'Marketing Center'
+    if (location.pathname === '/staff/requests') return 'Service Requests'
     return 'Dashboard'
   })()
 

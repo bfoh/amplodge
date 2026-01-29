@@ -63,26 +63,21 @@ exports.handler = async (event) => {
         const resendApiKey = process.env.RESEND_API_KEY || process.env.VITE_RESEND_API_KEY;
         const supabase = createClient(supabaseUrl, supabaseKey);
 
-        // 1. Fetch Guests (All guests with at least 1 booking)
-        // Optimization: Create a view or just select distinct guest_id from bookings
-        const { data: bookings, error } = await supabase
-            .from('bookings')
-            .select('guest_id');
-
-        if (error) throw error;
-        const guestIds = [...new Set(bookings.map(b => b.guest_id))];
-
-        if (guestIds.length === 0) {
-            return { statusCode: 200, body: JSON.stringify({ message: 'No guests found', count: 0 }) };
-        }
-
-        // 2. Fetch Guest Details
+        // 1. Fetch Guests with Bookings (for tokens)
         const { data: guests, error: guestError } = await supabase
             .from('guests')
-            .select('id, name, email, phone')
-            .in('id', guestIds);
+            .select('id, name, email, phone, bookings(guest_token, status, check_out_date)');
 
-        if (guestError) throw guestError;
+        if (guestError) {
+            console.error("Error fetching guests:", guestError);
+            throw guestError;
+        }
+
+        console.log(`[Campaign] Found ${guests ? guests.length : 0} guests.`);
+
+        if (!guests || guests.length === 0) {
+            return { statusCode: 200, body: JSON.stringify({ message: 'No guests found in database', count: 0 }) };
+        }
 
         if (dryRun) {
             return {
@@ -95,28 +90,63 @@ exports.handler = async (event) => {
             };
         }
 
-        // 3. Send Messages
+        // 3. Send Messages (Batched to prevent Timeouts)
         let successCount = 0;
         let failCount = 0;
+        let skippedCount = 0;
 
-        for (const guest of guests) {
-            // Variable Substitution
-            const guestName = guest.name || 'Guest';
-            // Simple replace: {{name}} -> guest name
-            const personalizedContent = content.replace(/{{name}}/g, guestName);
+        // Helper to process a single guest
+        const processGuest = async (guest) => {
+            try {
+                const guestName = guest.name ? guest.name.split(' ')[0] : 'Guest';
 
-            let result = { success: false };
+                // Resolve Guest Link
+                let guestLink = 'https://amplodge.org';
+                if (guest.bookings && guest.bookings.length > 0) {
+                    // Prioritize active bookings
+                    const activeBooking = guest.bookings.find(b =>
+                        ['confirmed', 'checked_in'].includes(b.status) &&
+                        new Date(b.check_out_date) >= new Date()
+                    );
+                    const targetBooking = activeBooking || guest.bookings[0];
+                    if (targetBooking && targetBooking.guest_token) {
+                        guestLink = `https://amplodge.org/guest/${targetBooking.guest_token}`;
+                    }
+                }
 
-            if (channel === 'sms' && guest.phone && arkeselApiKey) {
-                result = await sendSms(guest.phone, personalizedContent, arkeselApiKey);
-            } else if (channel === 'email' && guest.email && guest.email.includes('@') && resendApiKey) {
-                // For email, we might want personalized Subject too?
-                const personalizedSubject = (subject || 'Update from AMP Lodge').replace(/{{name}}/g, guestName);
-                result = await sendEmail(guest.email, personalizedSubject, personalizedContent, resendApiKey);
+                const personalizedContent = content
+                    .replace(/{{name}}/g, guestName)
+                    .replace(/{{guest_link}}/g, guestLink);
+
+                let result = { success: false, skipped: false };
+
+                if (channel === 'sms' && guest.phone && arkeselApiKey) {
+                    result = await sendSms(guest.phone, personalizedContent, arkeselApiKey);
+                } else if (channel === 'email' && guest.email && guest.email.includes('@') && resendApiKey) {
+                    const personalizedSubject = (subject || 'Update from AMP Lodge').replace(/{{name}}/g, guestName);
+                    result = await sendEmail(guest.email, personalizedSubject, personalizedContent, resendApiKey);
+                } else {
+                    // Missing contact info for channel
+                    return { success: false, skipped: true };
+                }
+                return { success: result.success === true, skipped: false }; // Normalize result
+            } catch (e) {
+                console.error(`Error processing guest ${guest.id}:`, e);
+                return { success: false, skipped: false };
             }
+        };
 
-            if (result.success) successCount++;
-            else failCount++;
+        // Process in chunks of 10 to balance speed and rate limits
+        const chunkSize = 10;
+        for (let i = 0; i < guests.length; i += chunkSize) {
+            const chunk = guests.slice(i, i + chunkSize);
+            const results = await Promise.all(chunk.map(processGuest));
+
+            results.forEach(res => {
+                if (res.skipped) skippedCount++;
+                else if (res.success) successCount++;
+                else failCount++;
+            });
         }
 
         return {
@@ -124,7 +154,7 @@ exports.handler = async (event) => {
             body: JSON.stringify({
                 success: true,
                 message: 'Campaign Triggered',
-                stats: { sent: successCount, failed: failCount, total: guests.length }
+                stats: { sent: successCount, failed: failCount, skipped: skippedCount, total: guests.length }
             })
         };
 

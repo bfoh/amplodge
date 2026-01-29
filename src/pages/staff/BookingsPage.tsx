@@ -15,7 +15,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../../components/ui/alert-dialog"
-import { Plus, Calendar, User, Home, Search, Trash2, Users } from 'lucide-react'
+import { Plus, Calendar, User, Home, Search, Trash2, Users, QrCode, ExternalLink, Smartphone, Printer } from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
 import { blink } from '../../blink/client'
 import { toast } from 'sonner'
 import { Badge } from '../../components/ui/badge'
@@ -53,6 +54,7 @@ interface BookingWithDetails {
   numGuests: number
   nights: number
   paymentMethod?: string
+  guestToken?: string
 }
 
 export function BookingsPage() {
@@ -68,6 +70,7 @@ export function BookingsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [qrBooking, setQrBooking] = useState<BookingWithDetails | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [formData, setFormData] = useState({
     propertyId: '',
@@ -167,7 +170,8 @@ export function BookingsPage() {
           totalPrice: b.amount,
           numGuests: b.numGuests,
           nights,
-          paymentMethod: b.payment_method || b.paymentMethod || 'Not paid'
+          paymentMethod: b.payment_method || b.paymentMethod || 'Not paid',
+          guestToken: b.guest_token
         }
       })
 
@@ -372,6 +376,10 @@ export function BookingsPage() {
     }
   }
 
+  // const handlePortalClick = async (booking: BookingWithDetails) => {
+  //   // Legacy function removed
+  // }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'confirmed':
@@ -408,6 +416,13 @@ export function BookingsPage() {
           <p className="text-muted-foreground mt-1">Manage all your room bookings</p>
         </div>
         <div className="flex gap-2">
+          <Button
+            className="bg-accent text-accent-foreground hover:bg-accent/80 border border-accent-foreground/20 shadow-sm font-medium transition-all duration-200 hover:shadow-md"
+            onClick={() => setQrBooking({} as any)}
+          >
+            <QrCode className="w-4 h-4 mr-2" />
+            Print Room QR
+          </Button>
           <Button
             className="bg-accent text-accent-foreground hover:bg-accent/80 border border-accent-foreground/20 shadow-sm font-medium transition-all duration-200 hover:shadow-md"
             onClick={() => navigate('/staff/onsite')}
@@ -708,6 +723,97 @@ export function BookingsPage() {
           ))}
         </div>
       )}
+
+      {/* QR Code Dialog */}
+      <Dialog open={!!qrBooking} onOpenChange={(open) => !open && setQrBooking(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Room QR Code</DialogTitle>
+            <DialogDescription>
+              Static QR Code for Room {qrBooking?.roomNumber || 'Guests'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col items-center justify-center p-6 space-y-6">
+            <div id="printable-qr" className="bg-white p-4 rounded-xl shadow-sm border">
+              <QRCodeSVG
+                value="https://amplodge.org/guest"
+                size={200}
+                level="H"
+                includeMargin={true}
+              />
+            </div>
+
+            <div className="text-center space-y-2">
+              <p className="text-sm font-medium">Scan to login</p>
+              <div className="flex items-center gap-2 justify-center">
+                <code className="bg-muted px-2 py-1 rounded text-xs select-all">
+                  https://amplodge.org/guest
+                </code>
+              </div>
+            </div>
+
+            <div className="w-full bg-blue-50 p-3 rounded-lg flex items-start gap-3 text-sm text-blue-800">
+              <Smartphone className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">Instructions</p>
+                <p className="text-blue-700/80 text-xs">
+                  Print this QR code and place it in the room. Guests will scan it and enter their Room Number + First Name to login.
+                </p>
+              </div>
+            </div>
+
+            <Button
+              onClick={() => {
+                const printContent = document.getElementById('printable-qr');
+                if (!printContent) return;
+                const printWindow = window.open('', '_blank');
+                if (!printWindow) return;
+                printWindow.document.write(`
+                  <html>
+                    <head>
+                      <title>AMP Lodge - Guest QR Code</title>
+                      <style>
+                        body { font-family: Arial, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+                        .container { text-align: center; padding: 40px; }
+                        h1 { margin-bottom: 10px; }
+                        p { color: #666; margin-bottom: 30px; }
+                        .qr-container { background: white; padding: 20px; border: 2px solid #ddd; border-radius: 12px; display: inline-block; }
+                        .url { margin-top: 20px; font-size: 14px; color: #333; }
+                        .instructions { margin-top: 30px; padding: 20px; background: #f0f9ff; border-radius: 8px; max-width: 400px; }
+                        .instructions h3 { margin: 0 0 10px 0; color: #1e40af; }
+                        .instructions p { margin: 0; color: #1e40af; font-size: 14px; }
+                      </style>
+                    </head>
+                    <body>
+                      <div class="container">
+                        <h1>AMP Lodge</h1>
+                        <p>Guest Service Portal</p>
+                        <div class="qr-container">
+                          ${printContent.innerHTML}
+                        </div>
+                        <div class="url"><strong>https://amplodge.org/guest</strong></div>
+                        <div class="instructions">
+                          <h3>How to Login</h3>
+                          <p>Scan this QR code with your phone camera, then enter your Room Number and First Name.</p>
+                        </div>
+                      </div>
+                    </body>
+                  </html>
+                `);
+                printWindow.document.close();
+                printWindow.focus();
+                setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
+              }}
+              className="w-full"
+              size="lg"
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              Print QR Code
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
 
       <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
         <AlertDialogContent>

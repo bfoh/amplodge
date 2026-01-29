@@ -12,6 +12,8 @@ import { Send, Users, CheckCircle, AlertCircle, Sparkles, Wand2 } from "lucide-r
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 
 // Types
+import { QRCodeGenerator } from "@/components/marketing/QRCodeGenerator"
+
 type Template = {
     id: string
     name: string
@@ -108,14 +110,31 @@ export default function MarketingPage() {
                     dryRun: false
                 })
             })
-            const data = await response.json()
+            const rawText = await response.text();
+            let data;
+            try {
+                data = JSON.parse(rawText);
+            } catch (e) {
+                console.error("Non-JSON Response:", rawText);
+                throw new Error(`Server Error: ${response.status} (${response.statusText}). Likely timeout due to high volume.`);
+            }
 
             if (response.ok) {
-                toast.success(`Success! Sent to ${data.stats.sent} guests.`)
-                setRecipientCount(null) // Reset
-                setSelectedTemplate(null) // Close editor?
+                const { sent, failed, skipped, total } = data.stats;
+                let msg = `Sent: ${sent}`;
+                if (failed > 0) msg += `, Failed: ${failed}`;
+                if (skipped > 0) msg += `, Skipped: ${skipped} (missing contact info)`;
+
+                if (sent === 0 && skipped === total) {
+                    toast.warning("No messages sent. All guests were skipped (missing email/phone).");
+                } else {
+                    toast.success(`Campaign Complete! ${msg}`);
+                }
+
+                setRecipientCount(null)
+                setSelectedTemplate(null)
             } else {
-                throw new Error(data.error)
+                throw new Error(data.error || "Unknown error")
             }
         } catch (err: any) {
             toast.error(err.message || "Failed to send campaign")
@@ -141,14 +160,22 @@ export default function MarketingPage() {
                     channel: selectedTemplate.channel
                 })
             })
-            const data = await response.json()
+
+            const rawText = await response.text()
+            let data
+            try {
+                data = JSON.parse(rawText)
+            } catch (e) {
+                console.error("JSON Parse Error. Raw response:", rawText)
+                throw new Error(`Server Error: ${response.status} ${response.statusText}. Check console for details.`)
+            }
 
             if (response.ok) {
                 setEditContent(data.generatedText)
                 toast.success("Content generated!")
                 setAiPrompt("") // Clear prompt after success? Or keep it? keeping it might be better for iteration.
             } else {
-                throw new Error(data.error)
+                throw new Error(data.error || "Unknown server error")
             }
         } catch (err: any) {
             console.error(err)
@@ -160,167 +187,193 @@ export default function MarketingPage() {
 
     if (loading) return <div className="p-8">Loading templates...</div>
 
+
     return (
         <div className="container mx-auto p-6 max-w-6xl space-y-8">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight">Marketing Center</h1>
-                <p className="text-muted-foreground mt-2">
-                    Select a template, customize your message, and engage with your guests.
-                </p>
+            <div className="flex justify-between items-center">
+                <div>
+                    <h1 className="text-3xl font-bold tracking-tight">Marketing Center</h1>
+                    <p className="text-muted-foreground mt-2">
+                        Manage your marketing campaigns and tools.
+                    </p>
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Template List */}
-                <div className="md:col-span-1 space-y-4">
-                    <h2 className="text-lg font-semibold">Templates</h2>
-                    <Tabs defaultValue="all" className="w-full">
-                        <TabsList className="w-full">
-                            <TabsTrigger value="all" className="flex-1">All</TabsTrigger>
-                            <TabsTrigger value="sms" className="flex-1">SMS</TabsTrigger>
-                            <TabsTrigger value="email" className="flex-1">Email</TabsTrigger>
-                        </TabsList>
-                        <TabsContent value="all" className="space-y-3 mt-4">
-                            {templates.map(t => (
-                                <TemplateCard key={t.id} template={t} onClick={() => handleSelectTemplate(t)} active={selectedTemplate?.id === t.id} />
-                            ))}
-                        </TabsContent>
-                        <TabsContent value="sms" className="space-y-3 mt-4">
-                            {templates.filter(t => t.channel === 'sms').map(t => (
-                                <TemplateCard key={t.id} template={t} onClick={() => handleSelectTemplate(t)} active={selectedTemplate?.id === t.id} />
-                            ))}
-                        </TabsContent>
-                        <TabsContent value="email" className="space-y-3 mt-4">
-                            {templates.filter(t => t.channel === 'email').map(t => (
-                                <TemplateCard key={t.id} template={t} onClick={() => handleSelectTemplate(t)} active={selectedTemplate?.id === t.id} />
-                            ))}
-                        </TabsContent>
-                    </Tabs>
-                </div>
+            <Tabs defaultValue="campaigns" className="w-full">
+                <TabsList className="mb-4 w-full justify-start border-b rounded-none h-auto p-0 bg-transparent space-x-6">
+                    <TabsTrigger
+                        value="campaigns"
+                        className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-2"
+                    >
+                        Campaigns & Templates
+                    </TabsTrigger>
+                    <TabsTrigger
+                        value="qrcode"
+                        className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-2"
+                    >
+                        QR Code Generator
+                    </TabsTrigger>
+                </TabsList>
 
-                {/* Editor Area */}
-                <div className="md:col-span-2">
-                    {selectedTemplate ? (
-                        <Card className="h-full flex flex-col">
-                            <CardHeader>
-                                <CardTitle className="flex justify-between items-center">
-                                    <span>Edit Campaign</span>
-                                    <span className="text-xs uppercase bg-secondary px-2 py-1 rounded">{selectedTemplate.channel}</span>
-                                </CardTitle>
-                                <CardDescription>
-                                    Customize the message before sending. Use <code>{`{{name}}`}</code> to insert guest name.
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-4 flex-1">
-                                {selectedTemplate.channel === 'email' && (
-                                    <div className="space-y-2">
-                                        <Label>Subject Line</Label>
-                                        <Input
-                                            value={editSubject}
-                                            onChange={e => setEditSubject(e.target.value)}
-                                            placeholder="Email Subject..."
-                                        />
-                                    </div>
-                                )}
+                <TabsContent value="campaigns" className="mt-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {/* Template List */}
+                        <div className="md:col-span-1 space-y-4">
+                            <h2 className="text-lg font-semibold">Templates</h2>
+                            <Tabs defaultValue="all" className="w-full">
+                                <TabsList className="w-full">
+                                    <TabsTrigger value="all" className="flex-1">All</TabsTrigger>
+                                    <TabsTrigger value="sms" className="flex-1">SMS</TabsTrigger>
+                                    <TabsTrigger value="email" className="flex-1">Email</TabsTrigger>
+                                </TabsList>
+                                <TabsContent value="all" className="space-y-3 mt-4">
+                                    {templates.map(t => (
+                                        <TemplateCard key={t.id} template={t} onClick={() => handleSelectTemplate(t)} active={selectedTemplate?.id === t.id} />
+                                    ))}
+                                </TabsContent>
+                                <TabsContent value="sms" className="space-y-3 mt-4">
+                                    {templates.filter(t => t.channel === 'sms').map(t => (
+                                        <TemplateCard key={t.id} template={t} onClick={() => handleSelectTemplate(t)} active={selectedTemplate?.id === t.id} />
+                                    ))}
+                                </TabsContent>
+                                <TabsContent value="email" className="space-y-3 mt-4">
+                                    {templates.filter(t => t.channel === 'email').map(t => (
+                                        <TemplateCard key={t.id} template={t} onClick={() => handleSelectTemplate(t)} active={selectedTemplate?.id === t.id} />
+                                    ))}
+                                </TabsContent>
+                            </Tabs>
+                        </div>
 
-                                <div className="space-y-2 h-full">
-                                    <Label>Message Content</Label>
-                                    <Textarea
-                                        value={editContent}
-                                        onChange={e => setEditContent(e.target.value)}
-                                        className={selectedTemplate.channel === 'email' ? "min-h-[300px] font-mono text-sm" : "min-h-[150px]"}
-                                        placeholder="Type your message..."
-                                    />
-                                    {selectedTemplate.channel === 'sms' && (
-                                        <p className="text-xs text-muted-foreground text-right">
-                                            {editContent.length} characters (approx {Math.ceil(editContent.length / 160)} segments)
-                                        </p>
-                                    )}
-                                </div>
-
-
-                                {/* AI Generator Section */}
-                                <div className="pt-4 border-t space-y-3 bg-muted/20 p-4 rounded-lg">
-                                    <div className="flex items-center gap-2">
-                                        <Wand2 className="w-4 h-4 text-purple-600" />
-                                        <Label className="text-purple-900 font-semibold">AI Assistant</Label>
-                                    </div>
-                                    <div className="flex gap-2">
-                                        <Input
-                                            value={aiPrompt}
-                                            onChange={e => setAiPrompt(e.target.value)}
-                                            placeholder="E.g., 'Make it more exciting for Christmas' or 'Shorten this'"
-                                            className="bg-white"
-                                            onKeyDown={e => {
-                                                if (e.key === 'Enter' && !e.shiftKey) {
-                                                    e.preventDefault()
-                                                    handleGenerateAI()
-                                                }
-                                            }}
-                                        />
-                                        <Button
-                                            onClick={handleGenerateAI}
-                                            disabled={generating || !aiPrompt.trim()}
-                                            variant="secondary"
-                                            className="shrink-0 bg-purple-100 text-purple-700 hover:bg-purple-200"
-                                        >
-                                            {generating ? (
-                                                <Sparkles className="w-4 h-4 animate-spin mr-2" />
-                                            ) : (
-                                                <Sparkles className="w-4 h-4 mr-2" />
-                                            )}
-                                            {generating ? 'Writing...' : 'Generate'}
-                                        </Button>
-                                    </div>
-                                    <p className="text-[10px] text-muted-foreground">
-                                        Powered by Gemini. The AI will rewrite your current message based on your instructions.
-                                    </p>
-                                </div>
-                            </CardContent>
-                            <CardFooter className="justify-between border-t p-6">
-                                <Button variant="outline" onClick={() => setSelectedTemplate(null)}>Cancel</Button>
-
-                                <Dialog>
-                                    <DialogTrigger asChild>
-                                        <Button onClick={handleDryRun} disabled={sending}>
-                                            {sending ? 'Analyzing...' : 'Review & Send'}
-                                        </Button>
-                                    </DialogTrigger>
-                                    <DialogContent>
-                                        <DialogHeader>
-                                            <DialogTitle>Ready to Send?</DialogTitle>
-                                            <DialogDescription>
-                                                This campaign will be sent to <strong>{recipientCount !== null ? recipientCount : '...'} guests</strong>.
-                                            </DialogDescription>
-                                        </DialogHeader>
-                                        <div className="py-4">
-                                            <div className="bg-muted p-4 rounded-md text-sm mb-4">
-                                                <p className="font-semibold mb-1">Preview:</p>
-                                                <p className="whitespace-pre-wrap">{editContent.replace("{{name}}", "John Doe")}</p>
+                        {/* Editor Area */}
+                        <div className="md:col-span-2">
+                            {selectedTemplate ? (
+                                <Card className="h-full flex flex-col">
+                                    <CardHeader>
+                                        <CardTitle className="flex justify-between items-center">
+                                            <span>Edit Campaign</span>
+                                            <span className="text-xs uppercase bg-secondary px-2 py-1 rounded">{selectedTemplate.channel}</span>
+                                        </CardTitle>
+                                        <CardDescription>
+                                            Customize the message before sending. Use <code>{`{{name}}`}</code> for name and <code>{`{{guest_link}}`}</code> for the guest portal URL.
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="space-y-4 flex-1">
+                                        {selectedTemplate.channel === 'email' && (
+                                            <div className="space-y-2">
+                                                <Label>Subject Line</Label>
+                                                <Input
+                                                    value={editSubject}
+                                                    onChange={e => setEditSubject(e.target.value)}
+                                                    placeholder="Email Subject..."
+                                                />
                                             </div>
-                                            {recipientCount === 0 && (
-                                                <p className="text-red-500 text-sm">No eligible guests found to receive this message.</p>
+                                        )}
+
+                                        <div className="space-y-2 flex flex-col min-h-[150px]">
+                                            <Label>Message Content</Label>
+                                            <Textarea
+                                                value={editContent}
+                                                onChange={e => setEditContent(e.target.value)}
+                                                className={selectedTemplate.channel === 'email' ? "min-h-[300px] font-mono text-sm" : "min-h-[150px]"}
+                                                placeholder="Type your message..."
+                                            />
+                                            {selectedTemplate.channel === 'sms' && (
+                                                <p className="text-xs text-muted-foreground text-right">
+                                                    {editContent.length} characters (approx {Math.ceil(editContent.length / 160)} segments)
+                                                </p>
                                             )}
                                         </div>
-                                        <DialogFooter>
-                                            <Button variant="outline" onClick={() => setRecipientCount(null)}>Back to Edit</Button>
-                                            <Button onClick={handleSendCampaign} disabled={sending || recipientCount === 0} className="bg-green-600 hover:bg-green-700">
-                                                {sending ? 'Sending...' : 'Confirm & Send'}
-                                            </Button>
-                                        </DialogFooter>
-                                    </DialogContent>
-                                </Dialog>
-                            </CardFooter>
-                        </Card>
-                    ) : (
-                        <div className="h-full flex items-center justify-center border-2 border-dashed rounded-xl p-12 text-center text-muted-foreground bg-slate-50">
-                            <div className="space-y-4">
-                                <Sparkles className="h-12 w-12 mx-auto text-slate-300" />
-                                <p>Select a template from the left to get started.</p>
-                            </div>
+
+
+                                        {/* AI Generator Section */}
+                                        <div className="pt-4 border-t space-y-3 bg-muted/20 p-4 rounded-lg">
+                                            <div className="flex items-center gap-2">
+                                                <Wand2 className="w-4 h-4 text-purple-600" />
+                                                <Label className="text-purple-900 font-semibold">AI Assistant</Label>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <Input
+                                                    value={aiPrompt}
+                                                    onChange={e => setAiPrompt(e.target.value)}
+                                                    placeholder="E.g., 'Make it more exciting for Christmas' or 'Shorten this'"
+                                                    className="bg-white"
+                                                    onKeyDown={e => {
+                                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                                            e.preventDefault()
+                                                            handleGenerateAI()
+                                                        }
+                                                    }}
+                                                />
+                                                <Button
+                                                    onClick={handleGenerateAI}
+                                                    disabled={generating || !aiPrompt.trim()}
+                                                    variant="secondary"
+                                                    className="shrink-0 bg-purple-100 text-purple-700 hover:bg-purple-200"
+                                                >
+                                                    {generating ? (
+                                                        <Sparkles className="w-4 h-4 animate-spin mr-2" />
+                                                    ) : (
+                                                        <Sparkles className="w-4 h-4 mr-2" />
+                                                    )}
+                                                    {generating ? 'Writing...' : 'Generate'}
+                                                </Button>
+                                            </div>
+                                            <p className="text-[10px] text-muted-foreground">
+                                                Powered by Gemini. The AI will rewrite your current message based on your instructions.
+                                            </p>
+                                        </div>
+                                    </CardContent>
+                                    <CardFooter className="justify-between border-t p-6">
+                                        <Button variant="outline" onClick={() => setSelectedTemplate(null)}>Cancel</Button>
+
+                                        <Dialog>
+                                            <DialogTrigger asChild>
+                                                <Button onClick={handleDryRun} disabled={sending}>
+                                                    {sending ? 'Analyzing...' : 'Review & Send'}
+                                                </Button>
+                                            </DialogTrigger>
+                                            <DialogContent className="max-h-[85vh] overflow-y-auto">
+                                                <DialogHeader>
+                                                    <DialogTitle>Ready to Send?</DialogTitle>
+                                                    <DialogDescription>
+                                                        This campaign will be sent to <strong>{recipientCount !== null ? recipientCount : '...'} guests</strong>.
+                                                    </DialogDescription>
+                                                </DialogHeader>
+                                                <div className="py-4">
+                                                    <div className="bg-muted p-4 rounded-md text-sm mb-4">
+                                                        <p className="font-semibold mb-1">Preview:</p>
+                                                        <p className="whitespace-pre-wrap">{editContent.replace("{{name}}", "John Doe").replace("{{guest_link}}", "https://amplodge.org/guest/...")}</p>
+                                                    </div>
+                                                    {recipientCount === 0 && (
+                                                        <p className="text-red-500 text-sm">No eligible guests found to receive this message.</p>
+                                                    )}
+                                                </div>
+                                                <DialogFooter>
+                                                    <Button variant="outline" onClick={() => setRecipientCount(null)}>Back to Edit</Button>
+                                                    <Button onClick={handleSendCampaign} disabled={sending || recipientCount === 0} className="bg-green-600 hover:bg-green-700">
+                                                        {sending ? 'Sending...' : 'Confirm & Send'}
+                                                    </Button>
+                                                </DialogFooter>
+                                            </DialogContent>
+                                        </Dialog>
+                                    </CardFooter>
+                                </Card>
+                            ) : (
+                                <div className="h-full flex items-center justify-center border-2 border-dashed rounded-xl p-12 text-center text-muted-foreground bg-slate-50">
+                                    <div className="space-y-4">
+                                        <Sparkles className="h-12 w-12 mx-auto text-slate-300" />
+                                        <p>Select a template from the left to get started.</p>
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                    )}
-                </div>
-            </div>
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="qrcode" className="mt-6">
+                    <QRCodeGenerator />
+                </TabsContent>
+            </Tabs>
         </div >
     )
 }

@@ -39,6 +39,7 @@ import GuestLayout from './layouts/GuestLayout'
 import GuestDashboard from './pages/guest/GuestDashboard'
 import { ConciergePage } from './pages/guest/ConciergePage'
 import { ServicesPage } from './pages/guest/ServicesPage'
+import { GuestLoginPage } from './pages/guest/GuestLoginPage'
 import VoiceWidget from './components/voice-agent/VoiceWidget'
 
 const HomePage = lazy(() => import('./pages/HomePage').then(m => ({ default: m.HomePage })))
@@ -159,6 +160,7 @@ function App() {
           <Suspense fallback={<div className="flex items-center justify-center py-12"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
             <Routes>
               {/* Guest Portal Routes */}
+              <Route path="/guest" element={<GuestLoginPage />} />
               <Route path="/guest/:token" element={<GuestLayout />}>
                 <Route index element={<GuestDashboard />} />
                 <Route path="concierge" element={<ConciergePage />} />
