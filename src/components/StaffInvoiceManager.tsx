@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toast } from 'sonner'
 import { format } from 'date-fns'
-import { createInvoiceData, downloadInvoicePDF, printInvoice, createPreInvoiceData, downloadPreInvoicePDF, PreInvoiceData, createGroupInvoiceData, downloadGroupInvoicePDF } from '@/services/invoice-service'
+import { createInvoiceData, downloadInvoicePDF, printInvoice, createPreInvoiceData, downloadPreInvoicePDF, printPreInvoice, PreInvoiceData, createGroupInvoiceData, downloadGroupInvoicePDF } from '@/services/invoice-service'
 import { blink } from '@/blink/client'
 
 interface InvoiceRecord {
@@ -324,7 +324,7 @@ export function StaffInvoiceManager() {
   const handlePrintInvoice = async (invoice: InvoiceRecord) => {
     setPrinting(invoice.id)
     try {
-      console.log('🖨️ [StaffInvoiceManager] Printing invoice for booking:', invoice.id)
+      console.log('🖨️ [StaffInvoiceManager] Printing invoice for booking:', invoice.id, 'isPreInvoice:', invoice.isPreInvoice)
 
       const db = blink.db as any
 
@@ -354,14 +354,20 @@ export function StaffInvoiceManager() {
         }
       }
 
-      // Generate invoice data
-      const invoiceData = await createInvoiceData(bookingWithDetails, room)
-
-      // Override invoice number to match the record
-      invoiceData.invoiceNumber = invoice.invoiceNumber
-
-      await printInvoice(invoiceData)
-      toast.success(`Invoice ${invoice.invoiceNumber} sent to printer!`)
+      if (invoice.isPreInvoice || invoice.invoiceNumber.startsWith('PRE-')) {
+        // Use same pre-invoice template as download
+        console.log('📋 [StaffInvoiceManager] Using PRE-INVOICE template for printing')
+        const preInvoiceData = await createPreInvoiceData(bookingWithDetails, room)
+        preInvoiceData.invoiceNumber = invoice.invoiceNumber
+        await printPreInvoice(preInvoiceData)
+        toast.success(`Pre-Invoice ${invoice.invoiceNumber} sent to printer!`)
+      } else {
+        // Use regular invoice template for paid invoices
+        const invoiceData = await createInvoiceData(bookingWithDetails, room)
+        invoiceData.invoiceNumber = invoice.invoiceNumber
+        await printInvoice(invoiceData)
+        toast.success(`Invoice ${invoice.invoiceNumber} sent to printer!`)
+      }
     } catch (error: any) {
       console.error('❌ [StaffInvoiceManager] Failed to print invoice:', error)
       toast.error(`Failed to print invoice: ${error.message}`)

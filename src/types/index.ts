@@ -45,6 +45,9 @@ export interface Booking {
   createdAt: string
   paymentMethod?: string
   invoiceNumber?: string
+  // Payment tracking fields
+  amountPaid?: number          // Amount guest has paid so far
+  paymentStatus?: 'full' | 'part' | 'pending'  // Payment status
   // Discount fields
   discountAmount?: number      // Discount applied at check-in (in GH₵)
   discountReason?: string      // Reason for discount

@@ -31,18 +31,45 @@ export async function sendBookingConfirmation(
   guest: Guest,
   room: Room,
   booking: Booking,
-  attachments?: any[]
+  attachments?: any[],
+  paymentInfo?: {
+    amountPaid: number
+    paymentStatus: 'full' | 'part' | 'pending'
+    totalPrice: number
+  }
 ): Promise<void> {
   try {
     console.log('📧 [BookingConfirmation] Starting confirmation email...', {
       guestEmail: guest.email,
       guestName: guest.name,
       roomNumber: room.roomNumber,
-      bookingId: booking.id
+      bookingId: booking.id,
+      paymentInfo
     })
 
+    const settings = await hotelSettingsService.getHotelSettings()
+    const currency = settings.currency || 'GHS'
     const checkInDate = new Date(booking.checkIn)
     const checkOutDate = new Date(booking.checkOut)
+
+    // Payment-aware messaging
+    let paymentBullet = '<li>Full payment is due upon check-in</li>'
+    let paymentNote = ''
+    if (paymentInfo) {
+      if (paymentInfo.paymentStatus === 'full') {
+        paymentBullet = `<li style="color: #16a34a; font-weight: bold;">✅ Your payment of ${formatCurrencySync(paymentInfo.totalPrice, currency)} has been received in full</li>`
+      } else if (paymentInfo.paymentStatus === 'part') {
+        const remaining = Math.max(0, paymentInfo.totalPrice - paymentInfo.amountPaid)
+        paymentBullet = `<li style="color: #d97706; font-weight: bold;">💰 Part payment of ${formatCurrencySync(paymentInfo.amountPaid, currency)} received</li>`
+        paymentNote = `
+          <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 15px; margin-top: 20px;">
+            <p style="margin: 0; color: #92400e; font-weight: bold;">💳 Payment Summary</p>
+            <p style="margin: 5px 0 0; color: #78350f;">Amount Paid: <strong>${formatCurrencySync(paymentInfo.amountPaid, currency)}</strong></p>
+            <p style="margin: 5px 0 0; color: #dc2626;">Remaining Balance: <strong>${formatCurrencySync(remaining, currency)}</strong> — due at check-in</p>
+          </div>
+        `
+      }
+    }
 
     const htmlContent = generateEmailHtml({
       title: 'Booking Confirmed!',
@@ -66,11 +93,13 @@ export async function sendBookingConfirmation(
           </div>
         </div>
 
+        ${paymentNote}
+
         <h3 style="margin-top: 30px; font-size: 18px; color: #8B4513;">Check-in Information</h3>
         <ul>
           <li>Check-in time is from 2:00 PM</li>
           <li>Please present valid ID upon arrival</li>
-          <li>Full payment is due upon check-in</li>
+          ${paymentBullet}
         </ul>
         
         <p style="margin-top: 30px;">
@@ -79,6 +108,13 @@ export async function sendBookingConfirmation(
         </p>
       `
     })
+
+    // Build text version
+    const paymentTextLine = paymentInfo?.paymentStatus === 'full'
+      ? `- Payment of ${formatCurrencySync(paymentInfo.totalPrice, currency)} received in full`
+      : paymentInfo?.paymentStatus === 'part'
+        ? `- Part payment of ${formatCurrencySync(paymentInfo.amountPaid, currency)} received. Remaining: ${formatCurrencySync(Math.max(0, paymentInfo.totalPrice - paymentInfo.amountPaid), currency)} due at check-in`
+        : '- Full payment is due upon check-in'
 
     // Send email notification
     const result = await sendTransactionalEmail({
@@ -101,7 +137,7 @@ Reservation Details:
 Check-in Information:
 - Check-in time is from 2:00 PM
 - Please present valid ID upon arrival
-- Full payment is due upon check-in
+${paymentTextLine}
 
 Best regards,
 The AMP LODGE Team
@@ -140,6 +176,10 @@ export async function sendCheckInNotification(
   paymentDetails?: {
     method: string
     amount: number | string
+  },
+  priorPayment?: {
+    amountPaid: number
+    paymentStatus: 'full' | 'part' | 'pending'
   }
 ): Promise<void> {
   try {
@@ -148,13 +188,38 @@ export async function sendCheckInNotification(
       guestName: guest.name,
       roomNumber: room.roomNumber,
       bookingId: booking.id,
-      paymentDetails
+      paymentDetails,
+      priorPayment
     })
 
     const checkInDate = new Date(booking.actualCheckIn || booking.checkIn)
     const checkOutDate = new Date(booking.checkOut)
     const settings = await hotelSettingsService.getHotelSettings()
     const currency = settings.currency || 'GHS'
+
+    // Build payment section considering prior payments
+    let paymentHtml = ''
+    if (priorPayment && priorPayment.amountPaid > 0 && paymentDetails) {
+      const paymentAmount = typeof paymentDetails.amount === 'number' ? paymentDetails.amount : parseFloat(paymentDetails.amount) || 0
+      const totalPaid = priorPayment.amountPaid + paymentAmount
+      paymentHtml = `
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Prior Payment:</span> ${formatCurrencySync(priorPayment.amountPaid, currency)}
+          </div>
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Paid at Check-in:</span> ${formatCurrencySync(paymentAmount, currency)} via ${paymentDetails.method}
+          </div>
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Total Paid:</span> <strong>${formatCurrencySync(totalPaid, currency)}</strong>
+          </div>
+      `
+    } else if (paymentDetails) {
+      paymentHtml = `
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Payment Verified:</span> ${typeof paymentDetails.amount === 'number' ? formatCurrencySync(paymentDetails.amount, currency) : paymentDetails.amount} via ${paymentDetails.method}
+          </div>
+      `
+    }
 
     const htmlContent = generateEmailHtml({
       title: 'Welcome to AMP Lodge',
@@ -177,10 +242,7 @@ export async function sendCheckInNotification(
           <div style="${EMAIL_STYLES.infoRow}">
             <span style="${EMAIL_STYLES.infoLabel}">Booking ID:</span> ${booking.id}
           </div>
-          ${paymentDetails ? `
-          <div style="${EMAIL_STYLES.infoRow}">
-            <span style="${EMAIL_STYLES.infoLabel}">Payment Verified:</span> ${typeof paymentDetails.amount === 'number' ? formatCurrencySync(paymentDetails.amount, currency) : paymentDetails.amount} via ${paymentDetails.method}
-          </div>` : ''}
+          ${paymentHtml}
         </div>
 
         <div style="background-color: #F5F5F5; border-radius: 4px; padding: 20px; margin-top: 20px;">
@@ -217,6 +279,8 @@ Booking Details:
 - Check-In: ${checkInDate.toLocaleDateString()}
 - Check-Out: ${checkOutDate.toLocaleDateString()}
 - Booking ID: ${booking.id}
+${priorPayment && priorPayment.amountPaid > 0 ? `- Prior Payment: ${formatCurrencySync(priorPayment.amountPaid, currency)}` : ''}
+${paymentDetails ? `- Payment at Check-in: ${typeof paymentDetails.amount === 'number' ? formatCurrencySync(paymentDetails.amount, currency) : paymentDetails.amount} via ${paymentDetails.method}` : ''}
 
 Important Information:
 - WiFi password available at the front desk

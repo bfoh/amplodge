@@ -56,6 +56,8 @@ export function OnsiteBookingPage() {
     specialRequests: ''
   })
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'mobile_money' | 'card' | 'not_paid'>('not_paid')
+  const [paymentType, setPaymentType] = useState<'full' | 'part' | 'pending'>('pending')
+  const [amountPaid, setAmountPaid] = useState<number>(0)
   const [loading, setLoading] = useState(false)
 
   // Billing Adjustments State
@@ -334,8 +336,8 @@ export function OnsiteBookingPage() {
           roomType: item.roomTypeName,
           roomNumber: item.roomNumber,
           dates: {
-            checkIn: item.checkIn.toISOString(),
-            checkOut: item.checkOut.toISOString()
+            checkIn: format(item.checkIn, "yyyy-MM-dd'T'HH:mm:ss"),
+            checkOut: format(item.checkOut, "yyyy-MM-dd'T'HH:mm:ss")
           },
           numGuests: item.numGuests,
           amount: itemTotal,
@@ -343,11 +345,13 @@ export function OnsiteBookingPage() {
           source: 'reception',
           payment: {
             method: paymentMethod,
-            status: paymentMethod === 'not_paid' ? 'pending' : 'completed',
-            amount: itemTotal,
+            status: paymentType === 'full' ? 'completed' : 'pending',
+            amount: paymentType === 'full' ? itemTotal : (paymentType === 'part' ? amountPaid : 0),
             reference: `PAY-${Date.now()}-${index}`,
-            paidAt: paymentMethod === 'not_paid' ? undefined : new Date().toISOString()
+            paidAt: paymentType !== 'pending' ? new Date().toISOString() : undefined
           },
+          amountPaid: paymentType === 'full' ? grandTotal : (paymentType === 'part' ? amountPaid : 0),
+          paymentStatus: paymentType,
           createdBy: user?.id,
           createdByName: user?.user_metadata?.full_name || user?.email,
           ...(index === 0 ? { subtotal: totalPrice } : {}) // Store subtotal reference
@@ -368,6 +372,17 @@ export function OnsiteBookingPage() {
       })
 
       if (bookingEngine.getOnlineStatus()) {
+        // Build payment status section for the group email
+        const paymentStatusHtml = paymentType === 'full'
+          ? `<p style="color: #16a34a; font-weight: bold;">✅ Full payment of ${formatCurrencySync(grandTotal, currency)} has been received. Thank you!</p>`
+          : paymentType === 'part'
+            ? `<div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 12px; margin: 10px 0;">
+              <p style="margin: 0; color: #92400e; font-weight: bold;">💰 Part Payment Received</p>
+              <p style="margin: 4px 0 0; color: #78350f;">Amount Paid: <strong>${formatCurrencySync(amountPaid, currency)}</strong></p>
+              <p style="margin: 4px 0 0; color: #dc2626;">Remaining Balance: <strong>${formatCurrencySync(Math.max(0, grandTotal - amountPaid), currency)}</strong> — due at check-in</p>
+            </div>`
+            : `<p style="color: #78350f;">⏳ Full payment of <strong>${formatCurrencySync(grandTotal, currency)}</strong> is due upon check-in.</p>`
+
         const onsiteEmailPayload = {
           to: guestInfo.email,
           from: 'AMP Lodge Bookings <bookings@updates.amplodge.org>',
@@ -379,6 +394,7 @@ export function OnsiteBookingPage() {
                 <p>Your group reservation for ${cart.length} room(s) has been confirmed.</p>
                 <p><strong>Total Rooms:</strong> ${cart.length}</p>
                 <p><strong>Total Amount:</strong> ${formatCurrencySync(grandTotal, currency)}</p>
+                ${paymentStatusHtml}
                 <br/>
                 <h3>Rooms Reserved:</h3>
                 <ul>
@@ -387,10 +403,11 @@ export function OnsiteBookingPage() {
             return `<li>Room ${c.roomNumber} (${c.roomTypeName}) - ${assigned.name}<br/>${format(c.checkIn, 'MMM dd')} to ${format(c.checkOut, 'MMM dd')}</li>`
           }).join('')}
                 </ul>
+                <p style="color: #666; font-size: 12px; margin-top: 20px;">📎 Individual pre-invoices for each room have been sent separately.</p>
                 <p>We look forward to welcoming your group!</p>
               </div>
             `,
-          text: `Group Booking Confirmed for ${cart.length} rooms.\nTotal: ${formatCurrencySync(grandTotal, currency)}`
+          text: `Group Booking Confirmed for ${cart.length} rooms.\nTotal: ${formatCurrencySync(grandTotal, currency)}${paymentType === 'part' ? `\nPaid: ${formatCurrencySync(amountPaid, currency)} | Remaining: ${formatCurrencySync(Math.max(0, grandTotal - amountPaid), currency)}` : ''}`
         }
 
         await sendTransactionalEmail(onsiteEmailPayload, 'Onsite group booking confirmation')
@@ -956,6 +973,88 @@ export function OnsiteBookingPage() {
                       <SelectItem value="card">💳 Credit/Debit Card</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+
+                {/* Payment Type */}
+                <div className="bg-secondary/50 p-6 rounded-lg space-y-4">
+                  <h3 className="font-semibold">Payment Status</h3>
+                  <div className="grid grid-cols-3 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => { setPaymentType('full'); setAmountPaid(grandTotal); setPaymentMethod(paymentMethod === 'not_paid' ? 'cash' : paymentMethod) }}
+                      className={`p-3 rounded-lg border-2 text-center transition-all ${paymentType === 'full'
+                        ? 'border-green-500 bg-green-50 text-green-700'
+                        : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                    >
+                      <div className="font-semibold text-sm">💰 Full Payment</div>
+                      <div className="text-xs text-muted-foreground mt-1">Paid in full</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setPaymentType('part'); setAmountPaid(0); setPaymentMethod(paymentMethod === 'not_paid' ? 'cash' : paymentMethod) }}
+                      className={`p-3 rounded-lg border-2 text-center transition-all ${paymentType === 'part'
+                        ? 'border-amber-500 bg-amber-50 text-amber-700'
+                        : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                    >
+                      <div className="font-semibold text-sm">💸 Part Payment</div>
+                      <div className="text-xs text-muted-foreground mt-1">Partial amount</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setPaymentType('pending'); setAmountPaid(0); setPaymentMethod('not_paid') }}
+                      className={`p-3 rounded-lg border-2 text-center transition-all ${paymentType === 'pending'
+                        ? 'border-red-500 bg-red-50 text-red-700'
+                        : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                    >
+                      <div className="font-semibold text-sm">⏳ Pay Later</div>
+                      <div className="text-xs text-muted-foreground mt-1">No payment yet</div>
+                    </button>
+                  </div>
+
+                  {/* Part Payment Amount Input */}
+                  {paymentType === 'part' && (
+                    <div className="space-y-2 pt-2">
+                      <label className="block text-sm font-medium">Amount Paid</label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={grandTotal}
+                        step={1}
+                        value={amountPaid}
+                        onChange={(e) => setAmountPaid(Math.min(parseFloat(e.target.value) || 0, grandTotal))}
+                        placeholder="Enter amount paid"
+                      />
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Remaining Balance:</span>
+                        <span className="font-bold text-amber-600">
+                          {formatCurrencySync(Math.max(0, grandTotal - amountPaid), currency)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Payment Summary */}
+                  <div className="bg-white rounded-lg p-4 border space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Grand Total:</span>
+                      <span className="font-semibold">{formatCurrencySync(grandTotal, currency)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Amount Paid:</span>
+                      <span className="font-semibold text-green-600">
+                        {formatCurrencySync(paymentType === 'full' ? grandTotal : amountPaid, currency)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm border-t pt-2">
+                      <span className="font-medium">Balance Due:</span>
+                      <span className={`font-bold ${(grandTotal - (paymentType === 'full' ? grandTotal : amountPaid)) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        {formatCurrencySync(Math.max(0, grandTotal - (paymentType === 'full' ? grandTotal : amountPaid)), currency)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

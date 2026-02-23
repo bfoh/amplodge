@@ -174,10 +174,18 @@ export function useCheckIn() {
                 }
 
                 // Send notification to guest - use final amount (after discount)
+                // Extract prior payment info from booking
+                const priorAmountPaid = booking.amountPaid || 0
+                const priorPaymentStatus = booking.paymentStatus || 'pending'
+                const priorPayment = priorAmountPaid > 0 ? {
+                    amountPaid: priorAmountPaid,
+                    paymentStatus: priorPaymentStatus as 'full' | 'part' | 'pending'
+                } : undefined
+
                 await sendCheckInNotification(guest, room, bookingForNotification, {
                     method: paymentMethod,
                     amount: finalAmount
-                })
+                }, priorPayment)
                 console.log('✅ [useCheckIn] Guest notification sent')
 
                 // Send notification to manager - include discount info in method field if applicable

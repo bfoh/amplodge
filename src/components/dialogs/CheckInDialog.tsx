@@ -70,9 +70,26 @@ export function CheckInDialog({
     const totalAmount = booking.totalPrice || booking.amount || 0
     const roomNumber = room?.roomNumber || booking.roomNumber || 'N/A'
 
-    // Calculate final amount with discount
+    // Prior payment tracking — try direct fields first, then parse from specialRequests metadata
+    let priorAmountPaid = booking.amountPaid || 0
+    let priorPaymentStatus = booking.paymentStatus || 'pending'
+    if (!priorAmountPaid) {
+        const sr = booking.special_requests || booking.specialRequests || ''
+        const pm = sr.match?.(/<!-- PAYMENT_DATA:(.*?) -->/)
+        if (pm) {
+            try {
+                const pd = JSON.parse(pm[1])
+                priorAmountPaid = pd.amountPaid || 0
+                priorPaymentStatus = pd.paymentStatus || 'pending'
+            } catch { /* ignore */ }
+        }
+    }
+
+    // Calculate final amount with discount and prior payment
     const discount = parseFloat(discountAmount) || 0
-    const finalAmount = Math.max(0, totalAmount - discount)
+    const afterDiscount = Math.max(0, totalAmount - discount)
+    const remainingBalance = Math.max(0, afterDiscount - priorAmountPaid)
+    const finalAmount = remainingBalance
     const discountError = discount > totalAmount ? 'Discount cannot exceed total amount' : ''
 
     const handleConfirm = async () => {
@@ -140,6 +157,26 @@ export function CheckInDialog({
                         </div>
                     </div>
 
+                    {/* Prior Payment Info */}
+                    {priorAmountPaid > 0 && (
+                        <div className="rounded-lg border border-green-200 bg-green-50 p-4 space-y-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-green-800">💰 Prior Payment Received</span>
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${priorPaymentStatus === 'full' ? 'bg-green-200 text-green-800' :
+                                    priorPaymentStatus === 'part' ? 'bg-amber-200 text-amber-800' :
+                                        'bg-red-200 text-red-800'
+                                    }`}>
+                                    {priorPaymentStatus === 'full' ? 'Paid in Full' :
+                                        priorPaymentStatus === 'part' ? 'Part Payment' : 'Pending'}
+                                </span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                                <span className="text-green-700">Amount Already Paid:</span>
+                                <span className="font-bold text-green-700">{formatCurrencySync(priorAmountPaid, currency)}</span>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Discount Section */}
                     <div className="border-t pt-4 space-y-3">
                         <div className="flex items-center gap-2 text-sm font-medium">
@@ -188,18 +225,32 @@ export function CheckInDialog({
                         </div>
                     </div>
 
-                    {/* Final Amount */}
-                    <div className="bg-muted/50 rounded-lg p-4 border">
-                        <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">Final Amount to Pay</span>
-                            <span className="text-xl font-bold text-primary">
-                                {formatCurrencySync(finalAmount, currency)}
-                            </span>
+                    {/* Final Amount Breakdown */}
+                    <div className="bg-muted/50 rounded-lg p-4 border space-y-2">
+                        <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Room Rate:</span>
+                            <span>{formatCurrencySync(totalAmount, currency)}</span>
                         </div>
                         {discount > 0 && (
-                            <p className="text-xs text-muted-foreground mt-1">
-                                Discount applied: -{formatCurrencySync(discount, currency)}
-                            </p>
+                            <div className="flex justify-between text-sm text-destructive">
+                                <span>Discount:</span>
+                                <span>-{formatCurrencySync(discount, currency)}</span>
+                            </div>
+                        )}
+                        {priorAmountPaid > 0 && (
+                            <div className="flex justify-between text-sm text-green-600">
+                                <span>Already Paid:</span>
+                                <span>-{formatCurrencySync(priorAmountPaid, currency)}</span>
+                            </div>
+                        )}
+                        <div className="flex items-center justify-between border-t pt-2">
+                            <span className="text-sm font-medium">Remaining Balance to Collect</span>
+                            <span className={`text-xl font-bold ${remainingBalance > 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                                {formatCurrencySync(remainingBalance, currency)}
+                            </span>
+                        </div>
+                        {remainingBalance === 0 && priorAmountPaid > 0 && (
+                            <p className="text-xs text-green-600 font-medium">✓ Fully paid — no balance to collect</p>
                         )}
                     </div>
 

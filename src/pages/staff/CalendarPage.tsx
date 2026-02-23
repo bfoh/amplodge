@@ -54,7 +54,9 @@ export function CalendarPage() {
     children: 0,
     totalPrice: 0,
     notes: '',
-    paymentMethod: 'Not paid'
+    paymentMethod: 'Not paid',
+    paymentType: 'full' as 'full' | 'part' | 'later',
+    amountPaid: 0
   })
   const [submitting, setSubmitting] = useState(false)
 
@@ -296,7 +298,9 @@ export function CalendarPage() {
         status: 'confirmed',
         source: 'reception',
         notes: formData.notes,
-        payment_method: formData.paymentMethod,
+        payment_method: formData.paymentType === 'later' ? 'Not paid' : formData.paymentMethod,
+        amountPaid: formData.paymentType === 'full' ? formData.totalPrice : formData.paymentType === 'part' ? formData.amountPaid : 0,
+        paymentStatus: formData.paymentType === 'full' ? 'full' : formData.paymentType === 'part' ? 'part' : 'pending',
         createdBy: createdBy
       })
 
@@ -314,7 +318,9 @@ export function CalendarPage() {
         children: 0,
         totalPrice: 0,
         notes: '',
-        paymentMethod: 'Not paid'
+        paymentMethod: 'Not paid',
+        paymentType: 'full',
+        amountPaid: 0
       })
       // Reload data to refresh calendar timeline with new booking
       await loadData()
@@ -546,19 +552,65 @@ export function CalendarPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="paymentMethod">Payment Method</Label>
-                  <select
-                    id="paymentMethod"
-                    className="w-full px-3 py-2 border rounded-md"
-                    value={formData.paymentMethod}
-                    onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
-                  >
-                    <option value="Not paid">Not paid</option>
-                    <option value="Cash">Cash</option>
-                    <option value="Mobile Money">Mobile Money</option>
-                    <option value="Credit/Debit Card">Credit/Debit Card</option>
-                  </select>
+                  <Label>Payment Type</Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { value: 'full', label: '💵 Full Payment', color: 'bg-green-50 border-green-300 text-green-800' },
+                      { value: 'part', label: '💰 Part Payment', color: 'bg-amber-50 border-amber-300 text-amber-800' },
+                      { value: 'later', label: '⏳ Pay Later', color: 'bg-gray-50 border-gray-300 text-gray-700' }
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        className={`px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all ${formData.paymentType === opt.value
+                            ? `${opt.color} ring-2 ring-offset-1 ring-primary/30`
+                            : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+                          }`}
+                        onClick={() => setFormData({ ...formData, paymentType: opt.value as any })}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+
+                {formData.paymentType !== 'later' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="paymentMethod">Payment Method</Label>
+                    <select
+                      id="paymentMethod"
+                      className="w-full px-3 py-2 border rounded-md"
+                      value={formData.paymentMethod}
+                      onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
+                    >
+                      <option value="Cash">Cash</option>
+                      <option value="Mobile Money">Mobile Money</option>
+                      <option value="Credit/Debit Card">Credit/Debit Card</option>
+                    </select>
+                  </div>
+                )}
+
+                {formData.paymentType === 'part' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="amountPaid">Amount Paid</Label>
+                    <Input
+                      id="amountPaid"
+                      type="number"
+                      min="0"
+                      max={formData.totalPrice}
+                      step="0.01"
+                      value={formData.amountPaid}
+                      onChange={(e) => setFormData({ ...formData, amountPaid: parseFloat(e.target.value) || 0 })}
+                      placeholder="Enter amount paid"
+                    />
+                    {formData.amountPaid > 0 && formData.totalPrice > 0 && (
+                      <div className="flex items-center justify-between text-sm p-2 bg-amber-50 border border-amber-200 rounded-md">
+                        <span className="text-amber-800">Remaining Balance:</span>
+                        <span className="font-bold text-red-600">{formatCurrencySync(Math.max(0, formData.totalPrice - formData.amountPaid), currency)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor="notes">Notes</Label>

@@ -33,6 +33,8 @@ export interface LocalBooking {
     reference?: string
     paidAt?: string
   }
+  amountPaid?: number
+  paymentStatus?: 'full' | 'part' | 'pending'
   notes?: string
   createdBy?: string
   createdByName?: string
@@ -384,12 +386,23 @@ class BookingEngine {
       (groupData.additionalCharges && groupData.additionalCharges.length > 0) ||
       !!groupData.discount
 
+    // Build payment tracking metadata
+    const paymentTrackingData = {
+      amountPaid: bookingData.amountPaid ?? 0,
+      paymentStatus: bookingData.paymentStatus ?? 'pending'
+    }
+    const hasPaymentTracking = paymentTrackingData.amountPaid > 0 || paymentTrackingData.paymentStatus !== 'pending'
+
     const specialRequests = (bookingData.notes || '') +
-      (hasGroupData ? `\n\n<!-- GROUP_DATA:${JSON.stringify(groupData)} -->` : '')
+      (hasGroupData ? `\n\n<!-- GROUP_DATA:${JSON.stringify(groupData)} -->` : '') +
+      (hasPaymentTracking ? `\n\n<!-- PAYMENT_DATA:${JSON.stringify(paymentTrackingData)} -->` : '')
 
     console.log('[BookingEngine Debug] Generated specialRequests length:', specialRequests.length)
     if (hasGroupData) {
       console.log('[BookingEngine Debug] Attached Group Data:', JSON.stringify(groupData, null, 2))
+    }
+    if (hasPaymentTracking) {
+      console.log('[BookingEngine Debug] Attached Payment Data:', JSON.stringify(paymentTrackingData, null, 2))
     }
 
     const bookingPayload = {
@@ -484,6 +497,8 @@ class BookingEngine {
       status: bookingData.status,
       source: bookingData.source,
       payment: bookingData.payment,
+      amountPaid: bookingData.amountPaid ?? 0,
+      paymentStatus: bookingData.paymentStatus ?? 'pending',
       notes: bookingData.notes,
       createdBy: bookingData.createdBy,
       createdByName: bookingData.createdByName,
@@ -574,6 +589,9 @@ class BookingEngine {
           status: local.status,
           totalPrice: local.amount,
           numGuests: local.numGuests,
+          amountPaid: local.amountPaid || 0,
+          paymentStatus: local.paymentStatus || 'pending',
+          specialRequests: bookingPayload.specialRequests,
           guest: {
             name: local.guest.fullName,
             email: local.guest.email,
@@ -612,7 +630,13 @@ class BookingEngine {
       }
 
       // Fire and forget - don't await the result to block UI
-      sendBookingConfirmation(guestForEmail, roomForEmail, bookingForEmail, attachments)
+      const paymentInfo = (local.amountPaid || local.paymentStatus) ? {
+        amountPaid: local.amountPaid || 0,
+        paymentStatus: (local.paymentStatus || 'pending') as 'full' | 'part' | 'pending',
+        totalPrice: local.amount || 0
+      } : undefined
+
+      sendBookingConfirmation(guestForEmail, roomForEmail, bookingForEmail, attachments, paymentInfo)
         .then(() => console.log(`[BookingEngine] Confirmation email request sent for ${local._id}`))
         .catch(err => console.error('[BookingEngine] Failed to send confirmation email:', err))
     }
@@ -1147,6 +1171,21 @@ class BookingEngine {
         status: b.paymentStatus || b.payment_status || 'pending'
       } : undefined
 
+      // Extract payment tracking data from specialRequests metadata
+      let amountPaid = 0
+      let paymentStatus: 'full' | 'part' | 'pending' = 'pending'
+      const specialReq = b.special_requests || b.specialRequests || ''
+      const paymentMatch = specialReq.match(/<!-- PAYMENT_DATA:(.*?) -->/)
+      if (paymentMatch) {
+        try {
+          const paymentData = JSON.parse(paymentMatch[1])
+          amountPaid = paymentData.amountPaid || 0
+          paymentStatus = paymentData.paymentStatus || 'pending'
+        } catch (e) {
+          console.warn('[BookingEngine] Failed to parse payment data from specialRequests')
+        }
+      }
+
       const local: LocalBooking = {
         _id: localId,
         remoteId: remoteId || localId,
@@ -1170,6 +1209,8 @@ class BookingEngine {
           ...payment,
           amount: Number(b.totalPrice || 0)
         } : undefined,
+        amountPaid,
+        paymentStatus,
         payment_method: b.paymentMethod || b.payment_method,
         createdAt,
         updatedAt: b.updatedAt || createdAt,
