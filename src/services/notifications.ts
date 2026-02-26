@@ -117,7 +117,7 @@ export async function sendBookingConfirmation(
         : '- Full payment is due upon check-in'
 
     // Send email notification
-    const result = await sendTransactionalEmail({
+    const emailPayload: any = {
       to: guest.email,
       subject: 'Booking Confirmed - AMP Lodge',
       html: htmlContent,
@@ -142,7 +142,28 @@ ${paymentTextLine}
 Best regards,
 The AMP LODGE Team
       `
-    })
+    }
+
+    // Include pre-invoice PDF attachment if available
+    if (attachments && attachments.length > 0) {
+      // Check if attachment size is reasonable (under 4MB base64 ~ 3MB actual)
+      const totalSize = attachments.reduce((sum: number, att: any) => sum + (att.content?.length || 0), 0)
+      if (totalSize < 4 * 1024 * 1024) {
+        emailPayload.attachments = attachments
+        console.log(`📎 [BookingConfirmation] Including ${attachments.length} attachment(s), total size: ${(totalSize / 1024).toFixed(1)}KB`)
+      } else {
+        console.warn(`⚠️ [BookingConfirmation] Attachments too large (${(totalSize / 1024 / 1024).toFixed(1)}MB), sending without`)
+      }
+    }
+
+    let result = await sendTransactionalEmail(emailPayload)
+
+    // If email with attachment failed, retry without attachment
+    if (!result.success && emailPayload.attachments) {
+      console.warn('⚠️ [BookingConfirmation] Email with attachment failed, retrying without attachment...')
+      delete emailPayload.attachments
+      result = await sendTransactionalEmail(emailPayload)
+    }
 
     if (result.success) {
       console.log('✅ [BookingConfirmation] Confirmation email sent successfully!')
@@ -152,6 +173,7 @@ The AMP LODGE Team
 
     // SMS notification (if phone number provided)
     if (guest.phone) {
+      console.log('📱 [BookingConfirmation] Sending SMS to:', guest.phone)
       sendBookingConfirmationSMS({
         phone: guest.phone,
         guestName: guest.name,
@@ -159,10 +181,18 @@ The AMP LODGE Team
         checkIn: booking.checkIn,
         checkOut: booking.checkOut,
         bookingId: booking.id
-      }).catch(err => console.error('SMS notification failed:', err))
+      }).then(smsResult => {
+        if (smsResult.success) {
+          console.log('✅ [BookingConfirmation] SMS sent successfully')
+        } else {
+          console.error('❌ [BookingConfirmation] SMS failed:', smsResult.error)
+        }
+      }).catch(err => console.error('❌ [BookingConfirmation] SMS notification error:', err))
+    } else {
+      console.log('ℹ️ [BookingConfirmation] No phone number provided, skipping SMS')
     }
   } catch (error) {
-    console.error('❌ [BookingConfirmation] Failed to send confirmation email:', error)
+    console.error('❌ [BookingConfirmation] Failed to send confirmation:', error)
   }
 }
 

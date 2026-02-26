@@ -11,13 +11,23 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { CalendarIcon, AlertTriangle, CheckCircle2, ArrowRight, Loader2 } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { CalendarIcon, AlertTriangle, CheckCircle2, ArrowRight, Loader2, Tag } from 'lucide-react'
 import { toast } from 'sonner'
 import { stayExtensionService, AvailableRoom, RoomAvailability } from '@/services/stay-extension-service'
 import { sendStayExtensionNotification } from '@/services/notifications'
-import { formatCurrencySync } from '@/lib/utils'
+import { formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { format, addDays } from 'date-fns'
+
+const DISCOUNT_REASONS = [
+    { value: 'loyalty', label: 'Loyalty Discount' },
+    { value: 'promo', label: 'Promo Code' },
+    { value: 'manager', label: 'Manager Approval' },
+    { value: 'corporate', label: 'Corporate Rate' },
+    { value: 'repeat', label: 'Repeat Guest' },
+    { value: 'other', label: 'Other' }
+]
 
 interface ExtendStayDialogProps {
     open: boolean
@@ -44,6 +54,7 @@ interface ExtendStayDialogProps {
         price?: number  // Room price per night from roomType
     }
     onExtensionComplete?: () => void
+    user?: any
 }
 
 export function ExtendStayDialog({
@@ -52,7 +63,8 @@ export function ExtendStayDialog({
     booking,
     guest,
     room,
-    onExtensionComplete
+    onExtensionComplete,
+    user
 }: ExtendStayDialogProps) {
     const { currency } = useCurrency()
     const [newCheckoutDate, setNewCheckoutDate] = useState('')
@@ -65,6 +77,10 @@ export function ExtendStayDialog({
     const [availableRooms, setAvailableRooms] = useState<AvailableRoom[]>([])
     const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null)
     const [showRoomSelector, setShowRoomSelector] = useState(false)
+
+    // Discount state
+    const [discountAmount, setDiscountAmount] = useState<string>('')
+    const [discountReason, setDiscountReason] = useState<string>('')
 
     // Calculate minimum date (day after current checkout)
     const minDate = format(addDays(new Date(booking.checkOut), 1), 'yyyy-MM-dd')
@@ -95,6 +111,8 @@ export function ExtendStayDialog({
             setAvailableRooms([])
             setSelectedRoomId(null)
             setShowRoomSelector(false)
+            setDiscountAmount('')
+            setDiscountReason('')
         }
     }, [open, room.id, room.price, booking.checkIn, booking.checkOut, booking.totalPrice])
 
@@ -154,6 +172,15 @@ export function ExtendStayDialog({
         }
     }
 
+    const selectedAlternativeRoom = availableRooms.find(r => r.id === selectedRoomId)
+    const baseCost = selectedRoomId
+        ? (selectedAlternativeRoom?.pricePerNight || 0) * additionalNights
+        : extensionCost
+
+    const discount = parseFloat(discountAmount) || 0
+    const displayCost = Math.max(0, baseCost - discount)
+    const discountError = discount > baseCost ? 'Discount cannot exceed extension cost' : ''
+
     const handleExtend = async () => {
         if (!newCheckoutDate || additionalNights <= 0) {
             toast.error('Please select a valid new checkout date')
@@ -166,13 +193,19 @@ export function ExtendStayDialog({
             return
         }
 
+        if (discountError) {
+            return
+        }
+
         setIsExtending(true)
         try {
             const result = await stayExtensionService.extendStay(
                 booking.id,
                 newCheckoutDate,
                 selectedRoomId || undefined,
-                undefined // userId if needed
+                user?.id || undefined, // userId if needed
+                discount > 0 ? discount : undefined,
+                discount > 0 && discountReason ? discountReason : undefined
             )
 
             if (result.success) {
@@ -188,7 +221,7 @@ export function ExtendStayDialog({
                             originalCheckout: booking.checkOut
                         },
                         additionalNights,
-                        result.extensionCost || extensionCost,
+                        result.extensionCost || displayCost,
                         result.roomChanged ? selectedRoomId : undefined
                     )
                 } catch (notifError) {
@@ -209,14 +242,9 @@ export function ExtendStayDialog({
         }
     }
 
-    const selectedAlternativeRoom = availableRooms.find(r => r.id === selectedRoomId)
-    const displayCost = selectedRoomId
-        ? (selectedAlternativeRoom?.pricePerNight || 0) * additionalNights
-        : extensionCost
-
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <CalendarIcon className="h-5 w-5 text-amber-600" />
@@ -250,23 +278,74 @@ export function ExtendStayDialog({
                     {/* Extension Summary */}
                     {additionalNights > 0 && (
                         <div className="space-y-3">
-                            <div className="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-200">
+                            <div className="flex justify-between items-end">
                                 <div>
-                                    <p className="text-sm text-amber-800">Additional Nights</p>
-                                    <p className="text-2xl font-bold text-amber-900">{additionalNights}</p>
-                                </div>
-                                <ArrowRight className="h-5 w-5 text-amber-600" />
-                                <div className="text-right">
-                                    <p className="text-sm text-amber-800">Extension Cost</p>
-                                    <p className="text-2xl font-bold text-amber-900">
-                                        {formatCurrencySync(displayCost, currency)}
+                                    <p className="text-sm text-muted-foreground">Additional Nights:</p>
+                                    <p className="text-xl font-semibold">{additionalNights}</p>
+                                    <p className="text-sm text-muted-foreground mt-1">
+                                        Rate: {formatCurrencySync(selectedRoomId ? (selectedAlternativeRoom?.pricePerNight || 0) : roomRate, currency)}/night
                                     </p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-sm text-muted-foreground">Base Cost:</p>
+                                    <p className="text-xl font-semibold">{formatCurrencySync(baseCost, currency)}</p>
                                 </div>
                             </div>
 
-                            <p className="text-sm text-muted-foreground">
-                                Rate: {formatCurrencySync(selectedRoomId ? (selectedAlternativeRoom?.pricePerNight || 0) : roomRate, currency)}/night
-                            </p>
+                            {/* Discount Section */}
+                            <div className="border-t pt-4 space-y-3">
+                                <div className="flex items-center gap-2 text-sm font-medium">
+                                    <Tag className="w-4 h-4" />
+                                    <span>Apply Discount (Optional)</span>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="discountAmount">Discount Amount</Label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                                                {getCurrencySymbol(currency)}
+                                            </span>
+                                            <Input
+                                                id="discountAmount"
+                                                type="number"
+                                                min="0"
+                                                max={baseCost}
+                                                step="1"
+                                                placeholder="0"
+                                                value={discountAmount}
+                                                onChange={(e) => setDiscountAmount(e.target.value)}
+                                                className="pl-8"
+                                            />
+                                        </div>
+                                        {discountError && (
+                                            <p className="text-xs text-destructive">{discountError}</p>
+                                        )}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="discountReason">Reason</Label>
+                                        <Select value={discountReason} onValueChange={setDiscountReason}>
+                                            <SelectTrigger id="discountReason">
+                                                <SelectValue placeholder="Select reason" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {DISCOUNT_REASONS.map((reason) => (
+                                                    <SelectItem key={reason.value} value={reason.value}>
+                                                        {reason.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-200 mt-4">
+                                <span className="font-semibold text-amber-900">Final Extension Cost</span>
+                                <span className="text-2xl font-bold text-amber-900">
+                                    {formatCurrencySync(displayCost, currency)}
+                                </span>
+                            </div>
                         </div>
                     )}
 
@@ -339,6 +418,7 @@ export function ExtendStayDialog({
                         disabled={
                             isExtending ||
                             isChecking ||
+                            !!discountError ||
                             additionalNights <= 0 ||
                             (!availability?.available && !selectedRoomId) ||
                             (availability && !availability.available && availableRooms.length === 0)
@@ -359,3 +439,4 @@ export function ExtendStayDialog({
         </Dialog>
     )
 }
+

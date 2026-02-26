@@ -219,7 +219,9 @@ class StayExtensionService {
         bookingId: string,
         newCheckoutDate: string,
         newRoomId?: string,
-        userId?: string
+        userId?: string,
+        discountAmount?: number,
+        discountReason?: string
     ): Promise<ExtensionResult> {
         try {
             console.log('[StayExtension] Extending stay:', { bookingId, newCheckoutDate, newRoomId })
@@ -286,6 +288,21 @@ class StayExtensionService {
                 createdBy: userId
             })
 
+            // Add extension discount charge if applicable
+            let finalCost = extensionCost;
+            if (discountAmount && discountAmount > 0) {
+                await bookingChargesService.addCharge({
+                    bookingId,
+                    description: `Stay Extension Discount${discountReason ? ` - ${discountReason}` : ''}`,
+                    category: 'other',
+                    quantity: 1,
+                    unitPrice: -Math.abs(discountAmount),
+                    notes: `Discount applied during extension. Reason: ${discountReason || 'None'}`,
+                    createdBy: userId
+                })
+                finalCost = Math.max(0, extensionCost - discountAmount)
+            }
+
             console.log('[StayExtension] Extension completed:', {
                 newCheckout: newCheckoutDate,
                 additionalNights,
@@ -296,7 +313,7 @@ class StayExtensionService {
             return {
                 success: true,
                 newCheckout: newCheckoutDate,
-                extensionCost,
+                extensionCost: finalCost,
                 chargeId: charge?.id,
                 roomChanged: !!newRoomId && newRoomId !== booking.roomId,
                 newRoomId: newRoomId && newRoomId !== booking.roomId ? newRoomId : undefined
