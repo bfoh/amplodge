@@ -9,6 +9,7 @@ import { blink } from '../../blink/client'
 import { bookingEngine } from '@/services/booking-engine'
 import type { RoomType } from '@/types'
 import { toast } from 'sonner'
+import { activityLogService } from '@/services/activity-log-service'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -241,6 +242,27 @@ export function PropertiesPage() {
         await blink.db.properties.update(editingId, payload)
         await syncRoomWithProperty({ roomNumber: payload.roomNumber, propertyTypeId: payload.propertyTypeId, basePrice: payload.basePrice })
         toast.success('Room updated')
+
+        // Log room update
+        try {
+          const userId = user?.id || 'system'
+          await activityLogService.log({
+            action: 'updated',
+            entityType: 'room',
+            entityId: editingId,
+            details: {
+              roomName: payload.name,
+              roomNumber: payload.roomNumber,
+              roomType: roomTypes.find(rt => rt.id === payload.propertyTypeId)?.name || '',
+              basePrice: payload.basePrice,
+              maxGuests: payload.maxGuests,
+              updatedAt: new Date().toISOString()
+            },
+            userId
+          })
+        } catch (logError) {
+          console.error('Activity logging failed:', logError)
+        }
       } else {
         // Create property with explicit field mapping to match database schema
         // Note: properties table doesn't have a user_id column
@@ -263,6 +285,27 @@ export function PropertiesPage() {
         await blink.db.properties.create(createPayload)
         await syncRoomWithProperty({ roomNumber: createPayload.roomNumber, propertyTypeId: createPayload.propertyTypeId, basePrice: createPayload.basePrice })
         toast.success('Room added successfully')
+
+        // Log room creation
+        try {
+          const userId = user?.id || 'system'
+          await activityLogService.log({
+            action: 'created',
+            entityType: 'room',
+            entityId: createPayload.id,
+            details: {
+              roomName: createPayload.name,
+              roomNumber: createPayload.roomNumber,
+              roomType: roomTypes.find(rt => rt.id === createPayload.propertyTypeId)?.name || '',
+              basePrice: createPayload.basePrice,
+              maxGuests: createPayload.maxGuests,
+              createdAt: new Date().toISOString()
+            },
+            userId
+          })
+        } catch (logError) {
+          console.error('Activity logging failed:', logError)
+        }
       }
       setDialogOpen(false)
       setEditingId(null)
@@ -315,6 +358,25 @@ export function PropertiesPage() {
         }
       }
       toast.success('Room deleted')
+
+      // Log room deletion
+      try {
+        const user = await blink.auth.me().catch(() => null)
+        await activityLogService.log({
+          action: 'deleted',
+          entityType: 'room',
+          entityId: deleteId,
+          details: {
+            roomNumber: prop?.roomNumber || 'unknown',
+            roomName: prop?.name || '',
+            deletedAt: new Date().toISOString()
+          },
+          userId: user?.id || 'system'
+        })
+      } catch (logError) {
+        console.error('Activity logging failed:', logError)
+      }
+
       loadProperties()
     } catch (error) {
       console.error('Failed to delete room:', error)

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,6 +23,8 @@ export function ActivityLogsPage() {
   const [endDate, setEndDate] = useState('')
   const [userFilter, setUserFilter] = useState<string>('all')
   const [users, setUsers] = useState<Array<{ id: string; name: string }>>([])
+  const [autoRefresh, setAutoRefresh] = useState(false)
+  const autoRefreshInterval = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     initializePageDatabase()
@@ -47,6 +49,25 @@ export function ActivityLogsPage() {
   useEffect(() => {
     applyFilters()
   }, [logs, searchQuery, actionFilter, entityTypeFilter, startDate, endDate, userFilter])
+
+  // Auto-refresh effect
+  useEffect(() => {
+    if (autoRefresh) {
+      autoRefreshInterval.current = setInterval(() => {
+        loadLogs()
+      }, 30000) // 30 seconds
+    } else {
+      if (autoRefreshInterval.current) {
+        clearInterval(autoRefreshInterval.current)
+        autoRefreshInterval.current = null
+      }
+    }
+    return () => {
+      if (autoRefreshInterval.current) {
+        clearInterval(autoRefreshInterval.current)
+      }
+    }
+  }, [autoRefresh])
 
   async function loadLogs() {
     try {
@@ -562,6 +583,7 @@ export function ActivityLogsPage() {
                 <SelectItem value="staff">Staff</SelectItem>
                 <SelectItem value="payment">Payment</SelectItem>
                 <SelectItem value="room">Room</SelectItem>
+                <SelectItem value="employee">Employee</SelectItem>
                 <SelectItem value="task">Task</SelectItem>
               </SelectContent>
             </Select>
@@ -584,6 +606,16 @@ export function ActivityLogsPage() {
             {/* Reset Button */}
             <Button onClick={handleReset} variant="outline" className="w-full">
               Reset Filters
+            </Button>
+
+            {/* Auto-refresh Toggle */}
+            <Button
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              variant={autoRefresh ? 'default' : 'outline'}
+              className={`w-full ${autoRefresh ? 'bg-green-600 hover:bg-green-700 text-white' : ''}`}
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${autoRefresh ? 'animate-spin' : ''}`} />
+              {autoRefresh ? 'Auto-refresh ON (30s)' : 'Auto-refresh OFF'}
             </Button>
           </div>
 

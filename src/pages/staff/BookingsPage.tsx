@@ -318,6 +318,31 @@ export function BookingsPage() {
 
       console.log('[BookingsPage] Booking created successfully:', result)
 
+      // Log booking creation to activity logs
+      try {
+        const userId = await getCurrentUserId()
+        await activityLogService.log({
+          action: 'created',
+          entityType: 'booking',
+          entityId: result?.id || result?._id || 'unknown',
+          details: {
+            guestName: formData.guestName,
+            guestEmail: formData.guestEmail,
+            roomNumber: selectedProperty.roomNumber,
+            checkIn: formData.checkIn,
+            checkOut: formData.checkOut,
+            amount: formData.totalPrice,
+            source: 'reception',
+            paymentMethod: formData.paymentMethod,
+            createdAt: new Date().toISOString()
+          },
+          userId
+        })
+        console.log('✅ [BookingsPage] Booking creation logged')
+      } catch (logError) {
+        console.error('⚠️ [BookingsPage] Activity logging failed:', logError)
+      }
+
       toast.success('Booking created successfully')
       setDialogOpen(false)
       setEditingId(null)
@@ -368,6 +393,29 @@ export function BookingsPage() {
 
       // Use bookingEngine.deleteBooking() which handles everything properly
       await bookingEngine.deleteBooking(deleteId)
+
+      // Log booking deletion to activity logs
+      try {
+        const userId = await getCurrentUserId()
+        await activityLogService.log({
+          action: 'deleted',
+          entityType: 'booking',
+          entityId: deleteId,
+          details: {
+            guestName: booking.guestName,
+            guestEmail: booking.guestEmail,
+            roomNumber: booking.roomNumber,
+            checkIn: booking.checkIn,
+            checkOut: booking.checkOut,
+            amount: booking.totalPrice,
+            deletedAt: new Date().toISOString()
+          },
+          userId
+        })
+        console.log('✅ [BookingsPage] Booking deletion logged')
+      } catch (logError) {
+        console.error('⚠️ [BookingsPage] Activity logging failed:', logError)
+      }
 
       toast.success('Booking deleted successfully')
 

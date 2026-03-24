@@ -17,6 +17,7 @@ import { useCurrency } from '@/hooks/use-currency'
 import { bookingEngine, LocalBooking } from '@/services/booking-engine'
 import { sendTransactionalEmail } from '@/services/email-service'
 import { sendBookingConfirmationSMS } from '@/services/sms-service'
+import { activityLogService } from '@/services/activity-log-service'
 
 export function OnsiteBookingPage() {
   const db = (blink.db as any)
@@ -369,6 +370,32 @@ export function OnsiteBookingPage() {
         } as any)
 
         // Booking engine sends its own confirmation email for single bookings
+
+        // Log single-room walk-in booking
+        try {
+          await activityLogService.log({
+            action: 'created',
+            entityType: 'booking',
+            entityId: 'walk-in-' + Date.now(),
+            details: {
+              guestName: guestInfo.name,
+              guestEmail: guestInfo.email,
+              roomNumber: cart[0].roomNumber,
+              roomType: cart[0].roomTypeName,
+              checkIn: format(cart[0].checkIn, 'yyyy-MM-dd'),
+              checkOut: format(cart[0].checkOut, 'yyyy-MM-dd'),
+              amount: grandTotal,
+              source: 'onsite/walk-in',
+              paymentMethod,
+              paymentType,
+              createdAt: new Date().toISOString()
+            },
+            userId: user?.id || 'system'
+          })
+        } catch (logError) {
+          console.error('Activity logging failed:', logError)
+        }
+
         toast.success('Booking completed successfully!')
       } else {
         // Multiple rooms: use createGroupBooking so all rooms share one group reference
@@ -430,6 +457,31 @@ export function OnsiteBookingPage() {
         }
 
         toast.success(`Group booking for ${cart.length} rooms completed successfully!`)
+
+        // Log group booking
+        try {
+          await activityLogService.log({
+            action: 'created',
+            entityType: 'booking',
+            entityId: 'group-' + Date.now(),
+            details: {
+              guestName: guestInfo.name,
+              guestEmail: guestInfo.email,
+              roomCount: cart.length,
+              rooms: cart.map(c => `Room ${c.roomNumber} (${c.roomTypeName})`).join(', '),
+              checkIn: checkIn ? format(checkIn, 'yyyy-MM-dd') : '',
+              checkOut: checkOut ? format(checkOut, 'yyyy-MM-dd') : '',
+              amount: grandTotal,
+              source: 'onsite/group',
+              paymentMethod,
+              paymentType,
+              createdAt: new Date().toISOString()
+            },
+            userId: user?.id || 'system'
+          })
+        } catch (logError) {
+          console.error('Activity logging failed:', logError)
+        }
       }
 
       navigate('/staff/dashboard')

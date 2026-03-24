@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useCurrency } from '@/hooks/use-currency'
+import { activityLogService } from '@/services/activity-log-service'
 import { RefreshCw, Plus } from 'lucide-react'
 
 export function SetPricesPage() {
@@ -182,6 +183,27 @@ export function SetPricesPage() {
         return copy
       })
       toast.success('Price updated globally')
+
+      // Log price change
+      try {
+        const user = await blink.auth.me().catch(() => null)
+        const roomType = roomTypes.find(rt => rt.id === id)
+        await activityLogService.log({
+          action: 'updated',
+          entityType: 'room',
+          entityId: id,
+          details: {
+            roomTypeName: roomType?.name || 'Unknown',
+            oldPrice: roomType?.basePrice || 0,
+            newPrice: newValue,
+            priceChange: true,
+            updatedAt: new Date().toISOString()
+          },
+          userId: user?.id || 'system'
+        })
+      } catch (logError) {
+        console.error('Activity logging failed:', logError)
+      }
     } catch (err) {
       console.error('Update failed', err)
       toast.error('Failed to update price')
@@ -209,6 +231,29 @@ export function SetPricesPage() {
       setRoomTypes((prev) => prev.map((rt) => (edited[rt.id] ? { ...rt, basePrice: Number(edited[rt.id]) } : rt)))
       setEdited({})
       toast.success('All prices updated globally')
+
+      // Log bulk price update
+      try {
+        const user = await blink.auth.me().catch(() => null)
+        const changes = Object.entries(edited).map(([id, val]) => {
+          const rt = roomTypes.find(r => r.id === id)
+          return `${rt?.name || 'Unknown'}: ${rt?.basePrice || 0} → ${val}`
+        }).join(', ')
+        await activityLogService.log({
+          action: 'updated',
+          entityType: 'room',
+          entityId: 'bulk-price-update',
+          details: {
+            bulkUpdate: true,
+            changes,
+            count: dirtyCount,
+            updatedAt: new Date().toISOString()
+          },
+          userId: user?.id || 'system'
+        })
+      } catch (logError) {
+        console.error('Activity logging failed:', logError)
+      }
     } catch (err) {
       console.error('Bulk save failed', err)
       toast.error('Failed to save all changes')

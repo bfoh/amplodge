@@ -554,6 +554,28 @@ export function EmployeesPage() {
 
         console.log('✅ [EmployeesPage] Staff record created:', newStaff)
 
+        // Log employee creation to activity logs
+        try {
+          await supabase.from('activity_logs').insert({
+            id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+            user_id: currentUser.id,
+            action: 'created',
+            entity_type: 'employee',
+            entity_id: staffId,
+            details: JSON.stringify({
+              adminEmail: currentUser.email,
+              employeeName: values.name,
+              employeeEmail: values.email,
+              role: values.role,
+              createdAt: new Date().toISOString()
+            }),
+            created_at: new Date().toISOString(),
+          })
+          console.log('✅ [EmployeesPage] Employee creation logged to activity logs')
+        } catch (logErr) {
+          console.error('⚠️ [EmployeesPage] Activity logging failed:', logErr)
+        }
+
         // Update optimistic entry with real userId
         setEmployees((prev) => prev.map((emp) => (emp.id === staffId ? { ...emp, userId: newUser.id } : emp)))
 
