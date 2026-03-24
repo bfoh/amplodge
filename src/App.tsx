@@ -35,6 +35,7 @@ import { DiagnoseEmailPage } from './pages/staff/DiagnoseEmailPage'
 import { ReviewsPage } from './pages/staff/ReviewsPage'
 import MarketingPage from './pages/staff/MarketingPage'
 import { ServiceRequestsPage } from './pages/staff/ServiceRequestsPage'
+import { HRPage } from './pages/staff/HRPage'
 import GuestLayout from './layouts/GuestLayout'
 import GuestDashboard from './pages/guest/GuestDashboard'
 import { ConciergePage } from './pages/guest/ConciergePage'
@@ -218,6 +219,7 @@ function App() {
                 <Route path="reviews" element={<ReviewsPage />} />
                 <Route path="marketing" element={<MarketingPage />} />
                 <Route path="requests" element={<ServiceRequestsPage />} />
+                <Route path="hr" element={<HRPage />} />
               </Route>
 
               {/* Invoice debug route */}

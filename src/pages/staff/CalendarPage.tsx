@@ -154,8 +154,18 @@ export function CalendarPage() {
         }
       }).filter((b: any) => b.propertyId && b.status !== 'checked-out') // Only include active bookings with valid room
 
+      // Safety dedup: remove any bookings with the same DB remote ID that slipped through
+      // (getAllBookings already deduplicates, but this guards against race conditions)
+      const seenRemoteIds = new Set<string>()
+      const dedupedMapped = mapped.filter((b: any) => {
+        const key = b.remoteId || b.id
+        if (seenRemoteIds.has(key)) return false
+        seenRemoteIds.add(key)
+        return true
+      })
+
       console.log('[CalendarPage] Total bookings loaded:', localBookings.length)
-      console.log('[CalendarPage] Bookings mapped to timeline:', mapped.length)
+      console.log('[CalendarPage] Bookings mapped to timeline:', dedupedMapped.length)
       console.log('[CalendarPage] Properties (rows):', combined.length)
       console.log('[CalendarPage] Voice Agent bookings:', mapped.filter((b: any) => b.source === 'voice_agent').length)
 
@@ -168,7 +178,7 @@ export function CalendarPage() {
       })
 
       setProperties(combined)
-      setBookings(mapped)
+      setBookings(dedupedMapped)
       setRoomTypes(roomTypesData || [])
     } catch (error) {
       console.error('Failed to load calendar data:', error)

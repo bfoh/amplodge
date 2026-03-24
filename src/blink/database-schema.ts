@@ -39,7 +39,12 @@ export async function initializeDatabaseSchema(): Promise<void> {
       'contactMessages',
       'properties',
       'hotelSettings',
-      'housekeepingTasks'
+      'housekeepingTasks',
+      'hr_attendance',
+      'hr_leave_requests',
+      'hr_payroll',
+      'hr_performance_reviews',
+      'hr_job_applications'
     ]
 
     // Test each table and create if necessary
@@ -109,6 +114,113 @@ export async function initializeDatabaseSchema(): Promise<void> {
           } catch (createError: any) {
             console.error(`[DatabaseSchema] ❌ Failed to create '${tableName}' table:`, createError.message)
             // Don't throw, allowing other tables to proceed
+          }
+        } else if (tableName === 'hr_attendance') {
+          try {
+            const initRecord = {
+              id: `hr_att_init_${Date.now()}`,
+              staffId: 'system',
+              staffName: 'System',
+              date: new Date().toISOString().split('T')[0],
+              clockIn: '',
+              clockOut: '',
+              hoursWorked: 0,
+              status: 'init',
+              notes: 'Schema initialization',
+              createdAt: new Date().toISOString()
+            }
+            await db.hr_attendance.create(initRecord)
+            await db.hr_attendance.delete(initRecord.id)
+            console.log(`[DatabaseSchema] ✅ Created '${tableName}' table`)
+          } catch (createError: any) {
+            console.warn(`[DatabaseSchema] ⚠️ Could not auto-create '${tableName}':`, createError.message)
+          }
+        } else if (tableName === 'hr_leave_requests') {
+          try {
+            const initRecord = {
+              id: `hr_leave_init_${Date.now()}`,
+              staffId: 'system',
+              staffName: 'System',
+              leaveType: 'annual',
+              startDate: new Date().toISOString().split('T')[0],
+              endDate: new Date().toISOString().split('T')[0],
+              reason: 'Schema initialization',
+              status: 'init',
+              reviewedBy: '',
+              reviewedAt: '',
+              createdAt: new Date().toISOString()
+            }
+            await db.hr_leave_requests.create(initRecord)
+            await db.hr_leave_requests.delete(initRecord.id)
+            console.log(`[DatabaseSchema] ✅ Created '${tableName}' table`)
+          } catch (createError: any) {
+            console.warn(`[DatabaseSchema] ⚠️ Could not auto-create '${tableName}':`, createError.message)
+          }
+        } else if (tableName === 'hr_payroll') {
+          try {
+            const initRecord = {
+              id: `hr_pay_init_${Date.now()}`,
+              staffId: 'system',
+              staffName: 'System',
+              period: new Date().toISOString().substring(0, 7),
+              baseSalary: 0,
+              allowances: 0,
+              deductions: 0,
+              netPay: 0,
+              paymentStatus: 'init',
+              paymentDate: '',
+              notes: 'Schema initialization',
+              createdAt: new Date().toISOString()
+            }
+            await db.hr_payroll.create(initRecord)
+            await db.hr_payroll.delete(initRecord.id)
+            console.log(`[DatabaseSchema] ✅ Created '${tableName}' table`)
+          } catch (createError: any) {
+            console.warn(`[DatabaseSchema] ⚠️ Could not auto-create '${tableName}':`, createError.message)
+          }
+        } else if (tableName === 'hr_performance_reviews') {
+          try {
+            const initRecord = {
+              id: `hr_perf_init_${Date.now()}`,
+              staffId: 'system',
+              staffName: 'System',
+              reviewerId: 'system',
+              reviewerName: 'System',
+              reviewDate: new Date().toISOString().split('T')[0],
+              rating: 0,
+              strengths: 'Schema initialization',
+              improvements: '',
+              notes: '',
+              createdAt: new Date().toISOString()
+            }
+            await db.hr_performance_reviews.create(initRecord)
+            await db.hr_performance_reviews.delete(initRecord.id)
+            console.log(`[DatabaseSchema] ✅ Created '${tableName}' table`)
+          } catch (createError: any) {
+            console.warn(`[DatabaseSchema] ⚠️ Could not auto-create '${tableName}':`, createError.message)
+          }
+        } else if (tableName === 'hr_job_applications') {
+          try {
+            const initRecord = {
+              id: `hr_app_init_${Date.now()}`,
+              applicantName: 'System',
+              email: 'system@init.local',
+              phone: '',
+              position: 'init',
+              experience: '',
+              skills: '',
+              coverLetter: 'Schema initialization',
+              status: 'init',
+              reviewedBy: '',
+              interviewDate: '',
+              notes: '',
+              createdAt: new Date().toISOString()
+            }
+            await db.hr_job_applications.create(initRecord)
+            await db.hr_job_applications.delete(initRecord.id)
+            console.log(`[DatabaseSchema] ✅ Created '${tableName}' table`)
+          } catch (createError: any) {
+            console.warn(`[DatabaseSchema] ⚠️ Could not auto-create '${tableName}':`, createError.message)
           }
         } else {
           console.warn(`[DatabaseSchema] ⚠️ Table '${tableName}' does not exist and cannot be auto-created`)

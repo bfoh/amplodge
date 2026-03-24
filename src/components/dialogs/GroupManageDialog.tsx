@@ -148,10 +148,27 @@ export function GroupManageDialog({
                         } catch { }
                     }
 
+                    // Prefer GUEST_SNAPSHOT (captured at booking time) over live guest table.
+                    // This prevents changes to the shared guest record from retroactively
+                    // renaming all group members who happen to share the same guestId.
+                    let guestName = 'Guest'
+                    let guestEmail: string | undefined
+                    const snapshotMatch = specialReq.match(/<!-- GUEST_SNAPSHOT:(.*?) -->/)
+                    if (snapshotMatch) {
+                        try {
+                            const snap = JSON.parse(snapshotMatch[1])
+                            if (snap.name) guestName = snap.name
+                            if (snap.email) guestEmail = snap.email
+                        } catch { }
+                    }
+                    // Fall back to live guest table for bookings pre-dating the snapshot feature
+                    if (guestName === 'Guest' && guest?.name) guestName = guest.name
+                    if (!guestEmail && guest?.email) guestEmail = guest.email
+
                     return {
                         id: b.id,
-                        guestName: guest?.name || 'Guest',
-                        guestEmail: guest?.email,
+                        guestName,
+                        guestEmail,
                         roomNumber: room?.roomNumber || 'N/A',
                         roomType: roomType?.name || 'Standard Room',
                         checkIn: b.checkIn,
@@ -355,10 +372,24 @@ export function GroupManageDialog({
                     } catch { }
                 }
 
+                // Prefer GUEST_SNAPSHOT over live guest table (same logic as initial load)
+                let guestName = 'Guest'
+                let guestEmail: string | undefined
+                const snapshotMatch = specialReq.match(/<!-- GUEST_SNAPSHOT:(.*?) -->/)
+                if (snapshotMatch) {
+                    try {
+                        const snap = JSON.parse(snapshotMatch[1])
+                        if (snap.name) guestName = snap.name
+                        if (snap.email) guestEmail = snap.email
+                    } catch { }
+                }
+                if (guestName === 'Guest' && guest?.name) guestName = guest.name
+                if (!guestEmail && guest?.email) guestEmail = guest.email
+
                 return {
                     id: b.id,
-                    guestName: guest?.name || 'Guest',
-                    guestEmail: guest?.email,
+                    guestName,
+                    guestEmail,
                     roomNumber: room?.roomNumber || 'N/A',
                     roomType: roomType?.name || 'Standard Room',
                     checkIn: b.checkIn,

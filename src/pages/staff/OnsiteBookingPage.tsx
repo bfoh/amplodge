@@ -319,12 +319,12 @@ export function OnsiteBookingPage() {
 
     setLoading(true)
     try {
-      const groupBookings: Omit<LocalBooking, '_id' | 'createdAt' | 'updatedAt' | 'synced'>[] = cart.map((item, index) => {
-        const itemNights = differenceInDays(item.checkOut, item.checkIn)
-        // Room amount is just price * nights
-        // Charges and discounts are tracked separately in GROUP_DATA metadata
-        const itemTotal = Number(item.price) * itemNights
+      const isSingleRoom = cart.length === 1
 
+      // Build a booking data object for a single cart item
+      const buildBookingItem = (item: typeof cart[0], index: number) => {
+        const itemNights = differenceInDays(item.checkOut, item.checkIn)
+        const itemTotal = Number(item.price) * itemNights
         const assigned = guestAssignments[item.id] || { name: guestInfo.name, email: guestInfo.email }
         return {
           guest: {
@@ -341,8 +341,8 @@ export function OnsiteBookingPage() {
           },
           numGuests: item.numGuests,
           amount: itemTotal,
-          status: 'confirmed',
-          source: 'reception',
+          status: 'confirmed' as const,
+          source: 'reception' as const,
           payment: {
             method: paymentMethod,
             status: paymentType === 'full' ? 'completed' : 'pending',
@@ -354,66 +354,84 @@ export function OnsiteBookingPage() {
           paymentStatus: paymentType,
           createdBy: user?.id,
           createdByName: user?.user_metadata?.full_name || user?.email,
-          ...(index === 0 ? { subtotal: totalPrice } : {}) // Store subtotal reference
+          ...(index === 0 ? { subtotal: totalPrice } : {})
         }
-      })
-
-      const billingContact = {
-        name: guestInfo.name,
-        email: guestInfo.email,
-        phone: guestInfo.phone,
-        address: guestInfo.address
       }
 
-      await bookingEngine.createGroupBooking(groupBookings, billingContact, additionalCharges, {
-        type: discountType,
-        value: discountValue,
-        amount: discountAmount
-      })
+      if (isSingleRoom) {
+        // Single room booking: use createBooking directly so it is NOT tagged as a group.
+        // Passing additionalCharges/discount so they are stored in specialRequests metadata
+        // without a groupId — the booking will NOT appear as a group member anywhere.
+        await bookingEngine.createBooking({
+          ...buildBookingItem(cart[0], 0),
+          ...(additionalCharges.length > 0 ? { additionalCharges } : {}),
+          ...(discountValue > 0 ? { discount: { type: discountType, value: discountValue, amount: discountAmount } } : {})
+        } as any)
 
-      if (bookingEngine.getOnlineStatus()) {
-        // Build payment status section for the group email
-        const paymentStatusHtml = paymentType === 'full'
-          ? `<p style="color: #16a34a; font-weight: bold;">✅ Full payment of ${formatCurrencySync(grandTotal, currency)} has been received. Thank you!</p>`
-          : paymentType === 'part'
-            ? `<div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 12px; margin: 10px 0;">
-              <p style="margin: 0; color: #92400e; font-weight: bold;">💰 Part Payment Received</p>
-              <p style="margin: 4px 0 0; color: #78350f;">Amount Paid: <strong>${formatCurrencySync(amountPaid, currency)}</strong></p>
-              <p style="margin: 4px 0 0; color: #dc2626;">Remaining Balance: <strong>${formatCurrencySync(Math.max(0, grandTotal - amountPaid), currency)}</strong> — due at check-in</p>
-            </div>`
-            : `<p style="color: #78350f;">⏳ Full payment of <strong>${formatCurrencySync(grandTotal, currency)}</strong> is due upon check-in.</p>`
+        // Booking engine sends its own confirmation email for single bookings
+        toast.success('Booking completed successfully!')
+      } else {
+        // Multiple rooms: use createGroupBooking so all rooms share one group reference
+        const groupBookings = cart.map((item, index) => buildBookingItem(item, index))
 
-        const onsiteEmailPayload = {
-          to: guestInfo.email,
-          from: 'AMP Lodge Bookings <bookings@updates.amplodge.org>',
-          subject: 'Group Booking Confirmation - AMP Lodge',
-          html: `
-              <div style="font-family: sans-serif; padding: 20px;">
-                <h1>Booking Confirmed!</h1>
-                <p>Dear ${guestInfo.name},</p>
-                <p>Your group reservation for ${cart.length} room(s) has been confirmed.</p>
-                <p><strong>Total Rooms:</strong> ${cart.length}</p>
-                <p><strong>Total Amount:</strong> ${formatCurrencySync(grandTotal, currency)}</p>
-                ${paymentStatusHtml}
-                <br/>
-                <h3>Rooms Reserved:</h3>
-                <ul>
-                  ${cart.map(c => {
-            const assigned = guestAssignments[c.id] || { name: guestInfo.name }
-            return `<li>Room ${c.roomNumber} (${c.roomTypeName}) - ${assigned.name}<br/>${format(c.checkIn, 'MMM dd')} to ${format(c.checkOut, 'MMM dd')}</li>`
-          }).join('')}
-                </ul>
-                <p style="color: #666; font-size: 12px; margin-top: 20px;">📎 Individual pre-invoices for each room have been sent separately.</p>
-                <p>We look forward to welcoming your group!</p>
-              </div>
-            `,
-          text: `Group Booking Confirmed for ${cart.length} rooms.\nTotal: ${formatCurrencySync(grandTotal, currency)}${paymentType === 'part' ? `\nPaid: ${formatCurrencySync(amountPaid, currency)} | Remaining: ${formatCurrencySync(Math.max(0, grandTotal - amountPaid), currency)}` : ''}`
+        const billingContact = {
+          name: guestInfo.name,
+          email: guestInfo.email,
+          phone: guestInfo.phone,
+          address: guestInfo.address
         }
 
-        await sendTransactionalEmail(onsiteEmailPayload, 'Onsite group booking confirmation')
+        await bookingEngine.createGroupBooking(groupBookings, billingContact, additionalCharges, {
+          type: discountType,
+          value: discountValue,
+          amount: discountAmount
+        })
+
+        if (bookingEngine.getOnlineStatus()) {
+          // Build payment status section for the group summary email
+          const paymentStatusHtml = paymentType === 'full'
+            ? `<p style="color: #16a34a; font-weight: bold;">✅ Full payment of ${formatCurrencySync(grandTotal, currency)} has been received. Thank you!</p>`
+            : paymentType === 'part'
+              ? `<div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 12px; margin: 10px 0;">
+                <p style="margin: 0; color: #92400e; font-weight: bold;">💰 Part Payment Received</p>
+                <p style="margin: 4px 0 0; color: #78350f;">Amount Paid: <strong>${formatCurrencySync(amountPaid, currency)}</strong></p>
+                <p style="margin: 4px 0 0; color: #dc2626;">Remaining Balance: <strong>${formatCurrencySync(Math.max(0, grandTotal - amountPaid), currency)}</strong> — due at check-in</p>
+              </div>`
+              : `<p style="color: #78350f;">⏳ Full payment of <strong>${formatCurrencySync(grandTotal, currency)}</strong> is due upon check-in.</p>`
+
+          const onsiteEmailPayload = {
+            to: guestInfo.email,
+            from: 'AMP Lodge Bookings <bookings@updates.amplodge.org>',
+            subject: 'Group Booking Confirmation - AMP Lodge',
+            html: `
+                <div style="font-family: sans-serif; padding: 20px;">
+                  <h1>Booking Confirmed!</h1>
+                  <p>Dear ${guestInfo.name},</p>
+                  <p>Your group reservation for ${cart.length} rooms has been confirmed.</p>
+                  <p><strong>Total Rooms:</strong> ${cart.length}</p>
+                  <p><strong>Total Amount:</strong> ${formatCurrencySync(grandTotal, currency)}</p>
+                  ${paymentStatusHtml}
+                  <br/>
+                  <h3>Rooms Reserved:</h3>
+                  <ul>
+                    ${cart.map(c => {
+              const assigned = guestAssignments[c.id] || { name: guestInfo.name }
+              return `<li>Room ${c.roomNumber} (${c.roomTypeName}) - ${assigned.name}<br/>${format(c.checkIn, 'MMM dd')} to ${format(c.checkOut, 'MMM dd')}</li>`
+            }).join('')}
+                  </ul>
+                  <p style="color: #666; font-size: 12px; margin-top: 20px;">📎 Individual pre-invoices for each room have been sent separately.</p>
+                  <p>We look forward to welcoming your group!</p>
+                </div>
+              `,
+            text: `Group Booking Confirmed for ${cart.length} rooms.\nTotal: ${formatCurrencySync(grandTotal, currency)}${paymentType === 'part' ? `\nPaid: ${formatCurrencySync(amountPaid, currency)} | Remaining: ${formatCurrencySync(Math.max(0, grandTotal - amountPaid), currency)}` : ''}`
+          }
+
+          await sendTransactionalEmail(onsiteEmailPayload, 'Onsite group booking confirmation')
+        }
+
+        toast.success(`Group booking for ${cart.length} rooms completed successfully!`)
       }
 
-      toast.success(`Group booking for ${cart.length} rooms completed successfully!`)
       navigate('/staff/dashboard')
     } catch (error: any) {
       console.error('Booking failed:', error)

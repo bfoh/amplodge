@@ -193,7 +193,7 @@ export function ActivityLogsPage() {
         message += ` from ${checkIn} to ${checkOut}`
       }
       if (amount) {
-        message += ` for $${amount}`
+        message += ` for GH₵${amount}`
       }
       if (status) {
         message += ` - Status: ${status}`
@@ -250,7 +250,7 @@ export function ActivityLogsPage() {
       const method = details.method
       const reference = details.reference
 
-      let message = `Payment of $${amount} received via ${method}`
+      let message = `Payment of GH₵${amount} received via ${method}`
       if (reference) {
         message += ` (Reference: ${reference})`
       }
@@ -268,7 +268,7 @@ export function ActivityLogsPage() {
         message += ` for ${guestName}`
       }
       if (totalAmount) {
-        message += ` - Amount: $${totalAmount}`
+        message += ` - Amount: GH₵${totalAmount}`
       }
       return message
     }
@@ -316,7 +316,11 @@ export function ActivityLogsPage() {
 
     if (details.reason) {
       // Cancellation details
-      return `Cancelled: ${details.reason}`
+      let message = 'Cancelled'
+      if (details.guestName) message += ` - ${details.guestName}`
+      if (details.roomNumber) message += ` (Room ${details.roomNumber})`
+      message += `: ${details.reason}`
+      return message
     }
 
     if (details.message) {

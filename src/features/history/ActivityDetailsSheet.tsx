@@ -3,11 +3,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { format, parseISO } from 'date-fns'
-import { CalendarPlus, UserPlus, FileText, Users, Mail, CreditCard, CheckCircle, XCircle, User, Clock, Hash } from 'lucide-react'
+import { CalendarPlus, UserPlus, FileText, Users, Mail, CreditCard, CheckCircle, XCircle, User, Clock, Hash, Ban } from 'lucide-react'
 import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 
-export type ActivityType = 'booking' | 'guest' | 'invoice' | 'staff' | 'contact' | 'checkin' | 'checkout' | 'payment' | 'booking_deletion' | 'user_login' | 'user_logout'
+export type ActivityType = 'booking' | 'guest' | 'invoice' | 'staff' | 'contact' | 'checkin' | 'checkout' | 'payment' | 'booking_deletion' | 'user_login' | 'user_logout' | 'cancellation'
 export interface ActivitySummary {
   id: string
   type: ActivityType
@@ -39,6 +39,7 @@ const getActivityIcon = (type: ActivityType) => {
     case 'checkout': return <XCircle className="h-5 w-5 text-red-600" />
     case 'payment': return <CreditCard className="h-5 w-5 text-blue-600" />
     case 'booking_deletion': return <XCircle className="h-5 w-5 text-red-600" />
+    case 'cancellation': return <Ban className="h-5 w-5 text-rose-600" />
     case 'user_login': return <User className="h-5 w-5 text-green-600" />
     case 'user_logout': return <User className="h-5 w-5 text-orange-600" />
     default: return <Hash className="h-5 w-5 text-gray-600" />
@@ -56,6 +57,7 @@ const getActivityTypeLabel = (type: ActivityType) => {
     case 'checkout': return 'Check-out'
     case 'payment': return 'Payment'
     case 'booking_deletion': return 'Booking Deletion'
+    case 'cancellation': return 'Booking Cancellation'
     case 'user_login': return 'User Login'
     case 'user_logout': return 'User Logout'
     default: return 'Activity'
@@ -359,6 +361,54 @@ const renderEntityData = (type: ActivityType, data: any, currency: string) => {
             <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Deleted At</label>
             <p className="text-sm">{data.deletedAt ? formatDate(data.deletedAt) : 'N/A'}</p>
           </div>
+        </div>
+      )
+
+    case 'cancellation':
+      return (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Booking ID</label>
+              <p className="text-sm font-mono">{data.bookingId}</p>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Room</label>
+              <p className="text-sm">{data.roomNumber}</p>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Guest</label>
+              <p className="text-sm">{data.guestName}</p>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Amount</label>
+              <p className="text-sm">{data.amount ? formatCurrencySync(data.amount, currency) : 'N/A'}</p>
+            </div>
+            {data.checkIn && (
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Check-in</label>
+                <p className="text-sm">{formatDate(data.checkIn)}</p>
+              </div>
+            )}
+            {data.checkOut && (
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Check-out</label>
+                <p className="text-sm">{formatDate(data.checkOut)}</p>
+              </div>
+            )}
+            <div>
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Cancelled At</label>
+              <p className="text-sm">{data.cancelledAt ? formatDate(data.cancelledAt) : 'N/A'}</p>
+            </div>
+          </div>
+          {data.reason && (
+            <div className="mt-2">
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Cancellation Reason</label>
+              <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 mt-1">
+                <p className="text-sm text-rose-900">{data.reason}</p>
+              </div>
+            </div>
+          )}
         </div>
       )
 

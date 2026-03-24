@@ -4,6 +4,8 @@ import { blink } from '@/blink/client'
 import type { Booking, Room, Guest } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -88,6 +90,10 @@ export function ReservationsPage() {
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null)
   const [manageGroupDialog, setManageGroupDialog] = useState<{ groupId: string; groupReference: string } | null>(null)
 
+  // Cancellation dialog
+  const [cancelDialog, setCancelDialog] = useState<Booking | null>(null)
+  const [cancelReason, setCancelReason] = useState('')
+
   // Checkout charges summary
   const [checkoutCharges, setCheckoutCharges] = useState<BookingCharge[]>([])
   const [checkoutLoading, setCheckoutLoading] = useState(false)
@@ -154,7 +160,21 @@ export function ReservationsPage() {
           // Note: Supabase returns snake_case, our interface uses camelCase
           const rawSpecialRequests = (booking as any).special_requests || booking.specialRequests || ''
 
-          if (!rawSpecialRequests) return { ...booking, _rawSpecialRequests: '' };
+          // Parse GUEST_SNAPSHOT — the name captured at booking time.
+          // This is the authoritative source for who the booking belongs to and is
+          // immune to changes in the shared guests table record.
+          let guestNameSnapshot: string | undefined
+          let guestEmailSnapshot: string | undefined
+          const snapshotMatch = rawSpecialRequests.match(/<!-- GUEST_SNAPSHOT:(.*?) -->/)
+          if (snapshotMatch) {
+            try {
+              const snap = JSON.parse(snapshotMatch[1])
+              if (snap.name) guestNameSnapshot = snap.name
+              if (snap.email) guestEmailSnapshot = snap.email
+            } catch { /* ignore */ }
+          }
+
+          if (!rawSpecialRequests) return { ...booking, _rawSpecialRequests: '', guestNameSnapshot, guestEmailSnapshot };
 
           const match = rawSpecialRequests.match(/<!-- GROUP_DATA:(.*?) -->/)
           if (match && match[1]) {
@@ -163,6 +183,8 @@ export function ReservationsPage() {
               return {
                 ...booking,
                 ...groupData,
+                guestNameSnapshot,
+                guestEmailSnapshot,
                 // Preserve raw special requests for invoice generation
                 _rawSpecialRequests: rawSpecialRequests,
                 special_requests: rawSpecialRequests, // Keep snake_case for DB compatibility
@@ -173,7 +195,7 @@ export function ReservationsPage() {
               console.warn('Failed to parse group data for booking', booking.id, e);
             }
           }
-          return { ...booking, _rawSpecialRequests: rawSpecialRequests, special_requests: rawSpecialRequests };
+          return { ...booking, guestNameSnapshot, guestEmailSnapshot, _rawSpecialRequests: rawSpecialRequests, special_requests: rawSpecialRequests };
         });
 
         const uniqueBookings = hydratedBookings.reduce((acc: Booking[], current) => {
@@ -201,17 +223,20 @@ export function ReservationsPage() {
             const itemGuest = tempGuestMap.get(item.guestId)
             const itemRoom = tempRoomMap.get(item.roomId)
 
-            const itemGuestName = (itemGuest?.name || '').trim().toLowerCase()
             const itemRoomNumber = (itemRoom?.roomNumber || '').trim()
             const itemCheckIn = normalizeDate(item.checkIn)
             const itemCheckOut = normalizeDate(item.checkOut)
 
-            return (
-              itemGuestName === currentGuestName &&
-              itemRoomNumber === currentRoomNumber &&
-              itemCheckIn === currentCheckIn &&
-              itemCheckOut === currentCheckOut
-            )
+            // Room and dates must match first
+            if (itemRoomNumber !== currentRoomNumber) return false
+            if (itemCheckIn !== currentCheckIn) return false
+            if (itemCheckOut !== currentCheckOut) return false
+
+            // Guest match: prefer guestId (most reliable), fall back to resolved name
+            if (item.guestId && current.guestId) return item.guestId === current.guestId
+            // Fallback: name comparison — don't treat empty names as matching
+            const itemGuestName = (itemGuest?.name || '').trim().toLowerCase()
+            return currentGuestName !== '' && itemGuestName === currentGuestName
           })
 
           if (duplicateByDetailsIndex >= 0) {
@@ -304,20 +329,50 @@ export function ReservationsPage() {
       if (query) {
         const guest = guestMap.get(b.guestId)
         const room = roomMap.get(b.roomId)
-        const hay = `${guest?.name || ''} ${guest?.email || ''} ${room?.roomNumber || ''} ${b.id}`.toLowerCase()
+        // Prefer snapshot name/email for search so results match what is displayed
+        const searchName = (b as any).guestNameSnapshot || guest?.name || ''
+        const searchEmail = (b as any).guestEmailSnapshot || guest?.email || ''
+        const hay = `${searchName} ${searchEmail} ${room?.roomNumber || ''} ${b.id}`.toLowerCase()
         if (!hay.includes(query.toLowerCase().trim())) return false
       }
       return true
     })
   }, [bookings, status, from, to, query, guestMap, roomMap])
 
-  const cancelBooking = async (id: string) => {
+  const cancelBooking = async (id: string, reason: string) => {
     const original = bookings
+    const booking = bookings.find(b => b.id === id)
     setUpdatingId(id)
     // Optimistic update
     setBookings(prev => prev.map(b => (b.id === id ? { ...b, status: 'cancelled' } : b)))
     try {
       await db.bookings.update(id, { status: 'cancelled' })
+
+      // Log cancellation with reason to activity logs
+      try {
+        const guest = booking ? guestMap.get(booking.guestId) : null
+        const room = booking ? roomMap.get(booking.roomId) : null
+        await activityLogService.log({
+          action: 'cancelled',
+          entityType: 'booking',
+          entityId: id,
+          details: {
+            reason: reason,
+            guestName: guest?.name || 'Unknown Guest',
+            roomNumber: room?.roomNumber || 'Unknown Room',
+            checkIn: booking?.checkIn,
+            checkOut: booking?.checkOut,
+            amount: booking?.totalPrice,
+            cancelledAt: new Date().toISOString(),
+            bookingId: id
+          },
+          userId: user?.id || 'system'
+        })
+        console.log('✅ Cancellation logged with reason:', reason)
+      } catch (logError) {
+        console.error('Failed to log cancellation activity:', logError)
+      }
+
       toast.success('Booking cancelled')
     } catch (e) {
       console.error('Cancel failed', e)
@@ -881,6 +936,84 @@ export function ReservationsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Cancel Booking Dialog */}
+      <Dialog open={!!cancelDialog} onOpenChange={(open) => { if (!open) { setCancelDialog(null); setCancelReason(''); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-destructive">Cancel Reservation</DialogTitle>
+            <DialogDescription>
+              Please provide a reason for cancelling this reservation. This will be recorded in the activity logs.
+            </DialogDescription>
+          </DialogHeader>
+          {cancelDialog && (
+            <div className="space-y-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Guest Name</p>
+                  <p className="text-base font-semibold">{(cancelDialog as any).guestNameSnapshot || guestMap.get(cancelDialog.guestId)?.name || 'Guest'}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Room Number</p>
+                  <p className="text-base font-semibold">
+                    {roomMap.get(cancelDialog.roomId)?.roomNumber || 'N/A'}
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Check-in</p>
+                  <p className="text-sm">{format(parseISO(cancelDialog.checkIn), 'MMM dd, yyyy')}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Check-out</p>
+                  <p className="text-sm">{format(parseISO(cancelDialog.checkOut), 'MMM dd, yyyy')}</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="cancel-reason" className="text-sm font-medium">
+                  Reason for Cancellation <span className="text-destructive">*</span>
+                </Label>
+                <Textarea
+                  id="cancel-reason"
+                  placeholder="e.g. Guest requested cancellation, No-show, Change of plans..."
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  rows={3}
+                  className="resize-none"
+                />
+                {cancelReason.length > 0 && cancelReason.trim().length < 3 && (
+                  <p className="text-xs text-destructive">Please provide a more detailed reason (at least 3 characters)</p>
+                )}
+              </div>
+
+              <div className="rounded-lg bg-rose-50 p-4 border border-rose-200">
+                <p className="text-sm font-medium text-rose-900">⚠️ This action cannot be undone</p>
+                <p className="text-sm text-rose-700 mt-1">The booking will be marked as cancelled and the reason will be recorded in the activity logs.</p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setCancelDialog(null); setCancelReason(''); }}>
+              Go Back
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (cancelDialog && cancelReason.trim().length >= 3) {
+                  cancelBooking(cancelDialog.id, cancelReason.trim())
+                  setCancelDialog(null)
+                  setCancelReason('')
+                }
+              }}
+              disabled={cancelReason.trim().length < 3}
+            >
+              Confirm Cancellation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="min-h-screen bg-gradient-to-br from-stone-50 via-amber-50/30 to-stone-100">
         <header className="bg-white/80 backdrop-blur-md border-b border-stone-200/60 sticky top-0 z-10 shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex items-center justify-between">
@@ -1001,6 +1134,11 @@ export function ReservationsPage() {
                         const room = roomMap.get(b.roomId)
                         const isMainActionLoading = downloadingInvoice === b.id || updatingId === b.id
 
+                        // Prefer GUEST_SNAPSHOT over live guest table for name/email display.
+                        // This prevents guest table changes from retroactively renaming group members.
+                        const displayName = (b as any).guestNameSnapshot || guest?.name || 'Guest'
+                        const displayEmail = (b as any).guestEmailSnapshot || guest?.email
+
                         // Determine Valid Actions
                         const canShowCheckIn = canCheckIn(b)
                         const canShowCheckOut = canCheckOut(b)
@@ -1016,14 +1154,14 @@ export function ReservationsPage() {
                               </div>
                               {isGroup && (
                                 <div className="mt-1 text-[10px] text-amber-600 font-medium flex items-center gap-1">
-                                  <Users className="w-3 h-3" /> Group
+                                  <Users className="w-3 h-3" /> {(b as any).groupReference || 'Group'}
                                 </div>
                               )}
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-col">
-                                <span className="font-medium text-sm text-foreground">{guest?.name || 'Guest'}</span>
-                                {guest?.email && <span className="text-xs text-muted-foreground truncate max-w-[180px]">{guest.email}</span>}
+                                <span className="font-medium text-sm text-foreground">{displayName}</span>
+                                {displayEmail && <span className="text-xs text-muted-foreground truncate max-w-[180px]">{displayEmail}</span>}
                               </div>
                             </TableCell>
                             <TableCell>
@@ -1134,7 +1272,7 @@ export function ReservationsPage() {
                                       <>
                                         <DropdownMenuSeparator />
                                         <DropdownMenuItem
-                                          onClick={() => cancelBooking(b.id)}
+                                          onClick={() => setCancelDialog(b)}
                                           className="text-destructive focus:text-destructive focus:bg-destructive/10"
                                         >
                                           <LogOut className="w-4 h-4 mr-2 rotate-180" />

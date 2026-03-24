@@ -120,13 +120,21 @@ class BookingEngine {
     const guestMap = new Map(allGuests.map((g: any) => [g.id, g]))
 
     // Check for duplicates
+    // Note: bookings store roomId not roomNumber, so we resolve via a room lookup
+    const allRoomsForDupCheck = await db.rooms.list()
+    const roomIdToNumberMap = new Map((allRoomsForDupCheck as any[]).map((r: any) => [r.id, r.roomNumber]))
+    const normDateForDup = (d: string) => (d || '').split('T')[0]
     const isDuplicate = allExistingBookings.some((existing: any) => {
-      const guest = existing.guestId ? guestMap.get(existing.guestId) : null
-      return guest &&
-        guest.email?.toLowerCase() === normalizedEmail &&
-        existing.roomNumber === bookingData.roomNumber &&
-        existing.checkIn === bookingData.dates.checkIn &&
-        existing.checkOut === bookingData.dates.checkOut
+      const guest = existing.guestId ? guestMap.get(existing.guestId) as any : null
+      if (!guest) return false
+      if (guest.email?.toLowerCase() !== normalizedEmail) return false
+      // Resolve room number from roomId (bookings don't store roomNumber directly)
+      const existingRoomNumber = roomIdToNumberMap.get(existing.roomId) || ''
+      if (existingRoomNumber !== bookingData.roomNumber) return false
+      // Normalize dates to handle "2024-01-15" vs "2024-01-15T00:00:00.000Z"
+      if (normDateForDup(existing.checkIn) !== normDateForDup(bookingData.dates.checkIn)) return false
+      if (normDateForDup(existing.checkOut) !== normDateForDup(bookingData.dates.checkOut)) return false
+      return true
     })
 
     if (isDuplicate) {
@@ -161,19 +169,12 @@ class BookingEngine {
 
       if (existing) {
         guestId = existing.id
-        console.log('[BookingEngine] Using existing guest:', guestId)
-        // Try to update guest info if changed
-        try {
-          await db.guests.update(guestId, {
-            name: guestName,
-            email: normalizedEmail || existing.email,
-            phone: bookingData.guest.phone || existing.phone || '',
-            address: bookingData.guest.address || existing.address || '',
-          })
-          console.log('[BookingEngine] Updated guest info')
-        } catch (updateErr: any) {
-          console.warn('[BookingEngine] Guest update failed (non-critical):', updateErr?.message)
-        }
+        console.log('[BookingEngine] Using existing guest (no update — name and details are preserved):', guestId)
+        // INTENTIONALLY do NOT update the guest record here.
+        // Updating any field (especially name) would retroactively rename this guest
+        // across ALL their previous bookings and any group memberships, which is the
+        // root cause of the "guest takes over existing group" bug.
+        // Guest record edits must be done explicitly via the Guests management page.
       } else {
         // Create new guest (let Blink auto-generate the ID)
         const createPayload = {
@@ -393,9 +394,20 @@ class BookingEngine {
     }
     const hasPaymentTracking = paymentTrackingData.amountPaid > 0 || paymentTrackingData.paymentStatus !== 'pending'
 
+    // Always snapshot the guest name/email at booking time.
+    // This is the single source of truth for "who was this booking for" and is immune
+    // to changes in the shared guests table (which would otherwise retroactively rename
+    // every booking that shares the same guestId).
+    const guestSnapshot = {
+      name: bookingData.guest.fullName,
+      email: bookingData.guest.email,
+      phone: bookingData.guest.phone || '',
+    }
+
     const specialRequests = (bookingData.notes || '') +
       (hasGroupData ? `\n\n<!-- GROUP_DATA:${JSON.stringify(groupData)} -->` : '') +
-      (hasPaymentTracking ? `\n\n<!-- PAYMENT_DATA:${JSON.stringify(paymentTrackingData)} -->` : '')
+      (hasPaymentTracking ? `\n\n<!-- PAYMENT_DATA:${JSON.stringify(paymentTrackingData)} -->` : '') +
+      `\n\n<!-- GUEST_SNAPSHOT:${JSON.stringify(guestSnapshot)} -->`
 
     console.log('[BookingEngine Debug] Generated specialRequests length:', specialRequests.length)
     if (hasGroupData) {
@@ -1026,8 +1038,8 @@ class BookingEngine {
           }
 
           // Also try to match by resolved email/room number
-          const bGuest = guestMap.get(b.guestId)
-          const bRoom = roomMap.get(b.roomId)
+          const bGuest = guestMap.get(b.guestId) as any
+          const bRoom = roomMap.get(b.roomId) as any
           const bGuestEmail = bGuest?.email?.toLowerCase() || ''
           const bRoomNumber = bRoom?.roomNumber || ''
 
@@ -1160,8 +1172,8 @@ class BookingEngine {
     const guestMap = new Map(guests.map((g: any) => [g.id, g]))
 
     const mappedBookings = bookings.map((b: any) => {
-      const room = roomMap.get(b.roomId)
-      const guest = guestMap.get(b.guestId)
+      const room = roomMap.get(b.roomId) as any
+      const guest = guestMap.get(b.guestId) as any
       const remoteId: string = b.id || ''
       const localId = `booking_${remoteId.replace(/^booking-/, '')}`
       const createdAt = b.createdAt || b.checkIn
@@ -1186,13 +1198,48 @@ class BookingEngine {
         }
       }
 
+      // Parse group data from specialRequests so consumers know about group membership
+      let groupId: string | undefined
+      let groupReference: string | undefined
+      let isPrimaryBooking: boolean | undefined
+      const groupMatch = specialReq.match(/<!-- GROUP_DATA:(.*?) -->/)
+      if (groupMatch && groupMatch[1]) {
+        try {
+          const groupData = JSON.parse(groupMatch[1])
+          groupId = groupData.groupId
+          groupReference = groupData.groupReference
+          isPrimaryBooking = groupData.isPrimaryBooking
+        } catch (e) {
+          // ignore malformed group data
+        }
+      }
+
+      // Parse GUEST_SNAPSHOT — the name/email captured at booking time.
+      // This is immune to changes in the guests table and is the authoritative source
+      // for "who was this booking for". Fall back to the live guest table only for
+      // old bookings that pre-date this snapshot feature.
+      let snapshotName: string | undefined
+      let snapshotEmail: string | undefined
+      let snapshotPhone: string | undefined
+      const snapshotMatch = specialReq.match(/<!-- GUEST_SNAPSHOT:(.*?) -->/)
+      if (snapshotMatch && snapshotMatch[1]) {
+        try {
+          const snap = JSON.parse(snapshotMatch[1])
+          snapshotName = snap.name || undefined
+          snapshotEmail = snap.email || undefined
+          snapshotPhone = snap.phone || undefined
+        } catch (e) {
+          // ignore malformed snapshot
+        }
+      }
+
       const local: LocalBooking = {
         _id: localId,
         remoteId: remoteId || localId,
         guest: {
-          fullName: guest?.name || 'Guest',
-          email: guest?.email || '',
-          phone: guest?.phone || '',
+          fullName: snapshotName || guest?.name || 'Guest',
+          email: snapshotEmail || guest?.email || '',
+          phone: snapshotPhone || guest?.phone || '',
           address: guest?.address || '',
         },
         roomType: room?.roomTypeId || '',
@@ -1215,12 +1262,18 @@ class BookingEngine {
         createdAt,
         updatedAt: b.updatedAt || createdAt,
         synced: true,
+        groupId,
+        groupReference,
+        isPrimaryBooking,
       }
       return local
     })
 
-    // Deduplicate bookings based on unique combination of guest email, room number, and dates
-    // When duplicates with different statuses exist, keep the one with the most advanced status
+    // Deduplicate bookings based on unique combination of guest, room, and dates.
+    // Handles date format differences (ISO datetime vs date-only strings).
+    // When duplicates with different statuses exist, keep the most advanced status.
+    const normDate = (d: string) => (d || '').split('T')[0]
+
     const statusPriority: Record<string, number> = {
       'checked-out': 5,
       'checked-in': 4,
@@ -1230,13 +1283,24 @@ class BookingEngine {
     }
 
     const uniqueBookings = mappedBookings.reduce((acc: LocalBooking[], current: LocalBooking) => {
-      // Find if there's already a booking with same guest, room, and dates
-      const duplicateIndex = acc.findIndex(booking =>
-        booking.guest.email === current.guest.email &&
-        booking.roomNumber === current.roomNumber &&
-        booking.dates.checkIn === current.dates.checkIn &&
-        booking.dates.checkOut === current.dates.checkOut
-      )
+      const curIn = normDate(current.dates.checkIn)
+      const curOut = normDate(current.dates.checkOut)
+      const curEmail = current.guest.email.trim().toLowerCase()
+      const curName = current.guest.fullName.trim().toLowerCase()
+
+      const duplicateIndex = acc.findIndex(booking => {
+        // Room must match
+        if (booking.roomNumber !== current.roomNumber) return false
+        // Dates must match (format-agnostic comparison)
+        if (normDate(booking.dates.checkIn) !== curIn) return false
+        if (normDate(booking.dates.checkOut) !== curOut) return false
+        // Guest match: prefer email, fall back to name (don't match empty values)
+        const bookEmail = booking.guest.email.trim().toLowerCase()
+        const bookName = booking.guest.fullName.trim().toLowerCase()
+        if (curEmail && bookEmail) return curEmail === bookEmail
+        if (!curEmail && !bookEmail) return curName !== '' && curName === bookName
+        return false // one has email, other doesn't — treat as different guests
+      })
 
       if (duplicateIndex >= 0) {
         const existing = acc[duplicateIndex]
@@ -1248,7 +1312,7 @@ class BookingEngine {
           console.log(`[BookingEngine] Replacing duplicate booking ${existing._id} (status: ${existing.status}) with ${current._id} (status: ${current.status})`)
           acc[duplicateIndex] = current
         } else {
-          console.log(`[BookingEngine] Removed duplicate booking for ${current.guest.email} in room ${current.roomNumber} (keeping status: ${existing.status})`)
+          console.log(`[BookingEngine] Removed duplicate booking for ${current.guest.email || current.guest.fullName} in room ${current.roomNumber} (keeping status: ${existing.status})`)
         }
       } else {
         acc.push(current)

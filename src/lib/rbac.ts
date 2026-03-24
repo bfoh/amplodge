@@ -24,7 +24,8 @@ export const ROLE_PERMISSIONS: Record<StaffRole, Permission[]> = {
     { resource: 'housekeeping', actions: ['read', 'update'] },
     { resource: 'settings', actions: ['read', 'update'] },
     { resource: 'pricing', actions: ['create', 'read', 'update', 'delete'] },
-    { resource: 'reviews', actions: ['read', 'update', 'delete'] }
+    { resource: 'reviews', actions: ['read', 'update', 'delete'] },
+    { resource: 'hr', actions: ['create', 'read', 'update', 'delete'] }
   ],
   manager: [
     { resource: 'bookings', actions: ['create', 'read', 'update', 'delete'] },
@@ -69,7 +70,8 @@ export const ROUTE_ACCESS: Record<string, StaffRole[]> = {
   '/staff/end-of-day': ['owner', 'admin'],
   '/staff/reviews': ['owner', 'admin', 'manager', 'staff'],
   '/staff/marketing': ['owner', 'admin', 'manager', 'staff'],
-  '/staff/requests': ['owner', 'admin', 'manager', 'staff']
+  '/staff/requests': ['owner', 'admin', 'manager', 'staff'],
+  '/staff/hr': ['owner', 'admin']
 }
 
 // Navigation items visibility by role
@@ -94,7 +96,8 @@ export const NAV_ITEMS: NavItem[] = [
   { path: '/staff/employees', label: 'Employees', minRole: ['owner', 'admin'] },
   { path: '/staff/activity-logs', label: 'Activity Logs', minRole: ['owner', 'admin'] },
   { path: '/staff/settings', label: 'Settings', minRole: ['owner', 'admin'] },
-  { path: '/staff/marketing', label: 'Marketing', minRole: ['owner', 'admin', 'manager', 'staff'] }
+  { path: '/staff/marketing', label: 'Marketing', minRole: ['owner', 'admin', 'manager', 'staff'] },
+  { path: '/staff/hr', label: 'HR', minRole: ['owner', 'admin'] }
 ]
 
 /**

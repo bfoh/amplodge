@@ -27,7 +27,8 @@ import {
   TrendingUp,
   FileText,
   Star,
-  Megaphone
+  Megaphone,
+  Users2
 } from 'lucide-react'
 import { blink } from '../../blink/client'
 import { cn } from '../../lib/utils'
@@ -251,6 +252,7 @@ export function AppLayout() {
     if (location.pathname.startsWith('/staff/reservations')) return 'Reservations'
     if (location.pathname === '/staff/set-prices') return 'Set prices'
     if (location.pathname === '/staff/analytics') return 'Analytics'
+    if (location.pathname === '/staff/hr') return 'Human Resources'
     if (location.pathname === '/staff/reviews') return 'Guest Reviews'
     if (location.pathname === '/staff/marketing') return 'Marketing Center'
     if (location.pathname === '/staff/requests') return 'Service Requests'
@@ -354,6 +356,19 @@ export function AppLayout() {
               >
                 <UserCheck className="w-5 h-5 flex-shrink-0" />
                 <span>Employees</span>
+              </Link>
+              <Link
+                to="/staff/hr"
+                onClick={() => setMobileMenuOpen(false)}
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ease-in-out',
+                  location.pathname === '/staff/hr'
+                    ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-black/5 translate-x-1'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:translate-x-1'
+                )}
+              >
+                <Users2 className="w-5 h-5 flex-shrink-0" />
+                <span>HR</span>
               </Link>
 
               {/* Price list collapsible - Admin only */}

@@ -55,6 +55,8 @@ interface BookingWithDetails {
   nights: number
   paymentMethod?: string
   guestToken?: string
+  groupId?: string
+  groupReference?: string
 }
 
 export function BookingsPage() {
@@ -173,7 +175,9 @@ export function BookingsPage() {
           numGuests: b.numGuests,
           nights,
           paymentMethod: b.payment_method || b.paymentMethod || 'Not paid',
-          guestToken: b.guest_token
+          guestToken: b.guest_token,
+          groupId: b.groupId,
+          groupReference: b.groupReference,
         }
       })
 
@@ -703,11 +707,16 @@ export function BookingsPage() {
                   <div className="flex-1 space-y-2">
                     <div className="flex items-start justify-between">
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="font-semibold text-lg">{booking.guestName}</h3>
                           <Badge className={getStatusColor(booking.status)}>
                             {booking.status}
                           </Badge>
+                          {booking.groupReference && (
+                            <Badge className="bg-amber-100 text-amber-800 border-amber-200">
+                              <Users className="w-3 h-3 mr-1" />{booking.groupReference}
+                            </Badge>
+                          )}
                           {booking.source === 'voice_agent' && (
                             <Badge className="bg-purple-100 text-purple-800 border-purple-200">
                               Voice Agent
