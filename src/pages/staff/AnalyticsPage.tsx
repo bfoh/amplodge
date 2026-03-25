@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   DollarSign,
   TrendingUp,
+  TrendingDown,
   Users,
   Calendar,
   Percent,
@@ -15,45 +16,64 @@ import {
   FileText,
   Table,
   Camera,
-  ChevronDown
+  ChevronDown,
+  ArrowUpRight,
+  ArrowDownRight,
+  BedDouble,
+  Activity,
+  Star,
 } from 'lucide-react'
 import { usePermissions } from '@/hooks/use-permissions'
 import { analyticsService } from '@/services/analytics-service'
 import { AnalyticsExportService } from '@/services/analytics-export-service'
 import { bookingEngine } from '@/services/booking-engine'
 import { startOfWeek, endOfWeek, format } from 'date-fns'
-import { KPICard } from '@/components/analytics/KPICard'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { formatCurrencySync } from '@/lib/utils'
+import { formatCurrencySync, cn } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
-import { 
-  LineChart, 
-  Line, 
-  BarChart, 
+import {
+  AreaChart,
+  Area,
+  BarChart,
   Bar,
   PieChart,
   Pie,
   Cell,
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  Legend,
-  ResponsiveContainer 
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
 } from 'recharts'
-import type { 
-  RevenueAnalytics, 
-  OccupancyAnalytics, 
+import type {
+  RevenueAnalytics,
+  OccupancyAnalytics,
   GuestAnalytics,
-  PerformanceMetrics 
+  PerformanceMetrics
 } from '@/types/analytics'
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82ca9d']
+const ROOM_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4']
+
+const ChartTooltip = ({ active, payload, label, formatter }: any) => {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="rounded-lg border bg-card shadow-lg px-3 py-2 text-xs">
+      <p className="font-medium text-foreground mb-1">
+        {label ? new Date(label).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}
+      </p>
+      {payload.map((p: any, i: number) => (
+        <p key={i} style={{ color: p.color }} className="font-semibold">
+          {formatter ? formatter(p.value) : p.value}
+        </p>
+      ))}
+    </div>
+  )
+}
 
 export function AnalyticsPage() {
   const { currency } = useCurrency()
@@ -67,12 +87,7 @@ export function AnalyticsPage() {
 
   useEffect(() => {
     loadAnalytics()
-    
-    // Refresh every 5 minutes
-    const interval = setInterval(() => {
-      loadAnalytics()
-    }, 5 * 60 * 1000)
-    
+    const interval = setInterval(() => { loadAnalytics() }, 5 * 60 * 1000)
     return () => clearInterval(interval)
   }, [])
 
@@ -87,19 +102,17 @@ export function AnalyticsPage() {
           analyticsService.getPerformanceMetrics(),
           bookingEngine.getAllBookings(),
         ])
-
       setRevenue(revenueData)
       setOccupancy(occupancyData)
       setGuests(guestData)
       setPerformance(performanceData)
-
-      // This week's bookings — same filter as analytics-service & revenue-service
       const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 })
-      const thisWeekBks = allBookings.filter(b =>
-        ['checked-in', 'checked-out'].includes(b.status) &&
-        new Date(b.dates.checkIn) >= weekStart
+      setWeekBookings(
+        allBookings.filter(b =>
+          ['checked-in', 'checked-out'].includes(b.status) &&
+          new Date(b.dates.checkIn) >= weekStart
+        )
       )
-      setWeekBookings(thisWeekBks)
     } catch (error) {
       console.error('Failed to load analytics:', error)
     } finally {
@@ -107,24 +120,13 @@ export function AnalyticsPage() {
     }
   }
 
-  const handleExport = async (format: 'pdf' | 'csv' | 'screenshot') => {
+  const handleExport = async (fmt: 'pdf' | 'csv' | 'screenshot') => {
     try {
-      switch (format) {
-        case 'pdf':
-          await AnalyticsExportService.exportToPDF(revenue, occupancy, guests, performance)
-          break
-        case 'csv':
-          AnalyticsExportService.exportToCSV(revenue, occupancy, guests, performance)
-          break
-        case 'screenshot':
-          await AnalyticsExportService.exportScreenshot('analytics-dashboard')
-          break
-        default:
-          console.error('Unknown export format:', format)
-      }
+      if (fmt === 'pdf') await AnalyticsExportService.exportToPDF(revenue, occupancy, guests, performance)
+      else if (fmt === 'csv') AnalyticsExportService.exportToCSV(revenue, occupancy, guests, performance)
+      else await AnalyticsExportService.exportScreenshot('analytics-dashboard')
     } catch (error) {
       console.error('Export failed:', error)
-      // You could add a toast notification here
     }
   }
 
@@ -133,17 +135,13 @@ export function AnalyticsPage() {
     return ((current - previous) / previous) * 100
   }
 
-  // This week bounds (pre-computed for the breakdown card)
   const thisWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 })
   const thisWeekEnd = endOfWeek(new Date(), { weekStartsOn: 1 })
   const weekTotal = weekBookings.reduce((s, b) => s + Number(b.amount || 0), 0)
-
-  // Calculate growth metrics with null safety
   const revenueGrowth = revenue
     ? calculateGrowth(revenue.revenueByPeriod.thisMonth, revenue.revenueByPeriod.lastMonth)
     : 0
 
-  // Check if user has permission to view analytics
   if (!permissions.can('analytics', 'read')) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
@@ -152,349 +150,443 @@ export function AnalyticsPage() {
         <p className="text-muted-foreground text-center max-w-md">
           You do not have permission to view analytics. Please contact your administrator.
         </p>
-        <Badge variant="outline" className="mt-4">
-          Required: Manager, Admin, or Owner role
-        </Badge>
+        <Badge variant="outline">Required: Manager, Admin, or Owner role</Badge>
       </div>
     )
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      <div className="flex flex-col items-center justify-center h-96 gap-3">
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-muted-foreground">Loading analytics…</p>
       </div>
     )
   }
 
+  // Payment method data for horizontal bar visualization
+  const paymentData = revenue?.revenueByPaymentMethod
+    ? [
+        { label: 'Cash', value: revenue.revenueByPaymentMethod.cash, color: '#10b981' },
+        { label: 'Mobile Money', value: revenue.revenueByPaymentMethod.mobileMoney, color: '#3b82f6' },
+        { label: 'Card', value: revenue.revenueByPaymentMethod.card, color: '#8b5cf6' },
+      ]
+    : []
+  const paymentMax = Math.max(...paymentData.map(d => d.value), 1)
+
   return (
-    <div id="analytics-dashboard" className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div id="analytics-dashboard" className="space-y-7 animate-fade-in pb-8">
+
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold">Analytics Dashboard</h2>
-          <p className="text-muted-foreground mt-1">
-            Comprehensive insights into your business performance
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-primary uppercase tracking-widest">
+              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+              Live Dashboard
+            </span>
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight">Performance Analytics</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">
+            {format(new Date(), 'EEEE, MMMM d, yyyy')} · Figures in {currency}
           </p>
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="gap-2">
-              <Download className="w-4 h-4" />
-              Export Report
-              <ChevronDown className="w-4 h-4" />
+            <Button variant="outline" size="sm" className="gap-1.5 shrink-0">
+              <Download className="w-3.5 h-3.5" />
+              Export
+              <ChevronDown className="w-3 h-3 opacity-50" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" className="w-44">
             <DropdownMenuItem onClick={() => handleExport('pdf')}>
-              <FileText className="w-4 h-4 mr-2" />
-              Export as PDF
+              <FileText className="w-3.5 h-3.5 mr-2" />Export as PDF
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => handleExport('csv')}>
-              <Table className="w-4 h-4 mr-2" />
-              Export as CSV
+              <Table className="w-3.5 h-3.5 mr-2" />Export as CSV
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => handleExport('screenshot')}>
-              <Camera className="w-4 h-4 mr-2" />
-              Export Screenshot
+              <Camera className="w-3.5 h-3.5 mr-2" />Screenshot
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <KPICard
-          title="Total Revenue"
-          value={formatCurrencySync(revenue?.totalRevenue || 0, currency)}
-          subtitle={`${formatCurrencySync(revenue?.revenueByPeriod.thisMonth || 0, currency)} this month`}
-          icon={DollarSign}
-          trend={{
-            value: revenueGrowth,
-            label: 'vs last month'
-          }}
-        />
+      {/* ── Primary KPI Cards ───────────────────────────────────────────── */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {/* Total Revenue */}
+        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
+          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/6 via-transparent to-transparent pointer-events-none" />
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-emerald-400 to-emerald-600 rounded-t-xl" />
+          <div className="relative">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Total Revenue</span>
+              <div className="p-1.5 rounded-lg bg-emerald-500/10">
+                <DollarSign className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+            </div>
+            <p className="text-[1.65rem] font-bold tracking-tight leading-none">
+              {formatCurrencySync(revenue?.totalRevenue || 0, currency)}
+            </p>
+            <div className="flex items-center gap-1.5 mt-2.5">
+              {revenueGrowth >= 0
+                ? <ArrowUpRight className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                : <ArrowDownRight className="w-3.5 h-3.5 text-red-500 shrink-0" />}
+              <span className={cn('text-xs font-semibold', revenueGrowth >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500')}>
+                {Math.abs(revenueGrowth).toFixed(1)}%
+              </span>
+              <span className="text-xs text-muted-foreground">vs last month</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {formatCurrencySync(revenue?.revenueByPeriod.thisMonth || 0, currency)} this month
+            </p>
+          </div>
+        </div>
 
-        <KPICard
-          title="Occupancy Rate"
-          value={occupancy?.currentOccupancyRate || 0}
-          valueSuffix="%"
-          subtitle={`${occupancy?.occupiedRooms || 0} of ${occupancy?.totalRooms || 0} rooms`}
-          icon={Percent}
-        />
+        {/* Occupancy Rate */}
+        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/6 via-transparent to-transparent pointer-events-none" />
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-blue-400 to-blue-600 rounded-t-xl" />
+          <div className="relative">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Occupancy</span>
+              <div className="p-1.5 rounded-lg bg-blue-500/10">
+                <BedDouble className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              </div>
+            </div>
+            <div className="flex items-end gap-0.5 leading-none">
+              <p className="text-[1.65rem] font-bold tracking-tight">{occupancy?.currentOccupancyRate || 0}</p>
+              <span className="text-lg font-semibold text-muted-foreground mb-0.5">%</span>
+            </div>
+            <div className="mt-3 h-1.5 rounded-full bg-secondary overflow-hidden">
+              <div
+                className="h-full rounded-full bg-blue-500 transition-all duration-1000"
+                style={{ width: `${Math.min(occupancy?.currentOccupancyRate || 0, 100)}%` }}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground mt-1.5">
+              {occupancy?.occupiedRooms || 0} of {occupancy?.totalRooms || 0} rooms occupied
+            </p>
+          </div>
+        </div>
 
-        <KPICard
-          title="Average Daily Rate"
-          value={formatCurrencySync(performance?.adr || 0, currency)}
-          subtitle="Per room per night"
-          icon={TrendingUp}
-        />
+        {/* ADR */}
+        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
+          <div className="absolute inset-0 bg-gradient-to-br from-amber-500/6 via-transparent to-transparent pointer-events-none" />
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-amber-400 to-amber-600 rounded-t-xl" />
+          <div className="relative">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Avg Daily Rate</span>
+              <div className="p-1.5 rounded-lg bg-amber-500/10">
+                <TrendingUp className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              </div>
+            </div>
+            <p className="text-[1.65rem] font-bold tracking-tight leading-none">
+              {formatCurrencySync(performance?.adr || 0, currency)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-2.5">Per room per night</p>
+            <p className="text-xs text-muted-foreground">
+              RevPAR: {formatCurrencySync(performance?.revPAR || 0, currency)}
+            </p>
+          </div>
+        </div>
 
-        <KPICard
-          title="Total Guests"
-          value={guests?.totalGuests || 0}
-          subtitle={`${guests?.repeatGuestRate || 0}% repeat guests`}
-          icon={Users}
-        />
+        {/* Total Guests */}
+        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
+          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/6 via-transparent to-transparent pointer-events-none" />
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-purple-400 to-purple-600 rounded-t-xl" />
+          <div className="relative">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Guests</span>
+              <div className="p-1.5 rounded-lg bg-purple-500/10">
+                <Users className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+              </div>
+            </div>
+            <p className="text-[1.65rem] font-bold tracking-tight leading-none">{guests?.totalGuests || 0}</p>
+            <p className="text-xs text-muted-foreground mt-2.5">{guests?.repeatGuestRate || 0}% repeat rate</p>
+            <p className="text-xs text-muted-foreground">{guests?.newGuestsThisMonth || 0} new this month</p>
+          </div>
+        </div>
       </div>
 
-      {/* Secondary KPI Row */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <KPICard
-          title="RevPAR"
-          value={formatCurrencySync(performance?.revPAR || 0, currency)}
-          subtitle="Revenue per Available Room"
-          icon={BarChart3}
-        />
-
-        <KPICard
-          title="Total Bookings"
-          value={performance?.totalBookings || 0}
-          subtitle="Confirmed bookings"
-          icon={Calendar}
-        />
-
-        <KPICard
-          title="Avg Length of Stay"
-          value={occupancy?.averageLengthOfStay || 0}
-          valueSuffix=" nights"
-          subtitle="Average per booking"
-          icon={Clock}
-        />
-
-        <KPICard
-          title="New Guests"
-          value={guests?.newGuestsThisMonth || 0}
-          subtitle="This month"
-          icon={Users}
-        />
+      {/* ── Secondary Metrics Strip ──────────────────────────────────────── */}
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+        {[
+          { label: 'Total Bookings', value: (performance?.totalBookings || 0).toString(), sub: 'Checked-in / checked-out', icon: Calendar, color: 'text-sky-500' },
+          { label: 'Avg Stay Length', value: `${occupancy?.averageLengthOfStay || 0} nights`, sub: 'Average per booking', icon: Clock, color: 'text-teal-500' },
+          { label: 'New Guests', value: (guests?.newGuestsThisMonth || 0).toString(), sub: 'This month', icon: Users, color: 'text-violet-500' },
+          { label: 'Booking Lead Time', value: `${occupancy?.bookingLeadTime || 0} days`, sub: 'Avg days before check-in', icon: Activity, color: 'text-orange-500' },
+        ].map(({ label, value, sub, icon: Icon, color }) => (
+          <div key={label} className="rounded-xl border bg-card px-4 py-3.5 flex items-center gap-3 shadow-sm">
+            <Icon className={cn('w-5 h-5 shrink-0', color)} />
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium text-muted-foreground truncate">{label}</p>
+              <p className="text-base font-bold leading-tight">{value}</p>
+              <p className="text-[10px] text-muted-foreground truncate">{sub}</p>
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* Charts Row 1 */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Occupancy Trend */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Occupancy Trend (30 Days)</CardTitle>
+      {/* ── Charts Row ──────────────────────────────────────────────────── */}
+      <div className="grid gap-5 lg:grid-cols-2">
+        {/* Daily Revenue Trend – Area Chart */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-sm font-semibold">Revenue Trend</CardTitle>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Daily revenue over the last 30 days</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">This month</p>
+                <p className="text-sm font-bold text-emerald-600">{formatCurrencySync(revenue?.revenueByPeriod.thisMonth || 0, currency)}</p>
+              </div>
+            </div>
           </CardHeader>
-          <CardContent>
-            {occupancy?.occupancyTrend && occupancy.occupancyTrend.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={occupancy.occupancyTrend}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                  <XAxis 
-                    dataKey="date" 
-                    tickFormatter={(value) => {
-                      const date = new Date(value)
-                      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-                    }}
-                    tick={{ fontSize: 12 }}
+          <CardContent className="pt-1">
+            {revenue?.dailyRevenueHistory?.length ? (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={revenue.dailyRevenueHistory} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#10b981" stopOpacity={0.18} />
+                      <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={v => format(new Date(v), 'MMM d')}
+                    tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval={6}
                   />
-                  <YAxis 
-                    tick={{ fontSize: 12 }}
-                    label={{ value: 'Occupancy %', angle: -90, position: 'insideLeft' }}
-                  />
-                  <Tooltip 
-                    formatter={(value: any) => [`${value.toFixed(1)}%`, 'Occupancy Rate']}
-                    labelFormatter={(label) => new Date(label).toLocaleDateString()}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="rate" 
-                    stroke="#8884d8" 
-                    strokeWidth={2}
-                    name="Occupancy Rate"
-                    dot={false}
-                  />
-                </LineChart>
+                  <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
+                  <Tooltip content={<ChartTooltip formatter={(v: number) => formatCurrencySync(v, currency)} />} />
+                  <Area type="monotone" dataKey="revenue" stroke="#10b981" strokeWidth={2} fill="url(#revGrad)" dot={false} />
+                </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                <p>No occupancy data available</p>
-              </div>
+              <div className="h-[220px] flex items-center justify-center text-sm text-muted-foreground">No data available</div>
             )}
           </CardContent>
         </Card>
 
-        {/* Revenue by Room Type */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Revenue by Room Type</CardTitle>
+        {/* Occupancy Trend – Area Chart */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-sm font-semibold">Occupancy Trend</CardTitle>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Daily occupancy rate over the last 30 days</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">Current</p>
+                <p className="text-sm font-bold text-blue-600">{occupancy?.currentOccupancyRate || 0}%</p>
+              </div>
+            </div>
           </CardHeader>
-          <CardContent>
-            {revenue?.revenueByRoomType && revenue.revenueByRoomType.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={revenue?.revenueByRoomType || []}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={(entry) => `${entry.roomTypeName}: ${formatCurrencySync(entry.revenue || 0, currency)}`}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="revenue"
-                  >
-                    {(revenue?.revenueByRoomType || []).map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value: any) => formatCurrencySync(value || 0, currency)} />
-                </PieChart>
+          <CardContent className="pt-1">
+            {occupancy?.occupancyTrend?.length ? (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={occupancy.occupancyTrend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="occGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.18} />
+                      <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={v => format(new Date(v), 'MMM d')}
+                    tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval={6}
+                  />
+                  <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
+                  <Tooltip content={<ChartTooltip formatter={(v: number) => `${v.toFixed(1)}%`} />} />
+                  <Area type="monotone" dataKey="rate" stroke="#3b82f6" strokeWidth={2} fill="url(#occGrad)" dot={false} />
+                </AreaChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                <p>No revenue data available</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Charts Row 2 */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Payment Methods */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Revenue by Payment Method</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {revenue?.revenueByPaymentMethod ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart
-                  data={[
-                    { method: 'Cash', amount: revenue.revenueByPaymentMethod.cash },
-                    { method: 'Mobile Money', amount: revenue.revenueByPaymentMethod.mobileMoney },
-                    { method: 'Card', amount: revenue.revenueByPaymentMethod.card }
-                  ]}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                  <XAxis dataKey="method" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip formatter={(value: any) => formatCurrencySync(value || 0, currency)} />
-                  <Bar dataKey="amount" fill="#82ca9d" />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                <p>No payment data available</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Revenue Trend */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Daily Revenue Trend (30 Days)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {revenue?.dailyRevenueHistory && revenue.dailyRevenueHistory.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={revenue.dailyRevenueHistory}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                  <XAxis 
-                    dataKey="date" 
-                    tickFormatter={(value) => {
-                      const date = new Date(value)
-                      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-                    }}
-                    tick={{ fontSize: 12 }}
-                  />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip 
-                    formatter={(value: any) => [formatCurrencySync(value || 0, currency), 'Revenue']}
-                    labelFormatter={(label) => new Date(label).toLocaleDateString()}
-                  />
-                  <Line  
-                    type="monotone" 
-                    dataKey="revenue" 
-                    stroke="#10b981" 
-                    strokeWidth={2}
-                    name="Daily Revenue"
-                    dot={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                <p>No revenue trend data available</p>
-              </div>
+              <div className="h-[220px] flex items-center justify-center text-sm text-muted-foreground">No data available</div>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {/* This Week's Bookings Breakdown */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
+      {/* ── Revenue Breakdown Row ────────────────────────────────────────── */}
+      <div className="grid gap-5 lg:grid-cols-2">
+        {/* Revenue by Room Type – Donut + Legend */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Revenue by Room Type</CardTitle>
+            <p className="text-[11px] text-muted-foreground">Contribution per room category</p>
+          </CardHeader>
+          <CardContent>
+            {revenue?.revenueByRoomType?.length ? (
+              <div className="flex items-center gap-6">
+                <div className="shrink-0">
+                  <ResponsiveContainer width={160} height={160}>
+                    <PieChart>
+                      <Pie
+                        data={revenue.revenueByRoomType}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={48}
+                        outerRadius={72}
+                        paddingAngle={3}
+                        dataKey="revenue"
+                      >
+                        {revenue.revenueByRoomType.map((_, i) => (
+                          <Cell key={i} fill={ROOM_COLORS[i % ROOM_COLORS.length]} strokeWidth={0} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(v: any) => formatCurrencySync(v, currency)} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex-1 space-y-2.5 min-w-0">
+                  {revenue.revenueByRoomType.map((rt, i) => (
+                    <div key={rt.roomTypeId}>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: ROOM_COLORS[i % ROOM_COLORS.length] }} />
+                          <span className="text-muted-foreground truncate">{rt.roomTypeName}</span>
+                        </div>
+                        <span className="font-semibold ml-2 shrink-0">{rt.percentage.toFixed(0)}%</span>
+                      </div>
+                      <div className="h-1 rounded-full bg-secondary overflow-hidden">
+                        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${rt.percentage}%`, backgroundColor: ROOM_COLORS[i % ROOM_COLORS.length] }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="h-40 flex items-center justify-center text-sm text-muted-foreground">No data available</div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Payment Methods – Horizontal Bars */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Revenue by Payment Method</CardTitle>
+            <p className="text-[11px] text-muted-foreground">How guests are paying</p>
+          </CardHeader>
+          <CardContent className="space-y-5 pt-2">
+            {paymentData.map(({ label, value, color }) => (
+              <div key={label}>
+                <div className="flex items-center justify-between text-xs mb-1.5">
+                  <span className="font-medium text-foreground">{label}</span>
+                  <span className="font-semibold">{formatCurrencySync(value, currency)}</span>
+                </div>
+                <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-1000"
+                    style={{ width: `${(value / paymentMax) * 100}%`, backgroundColor: color }}
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  {paymentMax > 0 ? `${((value / paymentMax) * 100).toFixed(0)}% of top channel` : '0%'}
+                </p>
+              </div>
+            ))}
+            {!paymentData.length && (
+              <div className="h-40 flex items-center justify-center text-sm text-muted-foreground">No payment data</div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ── This Week's Booking Breakdown ────────────────────────────────── */}
+      <Card className="shadow-sm overflow-hidden">
+        <CardHeader className="border-b pb-4">
+          <div className="flex items-start justify-between gap-4">
             <div>
-              <CardTitle className="text-base">This Week's Booking Breakdown</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">
-                {format(thisWeekStart, 'MMM d')} – {format(thisWeekEnd, 'MMM d, yyyy')} · Matches staff weekly revenue reports
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-primary" />
+                This Week's Booking Breakdown
+              </CardTitle>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                {format(thisWeekStart, 'MMM d')} – {format(thisWeekEnd, 'MMM d, yyyy')} · Synced with staff revenue reports
               </p>
             </div>
-            <div className="text-right">
-              <p className="text-2xl font-bold text-primary">{formatCurrencySync(weekTotal, currency)}</p>
-              <p className="text-xs text-muted-foreground">{weekBookings.length} booking{weekBookings.length !== 1 ? 's' : ''}</p>
+            <div className="text-right shrink-0">
+              <p className="text-xl font-bold text-primary">{formatCurrencySync(weekTotal, currency)}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                {weekBookings.length} booking{weekBookings.length !== 1 ? 's' : ''}
+              </p>
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           {weekBookings.length === 0 ? (
-            <div className="text-center py-10 text-muted-foreground">
-              <Calendar className="w-10 h-10 mx-auto mb-2 opacity-40" />
-              <p>No bookings checked in this week yet</p>
+            <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+              <Calendar className="w-10 h-10 mb-3 opacity-25" />
+              <p className="text-sm font-medium">No check-ins or check-outs this week</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b text-muted-foreground text-xs uppercase tracking-wide">
-                    <th className="text-left py-2 font-medium">#</th>
-                    <th className="text-left py-2 font-medium">Guest</th>
-                    <th className="text-left py-2 font-medium">Room</th>
-                    <th className="text-left py-2 font-medium">Check-in</th>
-                    <th className="text-left py-2 font-medium">Check-out</th>
-                    <th className="text-left py-2 font-medium">Staff</th>
-                    <th className="text-left py-2 font-medium">Status</th>
-                    <th className="text-right py-2 font-medium">Amount</th>
+                  <tr className="bg-muted/40">
+                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">#</th>
+                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Guest</th>
+                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Room</th>
+                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Check-in</th>
+                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Check-out</th>
+                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Staff</th>
+                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Status</th>
+                    <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Amount</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {weekBookings.map((b, i) => (
-                    <tr key={b.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors">
-                      <td className="py-2.5 text-muted-foreground">{i + 1}</td>
-                      <td className="py-2.5 font-medium">{b.guest?.fullName || '—'}</td>
-                      <td className="py-2.5">{b.roomNumber || '—'}</td>
-                      <td className="py-2.5">{b.dates.checkIn}</td>
-                      <td className="py-2.5">{b.dates.checkOut}</td>
-                      <td className="py-2.5 text-muted-foreground">
-                        {b.status === 'checked-out'
-                          ? (b.checkOutByName || b.checkInByName || b.createdByName || '—')
-                          : (b.checkInByName || b.createdByName || '—')}
-                      </td>
-                      <td className="py-2.5">
-                        <Badge
-                          variant={
-                            b.status === 'checked-out' ? 'secondary'
-                            : b.status === 'checked-in' ? 'default'
-                            : 'outline'
-                          }
-                          className="capitalize"
-                        >
-                          {b.status}
-                        </Badge>
-                      </td>
-                      <td className="py-2.5 text-right font-semibold">{formatCurrencySync(Number(b.amount || 0), currency)}</td>
-                    </tr>
-                  ))}
+                <tbody className="divide-y divide-border/50">
+                  {weekBookings.map((b, i) => {
+                    const staffName = b.status === 'checked-out'
+                      ? (b.checkOutByName || b.checkInByName || b.createdByName)
+                      : (b.checkInByName || b.createdByName)
+                    return (
+                      <tr key={b.id || i} className="hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-3 text-xs text-muted-foreground">{i + 1}</td>
+                        <td className="px-4 py-3">
+                          <span className="font-medium">{b.guest?.fullName || '—'}</span>
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">{b.roomNumber || '—'}</td>
+                        <td className="px-4 py-3 text-muted-foreground tabular-nums">{b.dates.checkIn}</td>
+                        <td className="px-4 py-3 text-muted-foreground tabular-nums">{b.dates.checkOut}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{staffName || '—'}</td>
+                        <td className="px-4 py-3">
+                          <span className={cn(
+                            'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold',
+                            b.status === 'checked-out'
+                              ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                              : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+                          )}>
+                            {b.status === 'checked-out' ? 'Checked Out' : 'Checked In'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                          {formatCurrencySync(Number(b.amount || 0), currency)}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t-2 font-bold">
-                    <td colSpan={7} className="py-3 text-right pr-4">Total</td>
-                    <td className="py-3 text-right text-primary">{formatCurrencySync(weekTotal, currency)}</td>
+                  <tr className="bg-muted/40 border-t-2 border-border">
+                    <td colSpan={7} className="px-4 py-3 text-xs font-semibold text-right text-muted-foreground">
+                      TOTAL ({weekBookings.length} bookings)
+                    </td>
+                    <td className="px-4 py-3 text-right font-bold text-primary">
+                      {formatCurrencySync(weekTotal, currency)}
+                    </td>
                   </tr>
                 </tfoot>
               </table>
@@ -503,135 +595,179 @@ export function AnalyticsPage() {
         </CardContent>
       </Card>
 
-      {/* Top Guests Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Top Guests by Revenue</CardTitle>
+      {/* ── Top Guests ──────────────────────────────────────────────────── */}
+      <Card className="shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Star className="w-4 h-4 text-amber-500" />
+            Top Guests by Revenue
+          </CardTitle>
+          <p className="text-[11px] text-muted-foreground">Your highest-value guests across all time</p>
         </CardHeader>
         <CardContent>
-          {guests?.topGuests && guests.topGuests.length > 0 ? (
-            <div className="space-y-4">
-              {guests.topGuests.slice(0, 5).map((guest, index) => (
-                <div key={guest.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-accent/50 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
-                      {index + 1}
+          {guests?.topGuests?.length ? (
+            <div className="space-y-2">
+              {guests.topGuests.slice(0, 5).map((guest, index) => {
+                const medals = ['🥇', '🥈', '🥉']
+                const barPct = guests.topGuests[0].totalRevenue > 0
+                  ? (guest.totalRevenue / guests.topGuests[0].totalRevenue) * 100
+                  : 0
+                return (
+                  <div key={guest.id} className="group flex items-center gap-3 p-3 rounded-lg hover:bg-muted/40 transition-colors">
+                    <div className="w-7 text-center shrink-0">
+                      {index < 3
+                        ? <span className="text-base">{medals[index]}</span>
+                        : <span className="text-xs font-bold text-muted-foreground">{index + 1}</span>}
                     </div>
-                    <div>
-                      <p className="font-medium">{guest.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {guest.bookingCount} booking{guest.bookingCount > 1 ? 's' : ''} • 
-                        {' '}{guest.averageStay.toFixed(1)} avg nights
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="font-semibold text-sm truncate">{guest.name}</p>
+                        <p className="font-bold text-sm text-primary ml-3 shrink-0">
+                          {formatCurrencySync(guest.totalRevenue || 0, currency)}
+                        </p>
+                      </div>
+                      <div className="h-1 rounded-full bg-secondary overflow-hidden mb-1">
+                        <div
+                          className="h-full rounded-full bg-amber-400 transition-all duration-700"
+                          style={{ width: `${barPct}%` }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        {guest.bookingCount} booking{guest.bookingCount !== 1 ? 's' : ''} &nbsp;·&nbsp;
+                        {guest.averageStay.toFixed(1)} avg nights &nbsp;·&nbsp;
+                        Last: {new Date(guest.lastVisit).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-bold text-primary text-lg">
-                      {formatCurrencySync(guest.totalRevenue || 0, currency)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Last visit: {new Date(guest.lastVisit).toLocaleDateString()}
-                    </p>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           ) : (
-            <div className="text-center py-12 text-muted-foreground">
-              <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p>No guest data available yet</p>
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+              <Users className="w-10 h-10 mb-3 opacity-25" />
+              <p className="text-sm">No guest data available yet</p>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Insights Summary */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Revenue Insights</CardTitle>
+      {/* ── Revenue / Occupancy / Guest Summary ─────────────────────────── */}
+      <div className="grid gap-5 md:grid-cols-3">
+        {/* Revenue Summary */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-emerald-500/10">
+                <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+              </div>
+              <CardTitle className="text-sm font-semibold">Revenue Summary</CardTitle>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">This Week</span>
-              <span className="font-medium">{formatCurrencySync(revenue?.revenueByPeriod.thisWeek || 0, currency)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">This Month</span>
-              <span className="font-medium">{formatCurrencySync(revenue?.revenueByPeriod.thisMonth || 0, currency)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">This Year</span>
-              <span className="font-medium">{formatCurrencySync(revenue?.revenueByPeriod.thisYear || 0, currency)}</span>
-            </div>
-            <div className="flex justify-between pt-2 border-t">
-              <span className="text-muted-foreground">Online Revenue</span>
-              <span className="font-medium">{formatCurrencySync(revenue?.revenueBySource.online || 0, currency)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Reception Revenue</span>
-              <span className="font-medium">{formatCurrencySync(revenue?.revenueBySource.reception || 0, currency)}</span>
+          <CardContent className="space-y-3">
+            {[
+              { label: 'This Week', value: revenue?.revenueByPeriod.thisWeek || 0, highlight: true },
+              { label: 'This Month', value: revenue?.revenueByPeriod.thisMonth || 0 },
+              { label: 'This Year', value: revenue?.revenueByPeriod.thisYear || 0 },
+            ].map(({ label, value, highlight }) => (
+              <div key={label} className={cn('flex items-center justify-between rounded-lg px-3 py-2', highlight ? 'bg-emerald-50 dark:bg-emerald-950/30' : 'bg-muted/30')}>
+                <span className="text-xs text-muted-foreground font-medium">{label}</span>
+                <span className={cn('text-sm font-bold', highlight ? 'text-emerald-700 dark:text-emerald-400' : '')}>
+                  {formatCurrencySync(value, currency)}
+                </span>
+              </div>
+            ))}
+            <div className="border-t pt-3 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Online</span>
+                <span className="font-medium">{formatCurrencySync(revenue?.revenueBySource.online || 0, currency)}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Reception</span>
+                <span className="font-medium">{formatCurrencySync(revenue?.revenueBySource.reception || 0, currency)}</span>
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Occupancy Insights</CardTitle>
+        {/* Occupancy Summary */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-blue-500/10">
+                <BedDouble className="w-3.5 h-3.5 text-blue-600" />
+              </div>
+              <CardTitle className="text-sm font-semibold">Occupancy Summary</CardTitle>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Current Rate</span>
-              <span className="font-medium">{occupancy?.currentOccupancyRate}%</span>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between rounded-lg bg-blue-50 dark:bg-blue-950/30 px-3 py-2">
+              <span className="text-xs text-muted-foreground font-medium">Current Rate</span>
+              <span className="text-sm font-bold text-blue-700 dark:text-blue-400">{occupancy?.currentOccupancyRate}%</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Occupied Rooms</span>
-              <span className="font-medium">{occupancy?.occupiedRooms}</span>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { label: 'Occupied', value: occupancy?.occupiedRooms ?? '—' },
+                { label: 'Available', value: occupancy?.availableRooms ?? '—' },
+              ].map(({ label, value }) => (
+                <div key={label} className="rounded-lg bg-muted/30 px-3 py-2">
+                  <p className="text-[10px] text-muted-foreground">{label}</p>
+                  <p className="text-base font-bold">{value}</p>
+                </div>
+              ))}
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Available Rooms</span>
-              <span className="font-medium">{occupancy?.availableRooms}</span>
-            </div>
-            <div className="flex justify-between pt-2 border-t">
-              <span className="text-muted-foreground">Avg Stay Length</span>
-              <span className="font-medium">{occupancy?.averageLengthOfStay} nights</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Booking Lead Time</span>
-              <span className="font-medium">{occupancy?.bookingLeadTime} days</span>
+            <div className="border-t pt-3 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Avg Stay</span>
+                <span className="font-medium">{occupancy?.averageLengthOfStay} nights</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Booking Lead Time</span>
+                <span className="font-medium">{occupancy?.bookingLeadTime} days</span>
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Guest Insights</CardTitle>
+        {/* Guest Summary */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-purple-500/10">
+                <Users className="w-3.5 h-3.5 text-purple-600" />
+              </div>
+              <CardTitle className="text-sm font-semibold">Guest Summary</CardTitle>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Total Guests</span>
-              <span className="font-medium">{guests?.totalGuests}</span>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between rounded-lg bg-purple-50 dark:bg-purple-950/30 px-3 py-2">
+              <span className="text-xs text-muted-foreground font-medium">Total Guests</span>
+              <span className="text-sm font-bold text-purple-700 dark:text-purple-400">{guests?.totalGuests}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">New This Month</span>
-              <span className="font-medium">{guests?.newGuestsThisMonth}</span>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { label: 'New (month)', value: guests?.newGuestsThisMonth ?? '—' },
+                { label: 'VIP', value: guests?.guestSegmentation.vip ?? '—' },
+              ].map(({ label, value }) => (
+                <div key={label} className="rounded-lg bg-muted/30 px-3 py-2">
+                  <p className="text-[10px] text-muted-foreground">{label}</p>
+                  <p className="text-base font-bold">{value}</p>
+                </div>
+              ))}
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Repeat Rate</span>
-              <span className="font-medium">{guests?.repeatGuestRate}%</span>
-            </div>
-            <div className="flex justify-between pt-2 border-t">
-              <span className="text-muted-foreground">Avg Lifetime Value</span>
-              <span className="font-medium">{formatCurrencySync(guests?.guestLifetimeValue.average || 0, currency)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">VIP Guests</span>
-              <span className="font-medium">{guests?.guestSegmentation.vip}</span>
+            <div className="border-t pt-3 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Repeat Rate</span>
+                <span className="font-medium">{guests?.repeatGuestRate}%</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Avg Lifetime Value</span>
+                <span className="font-medium">{formatCurrencySync(guests?.guestLifetimeValue.average || 0, currency)}</span>
+              </div>
             </div>
           </CardContent>
         </Card>
       </div>
+
     </div>
   )
 }
-
