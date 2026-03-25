@@ -65,8 +65,8 @@ export function getPastWeeksBounds(count: number): WeekBounds[] {
 // ─── Booking Data ─────────────────────────────────────────────────────────────
 
 /**
- * Fetch all non-cancelled bookings created by a specific staff member
- * within a given week. Uses the booking's `createdAt` timestamp.
+ * Fetch all confirmed/checked-in/checked-out bookings created by a specific staff member
+ * within a given week. Uses the booking's `checkIn` date (same logic as analytics-service).
  */
 export async function fetchBookingsForStaffWeek(
   staffId: string,
@@ -97,10 +97,10 @@ export async function fetchBookingsForStaffWeek(
     .filter((b: any) => {
       const creator = b.createdBy || b.created_by || ''
       if (creator !== staffId) return false
-      if (b.status === 'cancelled') return false
-      const ts = b.createdAt || b.created_at || ''
-      if (!ts) return false
-      const d = new Date(ts)
+      if (!['confirmed', 'checked-in', 'checked-out'].includes(b.status)) return false
+      const checkIn = b.checkIn || b.check_in || ''
+      if (!checkIn) return false
+      const d = new Date(checkIn)
       return d >= from && d <= to
     })
     .map((b: any) => {

@@ -1,5 +1,6 @@
 import { blink } from '@/blink/client'
 import { bookingEngine } from './booking-engine'
+import { startOfWeek } from 'date-fns'
 import type {
   RevenueAnalytics,
   OccupancyAnalytics,
@@ -56,8 +57,7 @@ class AnalyticsService {
 
       // Revenue by period
       const today = new Date().toISOString().split('T')[0]
-      const thisWeekStart = new Date()
-      thisWeekStart.setDate(thisWeekStart.getDate() - 7)
+      const thisWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 })
       const thisMonthStart = new Date()
       thisMonthStart.setDate(1)
       const lastMonthStart = new Date()
