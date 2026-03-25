@@ -43,10 +43,11 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
 
     isCheckingRef.current = true
 
-    // If no userId at all, redirect to login
+    // If no userId at all, redirect to login (preserve return URL for QR clock flow)
     if (!userId) {
       console.log('❌ [ProtectedRoute] No userId found, redirecting to login')
-      navigate('/staff/login', { replace: true })
+      const returnTo = encodeURIComponent(location.pathname + location.search)
+      navigate(`/staff/login?returnTo=${returnTo}`, { replace: true })
       setHasChecked(true)
       isCheckingRef.current = false
       return

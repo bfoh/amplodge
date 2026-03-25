@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,6 +13,8 @@ import { activityLogService } from '@/services/activity-log-service'
 
 export function StaffLoginPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const returnTo = searchParams.get('returnTo')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -175,13 +177,13 @@ export function StaffLoginPage() {
         // Don't fail the login if logging fails
       }
 
-      console.log('🎉 [StaffLoginPage] Login successful, redirecting to dashboard')
+      console.log('🎉 [StaffLoginPage] Login successful, redirecting...')
       toast.success(`Welcome back, ${staff.name}!`)
 
       // Initialize activity logging with current user
       activityLogService.setCurrentUser(currentUser.id)
 
-      navigate(dashboardPath)
+      navigate(returnTo ? decodeURIComponent(returnTo) : dashboardPath)
     } catch (error: any) {
       console.error('❌ [StaffLoginPage] Login failed:', error)
       toast.error(error.message || 'Invalid credentials')
@@ -228,7 +230,7 @@ export function StaffLoginPage() {
 
       toast.success('Password changed successfully!')
       setShowPasswordChange(false)
-      navigate('/staff/dashboard')
+      navigate(returnTo ? decodeURIComponent(returnTo) : '/staff/dashboard')
     } catch (error: any) {
       console.error('Password change failed:', error)
       toast.error(error.message || 'Failed to change password')

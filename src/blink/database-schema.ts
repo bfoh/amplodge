@@ -44,7 +44,8 @@ export async function initializeDatabaseSchema(): Promise<void> {
       'hr_leave_requests',
       'hr_payroll',
       'hr_performance_reviews',
-      'hr_job_applications'
+      'hr_job_applications',
+      'hr_weekly_revenue'
     ]
 
     // Test each table and create if necessary
@@ -218,6 +219,32 @@ export async function initializeDatabaseSchema(): Promise<void> {
             }
             await db.hr_job_applications.create(initRecord)
             await db.hr_job_applications.delete(initRecord.id)
+            console.log(`[DatabaseSchema] ✅ Created '${tableName}' table`)
+          } catch (createError: any) {
+            console.warn(`[DatabaseSchema] ⚠️ Could not auto-create '${tableName}':`, createError.message)
+          }
+        } else if (tableName === 'hr_weekly_revenue') {
+          try {
+            const initRecord = {
+              id: `hr_rev_init_${Date.now()}`,
+              staffId: 'system',
+              staffName: 'System',
+              weekStart: new Date().toISOString().split('T')[0],
+              weekEnd: new Date().toISOString().split('T')[0],
+              totalRevenue: 0,
+              bookingCount: 0,
+              bookingIds: '[]',
+              status: 'init',
+              notes: '',
+              adminNotes: '',
+              reviewedBy: '',
+              reviewedAt: '',
+              submittedAt: '',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            }
+            await db.hr_weekly_revenue.create(initRecord)
+            await db.hr_weekly_revenue.delete(initRecord.id)
             console.log(`[DatabaseSchema] ✅ Created '${tableName}' table`)
           } catch (createError: any) {
             console.warn(`[DatabaseSchema] ⚠️ Could not auto-create '${tableName}':`, createError.message)

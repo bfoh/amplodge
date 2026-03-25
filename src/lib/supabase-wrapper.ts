@@ -209,6 +209,13 @@ export const db = {
     channelConnections: createTableWrapper('channel_connections'),
     channelRoomMappings: createTableWrapper('channel_room_mappings'),
     externalBookings: createTableWrapper('external_bookings'),
+    // HR Tables
+    hr_attendance: createTableWrapper('hr_attendance'),
+    hr_leave_requests: createTableWrapper('hr_leave_requests'),
+    hr_payroll: createTableWrapper('hr_payroll'),
+    hr_performance_reviews: createTableWrapper('hr_performance_reviews'),
+    hr_job_applications: createTableWrapper('hr_job_applications'),
+    hr_weekly_revenue: createTableWrapper('hr_weekly_revenue'),
 }
 
 // Auth wrapper that matches Blink's auth interface

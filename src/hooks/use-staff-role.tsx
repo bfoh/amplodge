@@ -180,13 +180,19 @@ export function useStaffRole() {
   }, [])
 
   useEffect(() => {
-    let currentUserId: string | null = null
+    // Use a sentinel value so the first auth resolution (null user) is always processed
+    const UNSET = '__unset__'
+    let currentUserId: string | null = UNSET as any
 
     const unsubscribe = blink.auth.onAuthStateChanged((state) => {
+      // Wait until auth has fully resolved before acting
+      if (state.isLoading) return
+
       const newUserId = state.user?.id || null
 
-      // Only reload if userId actually changed
+      // Process whenever userId changes OR on the very first resolution
       if (newUserId !== currentUserId) {
+        const prevUserId = currentUserId === UNSET ? null : currentUserId as string | null
         currentUserId = newUserId
 
         if (newUserId) {
@@ -199,8 +205,8 @@ export function useStaffRole() {
           setLoading(false)
           loadedUserIdRef.current = null
           // Clear cache on logout
-          if (currentUserId) {
-            clearCache(currentUserId)
+          if (prevUserId) {
+            clearCache(prevUserId)
           }
         }
       }

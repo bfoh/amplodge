@@ -35,9 +35,41 @@ import {
   Loader2,
   Users2,
   AlertCircle,
-  Download
+  Download,
+  TrendingUp,
+  ChevronDown,
+  CheckCircle,
+  BookOpen,
+  QrCode,
+  Wifi,
+  RefreshCw,
+  Printer
 } from 'lucide-react'
 import { generateEmploymentApplicationPDF } from '@/lib/hr-form-pdf'
+import {
+  getWeekBounds,
+  getPastWeeksBounds,
+  getAllStaffReportsForWeek,
+  reviewWeekReport,
+  fetchBookingsForStaffWeek,
+  type WeeklyRevenueReport,
+  type WeekBounds,
+  type BookingSummary,
+} from '@/services/revenue-service'
+import {
+  getLiveAttendance,
+  generateClockUrl,
+  secondsUntilNextToken,
+  downloadCsv,
+  type AttendanceRecord as LiveAttendanceRecord,
+} from '@/services/attendance-service'
+import { QRCodeSVG } from 'qrcode.react'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -204,7 +236,7 @@ export function HRPage() {
       </div>
 
       <Tabs defaultValue="attendance" className="space-y-4">
-        <TabsList className="grid grid-cols-5 w-full lg:w-auto">
+        <TabsList className="grid grid-cols-6 w-full lg:w-auto">
           <TabsTrigger value="attendance" className="flex items-center gap-2 text-xs">
             <Clock className="w-4 h-4" /> Attendance
           </TabsTrigger>
@@ -220,6 +252,9 @@ export function HRPage() {
           <TabsTrigger value="applications" className="flex items-center gap-2 text-xs">
             <FileText className="w-4 h-4" /> Applications
           </TabsTrigger>
+          <TabsTrigger value="revenue" className="flex items-center gap-2 text-xs">
+            <TrendingUp className="w-4 h-4" /> Revenue
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="attendance"><AttendanceTab currentStaff={staffRecord} /></TabsContent>
@@ -227,12 +262,154 @@ export function HRPage() {
         <TabsContent value="payroll"><PayrollTab /></TabsContent>
         <TabsContent value="performance"><PerformanceTab currentStaff={staffRecord} /></TabsContent>
         <TabsContent value="applications"><ApplicationsTab /></TabsContent>
+        <TabsContent value="revenue"><RevenueReportTab /></TabsContent>
       </Tabs>
     </div>
   )
 }
 
 // ─── Tab 1: Attendance & Shifts ───────────────────────────────────────────────
+
+// ─── QR Code Panel ────────────────────────────────────────────────────────────
+
+function QRPanel() {
+  const [url, setUrl] = useState(() => generateClockUrl())
+  const [secs, setSecs] = useState(() => secondsUntilNextToken())
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      const s = secondsUntilNextToken()
+      setSecs(s)
+      // Token just rolled over — regenerate URL
+      if (s === WINDOW_SECS - 1 || s === WINDOW_SECS) {
+        setUrl(generateClockUrl())
+      }
+    }, 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const m = Math.floor(secs / 60)
+  const s = secs % 60
+
+  const handlePrint = () => {
+    const w = window.open('', '_blank')
+    if (!w) return
+    const svg = document.getElementById('att-qr')?.innerHTML ?? ''
+    w.document.write(`<!DOCTYPE html><html><head><title>AMP Lodge — Clock-In QR</title>
+      <style>body{font-family:sans-serif;text-align:center;padding:48px}
+      h1{font-size:22px;margin-bottom:6px}p{color:#666;font-size:13px;margin:6px 0}
+      .qr{display:inline-block;background:#fff;padding:16px;border:1px solid #e5e7eb;border-radius:12px;margin:24px 0}</style>
+      </head><body>
+      <h1>🏨 AMP Lodge</h1>
+      <p>Scan to clock in / clock out</p>
+      <div class="qr">${svg}</div>
+      <p style="font-size:11px;color:#aaa;margin-top:8px">Post at hotel entrance · Scan with phone camera</p>
+      <script>window.onload=()=>window.print()</script>
+      </body></html>`)
+    w.document.close()
+  }
+
+  return (
+    <div className="border rounded-xl p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <QrCode className="w-5 h-5 text-primary" />
+          <h3 className="font-semibold">Staff Clock-In QR Code</h3>
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <RefreshCw className="w-3.5 h-3.5" />
+          <span>Refreshes in {m}:{String(s).padStart(2, '0')}</span>
+        </div>
+      </div>
+      <div className="flex flex-col sm:flex-row items-center gap-6">
+        <div id="att-qr" className="bg-white p-3 rounded-lg border flex-shrink-0">
+          <QRCodeSVG value={url} size={180} level="M" />
+        </div>
+        <div className="space-y-3 text-sm text-muted-foreground">
+          <p className="flex items-center gap-2">
+            <Wifi className="w-4 h-4 text-green-500 flex-shrink-0" />
+            Post this at the hotel entrance. Staff scan with their phone camera to clock in or out.
+          </p>
+          <p className="flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 text-blue-500 flex-shrink-0" />
+            The token rotates every 10 minutes to prevent screenshot reuse.
+          </p>
+          <Button variant="outline" size="sm" className="gap-2 mt-2" onClick={handlePrint}>
+            <Printer className="w-4 h-4" /> Print QR Code
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const WINDOW_SECS = 10 * 60
+
+// ─── Live Now Panel ───────────────────────────────────────────────────────────
+
+function LiveNowPanel() {
+  const [live, setLive] = useState<LiveAttendanceRecord[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const refresh = useCallback(async () => {
+    try {
+      const data = await getLiveAttendance()
+      setLive(data)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    refresh()
+    const id = setInterval(refresh, 30_000)
+    return () => clearInterval(id)
+  }, [refresh])
+
+  const present = live.filter(r => !r.clockOut)
+  const completed = live.filter(r => r.clockOut)
+
+  return (
+    <div className="border rounded-xl overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 bg-muted/30 border-b">
+        <div className="flex items-center gap-2">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+          </span>
+          <span className="font-semibold text-sm">Live Now — {present.length} present</span>
+        </div>
+        <Button variant="ghost" size="sm" className="gap-1.5 text-xs h-7 px-2" onClick={refresh}>
+          <RefreshCw className="w-3.5 h-3.5" /> Refresh
+        </Button>
+      </div>
+      {loading ? (
+        <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+      ) : live.length === 0 ? (
+        <div className="text-center py-6 text-sm text-muted-foreground">No staff clocked in today yet.</div>
+      ) : (
+        <div className="divide-y">
+          {present.map(r => (
+            <div key={r.id} className="flex items-center gap-3 px-4 py-2.5">
+              <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+              <span className="font-medium text-sm flex-1">{(r as any).staffName}</span>
+              <span className="text-xs text-muted-foreground">Clocked in {(r as any).clockIn}</span>
+            </div>
+          ))}
+          {completed.map(r => (
+            <div key={r.id} className="flex items-center gap-3 px-4 py-2.5 opacity-60">
+              <span className="w-2 h-2 rounded-full bg-gray-400 flex-shrink-0" />
+              <span className="text-sm flex-1">{(r as any).staffName}</span>
+              <span className="text-xs text-muted-foreground">{(r as any).clockIn} → {(r as any).clockOut}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Attendance Tab ───────────────────────────────────────────────────────────
 
 function AttendanceTab({ currentStaff }: { currentStaff: any }) {
   const [records, setRecords] = useState<AttendanceRecord[]>([])
@@ -262,7 +439,7 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
 
   const today = new Date().toISOString().split('T')[0]
   const todayRecords = records.filter(r => r.date === today)
-  const presentToday = todayRecords.filter(r => r.status === 'present').length
+  const presentToday = todayRecords.filter(r => r.status === 'present' || r.status === 'late').length
   const absentToday = todayRecords.filter(r => r.status === 'absent').length
   const hoursThisWeek = records
     .filter(r => {
@@ -318,43 +495,63 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
     }
   }
 
+  const handleExport = () => {
+    if (records.length === 0) { toast.error('No records to export'); return }
+    const today_ = new Date().toISOString().split('T')[0]
+    downloadCsv(records, `attendance_${today_}.csv`)
+    toast.success('Attendance exported')
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      {/* QR Code Panel */}
+      <QRPanel />
+
+      {/* Live Now */}
+      <LiveNowPanel />
+
+      {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard icon={Check} label="Present Today" value={presentToday} color="bg-green-500" />
         <StatCard icon={Clock} label="Hours This Week" value={hoursThisWeek.toFixed(1)} color="bg-blue-500" />
         <StatCard icon={X} label="Absent Today" value={absentToday} color="bg-red-500" />
       </div>
 
-      <div className="flex justify-between items-center">
+      {/* Records header */}
+      <div className="flex flex-wrap justify-between items-center gap-2">
         <h2 className="text-lg font-semibold">Attendance Records</h2>
-        <Button onClick={() => setDialogOpen(true)} size="sm">
-          <Plus className="w-4 h-4 mr-2" /> Log Attendance
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
+            <Download className="w-4 h-4" /> Export CSV
+          </Button>
+          <Button onClick={() => setDialogOpen(true)} size="sm">
+            <Plus className="w-4 h-4 mr-1.5" /> Log Manually
+          </Button>
+        </div>
       </div>
 
       {loading ? (
         <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
       ) : records.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">No attendance records yet.</div>
+        <div className="text-center py-12 text-muted-foreground">No attendance records yet. Staff can clock in by scanning the QR code above.</div>
       ) : (
-        <div className="rounded-xl border overflow-hidden">
+        <div className="rounded-xl border overflow-hidden overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
                 {['Staff Name', 'Date', 'Clock In', 'Clock Out', 'Hours', 'Status', 'Notes', ''].map(h => (
-                  <th key={h} className="px-4 py-3 text-left font-medium text-muted-foreground">{h}</th>
+                  <th key={h} className="px-4 py-3 text-left font-medium text-muted-foreground whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y">
               {records.map(r => (
                 <tr key={r.id} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-3 font-medium">{r.staffName}</td>
-                  <td className="px-4 py-3">{r.date}</td>
-                  <td className="px-4 py-3">{r.clockIn || '—'}</td>
-                  <td className="px-4 py-3">{r.clockOut || '—'}</td>
-                  <td className="px-4 py-3">{r.hoursWorked ? `${r.hoursWorked}h` : '—'}</td>
+                  <td className="px-4 py-3 font-medium whitespace-nowrap">{r.staffName}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{r.date}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{r.clockIn || '—'}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{r.clockOut || '—'}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{r.hoursWorked ? `${r.hoursWorked}h` : '—'}</td>
                   <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
                   <td className="px-4 py-3 max-w-[160px] truncate text-muted-foreground">{r.notes || '—'}</td>
                   <td className="px-4 py-3">
@@ -371,7 +568,7 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Log Attendance</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Log Attendance Manually</DialogTitle></DialogHeader>
           <div className="grid gap-4 py-2">
             <div className="grid gap-2">
               <Label>Staff Member</Label>
@@ -1253,6 +1450,262 @@ function ApplicationsTab() {
           )}
           <DialogFooter>
             <Button onClick={() => setViewRecord(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+// ─── Revenue Report Tab (admin view) ─────────────────────────────────────────
+
+function formatGHS(amount: number) {
+  return `GHS ${amount.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+function RevStatusBadge({ status }: { status: string }) {
+  if (status === 'reviewed') return <Badge className="bg-green-100 text-green-800 border-green-200 text-xs">Reviewed</Badge>
+  if (status === 'submitted') return <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-xs">Submitted</Badge>
+  if (status === 'draft') return <Badge variant="outline" className="text-muted-foreground text-xs">Draft</Badge>
+  return null
+}
+
+function StaffRevenueRow({
+  report,
+  onReview,
+}: {
+  report: WeeklyRevenueReport
+  onReview: (r: WeeklyRevenueReport) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [bookings, setBookings] = useState<BookingSummary[]>([])
+  const [loadingBks, setLoadingBks] = useState(false)
+
+  const loadBks = useCallback(async () => {
+    if (bookings.length > 0) return
+    setLoadingBks(true)
+    try {
+      const { bookings: bks } = await fetchBookingsForStaffWeek(report.staffId, report.weekStart, report.weekEnd)
+      setBookings(bks)
+    } catch { /* silent */ } finally { setLoadingBks(false) }
+  }, [report.staffId, report.weekStart, report.weekEnd, bookings.length])
+
+  const handleOpen = (v: boolean) => { setOpen(v); if (v) loadBks() }
+
+  return (
+    <Collapsible open={open} onOpenChange={handleOpen}>
+      <div className="border rounded-lg overflow-hidden">
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors text-left"
+          >
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <span className="text-xs font-bold text-primary">{report.staffName.charAt(0).toUpperCase()}</span>
+              </div>
+              <span className="font-medium text-sm truncate">{report.staffName}</span>
+              <RevStatusBadge status={report.status} />
+            </div>
+            <div className="flex items-center gap-4 flex-shrink-0">
+              <span className="text-xs text-muted-foreground hidden sm:block">{report.bookingCount} booking{report.bookingCount !== 1 ? 's' : ''}</span>
+              <span className="font-semibold text-sm">{formatGHS(report.totalRevenue)}</span>
+              {report.status === 'submitted' && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs h-7"
+                  onClick={(e) => { e.stopPropagation(); onReview(report) }}
+                >
+                  <CheckCircle className="w-3 h-3 mr-1" /> Review
+                </Button>
+              )}
+              <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+            </div>
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="border-t px-4 py-3 bg-muted/20 space-y-2">
+            {report.notes && (
+              <p className="text-xs text-muted-foreground"><span className="font-medium">Staff notes:</span> {report.notes}</p>
+            )}
+            {report.adminNotes && (
+              <p className="text-xs text-green-700 bg-green-50 rounded px-2 py-1"><span className="font-medium">Admin feedback:</span> {report.adminNotes}</p>
+            )}
+            {loadingBks ? (
+              <div className="flex items-center gap-2 py-3 text-muted-foreground text-xs"><Loader2 className="w-3 h-3 animate-spin" /> Loading…</div>
+            ) : bookings.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-2">No bookings for this week.</p>
+            ) : (
+              <div className="overflow-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-xs">Booking</TableHead>
+                      <TableHead className="text-xs">Guest</TableHead>
+                      <TableHead className="text-xs">Room</TableHead>
+                      <TableHead className="text-xs">Check-in</TableHead>
+                      <TableHead className="text-xs">Check-out</TableHead>
+                      <TableHead className="text-xs text-right">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {bookings.map((b) => (
+                      <TableRow key={b.id}>
+                        <TableCell className="font-mono text-xs">{b.id.slice(0, 8)}…</TableCell>
+                        <TableCell className="text-xs">{b.guestName}</TableCell>
+                        <TableCell className="text-xs">{b.roomNumber}</TableCell>
+                        <TableCell className="text-xs">{b.checkIn}</TableCell>
+                        <TableCell className="text-xs">{b.checkOut}</TableCell>
+                        <TableCell className="text-xs text-right font-medium">{formatGHS(b.totalPrice)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
+  )
+}
+
+function RevenueReportTab() {
+  const [selectedWeek, setSelectedWeek] = useState<WeekBounds>(() => getWeekBounds())
+  const [weekOptions] = useState<WeekBounds[]>(() => getPastWeeksBounds(12))
+  const [reports, setReports] = useState<WeeklyRevenueReport[]>([])
+  const [loading, setLoading] = useState(false)
+  const [reviewTarget, setReviewTarget] = useState<WeeklyRevenueReport | null>(null)
+  const [adminNotes, setAdminNotes] = useState('')
+  const [reviewing, setReviewing] = useState(false)
+
+  const loadReports = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await getAllStaffReportsForWeek(selectedWeek.weekStart)
+      setReports(data)
+    } catch (e) {
+      console.error('[RevenueReportTab] loadReports error:', e)
+      toast.error(`Revenue error: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setLoading(false)
+    }
+  }, [selectedWeek.weekStart])
+
+  useEffect(() => { loadReports() }, [loadReports])
+
+  const handleReview = async () => {
+    if (!reviewTarget) return
+    setReviewing(true)
+    try {
+      await reviewWeekReport(reviewTarget.id, adminNotes, 'Admin')
+      toast.success(`Reviewed ${reviewTarget.staffName}'s report`)
+      setReviewTarget(null)
+      setAdminNotes('')
+      loadReports()
+    } catch {
+      toast.error('Failed to submit review')
+    } finally {
+      setReviewing(false)
+    }
+  }
+
+  const totalRevenue = reports.reduce((s, r) => s + r.totalRevenue, 0)
+  const totalBookings = reports.reduce((s, r) => s + r.bookingCount, 0)
+  const submittedCount = reports.filter((r) => r.status === 'submitted' || r.status === 'reviewed').length
+
+  return (
+    <div className="space-y-4">
+      {/* Week selector */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <h2 className="text-lg font-semibold flex items-center gap-2"><TrendingUp className="w-5 h-5 text-primary" /> Staff Revenue Reports</h2>
+        <Select
+          value={selectedWeek.weekStart}
+          onValueChange={(v) => {
+            const found = weekOptions.find((w) => w.weekStart === v)
+            if (found) setSelectedWeek(found)
+          }}
+        >
+          <SelectTrigger className="w-56">
+            <SelectValue placeholder="Select week" />
+          </SelectTrigger>
+          <SelectContent>
+            {weekOptions.map((w) => (
+              <SelectItem key={w.weekStart} value={w.weekStart}>{w.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="bg-card border rounded-xl p-4 flex items-center gap-3">
+          <div className="p-2 bg-primary/10 rounded-lg"><TrendingUp className="w-5 h-5 text-primary" /></div>
+          <div>
+            <p className="text-xs text-muted-foreground">Total Revenue</p>
+            <p className="text-lg font-bold">{formatGHS(totalRevenue)}</p>
+          </div>
+        </div>
+        <div className="bg-card border rounded-xl p-4 flex items-center gap-3">
+          <div className="p-2 bg-blue-100 rounded-lg"><BookOpen className="w-5 h-5 text-blue-600" /></div>
+          <div>
+            <p className="text-xs text-muted-foreground">Total Bookings</p>
+            <p className="text-lg font-bold">{totalBookings}</p>
+          </div>
+        </div>
+        <div className="bg-card border rounded-xl p-4 flex items-center gap-3">
+          <div className="p-2 bg-green-100 rounded-lg"><CheckCircle className="w-5 h-5 text-green-600" /></div>
+          <div>
+            <p className="text-xs text-muted-foreground">Submitted</p>
+            <p className="text-lg font-bold">{submittedCount}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Staff list */}
+      {loading ? (
+        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+      ) : reports.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground text-sm">No revenue reports found for this week.</div>
+      ) : (
+        <div className="space-y-2">
+          {reports.map((r) => (
+            <StaffRevenueRow key={r.id} report={r} onReview={setReviewTarget} />
+          ))}
+        </div>
+      )}
+
+      {/* Review dialog */}
+      <Dialog open={!!reviewTarget} onOpenChange={(v) => { if (!v) { setReviewTarget(null); setAdminNotes('') } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Review Report</DialogTitle></DialogHeader>
+          {reviewTarget && (
+            <div className="space-y-4 py-2">
+              <div className="bg-muted/40 rounded-lg p-4 space-y-1 text-sm">
+                <p><span className="font-medium">Staff:</span> {reviewTarget.staffName}</p>
+                <p><span className="font-medium">Week:</span> {reviewTarget.weekStart} → {reviewTarget.weekEnd}</p>
+                <p><span className="font-medium">Revenue:</span> {formatGHS(reviewTarget.totalRevenue)}</p>
+                <p><span className="font-medium">Bookings:</span> {reviewTarget.bookingCount}</p>
+                {reviewTarget.notes && <p><span className="font-medium">Staff notes:</span> {reviewTarget.notes}</p>}
+              </div>
+              <div className="space-y-1.5">
+                <Label>Feedback (optional)</Label>
+                <Textarea
+                  placeholder="Leave feedback for this staff member…"
+                  value={adminNotes}
+                  onChange={(e) => setAdminNotes(e.target.value)}
+                  rows={3}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setReviewTarget(null); setAdminNotes('') }} disabled={reviewing}>Cancel</Button>
+            <Button onClick={handleReview} disabled={reviewing} className="gap-2">
+              {reviewing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+              Mark as Reviewed
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
