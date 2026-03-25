@@ -169,7 +169,6 @@ export function MyRevenuePage() {
   const [pastReports, setPastReports] = useState<WeeklyRevenueReport[]>([])
   const [loading, setLoading] = useState(true)
   const [currentWeekOpen, setCurrentWeekOpen] = useState(false)
-  const [currentWeekBookingsLoaded, setCurrentWeekBookingsLoaded] = useState(false)
   const [loadingCurrentBookings, setLoadingCurrentBookings] = useState(false)
 
   // Submit dialog
@@ -202,18 +201,36 @@ export function MyRevenuePage() {
   }, [roleLoading, userId, staffRecord?.name, load])
 
   const loadCurrentBookings = useCallback(async () => {
-    if (!userId || currentWeekBookingsLoaded) return
+    if (!userId) return
     setLoadingCurrentBookings(true)
     try {
       const { bookings } = await fetchBookingsForStaffWeek(userId, currentWeek.weekStart, currentWeek.weekEnd)
       setCurrentBookings(bookings)
-      setCurrentWeekBookingsLoaded(true)
     } catch {
       toast.error('Failed to load bookings')
     } finally {
       setLoadingCurrentBookings(false)
     }
-  }, [userId, currentWeek, currentWeekBookingsLoaded])
+  }, [userId, currentWeek])
+
+  // Auto-refresh every 60s while the current week report is still a draft
+  useEffect(() => {
+    if (!userId || !staffRecord?.name || currentReport?.status !== 'draft') return
+    const refresh = async () => {
+      try {
+        const report = await getOrCreateWeekReport(userId, staffRecord.name, currentWeek)
+        setCurrentReport(report)
+        if (currentWeekOpen) {
+          const { bookings } = await fetchBookingsForStaffWeek(userId, currentWeek.weekStart, currentWeek.weekEnd)
+          setCurrentBookings(bookings)
+        }
+      } catch {
+        // silently ignore background refresh errors
+      }
+    }
+    const id = setInterval(refresh, 60_000)
+    return () => clearInterval(id)
+  }, [userId, staffRecord?.name, currentReport?.status, currentWeek, currentWeekOpen])
 
   const handleCurrentWeekOpen = (v: boolean) => {
     setCurrentWeekOpen(v)
