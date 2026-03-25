@@ -1495,17 +1495,23 @@ function StaffRevenueRow({
   const [open, setOpen] = useState(false)
   const [bookings, setBookings] = useState<BookingSummary[]>([])
   const [loadingBks, setLoadingBks] = useState(false)
+  const [liveCount, setLiveCount] = useState<number>(report.bookingCount)
+  const [liveRevenue, setLiveRevenue] = useState<number>(report.totalRevenue)
 
   const loadBks = useCallback(async () => {
-    if (bookings.length > 0) return
     setLoadingBks(true)
     try {
       const { bookings: bks } = await fetchBookingsForStaffWeek(report.staffId, report.weekStart, report.weekEnd)
       setBookings(bks)
+      setLiveCount(bks.length)
+      setLiveRevenue(bks.reduce((s, b) => s + b.totalPrice, 0))
     } catch { /* silent */ } finally { setLoadingBks(false) }
-  }, [report.staffId, report.weekStart, report.weekEnd, bookings.length])
+  }, [report.staffId, report.weekStart, report.weekEnd])
 
-  const handleOpen = (v: boolean) => { setOpen(v); if (v) loadBks() }
+  // Load bookings eagerly so header count/revenue is always accurate
+  useEffect(() => { loadBks() }, [loadBks])
+
+  const handleOpen = (v: boolean) => { setOpen(v) }
 
   return (
     <Collapsible open={open} onOpenChange={handleOpen}>
@@ -1523,14 +1529,14 @@ function StaffRevenueRow({
               <RevStatusBadge status={report.status} />
             </div>
             <div className="flex items-center gap-4 flex-shrink-0">
-              <span className="text-xs text-muted-foreground hidden sm:block">{report.bookingCount} booking{report.bookingCount !== 1 ? 's' : ''}</span>
-              <span className="font-semibold text-sm">{formatGHS(report.totalRevenue)}</span>
+              <span className="text-xs text-muted-foreground hidden sm:block">{liveCount} booking{liveCount !== 1 ? 's' : ''}</span>
+              <span className="font-semibold text-sm">{formatGHS(liveRevenue)}</span>
               {report.status === 'submitted' && (
                 <Button
                   size="sm"
                   variant="outline"
                   className="text-xs h-7"
-                  onClick={(e) => { e.stopPropagation(); onReview(report) }}
+                  onClick={(e) => { e.stopPropagation(); onReview({ ...report, bookingCount: liveCount, totalRevenue: liveRevenue }) }}
                 >
                   <CheckCircle className="w-3 h-3 mr-1" /> Review
                 </Button>

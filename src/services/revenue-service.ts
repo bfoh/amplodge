@@ -152,60 +152,57 @@ export async function getOrCreateWeekReport(
     }
   )
 
-  // Always recalculate for drafts so the current week stays live
-  if (!existing || existing.status === 'draft') {
-    const { bookings, totalRevenue, bookingCount } = await fetchBookingsForStaffWeek(
-      staffId,
-      week.weekStart,
-      week.weekEnd
-    )
-    const bookingIds = JSON.stringify(bookings.map((b) => b.id))
-    const now = new Date().toISOString()
+  // Always recalculate from live bookings so counts/revenue stay accurate
+  // regardless of report status (draft/submitted/reviewed).
+  const { bookings, totalRevenue, bookingCount } = await fetchBookingsForStaffWeek(
+    staffId,
+    week.weekStart,
+    week.weekEnd
+  )
+  const bookingIds = JSON.stringify(bookings.map((b) => b.id))
+  const now = new Date().toISOString()
 
-    if (existing) {
-      const updated: WeeklyRevenueReport = {
-        ...existing,
-        staffName, // keep name fresh
-        totalRevenue,
-        bookingCount,
-        bookingIds,
-        updatedAt: now,
-      }
-      try {
-        await db.hr_weekly_revenue.update(existing.id, updated)
-      } catch (e) {
-        console.warn('[getOrCreateWeekReport] update failed:', e)
-      }
-      return updated
-    }
-
-    const record: WeeklyRevenueReport = {
-      id: `rev_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      staffId,
-      staffName,
-      weekStart: week.weekStart,
-      weekEnd: week.weekEnd,
+  if (existing) {
+    const updated: WeeklyRevenueReport = {
+      ...existing,
+      staffName, // keep name fresh
       totalRevenue,
       bookingCount,
       bookingIds,
-      status: 'draft',
-      notes: '',
-      adminNotes: '',
-      reviewedBy: '',
-      reviewedAt: '',
-      submittedAt: '',
-      createdAt: now,
       updatedAt: now,
     }
     try {
-      await db.hr_weekly_revenue.create(record)
+      await db.hr_weekly_revenue.update(existing.id, updated)
     } catch (e) {
-      console.warn('[getOrCreateWeekReport] create failed (table may not exist yet):', e)
+      console.warn('[getOrCreateWeekReport] update failed:', e)
     }
-    return record  // Return computed record even if DB write failed
+    return updated
   }
 
-  return existing
+  const record: WeeklyRevenueReport = {
+    id: `rev_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    staffId,
+    staffName,
+    weekStart: week.weekStart,
+    weekEnd: week.weekEnd,
+    totalRevenue,
+    bookingCount,
+    bookingIds,
+    status: 'draft',
+    notes: '',
+    adminNotes: '',
+    reviewedBy: '',
+    reviewedAt: '',
+    submittedAt: '',
+    createdAt: now,
+    updatedAt: now,
+  }
+  try {
+    await db.hr_weekly_revenue.create(record)
+  } catch (e) {
+    console.warn('[getOrCreateWeekReport] create failed (table may not exist yet):', e)
+  }
+  return record
 }
 
 /**
