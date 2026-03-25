@@ -1488,9 +1488,11 @@ function RevStatusBadge({ status }: { status: string }) {
 function StaffRevenueRow({
   report,
   onReview,
+  onLiveData,
 }: {
   report: WeeklyRevenueReport
   onReview: (r: WeeklyRevenueReport) => void
+  onLiveData: (id: string, count: number, revenue: number) => void
 }) {
   const [open, setOpen] = useState(false)
   const [bookings, setBookings] = useState<BookingSummary[]>([])
@@ -1502,11 +1504,14 @@ function StaffRevenueRow({
     setLoadingBks(true)
     try {
       const { bookings: bks } = await fetchBookingsForStaffWeek(report.staffId, report.weekStart, report.weekEnd)
+      const count = bks.length
+      const revenue = bks.reduce((s, b) => s + b.totalPrice, 0)
       setBookings(bks)
-      setLiveCount(bks.length)
-      setLiveRevenue(bks.reduce((s, b) => s + b.totalPrice, 0))
+      setLiveCount(count)
+      setLiveRevenue(revenue)
+      onLiveData(report.id, count, revenue)
     } catch { /* silent */ } finally { setLoadingBks(false) }
-  }, [report.staffId, report.weekStart, report.weekEnd])
+  }, [report.staffId, report.weekStart, report.weekEnd, report.id, onLiveData])
 
   // Load bookings eagerly so header count/revenue is always accurate
   useEffect(() => { loadBks() }, [loadBks])
@@ -1600,6 +1605,11 @@ function RevenueReportTab() {
   const [reviewTarget, setReviewTarget] = useState<WeeklyRevenueReport | null>(null)
   const [adminNotes, setAdminNotes] = useState('')
   const [reviewing, setReviewing] = useState(false)
+  const [liveData, setLiveData] = useState<Record<string, { count: number; revenue: number }>>({})
+
+  const handleLiveData = useCallback((id: string, count: number, revenue: number) => {
+    setLiveData(prev => ({ ...prev, [id]: { count, revenue } }))
+  }, [])
 
   const loadReports = useCallback(async () => {
     setLoading(true)
@@ -1614,7 +1624,10 @@ function RevenueReportTab() {
     }
   }, [selectedWeek.weekStart])
 
-  useEffect(() => { loadReports() }, [loadReports])
+  useEffect(() => {
+    setLiveData({})
+    loadReports()
+  }, [loadReports])
 
   const handleReview = async () => {
     if (!reviewTarget) return
@@ -1632,8 +1645,8 @@ function RevenueReportTab() {
     }
   }
 
-  const totalRevenue = reports.reduce((s, r) => s + r.totalRevenue, 0)
-  const totalBookings = reports.reduce((s, r) => s + r.bookingCount, 0)
+  const totalRevenue = reports.reduce((s, r) => s + (liveData[r.id]?.revenue ?? r.totalRevenue), 0)
+  const totalBookings = reports.reduce((s, r) => s + (liveData[r.id]?.count ?? r.bookingCount), 0)
   const submittedCount = reports.filter((r) => r.status === 'submitted' || r.status === 'reviewed').length
 
   return (
@@ -1692,7 +1705,7 @@ function RevenueReportTab() {
       ) : (
         <div className="space-y-2">
           {reports.map((r) => (
-            <StaffRevenueRow key={r.id} report={r} onReview={setReviewTarget} />
+            <StaffRevenueRow key={r.id} report={r} onReview={setReviewTarget} onLiveData={handleLiveData} />
           ))}
         </div>
       )}
