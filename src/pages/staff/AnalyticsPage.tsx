@@ -470,7 +470,11 @@ export function AnalyticsPage() {
                       <td className="py-2.5">{b.roomNumber || '—'}</td>
                       <td className="py-2.5">{b.dates.checkIn}</td>
                       <td className="py-2.5">{b.dates.checkOut}</td>
-                      <td className="py-2.5 text-muted-foreground">{b.createdByName || '—'}</td>
+                      <td className="py-2.5 text-muted-foreground">
+                        {b.status === 'checked-out'
+                          ? (b.checkOutByName || b.checkInByName || b.createdByName || '—')
+                          : (b.checkInByName || b.createdByName || '—')}
+                      </td>
                       <td className="py-2.5">
                         <Badge
                           variant={

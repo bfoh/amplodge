@@ -1265,6 +1265,12 @@ class BookingEngine {
         groupId,
         groupReference,
         isPrimaryBooking,
+        createdBy: b.createdBy || b.created_by || undefined,
+        createdByName: b.createdByName || b.created_by_name || undefined,
+        checkInBy: b.checkInBy || b.check_in_by || undefined,
+        checkInByName: b.checkInByName || b.check_in_by_name || undefined,
+        checkOutBy: b.checkOutBy || b.check_out_by || undefined,
+        checkOutByName: b.checkOutByName || b.check_out_by_name || undefined,
       }
       return local
     })
