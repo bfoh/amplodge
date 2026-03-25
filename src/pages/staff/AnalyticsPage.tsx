@@ -133,8 +133,13 @@ export function AnalyticsPage() {
     return ((current - previous) / previous) * 100
   }
 
+  // This week bounds (pre-computed for the breakdown card)
+  const thisWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 })
+  const thisWeekEnd = endOfWeek(new Date(), { weekStartsOn: 1 })
+  const weekTotal = weekBookings.reduce((s, b) => s + Number(b.amount || 0), 0)
+
   // Calculate growth metrics with null safety
-  const revenueGrowth = revenue 
+  const revenueGrowth = revenue
     ? calculateGrowth(revenue.revenueByPeriod.thisMonth, revenue.revenueByPeriod.lastMonth)
     : 0
 
@@ -421,83 +426,76 @@ export function AnalyticsPage() {
       </div>
 
       {/* This Week's Bookings Breakdown */}
-      {(() => {
-        const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 })
-        const weekEnd = endOfWeek(new Date(), { weekStartsOn: 1 })
-        const weekTotal = weekBookings.reduce((s, b) => s + Number(b.amount || 0), 0)
-        return (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base">This Week's Booking Breakdown</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {format(weekStart, 'MMM d')} – {format(weekEnd, 'MMM d, yyyy')} · Matches staff weekly revenue reports
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-2xl font-bold text-primary">{formatCurrencySync(weekTotal, currency)}</p>
-                  <p className="text-xs text-muted-foreground">{weekBookings.length} booking{weekBookings.length !== 1 ? 's' : ''}</p>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {weekBookings.length === 0 ? (
-                <div className="text-center py-10 text-muted-foreground">
-                  <Calendar className="w-10 h-10 mx-auto mb-2 opacity-40" />
-                  <p>No bookings checked in this week yet</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-muted-foreground text-xs uppercase tracking-wide">
-                        <th className="text-left py-2 font-medium">#</th>
-                        <th className="text-left py-2 font-medium">Guest</th>
-                        <th className="text-left py-2 font-medium">Room</th>
-                        <th className="text-left py-2 font-medium">Check-in</th>
-                        <th className="text-left py-2 font-medium">Check-out</th>
-                        <th className="text-left py-2 font-medium">Status</th>
-                        <th className="text-right py-2 font-medium">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {weekBookings.map((b, i) => (
-                        <tr key={b.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors">
-                          <td className="py-2.5 text-muted-foreground">{i + 1}</td>
-                          <td className="py-2.5 font-medium">{b.guest?.fullName || '—'}</td>
-                          <td className="py-2.5">{b.roomNumber || '—'}</td>
-                          <td className="py-2.5">{b.dates.checkIn}</td>
-                          <td className="py-2.5">{b.dates.checkOut}</td>
-                          <td className="py-2.5">
-                            <Badge
-                              variant={
-                                b.status === 'checked-out' ? 'secondary'
-                                : b.status === 'checked-in' ? 'default'
-                                : 'outline'
-                              }
-                              className="capitalize"
-                            >
-                              {b.status}
-                            </Badge>
-                          </td>
-                          <td className="py-2.5 text-right font-semibold">{formatCurrencySync(Number(b.amount || 0), currency)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t-2 font-bold">
-                        <td colSpan={6} className="py-3 text-right pr-4">Total</td>
-                        <td className="py-3 text-right text-primary">{formatCurrencySync(weekTotal, currency)}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )
-      })()}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base">This Week's Booking Breakdown</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                {format(thisWeekStart, 'MMM d')} – {format(thisWeekEnd, 'MMM d, yyyy')} · Matches staff weekly revenue reports
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-2xl font-bold text-primary">{formatCurrencySync(weekTotal, currency)}</p>
+              <p className="text-xs text-muted-foreground">{weekBookings.length} booking{weekBookings.length !== 1 ? 's' : ''}</p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {weekBookings.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground">
+              <Calendar className="w-10 h-10 mx-auto mb-2 opacity-40" />
+              <p>No bookings checked in this week yet</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-muted-foreground text-xs uppercase tracking-wide">
+                    <th className="text-left py-2 font-medium">#</th>
+                    <th className="text-left py-2 font-medium">Guest</th>
+                    <th className="text-left py-2 font-medium">Room</th>
+                    <th className="text-left py-2 font-medium">Check-in</th>
+                    <th className="text-left py-2 font-medium">Check-out</th>
+                    <th className="text-left py-2 font-medium">Status</th>
+                    <th className="text-right py-2 font-medium">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {weekBookings.map((b, i) => (
+                    <tr key={b.id} className="border-b last:border-0 hover:bg-accent/30 transition-colors">
+                      <td className="py-2.5 text-muted-foreground">{i + 1}</td>
+                      <td className="py-2.5 font-medium">{b.guest?.fullName || '—'}</td>
+                      <td className="py-2.5">{b.roomNumber || '—'}</td>
+                      <td className="py-2.5">{b.dates.checkIn}</td>
+                      <td className="py-2.5">{b.dates.checkOut}</td>
+                      <td className="py-2.5">
+                        <Badge
+                          variant={
+                            b.status === 'checked-out' ? 'secondary'
+                            : b.status === 'checked-in' ? 'default'
+                            : 'outline'
+                          }
+                          className="capitalize"
+                        >
+                          {b.status}
+                        </Badge>
+                      </td>
+                      <td className="py-2.5 text-right font-semibold">{formatCurrencySync(Number(b.amount || 0), currency)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 font-bold">
+                    <td colSpan={6} className="py-3 text-right pr-4">Total</td>
+                    <td className="py-3 text-right text-primary">{formatCurrencySync(weekTotal, currency)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Top Guests Table */}
       <Card>
