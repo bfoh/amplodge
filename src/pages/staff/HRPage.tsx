@@ -43,7 +43,8 @@ import {
   QrCode,
   Wifi,
   RefreshCw,
-  Printer
+  Printer,
+  MapPin
 } from 'lucide-react'
 import { generateEmploymentApplicationPDF } from '@/lib/hr-form-pdf'
 import {
@@ -553,7 +554,16 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
                   <td className="px-4 py-3 whitespace-nowrap">{r.clockOut || '—'}</td>
                   <td className="px-4 py-3 whitespace-nowrap">{r.hoursWorked ? `${r.hoursWorked}h` : '—'}</td>
                   <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
-                  <td className="px-4 py-3 max-w-[160px] truncate text-muted-foreground">{r.notes || '—'}</td>
+                  <td className="px-4 py-3 max-w-[200px]">
+                    {r.notes?.startsWith('GPS:') ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 text-amber-800 text-xs font-medium px-2.5 py-1 border border-amber-200">
+                        <MapPin className="w-3 h-3 flex-shrink-0" />
+                        Outside hotel
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground truncate block">{r.notes || '—'}</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(r.id)}>
                       <X className="w-4 h-4" />

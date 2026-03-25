@@ -68,10 +68,12 @@ export function ClockPage() {
     try {
       // GPS soft-check (Phase 2)
       const coords = await getCurrentLocation()
+      let outsideHotel = false
       if (coords && !isWithinHotel(coords.lat, coords.lng)) {
         setGpsWarning(true)
+        outsideHotel = true
       }
-      const rec = await clockIn(userId, staffRecord.name)
+      const rec = await clockIn(userId, staffRecord.name, outsideHotel ? { notes: 'GPS: clocked in outside hotel premises' } : undefined)
       setTodayRecord(rec)
       setDone('in')
       toast.success('Clocked in! Have a great shift.')
