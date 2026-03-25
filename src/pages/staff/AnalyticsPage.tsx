@@ -96,7 +96,7 @@ export function AnalyticsPage() {
       // This week's bookings — same filter as analytics-service & revenue-service
       const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 })
       const thisWeekBks = allBookings.filter(b =>
-        ['confirmed', 'checked-in', 'checked-out'].includes(b.status) &&
+        ['checked-in', 'checked-out'].includes(b.status) &&
         new Date(b.dates.checkIn) >= weekStart
       )
       setWeekBookings(thisWeekBks)

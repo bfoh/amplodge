@@ -97,7 +97,7 @@ export async function fetchBookingsForStaffWeek(
     .filter((b: any) => {
       const creator = b.createdBy || b.created_by || ''
       if (creator !== staffId) return false
-      if (!['confirmed', 'checked-in', 'checked-out'].includes(b.status)) return false
+      if (!['checked-in', 'checked-out'].includes(b.status)) return false
       const checkIn = b.checkIn || b.check_in || ''
       if (!checkIn) return false
       const d = new Date(checkIn)

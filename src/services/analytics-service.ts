@@ -33,9 +33,9 @@ class AnalyticsService {
         })
         : bookings
 
-      // Calculate total revenue from confirmed/checked-in/checked-out bookings
+      // Calculate total revenue from checked-in/checked-out bookings only
       const revenueBookings = filteredBookings.filter(
-        b => ['confirmed', 'checked-in', 'checked-out'].includes(b.status)
+        b => ['checked-in', 'checked-out'].includes(b.status)
       )
 
       // Debug logging
@@ -472,7 +472,7 @@ class AnalyticsService {
       }>()
 
       bookings
-        .filter(b => ['confirmed', 'checked-in', 'checked-out'].includes(b.status))
+        .filter(b => ['checked-in', 'checked-out'].includes(b.status))
         .forEach(b => {
           const email = b.guest.email.toLowerCase().trim()
           const existing = guestRevenueMap.get(email)
@@ -604,7 +604,7 @@ class AnalyticsService {
       const bookings = await bookingEngine.getAllBookings()
 
       const totalBookings = bookings.filter(
-        b => ['confirmed', 'checked-in', 'checked-out'].includes(b.status)
+        b => ['checked-in', 'checked-out'].includes(b.status)
       ).length
 
       const cancelledBookings = bookings.filter(b => b.status === 'cancelled').length
