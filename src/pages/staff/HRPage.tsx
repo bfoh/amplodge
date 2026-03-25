@@ -555,7 +555,12 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
                   <td className="px-4 py-3 whitespace-nowrap">{r.hoursWorked ? `${r.hoursWorked}h` : '—'}</td>
                   <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
                   <td className="px-4 py-3 max-w-[200px]">
-                    {r.notes?.startsWith('GPS:') ? (
+                    {r.notes === 'GPS: location access denied' ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 text-red-800 text-xs font-medium px-2.5 py-1 border border-red-200">
+                        <MapPin className="w-3 h-3 flex-shrink-0" />
+                        Location denied
+                      </span>
+                    ) : r.notes === 'GPS: clocked in outside hotel premises' ? (
                       <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 text-amber-800 text-xs font-medium px-2.5 py-1 border border-amber-200">
                         <MapPin className="w-3 h-3 flex-shrink-0" />
                         Outside hotel

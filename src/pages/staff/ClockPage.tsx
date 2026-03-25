@@ -31,7 +31,7 @@ export function ClockPage() {
   const [acting, setActing] = useState(false)
   const [now, setNow] = useState(new Date())
   const [tokenWarning, setTokenWarning] = useState(false)
-  const [gpsWarning, setGpsWarning] = useState(false)
+  const [gpsWarning, setGpsWarning] = useState<'outside' | 'denied' | false>(false)
   const [done, setDone] = useState<'in' | 'out' | null>(null)
 
   // Live clock tick
@@ -67,13 +67,16 @@ export function ClockPage() {
     setActing(true)
     try {
       // GPS soft-check (Phase 2)
-      const coords = await getCurrentLocation()
-      let outsideHotel = false
-      if (coords && !isWithinHotel(coords.lat, coords.lng)) {
-        setGpsWarning(true)
-        outsideHotel = true
+      const location = await getCurrentLocation()
+      let clockNotes: string | undefined
+      if (location === 'denied') {
+        clockNotes = 'GPS: location access denied'
+        setGpsWarning('denied')
+      } else if (location && !isWithinHotel(location.lat, location.lng)) {
+        clockNotes = 'GPS: clocked in outside hotel premises'
+        setGpsWarning('outside')
       }
-      const rec = await clockIn(userId, staffRecord.name, outsideHotel ? { notes: 'GPS: clocked in outside hotel premises' } : undefined)
+      const rec = await clockIn(userId, staffRecord.name, clockNotes ? { notes: clockNotes } : undefined)
       setTodayRecord(rec)
       setDone('in')
       toast.success('Clocked in! Have a great shift.')
@@ -153,10 +156,16 @@ export function ClockPage() {
           <span>This QR code may be expired. Scan the latest code at the hotel entrance for full security. You can still clock in below.</span>
         </div>
       )}
-      {gpsWarning && (
+      {gpsWarning === 'outside' && (
         <div className="bg-amber-50 border-b border-amber-200 px-5 py-3 flex items-start gap-2 text-sm text-amber-800">
           <MapPin className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <span>You appear to be outside the hotel. Your clock-in has been logged and flagged for admin review.</span>
+        </div>
+      )}
+      {gpsWarning === 'denied' && (
+        <div className="bg-red-50 border-b border-red-200 px-5 py-3 flex items-start gap-2 text-sm text-red-800">
+          <MapPin className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span>Location access was denied. Your clock-in has been logged and flagged for admin review.</span>
         </div>
       )}
 

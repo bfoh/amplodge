@@ -65,13 +65,14 @@ export function isWithinHotel(lat: number, lng: number): boolean {
   return haversineDistance(lat, lng, HOTEL_LAT, HOTEL_LNG) <= MAX_DISTANCE_METERS
 }
 
-/** Resolve the device's current GPS position, or null if unavailable. */
-export async function getCurrentLocation(): Promise<{ lat: number; lng: number } | null> {
+/** Resolve the device's current GPS position.
+ *  Returns coords on success, 'denied' if the user blocked permission, or null if unavailable/timeout. */
+export async function getCurrentLocation(): Promise<{ lat: number; lng: number } | 'denied' | null> {
   if (!navigator.geolocation) return null
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => resolve(null),
+      (err) => resolve(err.code === 1 /* PERMISSION_DENIED */ ? 'denied' : null),
       { timeout: 8000, maximumAge: 60000 }
     )
   })
