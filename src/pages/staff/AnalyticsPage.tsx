@@ -457,6 +457,7 @@ export function AnalyticsPage() {
                     <th className="text-left py-2 font-medium">Room</th>
                     <th className="text-left py-2 font-medium">Check-in</th>
                     <th className="text-left py-2 font-medium">Check-out</th>
+                    <th className="text-left py-2 font-medium">Staff</th>
                     <th className="text-left py-2 font-medium">Status</th>
                     <th className="text-right py-2 font-medium">Amount</th>
                   </tr>
@@ -469,6 +470,7 @@ export function AnalyticsPage() {
                       <td className="py-2.5">{b.roomNumber || '—'}</td>
                       <td className="py-2.5">{b.dates.checkIn}</td>
                       <td className="py-2.5">{b.dates.checkOut}</td>
+                      <td className="py-2.5 text-muted-foreground">{b.createdByName || '—'}</td>
                       <td className="py-2.5">
                         <Badge
                           variant={
@@ -487,7 +489,7 @@ export function AnalyticsPage() {
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 font-bold">
-                    <td colSpan={6} className="py-3 text-right pr-4">Total</td>
+                    <td colSpan={7} className="py-3 text-right pr-4">Total</td>
                     <td className="py-3 text-right text-primary">{formatCurrencySync(weekTotal, currency)}</td>
                   </tr>
                 </tfoot>
