@@ -726,6 +726,41 @@ export function AnalyticsPage() {
                 <span className="font-medium">{formatCurrencySync(revenue?.revenueBySource.reception || 0, currency)}</span>
               </div>
             </div>
+
+            {/* Payment Method Breakdown */}
+            {revenue?.revenueByPaymentMethod && (() => {
+              const pm = revenue.revenueByPaymentMethod
+              const methods = [
+                { label: 'Cash',         value: pm.cash,        count: pm.cashCount,         color: '#10b981', dot: 'bg-emerald-500', text: 'text-emerald-700' },
+                { label: 'Mobile Money', value: pm.mobileMoney, count: pm.mobileMonetyCount,  color: '#3b82f6', dot: 'bg-blue-500',    text: 'text-blue-700' },
+                { label: 'Card',         value: pm.card,        count: pm.cardCount,          color: '#8b5cf6', dot: 'bg-purple-500',  text: 'text-purple-700' },
+              ].filter(m => m.value > 0 || m.count > 0)
+              const totalPaid = methods.reduce((s, m) => s + m.value, 0)
+              if (!methods.length) return null
+              return (
+                <div className="border-t pt-3 space-y-2">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">By Payment Method</p>
+                  {methods.map(m => {
+                    const pct = totalPaid > 0 ? Math.round((m.value / totalPaid) * 100) : 0
+                    return (
+                      <div key={m.label}>
+                        <div className="flex items-center justify-between text-xs mb-1">
+                          <span className="flex items-center gap-1.5 text-muted-foreground">
+                            <span className={`w-2 h-2 rounded-full ${m.dot} flex-shrink-0`} />
+                            {m.label}
+                            <span className="text-[10px] text-muted-foreground/60">({m.count})</span>
+                          </span>
+                          <span className={`font-semibold ${m.text}`}>{formatCurrencySync(m.value, currency)}</span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-muted/50 overflow-hidden">
+                          <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: m.color }} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </CardContent>
         </Card>
 
