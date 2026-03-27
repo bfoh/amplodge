@@ -1477,6 +1477,19 @@ function formatGHS(amount: number) {
   return `GHS ${amount.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
+function RevPaymentBadge({ method }: { method: string }) {
+  if (!method) return <span className="text-xs text-muted-foreground">—</span>
+  const map: Record<string, { label: string; className: string }> = {
+    cash:         { label: '💵 Cash',         className: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' },
+    mobile_money: { label: '📱 Mobile Money', className: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' },
+    card:         { label: '💳 Card',          className: 'bg-purple-50 text-purple-700 ring-1 ring-purple-200' },
+    not_paid:     { label: '⏳ Not Paid',      className: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200' },
+  }
+  const entry = map[method]
+  if (!entry) return <span className="text-xs text-muted-foreground">—</span>
+  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${entry.className}`}>{entry.label}</span>
+}
+
 function RevStatusBadge({ status }: { status: string }) {
   if (status === 'reviewed') return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">Reviewed</span>
   if (status === 'submitted') return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 ring-1 ring-blue-200">Submitted</span>
@@ -1572,6 +1585,7 @@ function StaffRevenueRow({
                       <TableHead className="text-xs">Check-in</TableHead>
                       <TableHead className="text-xs">Check-out</TableHead>
                       <TableHead className="text-xs text-right">Amount</TableHead>
+                      <TableHead className="text-xs">Payment</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1583,6 +1597,7 @@ function StaffRevenueRow({
                         <TableCell className="text-xs">{b.checkIn}</TableCell>
                         <TableCell className="text-xs">{b.checkOut}</TableCell>
                         <TableCell className="text-xs text-right font-medium">{formatGHS(b.totalPrice)}</TableCell>
+                        <TableCell className="text-xs"><RevPaymentBadge method={b.paymentMethod} /></TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
