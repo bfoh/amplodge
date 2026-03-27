@@ -562,6 +562,7 @@ export function AnalyticsPage() {
                     <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Check-in</th>
                     <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Check-out</th>
                     <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Staff</th>
+                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Payment</th>
                     <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Status</th>
                     <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Amount</th>
                   </tr>
@@ -582,6 +583,26 @@ export function AnalyticsPage() {
                         <td className="px-4 py-3 text-muted-foreground tabular-nums">{b.dates.checkOut}</td>
                         <td className="px-4 py-3 text-muted-foreground">{staffName || '—'}</td>
                         <td className="px-4 py-3">
+                          {(() => {
+                            const raw = (b.paymentMethod || b.payment?.method || (b as any).payment_method || '').trim().toLowerCase()
+                            const payMap: Record<string, { label: string; cls: string }> = {
+                              cash:         { label: '💵 Cash',         cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' },
+                              mobile_money: { label: '📱 Mobile Money', cls: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' },
+                              card:         { label: '💳 Card',          cls: 'bg-purple-50 text-purple-700 ring-1 ring-purple-200' },
+                              not_paid:     { label: '⏳ Not Paid',      cls: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200' },
+                            }
+                            const norm = raw === 'cash' ? 'cash'
+                              : (raw === 'mobile_money' || raw === 'mobile money' || raw.includes('mobile')) ? 'mobile_money'
+                              : (raw === 'card' || raw.includes('card') || raw.includes('credit') || raw.includes('debit')) ? 'card'
+                              : (raw === 'not_paid' || raw === 'not paid') ? 'not_paid'
+                              : ''
+                            const entry = norm ? payMap[norm] : null
+                            return entry
+                              ? <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${entry.cls}`}>{entry.label}</span>
+                              : <span className="text-xs text-muted-foreground">—</span>
+                          })()}
+                        </td>
+                        <td className="px-4 py-3">
                           <span className={cn(
                             'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold',
                             b.status === 'checked-out'
@@ -600,7 +621,7 @@ export function AnalyticsPage() {
                 </tbody>
                 <tfoot>
                   <tr className="bg-muted/40 border-t-2 border-border">
-                    <td colSpan={7} className="px-4 py-3 text-xs font-semibold text-right text-muted-foreground">
+                    <td colSpan={8} className="px-4 py-3 text-xs font-semibold text-right text-muted-foreground">
                       TOTAL ({weekBookings.length} bookings)
                     </td>
                     <td className="px-4 py-3 text-right font-bold text-primary">
