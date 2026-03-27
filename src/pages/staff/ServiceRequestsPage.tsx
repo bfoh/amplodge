@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs'
-import { CheckCircle2, Clock, MapPin, User, AlertCircle, RefreshCw, Trash2 } from 'lucide-react'
+import { CheckCircle2, Clock, MapPin, User, AlertCircle, RefreshCw, Trash2, Wrench } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface ServiceRequest {
@@ -161,13 +161,42 @@ export function ServiceRequestsPage() {
         <div className="space-y-6 animate-fade-in p-6 max-w-6xl mx-auto">
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight">Service Requests</h2>
-                    <p className="text-muted-foreground mt-1">Manage guest requests and housekeeping tasks</p>
+                    <div className="flex items-center gap-2 mb-1">
+                        <div className="p-1.5 rounded-lg bg-primary/10">
+                            <Wrench className="w-5 h-5 text-primary" />
+                        </div>
+                        <h1 className="text-2xl font-bold tracking-tight">Service Requests</h1>
+                    </div>
+                    <p className="text-sm text-muted-foreground">Manage guest requests and housekeeping tasks</p>
                 </div>
                 <Button variant="outline" size="sm" onClick={fetchRequests} disabled={refreshing}>
                     <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
                     Refresh
                 </Button>
+            </div>
+
+            {/* Stats Strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+                    <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-orange-400 to-orange-600" />
+                    <p className="text-xs font-medium text-muted-foreground">Pending</p>
+                    <p className="text-2xl font-bold mt-1">{requests.filter(r => r.status === 'pending').length}</p>
+                </div>
+                <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+                    <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-blue-400 to-blue-600" />
+                    <p className="text-xs font-medium text-muted-foreground">In Progress</p>
+                    <p className="text-2xl font-bold mt-1">{requests.filter(r => r.status === 'in_progress').length}</p>
+                </div>
+                <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+                    <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-emerald-400 to-emerald-600" />
+                    <p className="text-xs font-medium text-muted-foreground">Completed</p>
+                    <p className="text-2xl font-bold mt-1">{requests.filter(r => r.status === 'completed').length}</p>
+                </div>
+                <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+                    <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-slate-400 to-slate-600" />
+                    <p className="text-xs font-medium text-muted-foreground">Total</p>
+                    <p className="text-2xl font-bold mt-1">{requests.length}</p>
+                </div>
             </div>
 
             <Tabs defaultValue="active" className="w-full">

@@ -22,6 +22,7 @@ import {
   BedDouble,
   Activity,
   Star,
+  CreditCard,
 } from 'lucide-react'
 import { usePermissions } from '@/hooks/use-permissions'
 import { analyticsService } from '@/services/analytics-service'
@@ -165,14 +166,18 @@ export function AnalyticsPage() {
   }
 
   // Payment method data for horizontal bar visualization
-  const paymentData = revenue?.revenueByPaymentMethod
+  const pm = revenue?.revenueByPaymentMethod
+  const paymentData = pm
     ? [
-        { label: 'Cash', value: revenue.revenueByPaymentMethod.cash, color: '#10b981' },
-        { label: 'Mobile Money', value: revenue.revenueByPaymentMethod.mobileMoney, color: '#3b82f6' },
-        { label: 'Card', value: revenue.revenueByPaymentMethod.card, color: '#8b5cf6' },
-      ]
+        { label: 'Cash', value: pm.cash, count: pm.cashCount, color: '#10b981' },
+        { label: 'Mobile Money', value: pm.mobileMoney, count: pm.mobileMonetyCount, color: '#3b82f6' },
+        { label: 'Card', value: pm.card, count: pm.cardCount, color: '#8b5cf6' },
+        { label: 'Not Paid', value: pm.notPaid, count: pm.notPaidCount, color: '#f59e0b' },
+      ].filter(d => d.count > 0 || d.value > 0)
     : []
+  const paymentTotal = paymentData.reduce((s, d) => s + d.value, 0)
   const paymentMax = Math.max(...paymentData.map(d => d.value), 1)
+  const paymentTopMethod = paymentData.reduce((top, d) => d.count > (top?.count ?? -1) ? d : top, paymentData[0])
 
   return (
     <div id="analytics-dashboard" className="space-y-7 animate-fade-in pb-8">
@@ -477,15 +482,32 @@ export function AnalyticsPage() {
         {/* Payment Methods – Horizontal Bars */}
         <Card className="shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Revenue by Payment Method</CardTitle>
-            <p className="text-[11px] text-muted-foreground">How guests are paying</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-sm font-semibold">Revenue by Payment Method</CardTitle>
+                <p className="text-[11px] text-muted-foreground">How guests are paying</p>
+              </div>
+              {paymentTopMethod && (
+                <div className="text-right">
+                  <p className="text-[10px] text-muted-foreground">Top method</p>
+                  <p className="text-xs font-bold" style={{ color: paymentTopMethod.color }}>{paymentTopMethod.label}</p>
+                </div>
+              )}
+            </div>
           </CardHeader>
-          <CardContent className="space-y-5 pt-2">
-            {paymentData.map(({ label, value, color }) => (
+          <CardContent className="space-y-4 pt-2">
+            {paymentData.map(({ label, value, count, color }) => (
               <div key={label}>
                 <div className="flex items-center justify-between text-xs mb-1.5">
-                  <span className="font-medium text-foreground">{label}</span>
-                  <span className="font-semibold">{formatCurrencySync(value, currency)}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                    <span className="font-medium text-foreground">{label}</span>
+                    <span className="text-muted-foreground">({count} booking{count !== 1 ? 's' : ''})</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-semibold">{formatCurrencySync(value, currency)}</span>
+                    <span className="text-muted-foreground ml-1.5">{paymentTotal > 0 ? `${((value / paymentTotal) * 100).toFixed(0)}%` : '0%'}</span>
+                  </div>
                 </div>
                 <div className="h-2 rounded-full bg-secondary overflow-hidden">
                   <div
@@ -493,9 +515,6 @@ export function AnalyticsPage() {
                     style={{ width: `${(value / paymentMax) * 100}%`, backgroundColor: color }}
                   />
                 </div>
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  {paymentMax > 0 ? `${((value / paymentMax) * 100).toFixed(0)}% of top channel` : '0%'}
-                </p>
               </div>
             ))}
             {!paymentData.length && (
@@ -651,8 +670,8 @@ export function AnalyticsPage() {
         </CardContent>
       </Card>
 
-      {/* ── Revenue / Occupancy / Guest Summary ─────────────────────────── */}
-      <div className="grid gap-5 md:grid-cols-3">
+      {/* ── Revenue / Occupancy / Guest / Payment Summary ───────────────── */}
+      <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
         {/* Revenue Summary */}
         <Card className="shadow-sm">
           <CardHeader className="pb-3">
@@ -762,6 +781,57 @@ export function AnalyticsPage() {
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">Avg Lifetime Value</span>
                 <span className="font-medium">{formatCurrencySync(guests?.guestLifetimeValue.average || 0, currency)}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Payment Methods Summary */}
+        <Card className="shadow-sm">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-sky-500/10">
+                <CreditCard className="w-3.5 h-3.5 text-sky-600" />
+              </div>
+              <CardTitle className="text-sm font-semibold">Payment Methods</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {paymentTopMethod ? (
+              <div className="flex items-center justify-between rounded-lg px-3 py-2" style={{ backgroundColor: `${paymentTopMethod.color}15` }}>
+                <span className="text-xs text-muted-foreground font-medium">Top Method</span>
+                <span className="text-sm font-bold" style={{ color: paymentTopMethod.color }}>{paymentTopMethod.label}</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between rounded-lg bg-sky-50 dark:bg-sky-950/30 px-3 py-2">
+                <span className="text-xs text-muted-foreground font-medium">Top Method</span>
+                <span className="text-sm font-bold text-sky-700">—</span>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { label: 'Cash', value: pm?.cashCount ?? 0, color: '#10b981' },
+                { label: 'Mobile Money', value: pm?.mobileMonetyCount ?? 0, color: '#3b82f6' },
+                { label: 'Card', value: pm?.cardCount ?? 0, color: '#8b5cf6' },
+                { label: 'Not Paid', value: pm?.notPaidCount ?? 0, color: '#f59e0b' },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="rounded-lg bg-muted/30 px-3 py-2">
+                  <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                    {label}
+                  </p>
+                  <p className="text-base font-bold">{value}</p>
+                </div>
+              ))}
+            </div>
+            <div className="border-t pt-3 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Total Paid</span>
+                <span className="font-medium">{formatCurrencySync((pm?.cash ?? 0) + (pm?.mobileMoney ?? 0) + (pm?.card ?? 0), currency)}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Outstanding</span>
+                <span className="font-medium text-amber-600">{formatCurrencySync(pm?.notPaid ?? 0, currency)}</span>
               </div>
             </div>
           </CardContent>

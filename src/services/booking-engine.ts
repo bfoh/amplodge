@@ -427,7 +427,7 @@ class BookingEngine {
       source: bookingData.source,
       totalPrice: bookingData.amount ?? 0,
       numGuests: bookingData.numGuests ?? 1,
-      payment_method: bookingData.payment_method,
+      paymentMethod: bookingData.paymentMethod || bookingData.payment_method,
       createdBy: bookingData.createdBy || currentUser?.id || null,
       specialRequests: specialRequests
     }
@@ -517,7 +517,7 @@ class BookingEngine {
       createdAt: now,
       updatedAt: now,
       synced: true,
-      payment_method: bookingData.payment_method,
+      paymentMethod: bookingData.paymentMethod || bookingData.payment_method,
       additionalCharges: bookingData.additionalCharges,
       discount: bookingData.discount,
       subtotal: bookingData.subtotal

@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
-import { Send, Users, CheckCircle, AlertCircle, Sparkles, Wand2 } from "lucide-react"
+import { Send, Users, CheckCircle, AlertCircle, Sparkles, Wand2, Megaphone } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 
 // Types
@@ -192,10 +192,13 @@ export default function MarketingPage() {
         <div className="container mx-auto p-6 max-w-6xl space-y-8">
             <div className="flex justify-between items-center">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Marketing Center</h1>
-                    <p className="text-muted-foreground mt-2">
-                        Manage your marketing campaigns and tools.
-                    </p>
+                    <div className="flex items-center gap-2 mb-1">
+                        <div className="p-1.5 rounded-lg bg-primary/10">
+                            <Megaphone className="w-5 h-5 text-primary" />
+                        </div>
+                        <h1 className="text-2xl font-bold tracking-tight">Marketing Center</h1>
+                    </div>
+                    <p className="text-sm text-muted-foreground">Manage your marketing campaigns and tools.</p>
                 </div>
             </div>
 

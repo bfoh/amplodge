@@ -15,7 +15,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../../components/ui/alert-dialog"
-import { Plus, Calendar, User, Home, Search, Trash2, Users, QrCode, ExternalLink, Smartphone, Printer } from 'lucide-react'
+import { Plus, Calendar, User, Home, Search, Trash2, Users, QrCode, ExternalLink, Smartphone, Printer, BookOpen } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { blink } from '../../blink/client'
 import { toast } from 'sonner'
@@ -440,16 +440,26 @@ export function BookingsPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'confirmed':
-        return 'bg-green-100 text-green-700 border-green-200'
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-700 border-yellow-200'
-      case 'cancelled':
-        return 'bg-red-100 text-red-700 border-red-200'
-      case 'completed':
-        return 'bg-blue-100 text-blue-700 border-blue-200'
-      default:
-        return 'bg-gray-100 text-gray-700 border-gray-200'
+      case 'confirmed': return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+      case 'checked-in': return 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'
+      case 'checked-out': return 'bg-slate-50 text-slate-700 ring-1 ring-slate-200'
+      case 'reserved': return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
+      case 'pending': return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
+      case 'cancelled': return 'bg-red-50 text-red-700 ring-1 ring-red-200'
+      case 'completed': return 'bg-slate-50 text-slate-700 ring-1 ring-slate-200'
+      default: return 'bg-gray-50 text-gray-700 ring-1 ring-gray-200'
+    }
+  }
+
+  const getStatusBorderColor = (status: string) => {
+    switch (status) {
+      case 'confirmed': return 'border-l-emerald-500'
+      case 'checked-in': return 'border-l-blue-500'
+      case 'checked-out': return 'border-l-slate-400'
+      case 'reserved': return 'border-l-amber-500'
+      case 'pending': return 'border-l-amber-500'
+      case 'cancelled': return 'border-l-red-400'
+      default: return 'border-l-gray-300'
     }
   }
 
@@ -457,6 +467,11 @@ export function BookingsPage() {
     booking.guestName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     booking.guestEmail?.toLowerCase().includes(searchTerm.toLowerCase())
   )
+
+  const confirmedCount = bookings.filter(b => b.status === 'confirmed').length
+  const checkedInCount = bookings.filter(b => b.status === 'checked-in').length
+  const checkedOutCount = bookings.filter(b => b.status === 'checked-out').length
+  const cancelledCount = bookings.filter(b => b.status === 'cancelled').length
 
   if (loading) {
     return (
@@ -470,8 +485,13 @@ export function BookingsPage() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold">Bookings</h2>
-          <p className="text-muted-foreground mt-1">Manage all your room bookings</p>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="p-1.5 rounded-lg bg-primary/10">
+              <BookOpen className="w-5 h-5 text-primary" />
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight">Bookings</h1>
+          </div>
+          <p className="text-sm text-muted-foreground">{bookings.length} total bookings</p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -718,6 +738,30 @@ export function BookingsPage() {
         </div>
       </div>
 
+      {/* Stats Strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-emerald-400 to-emerald-600" />
+          <p className="text-xs font-medium text-muted-foreground">Confirmed</p>
+          <p className="text-2xl font-bold mt-1">{confirmedCount}</p>
+        </div>
+        <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-blue-400 to-blue-600" />
+          <p className="text-xs font-medium text-muted-foreground">Checked In</p>
+          <p className="text-2xl font-bold mt-1">{checkedInCount}</p>
+        </div>
+        <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-slate-400 to-slate-600" />
+          <p className="text-xs font-medium text-muted-foreground">Checked Out</p>
+          <p className="text-2xl font-bold mt-1">{checkedOutCount}</p>
+        </div>
+        <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-red-400 to-red-600" />
+          <p className="text-xs font-medium text-muted-foreground">Cancelled</p>
+          <p className="text-2xl font-bold mt-1">{cancelledCount}</p>
+        </div>
+      </div>
+
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -749,7 +793,7 @@ export function BookingsPage() {
       ) : (
         <div className="space-y-3">
           {filteredBookings.map((booking) => (
-            <Card key={booking.id} className="hover:shadow-md transition-shadow">
+            <Card key={booking.id} className={`hover:shadow-md transition-shadow border-l-4 ${getStatusBorderColor(booking.status)}`}>
               <CardContent className="p-4">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="flex-1 space-y-2">
@@ -757,23 +801,23 @@ export function BookingsPage() {
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="font-semibold text-lg">{booking.guestName}</h3>
-                          <Badge className={getStatusColor(booking.status)}>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(booking.status)}`}>
                             {booking.status}
-                          </Badge>
+                          </span>
                           {booking.groupReference && (
-                            <Badge className="bg-amber-100 text-amber-800 border-amber-200">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 ring-1 ring-amber-200">
                               <Users className="w-3 h-3 mr-1" />{booking.groupReference}
-                            </Badge>
+                            </span>
                           )}
                           {booking.source === 'voice_agent' && (
-                            <Badge className="bg-purple-100 text-purple-800 border-purple-200">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700 ring-1 ring-purple-200">
                               Voice Agent
-                            </Badge>
+                            </span>
                           )}
                           {booking.source === 'online' && (
-                            <Badge className="bg-blue-100 text-blue-800 border-blue-200">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-sky-50 text-sky-700 ring-1 ring-sky-200">
                               Online
-                            </Badge>
+                            </span>
                           )}
                         </div>
                         {booking.guestEmail && (

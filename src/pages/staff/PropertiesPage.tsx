@@ -398,8 +398,13 @@ export function PropertiesPage() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold">Rooms</h2>
-          <p className="text-muted-foreground mt-1">Manage your rooms inventory</p>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="p-1.5 rounded-lg bg-primary/10">
+              <Building2 className="w-5 h-5 text-primary" />
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight">Rooms</h1>
+          </div>
+          <p className="text-sm text-muted-foreground">Manage your rooms inventory — {properties.length} total</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>

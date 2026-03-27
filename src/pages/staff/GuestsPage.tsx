@@ -372,7 +372,10 @@ export function GuestsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-muted-foreground">Loading guests...</p>
+        </div>
       </div>
     )
   }
@@ -381,8 +384,13 @@ export function GuestsPage() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold">Guests</h2>
-          <p className="text-muted-foreground mt-1">Manage your guest database</p>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="p-1.5 rounded-lg bg-primary/10">
+              <Users className="w-5 h-5 text-primary" />
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight">Guests</h1>
+          </div>
+          <p className="text-sm text-muted-foreground">Manage your guest database • {guests.length} total guests</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
@@ -465,28 +473,23 @@ export function GuestsPage() {
       </div>
 
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          placeholder="Search guests by name or email..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-9"
-        />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+        <Input placeholder="Search guests by name or email..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-9 bg-card" />
       </div>
 
-      <div className="rounded-md border bg-white">
+      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow>
-              <TableHead>Guest</TableHead>
-              <TableHead>Contact</TableHead>
-              <TableHead>Booked On</TableHead>
-              <TableHead>Source</TableHead>
-              <TableHead>Room No.</TableHead>
-              <TableHead>Revenue</TableHead>
-              <TableHead>Check In</TableHead>
-              <TableHead>Check Out</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+            <TableRow className="bg-muted/50 hover:bg-muted/50">
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Guest</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Contact</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Booked On</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Source</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Room No.</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Revenue</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Check In</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Check Out</TableHead>
+              <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

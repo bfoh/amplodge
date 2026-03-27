@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../..
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
-import { User, Mail } from 'lucide-react'
+import { User, Mail, Settings } from 'lucide-react'
 import { blink } from '../../blink/client'
 import { toast } from 'sonner'
 import { hotelSettingsService } from '@/services/hotel-settings'
@@ -85,10 +85,13 @@ export function SettingsPage() {
   return (
     <div className="space-y-6 animate-fade-in max-w-3xl">
       <div>
-        <h2 className="text-3xl font-bold">Settings</h2>
-        <p className="text-muted-foreground mt-1">
-          Manage your account and preferences
-        </p>
+        <div className="flex items-center gap-2 mb-1">
+          <div className="p-1.5 rounded-lg bg-primary/10">
+            <Settings className="w-5 h-5 text-primary" />
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+        </div>
+        <p className="text-sm text-muted-foreground">Manage your account and preferences</p>
       </div>
 
       <Card>

@@ -47,7 +47,7 @@ export function CheckInDialog({
 }: CheckInDialogProps) {
     const { currency } = useCurrency()
     const { checkIn, isProcessing } = useCheckIn()
-    const [paymentMethod, setPaymentMethod] = useState<string>('Cash')
+    const [paymentMethod, setPaymentMethod] = useState<string>('cash')
     const [discountAmount, setDiscountAmount] = useState<string>('')
     const [discountReason, setDiscountReason] = useState<string>('')
 
@@ -262,9 +262,9 @@ export function CheckInDialog({
                                 <SelectValue placeholder="Select payment method" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="Cash">Cash</SelectItem>
-                                <SelectItem value="Mobile Money">Mobile Money</SelectItem>
-                                <SelectItem value="Credit/Debit Card">Credit/Debit Card</SelectItem>
+                                <SelectItem value="cash">Cash</SelectItem>
+                                <SelectItem value="mobile_money">Mobile Money</SelectItem>
+                                <SelectItem value="card">Credit/Debit Card</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>

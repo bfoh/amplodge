@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Network, ExternalLink, RefreshCw, Loader2 } from 'lucide-react'
 import { channelService } from '@/services/channel-service'
 import { ChannelConnection } from '@/types'
@@ -67,10 +66,13 @@ export function ChannelsPage() {
     <div className="space-y-6 animate-fade-in p-6">
       <div className="flex justify-between items-start">
         <div>
-          <h2 className="text-3xl font-bold">Channel Manager</h2>
-          <p className="text-muted-foreground mt-1">
-            Connect and manage booking channels
-          </p>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="p-1.5 rounded-lg bg-primary/10">
+              <Network className="w-5 h-5 text-primary" />
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight">Channel Manager</h1>
+          </div>
+          <p className="text-sm text-muted-foreground">Connect and manage booking channels</p>
         </div>
         <Button onClick={handleSyncAll} disabled={syncing} variant="outline" className="gap-2">
           <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
@@ -118,9 +120,11 @@ export function ChannelsPage() {
               <CardContent>
                 <div className="flex items-center justify-between mt-2">
                   <div className="flex flex-col gap-1">
-                    <Badge variant={status === 'active' ? 'default' : 'secondary'} className={status === 'active' ? 'bg-emerald-500 hover:bg-emerald-600' : ''}>
-                      {status === 'active' ? 'Connected' : 'Not Connected'}
-                    </Badge>
+                    {status === 'active' ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">Connected</span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground ring-1 ring-border">Not Connected</span>
+                    )}
                     {connection && (
                       <span className="text-[10px] text-muted-foreground">
                         Last updated: {new Date(connection.updatedAt).toLocaleDateString()}

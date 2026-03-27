@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { Loader2, Check, X, Star, Trash2 } from 'lucide-react'
+import { Loader2, Check, X, Star, Trash2, MessageSquare } from 'lucide-react'
 import { blink } from '@/blink/client'
 import { toast } from '@/hooks/use-toast'
 import { Badge } from '@/components/ui/badge'
@@ -130,9 +130,9 @@ export function ReviewsPage() {
 
     const getStatusBadge = (status: string) => {
         switch (status) {
-            case 'approved': return <Badge className="bg-green-500">Approved</Badge>
-            case 'rejected': return <Badge variant="destructive">Rejected</Badge>
-            default: return <Badge variant="secondary">Pending</Badge>
+            case 'approved': return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">Approved</span>
+            case 'rejected': return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 ring-1 ring-red-200">Rejected</span>
+            default: return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 ring-1 ring-amber-200">Pending</span>
         }
     }
 
@@ -140,13 +140,37 @@ export function ReviewsPage() {
         <div className="space-y-6 animate-fade-in">
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-3xl font-bold">Guest Reviews</h2>
-                    <p className="text-muted-foreground mt-1">Moderate and manage guest feedback</p>
+                    <div className="flex items-center gap-2 mb-1">
+                        <div className="p-1.5 rounded-lg bg-primary/10">
+                            <MessageSquare className="w-5 h-5 text-primary" />
+                        </div>
+                        <h1 className="text-2xl font-bold tracking-tight">Guest Reviews</h1>
+                    </div>
+                    <p className="text-sm text-muted-foreground">Moderate and manage guest feedback — {reviews.length} total</p>
                 </div>
                 <Button onClick={loadReviews} variant="outline" disabled={isLoading}>
                     <Loader2 className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                     Refresh
                 </Button>
+            </div>
+
+            {/* Stats Strip */}
+            <div className="grid grid-cols-3 gap-3">
+                <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+                    <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-amber-400 to-amber-600" />
+                    <p className="text-xs font-medium text-muted-foreground">Pending Review</p>
+                    <p className="text-2xl font-bold mt-1">{reviews.filter(r => r.status === 'pending').length}</p>
+                </div>
+                <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+                    <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-emerald-400 to-emerald-600" />
+                    <p className="text-xs font-medium text-muted-foreground">Approved</p>
+                    <p className="text-2xl font-bold mt-1">{reviews.filter(r => r.status === 'approved').length}</p>
+                </div>
+                <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+                    <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-red-400 to-red-600" />
+                    <p className="text-xs font-medium text-muted-foreground">Rejected</p>
+                    <p className="text-2xl font-bold mt-1">{reviews.filter(r => r.status === 'rejected').length}</p>
+                </div>
             </div>
 
             <Tabs defaultValue="pending" onValueChange={setFilter} className="w-full">
@@ -162,14 +186,14 @@ export function ReviewsPage() {
                         <CardContent className="p-0">
                             <Table>
                                 <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Date</TableHead>
-                                        <TableHead>Guest</TableHead>
-                                        <TableHead>Rating</TableHead>
-                                        <TableHead>Comment</TableHead>
-                                        <TableHead>Status</TableHead>
-                                        <TableHead>Featured</TableHead>
-                                        <TableHead className="text-right">Actions</TableHead>
+                                    <TableRow className="bg-muted/50 hover:bg-muted/50">
+                                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Date</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Guest</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Rating</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Comment</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Status</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Featured</TableHead>
+                                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3 text-right">Actions</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>

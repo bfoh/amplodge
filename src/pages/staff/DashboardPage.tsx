@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
-import { Building2, Calendar, Users, DollarSign, TrendingUp, Clock } from 'lucide-react'
+import { Building2, Calendar, Users, DollarSign, TrendingUp, Clock, BarChart2 } from 'lucide-react'
 import { blink } from '../../blink/client'
 import { bookingEngine } from '../../services/booking-engine'
 import { formatCurrencySync } from '../../lib/utils'
@@ -234,8 +233,9 @@ export function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      <div className="flex flex-col items-center justify-center h-96 gap-3">
+        <div className="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+        <p className="text-sm text-muted-foreground animate-pulse">Loading dashboard...</p>
       </div>
     )
   }
@@ -244,163 +244,191 @@ export function DashboardPage() {
     <div className="space-y-6 animate-fade-in">
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        <Card className="hover:shadow-lg transition-shadow">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Available Rooms</CardTitle>
-            <Building2 className="h-5 w-5 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.availableRooms}</div>
-            <div className="text-xs text-muted-foreground mt-2 space-y-1">
-              {stats.availableDetails.length > 0 ? (
-                stats.availableDetails.map((detail, i) => (
-                  <div key={i} className="flex justify-between">
-                    <span>{detail.name}</span>
-                    <span className="font-medium">{detail.count} available</span>
-                  </div>
-                ))
-              ) : (
-                <span>ALL ROOMS OCCUPIED</span>
-              )}
+
+        {/* Available Rooms — blue */}
+        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow">
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent pointer-events-none" />
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-blue-400 to-blue-600" />
+          <div className="flex items-start justify-between mb-3">
+            <p className="text-sm font-medium text-muted-foreground">Available Rooms</p>
+            <div className="p-2 rounded-lg bg-blue-500/10">
+              <Building2 className="w-4 h-4 text-blue-600" />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+          <div className="text-2xl font-bold">{stats.availableRooms}</div>
+          <div className="text-xs text-muted-foreground mt-1 space-y-1">
+            {stats.availableDetails.length > 0 ? (
+              stats.availableDetails.map((detail, i) => (
+                <div key={i} className="flex justify-between">
+                  <span>{detail.name}</span>
+                  <span className="font-medium">{detail.count} available</span>
+                </div>
+              ))
+            ) : (
+              <span>ALL ROOMS OCCUPIED</span>
+            )}
+          </div>
+        </div>
 
-        <Card className="hover:shadow-lg transition-shadow">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Bookings</CardTitle>
-            <Calendar className="h-5 w-5 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-accent">{stats.activeBookings}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Currently active
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="hover:shadow-lg transition-shadow">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Guests</CardTitle>
-            <Users className="h-5 w-5 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{stats.totalGuests}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Guest database
-            </p>
-          </CardContent>
-        </Card>
-
-
-        <Card className="hover:shadow-lg transition-shadow">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-            <DollarSign className="h-5 w-5 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-green-600">
-              {formatCurrencySync(stats.revenue, currency)}
+        {/* Active Bookings — violet */}
+        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow">
+          <div className="absolute inset-0 bg-gradient-to-br from-violet-500/5 via-transparent to-transparent pointer-events-none" />
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-violet-400 to-violet-600" />
+          <div className="flex items-start justify-between mb-3">
+            <p className="text-sm font-medium text-muted-foreground">Active Bookings</p>
+            <div className="p-2 rounded-lg bg-violet-500/10">
+              <Calendar className="w-4 h-4 text-violet-600" />
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              All-time revenue
-            </p>
-          </CardContent>
-        </Card>
+          </div>
+          <div className="text-2xl font-bold">{stats.activeBookings}</div>
+          <p className="text-xs text-muted-foreground mt-1">Currently active</p>
+        </div>
 
-        <Card className="hover:shadow-lg transition-shadow">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg Nightly Rate</CardTitle>
-            <TrendingUp className="h-5 w-5 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">
-              {formatCurrencySync(stats.avgNightlyRate, currency)}
+        {/* Total Guests — emerald */}
+        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow">
+          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-transparent to-transparent pointer-events-none" />
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-emerald-400 to-emerald-600" />
+          <div className="flex items-start justify-between mb-3">
+            <p className="text-sm font-medium text-muted-foreground">Total Guests</p>
+            <div className="p-2 rounded-lg bg-emerald-500/10">
+              <Users className="w-4 h-4 text-emerald-600" />
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Average per night
-            </p>
-          </CardContent>
-        </Card>
+          </div>
+          <div className="text-2xl font-bold">{stats.totalGuests}</div>
+          <p className="text-xs text-muted-foreground mt-1">Guest database</p>
+        </div>
 
-        <Card className="hover:shadow-lg transition-shadow">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Occupancy Rate</CardTitle>
-            <Clock className="h-5 w-5 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{stats.occupancyRate}%</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Current occupancy
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="hover:shadow-lg transition-shadow">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Today's Activity</CardTitle>
-            <Calendar className="h-5 w-5 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-2xl font-bold text-green-600">{stats.todayCheckIns}</div>
-                <p className="text-xs text-muted-foreground">Check-ins</p>
-              </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-orange-600">{stats.todayCheckOuts}</div>
-                <p className="text-xs text-muted-foreground">Check-outs</p>
-              </div>
+        {/* Total Revenue — green */}
+        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow">
+          <div className="absolute inset-0 bg-gradient-to-br from-green-500/5 via-transparent to-transparent pointer-events-none" />
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-green-400 to-green-600" />
+          <div className="flex items-start justify-between mb-3">
+            <p className="text-sm font-medium text-muted-foreground">Total Revenue</p>
+            <div className="p-2 rounded-lg bg-green-500/10">
+              <DollarSign className="w-4 h-4 text-green-600" />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+          <div className="text-2xl font-bold">{formatCurrencySync(stats.revenue, currency)}</div>
+          <p className="text-xs text-muted-foreground mt-1">All-time revenue</p>
+        </div>
+
+        {/* Avg Nightly Rate — amber */}
+        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow">
+          <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 via-transparent to-transparent pointer-events-none" />
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-amber-400 to-amber-600" />
+          <div className="flex items-start justify-between mb-3">
+            <p className="text-sm font-medium text-muted-foreground">Avg Nightly Rate</p>
+            <div className="p-2 rounded-lg bg-amber-500/10">
+              <TrendingUp className="w-4 h-4 text-amber-600" />
+            </div>
+          </div>
+          <div className="text-2xl font-bold">{formatCurrencySync(stats.avgNightlyRate, currency)}</div>
+          <p className="text-xs text-muted-foreground mt-1">Average per night</p>
+        </div>
+
+        {/* Occupancy Rate — indigo */}
+        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow">
+          <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 via-transparent to-transparent pointer-events-none" />
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-indigo-400 to-indigo-600" />
+          <div className="flex items-start justify-between mb-3">
+            <p className="text-sm font-medium text-muted-foreground">Occupancy Rate</p>
+            <div className="p-2 rounded-lg bg-indigo-500/10">
+              <BarChart2 className="w-4 h-4 text-indigo-600" />
+            </div>
+          </div>
+          <div className="text-2xl font-bold">{stats.occupancyRate}%</div>
+          <p className="text-xs text-muted-foreground mt-1">Current occupancy</p>
+        </div>
+
+        {/* Today's Activity — orange */}
+        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow">
+          <div className="absolute inset-0 bg-gradient-to-br from-orange-500/5 via-transparent to-transparent pointer-events-none" />
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-orange-400 to-orange-600" />
+          <div className="flex items-start justify-between mb-3">
+            <p className="text-sm font-medium text-muted-foreground">Today's Activity</p>
+            <div className="p-2 rounded-lg bg-orange-500/10">
+              <Clock className="w-4 h-4 text-orange-600" />
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-2xl font-bold text-green-600">{stats.todayCheckIns}</div>
+              <p className="text-xs text-muted-foreground">Check-ins</p>
+            </div>
+            <div className="text-right">
+              <div className="text-2xl font-bold text-orange-600">{stats.todayCheckOuts}</div>
+              <p className="text-xs text-muted-foreground">Check-outs</p>
+            </div>
+          </div>
+        </div>
+
       </div>
 
       {/* Recent Bookings */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Bookings</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <div className="relative overflow-hidden rounded-xl border bg-card shadow-sm">
+        <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-primary/60 to-primary/20" />
+        <div className="p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-base">Recent Bookings</h3>
+            <span className="text-xs text-muted-foreground">{recentBookings.length} recent</span>
+          </div>
           {recentBookings.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              <Calendar className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p>No bookings yet</p>
+              <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mx-auto mb-3">
+                <Calendar className="w-7 h-7 opacity-50" />
+              </div>
+              <p className="font-medium">No bookings yet</p>
               <p className="text-sm mt-1">Create your first booking to get started</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {recentBookings.map((booking: any) => (
-                <div
-                  key={booking.id}
-                  className="flex items-center justify-between p-4 rounded-lg border hover:bg-accent/50 transition-colors"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium">{booking.guestName}</p>
-                      {booking.roomTypeName && (
-                        <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded">
-                          {booking.roomTypeName}
+            <div className="space-y-2">
+              {recentBookings.map((booking: any) => {
+                const statusClass =
+                  booking.status === 'confirmed' ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' :
+                  booking.status === 'checked-in' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' :
+                  booking.status === 'checked-out' ? 'bg-slate-50 text-slate-700 ring-1 ring-slate-200' :
+                  booking.status === 'cancelled' ? 'bg-red-50 text-red-700 ring-1 ring-red-200' :
+                  'bg-slate-50 text-slate-700 ring-1 ring-slate-200'
+
+                const accentBorder =
+                  booking.status === 'confirmed' ? 'border-l-emerald-400' :
+                  booking.status === 'checked-in' ? 'border-l-blue-400' :
+                  booking.status === 'checked-out' ? 'border-l-slate-400' :
+                  booking.status === 'cancelled' ? 'border-l-red-400' :
+                  'border-l-slate-300'
+
+                return (
+                  <div
+                    key={booking.id}
+                    className={`flex items-center justify-between p-4 rounded-lg border border-l-4 ${accentBorder} hover:bg-accent/40 transition-colors`}
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold text-sm">{booking.guestName}</p>
+                        {booking.roomTypeName && (
+                          <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full font-medium">
+                            {booking.roomTypeName}
+                          </span>
+                        )}
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusClass}`}>
+                          {booking.status}
                         </span>
-                      )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(booking.checkIn).toLocaleDateString()} &ndash; {new Date(booking.checkOut).toLocaleDateString()}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Room {booking.roomNumber}</p>
                     </div>
-                    <p className="text-sm text-muted-foreground">
-                      {new Date(booking.checkIn).toLocaleDateString()} - {new Date(booking.checkOut).toLocaleDateString()}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Room {booking.roomNumber}
-                    </p>
+                    <div className="text-right shrink-0 ml-4">
+                      <p className="font-bold text-primary text-sm">{formatCurrencySync(Number(booking.totalPrice), currency)}</p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-bold text-primary">{formatCurrencySync(Number(booking.totalPrice), currency)}</p>
-                    <p className="text-xs text-muted-foreground capitalize">{booking.status}</p>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   )
 }

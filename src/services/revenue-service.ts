@@ -43,6 +43,7 @@ export interface BookingSummary {
   totalPrice: number
   status: string
   createdAt: string
+  paymentMethod: string   // 'cash' | 'mobile_money' | 'card' | 'not_paid'
 }
 
 // ─── Week Utilities ───────────────────────────────────────────────────────────
@@ -60,6 +61,23 @@ export function getWeekBounds(date: Date = new Date()): WeekBounds {
 /** Returns the last `count` week bounds, newest first (index 0 = current week). */
 export function getPastWeeksBounds(count: number): WeekBounds[] {
   return Array.from({ length: count }, (_, i) => getWeekBounds(subWeeks(new Date(), i)))
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Normalise payment method to canonical lowercase/underscore format.
+ * Returns '' when no data is stored (so UI can show a dash instead of "Not Paid").
+ * Only returns 'not_paid' when explicitly set to that value.
+ */
+function normalizePaymentMethod(raw: string): string {
+  if (!raw || !raw.trim()) return ''           // no data stored → blank
+  const s = raw.trim().toLowerCase()
+  if (s === 'cash') return 'cash'
+  if (s === 'mobile_money' || s === 'mobile money' || s.includes('mobile') || s.includes('momo')) return 'mobile_money'
+  if (s === 'card' || s.includes('card') || s.includes('credit') || s.includes('debit')) return 'card'
+  if (s === 'not_paid' || s === 'not paid') return 'not_paid'
+  return ''                                    // unrecognised format → treat as no data
 }
 
 // ─── Booking Data ─────────────────────────────────────────────────────────────
@@ -106,6 +124,7 @@ export async function fetchBookingsForStaffWeek(
     .map((b: any) => {
       const room = roomMap.get(b.roomId) as any
       const guest = guestMap.get(b.guestId) as any
+      const rawMethod = b.paymentMethod || b.payment_method || b.payment?.method || ''
       return {
         id: b.id,
         guestName: guest?.name || 'Guest',
@@ -115,6 +134,7 @@ export async function fetchBookingsForStaffWeek(
         totalPrice: Number(b.totalPrice || 0),
         status: b.status,
         createdAt: b.createdAt || b.created_at || '',
+        paymentMethod: normalizePaymentMethod(rawMethod),
       }
     })
 

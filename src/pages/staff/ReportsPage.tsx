@@ -25,8 +25,13 @@ export function ReportsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
-        <h2 className="text-3xl font-bold">Reports & Analytics</h2>
-        <p className="text-muted-foreground mt-1">
+        <div className="flex items-center gap-2 mb-1">
+          <div className="p-1.5 rounded-lg bg-primary/10">
+            <BarChart3 className="w-5 h-5 text-primary" />
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight">Reports & Analytics</h1>
+        </div>
+        <p className="text-sm text-muted-foreground">
           Track your business performance
         </p>
       </div>

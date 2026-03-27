@@ -19,7 +19,11 @@ export interface RevenueAnalytics {
     cash: number
     mobileMoney: number
     card: number
-    pending: number
+    notPaid: number
+    cashCount: number
+    mobileMonetyCount: number
+    cardCount: number
+    notPaidCount: number
   }
   revenueBySource: {
     online: number

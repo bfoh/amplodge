@@ -14,7 +14,7 @@ import { format, parseISO, isBefore, isAfter } from 'date-fns'
 import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { toast } from 'sonner'
-import { createInvoiceData, downloadInvoicePDF, generateInvoicePDF, sendInvoiceEmail, createGroupInvoiceData, downloadGroupInvoicePDF } from '@/services/invoice-service'
+import { createInvoiceData, downloadInvoicePDF, generateInvoicePDF, sendInvoiceEmail, createGroupInvoiceData, downloadGroupInvoicePDF, createPreInvoiceData, downloadPreInvoicePDF, generatePreInvoicePDF } from '@/services/invoice-service'
 import { activityLogService } from '@/services/activity-log-service'
 import { housekeepingService } from '@/services/housekeeping-service'
 import { bookingChargesService, CHARGE_CATEGORIES } from '@/services/booking-charges-service'
@@ -34,7 +34,7 @@ import { GuestChargesDialog } from '@/components/dialogs/GuestChargesDialog'
 import { ExtendStayDialog } from '@/components/dialogs/ExtendStayDialog'
 import { GroupManageDialog } from '@/components/dialogs/GroupManageDialog'
 import { Settings } from 'lucide-react'
-import { Receipt, CalendarPlus, MoreHorizontal, CreditCard, User, Users, Mail, Ban } from 'lucide-react'
+import { Receipt, CalendarPlus, MoreHorizontal, CreditCard, User, Users, Mail, Ban, MessageCircle, FileText } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -88,6 +88,8 @@ export function ReservationsPage() {
   const [chargesDialog, setChargesDialog] = useState<Booking | null>(null)
   const [extendStayDialog, setExtendStayDialog] = useState<Booking | null>(null)
   const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null)
+  const [downloadingPreInvoice, setDownloadingPreInvoice] = useState<string | null>(null)
+  const [sharingWhatsApp, setSharingWhatsApp] = useState<string | null>(null)
   const [manageGroupDialog, setManageGroupDialog] = useState<{ groupId: string; groupReference: string } | null>(null)
 
   // Cancellation dialog
@@ -442,6 +444,56 @@ export function ReservationsPage() {
     } finally {
       setDownloadingInvoice(null)
     }
+  }
+
+  const handleDownloadPreInvoice = async (booking: Booking) => {
+    const guest = guestMap.get(booking.guestId)
+    const room = roomMap.get(booking.roomId)
+    if (!guest || !room) { toast.error('Guest or room information not available'); return }
+
+    setDownloadingPreInvoice(booking.id)
+    try {
+      const bookingWithDetails = {
+        ...booking,
+        specialRequests: (booking as any)._rawSpecialRequests || (booking as any).special_requests || booking.specialRequests,
+        guest,
+        room: { roomNumber: room.roomNumber, roomType: roomTypeMap.get(room.roomTypeId)?.name || 'Standard Room' }
+      }
+      const preInvoiceData = await createPreInvoiceData(bookingWithDetails, room)
+      await downloadPreInvoicePDF(preInvoiceData)
+      toast.success(`Pre-invoice downloaded for ${guest.name}`)
+    } catch {
+      toast.error('Failed to download pre-invoice')
+    } finally {
+      setDownloadingPreInvoice(null)
+    }
+  }
+
+  const handleWhatsAppShare = (booking: Booking, type: 'invoice' | 'pre-invoice') => {
+    const guest = guestMap.get(booking.guestId)
+    const room = roomMap.get(booking.roomId)
+    if (!guest || !room) { toast.error('Guest or room information not available'); return }
+
+    const label = type === 'invoice' ? 'Invoice' : 'Pre-Invoice'
+    const nights = Math.ceil((new Date(booking.checkOut).getTime() - new Date(booking.checkIn).getTime()) / 86400000)
+    const displayRef = type === 'invoice' && (booking as any).invoiceNumber
+      ? (booking as any).invoiceNumber
+      : `BK-${booking.id.slice(-8).toUpperCase()}`
+
+    // Public invoice view page — no login required, works for both invoice and pre-invoice
+    const typeParam = type === 'pre-invoice' ? '&type=pre-invoice' : ''
+    const viewUrl = `${window.location.origin}/invoice/${(booking as any).invoiceNumber || booking.id}?bookingId=${booking.id}${typeParam}`
+
+    const message = `Dear ${guest.name},\n\nPlease find your ${label} from AMP Lodge.\n\n📋 ${label}: ${displayRef}\n🏠 Room ${room.roomNumber}\n📅 ${booking.checkIn} → ${booking.checkOut} (${nights} night${nights !== 1 ? 's' : ''})\n💰 Total: GH₵${Number((booking as any).totalPrice ?? (booking as any).amount ?? 0).toFixed(2)}\n\n🔗 View ${label}: ${viewUrl}\n\nThank you for choosing AMP Lodge!`
+
+    const rawPhone = (guest as any).phone || ''
+    const phone = rawPhone.replace(/[^0-9]/g, '').replace(/^0/, '233')
+    const waUrl = phone
+      ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
+      : `https://wa.me/?text=${encodeURIComponent(message)}`
+
+    window.open(waUrl, '_blank')
+    toast.success(`WhatsApp opened — ${label.toLowerCase()} link included`)
   }
 
   // Group Invoice Download handler
@@ -1267,6 +1319,35 @@ export function ReservationsPage() {
                                       <Download className="w-4 h-4 mr-2" />
                                       <span>Download Invoice</span>
                                     </DropdownMenuItem>
+
+                                    {!isCancelled && (
+                                      <DropdownMenuItem onClick={() => handleDownloadPreInvoice(b)} disabled={downloadingPreInvoice === b.id}>
+                                        {downloadingPreInvoice === b.id
+                                          ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                          : <FileText className="w-4 h-4 mr-2" />}
+                                        <span>Download Pre-Invoice</span>
+                                      </DropdownMenuItem>
+                                    )}
+
+                                    <DropdownMenuSeparator />
+
+                                    {isCheckedOut && (
+                                      <DropdownMenuItem onClick={() => handleWhatsAppShare(b, 'invoice')} disabled={sharingWhatsApp === `${b.id}-invoice`}>
+                                        {sharingWhatsApp === `${b.id}-invoice`
+                                          ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                          : <MessageCircle className="w-4 h-4 mr-2 text-green-600" />}
+                                        <span>Share Invoice via WhatsApp</span>
+                                      </DropdownMenuItem>
+                                    )}
+
+                                    {!isCancelled && (
+                                      <DropdownMenuItem onClick={() => handleWhatsAppShare(b, 'pre-invoice')} disabled={sharingWhatsApp === `${b.id}-pre-invoice`}>
+                                        {sharingWhatsApp === `${b.id}-pre-invoice`
+                                          ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                          : <MessageCircle className="w-4 h-4 mr-2 text-green-500" />}
+                                        <span>Share Pre-Invoice via WhatsApp</span>
+                                      </DropdownMenuItem>
+                                    )}
 
                                     {!isCheckedOut && !isCancelled && (
                                       <>

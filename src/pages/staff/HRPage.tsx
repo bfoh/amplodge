@@ -3,7 +3,6 @@ import { toast } from 'sonner'
 import { blink } from '@/blink/client'
 import { useStaffRole } from '@/hooks/use-staff-role'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -226,14 +225,14 @@ export function HRPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="p-2 bg-primary/10 rounded-lg">
-          <Users2 className="w-6 h-6 text-primary" />
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <div className="p-1.5 rounded-lg bg-primary/10">
+            <Users2 className="w-5 h-5 text-primary" />
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight">Human Resources</h1>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold">Human Resources</h1>
-          <p className="text-sm text-muted-foreground">Manage staff HR records and applications</p>
-        </div>
+        <p className="text-sm text-muted-foreground">Manage staff HR records and applications</p>
       </div>
 
       <Tabs defaultValue="attendance" className="space-y-4">
@@ -541,7 +540,7 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
             <thead className="bg-muted/50">
               <tr>
                 {['Staff Name', 'Date', 'Clock In', 'Clock Out', 'Hours', 'Status', 'Notes', ''].map(h => (
-                  <th key={h} className="px-4 py-3 text-left font-medium text-muted-foreground whitespace-nowrap">{h}</th>
+                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -745,7 +744,7 @@ function LeaveTab({ currentStaff }: { currentStaff: any }) {
             <thead className="bg-muted/50">
               <tr>
                 {['Staff', 'Type', 'From', 'To', 'Days', 'Reason', 'Status', 'Actions'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left font-medium text-muted-foreground">{h}</th>
+                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -943,7 +942,7 @@ function PayrollTab() {
             <thead className="bg-muted/50">
               <tr>
                 {['Staff', 'Period', 'Base Salary', 'Allowances', 'Deductions', 'Net Pay', 'Status', 'Actions'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left font-medium text-muted-foreground">{h}</th>
+                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -1116,7 +1115,7 @@ function PerformanceTab({ currentStaff }: { currentStaff: any }) {
             <thead className="bg-muted/50">
               <tr>
                 {['Staff', 'Reviewed By', 'Date', 'Rating', 'Strengths', 'Actions'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left font-medium text-muted-foreground">{h}</th>
+                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -1328,7 +1327,7 @@ function ApplicationsTab() {
             <thead className="bg-muted/50">
               <tr>
                 {['Name', 'Email', 'Position', 'Experience', 'Status', 'Actions'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left font-medium text-muted-foreground">{h}</th>
+                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -1479,9 +1478,9 @@ function formatGHS(amount: number) {
 }
 
 function RevStatusBadge({ status }: { status: string }) {
-  if (status === 'reviewed') return <Badge className="bg-green-100 text-green-800 border-green-200 text-xs">Reviewed</Badge>
-  if (status === 'submitted') return <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-xs">Submitted</Badge>
-  if (status === 'draft') return <Badge variant="outline" className="text-muted-foreground text-xs">Draft</Badge>
+  if (status === 'reviewed') return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">Reviewed</span>
+  if (status === 'submitted') return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 ring-1 ring-blue-200">Submitted</span>
+  if (status === 'draft') return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground ring-1 ring-border">Draft</span>
   return null
 }
 

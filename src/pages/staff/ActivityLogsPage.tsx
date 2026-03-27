@@ -3,7 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Loader2, Download, Filter, Search, Calendar, User, FileText, RefreshCw } from 'lucide-react'
 import { activityLogService, type ActivityLog, type ActivityAction, type EntityType } from '@/services/activity-log-service'
@@ -149,19 +148,18 @@ export function ActivityLogsPage() {
     setFilteredLogs(filtered)
   }
 
-  function getActionBadgeVariant(action: ActivityAction): 'default' | 'secondary' | 'destructive' | 'outline' {
+  function getActionPillColor(action: ActivityAction): string {
     switch (action) {
-      case 'created':
-        return 'default'
-      case 'updated':
-        return 'secondary'
-      case 'deleted':
-        return 'destructive'
-      case 'checked_in':
-      case 'checked_out':
-        return 'outline'
-      default:
-        return 'outline'
+      case 'created': return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+      case 'updated': return 'bg-blue-50 text-blue-700 ring-1 ring-blue-200'
+      case 'deleted': return 'bg-red-50 text-red-700 ring-1 ring-red-200'
+      case 'checked_in': return 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200'
+      case 'checked_out': return 'bg-slate-50 text-slate-700 ring-1 ring-slate-200'
+      case 'payment_received': return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+      case 'cancelled': return 'bg-red-50 text-red-700 ring-1 ring-red-200'
+      case 'login': return 'bg-violet-50 text-violet-700 ring-1 ring-violet-200'
+      case 'logout': return 'bg-gray-50 text-gray-700 ring-1 ring-gray-200'
+      default: return 'bg-gray-50 text-gray-700 ring-1 ring-gray-200'
     }
   }
 
@@ -504,12 +502,14 @@ export function ActivityLogsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold flex items-center gap-2">
-            <FileText className="w-8 h-8" />
-            Activity Logs
-          </h2>
-          <p className="text-muted-foreground mt-1">
-            Complete audit trail of all user activities in the system
+          <div className="flex items-center gap-2 mb-1">
+            <div className="p-1.5 rounded-lg bg-primary/10">
+              <FileText className="w-5 h-5 text-primary" />
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight">Activity Logs</h1>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Complete audit trail — {logs.length} total activities
           </p>
         </div>
         <div className="flex gap-2">
@@ -525,6 +525,25 @@ export function ActivityLogsPage() {
             <Download className="w-4 h-4 mr-2" />
             Export PDF
           </Button>
+        </div>
+      </div>
+
+      {/* Stats Strip */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-blue-400 to-blue-600" />
+          <p className="text-xs font-medium text-muted-foreground">Total Activities</p>
+          <p className="text-2xl font-bold mt-1">{logs.length}</p>
+        </div>
+        <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-violet-400 to-violet-600" />
+          <p className="text-xs font-medium text-muted-foreground">Filtered Results</p>
+          <p className="text-2xl font-bold mt-1">{filteredLogs.length}</p>
+        </div>
+        <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-emerald-400 to-emerald-600" />
+          <p className="text-xs font-medium text-muted-foreground">Active Users</p>
+          <p className="text-2xl font-bold mt-1">{new Set(logs.map(l => l.userId)).size}</p>
         </div>
       </div>
 
@@ -672,13 +691,13 @@ export function ActivityLogsPage() {
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Timestamp</TableHead>
-                    <TableHead>Action</TableHead>
-                    <TableHead>Entity Type</TableHead>
-                    <TableHead>Entity ID</TableHead>
-                    <TableHead>Details</TableHead>
-                    <TableHead>User</TableHead>
+                  <TableRow className="bg-muted/50 hover:bg-muted/50">
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Timestamp</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Action</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Entity Type</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Entity ID</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Details</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">User</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -695,14 +714,14 @@ export function ActivityLogsPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={getActionBadgeVariant(log.action)}>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getActionPillColor(log.action)}`}>
                           {log.action}
-                        </Badge>
+                        </span>
                       </TableCell>
                       <TableCell>
-                        <Badge className={getEntityTypeBadgeColor(log.entityType)}>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getEntityTypeBadgeColor(log.entityType)}`}>
                           {log.entityType}
-                        </Badge>
+                        </span>
                       </TableCell>
                       <TableCell className="font-mono text-xs">
                         {log.entityId.slice(0, 12)}...
@@ -722,43 +741,6 @@ export function ActivityLogsPage() {
         </CardContent>
       </Card>
 
-      {/* Statistics Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Activities
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{logs.length}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Filtered Results
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{filteredLogs.length}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Active Users
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {new Set(logs.map(l => l.userId)).size}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
     </div>
   )
 }

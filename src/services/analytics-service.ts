@@ -143,23 +143,31 @@ class AnalyticsService {
         })
       ).sort((a, b) => b.revenue - a.revenue)
 
-      // Revenue by payment method
+      // Revenue by payment method — normalise to canonical lowercase/underscore format
+      const normalizePayMethod = (raw: string): string => {
+        const s = (raw || '').trim().toLowerCase()
+        if (s === 'cash') return 'cash'
+        if (s === 'mobile_money' || s === 'mobile money' || s.includes('mobile') || s.includes('momo')) return 'mobile_money'
+        if (s === 'card' || s.includes('card') || s.includes('credit') || s.includes('debit')) return 'card'
+        return 'not_paid'
+      }
+      const getPayMethod = (b: any): string =>
+        normalizePayMethod(b.paymentMethod || b.payment?.method || (b as any).payment_method || '')
+
+      const _cashB = revenueBookings.filter(b => getPayMethod(b) === 'cash')
+      const _momoB = revenueBookings.filter(b => getPayMethod(b) === 'mobile_money')
+      const _cardB = revenueBookings.filter(b => getPayMethod(b) === 'card')
+      const _notPaidB = revenueBookings.filter(b => getPayMethod(b) === 'not_paid')
+
       const revenueByPaymentMethod = {
-        cash: revenueBookings
-          .filter(b => b.payment?.method === 'cash')
-          .reduce((sum, b) => sum + Number(b.amount || 0), 0),
-
-        mobileMoney: revenueBookings
-          .filter(b => b.payment?.method === 'mobile_money')
-          .reduce((sum, b) => sum + Number(b.amount || 0), 0),
-
-        card: revenueBookings
-          .filter(b => b.payment?.method === 'card')
-          .reduce((sum, b) => sum + Number(b.amount || 0), 0),
-
-        pending: revenueBookings
-          .filter(b => !b.payment || b.payment.status === 'pending')
-          .reduce((sum, b) => sum + Number(b.amount || 0), 0)
+        cash: _cashB.reduce((sum, b) => sum + Number(b.amount || 0), 0),
+        mobileMoney: _momoB.reduce((sum, b) => sum + Number(b.amount || 0), 0),
+        card: _cardB.reduce((sum, b) => sum + Number(b.amount || 0), 0),
+        notPaid: _notPaidB.reduce((sum, b) => sum + Number(b.amount || 0), 0),
+        cashCount: _cashB.length,
+        mobileMonetyCount: _momoB.length,
+        cardCount: _cardB.length,
+        notPaidCount: _notPaidB.length,
       }
 
       // Revenue by source

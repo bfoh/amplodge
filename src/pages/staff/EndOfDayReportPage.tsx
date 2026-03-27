@@ -62,12 +62,17 @@ Conflicts,${report.conflicts}
   }
 
   return (
-    <div className="min-h-screen pt-20 pb-20 bg-gradient-to-b from-secondary/30 to-secondary/60">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between mb-8">
+    <div className="space-y-6 animate-fade-in">
+      <div className="max-w-5xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-4xl font-serif font-bold mb-2">End of Day Report</h1>
-            <p className="text-muted-foreground">Daily business summary and analytics</p>
+            <div className="flex items-center gap-2 mb-1">
+              <div className="p-1.5 rounded-lg bg-primary/10">
+                <TrendingUp className="w-5 h-5 text-primary" />
+              </div>
+              <h1 className="text-2xl font-bold tracking-tight">End of Day Report</h1>
+            </div>
+            <p className="text-sm text-muted-foreground">Daily business summary and analytics</p>
           </div>
           <div className="flex gap-2">
             <Popover>
@@ -102,62 +107,52 @@ Conflicts,${report.conflicts}
           <div className="space-y-6">
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Total Bookings</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-bold">{report.totalBookings}</div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {report.confirmedBookings} confirmed
-                  </p>
-                </CardContent>
-              </Card>
+              <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
+                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent pointer-events-none" />
+                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-blue-400 to-blue-600" />
+                <p className="text-sm font-medium text-muted-foreground mb-2">Total Bookings</p>
+                <div className="text-3xl font-bold">{report.totalBookings}</div>
+                <p className="text-xs text-muted-foreground mt-1">{report.confirmedBookings} confirmed</p>
+              </div>
 
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Total Revenue</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-bold text-primary">{formatCurrencySync(report.totalRevenue, currency)}</div>
-                  <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                    <TrendingUp className="h-3 w-3" />
-                    From confirmed bookings
-                  </p>
-                </CardContent>
-              </Card>
+              <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
+                <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-transparent to-transparent pointer-events-none" />
+                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-emerald-400 to-emerald-600" />
+                <p className="text-sm font-medium text-muted-foreground mb-2">Total Revenue</p>
+                <div className="text-3xl font-bold text-emerald-700">{formatCurrencySync(report.totalRevenue, currency)}</div>
+                <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                  <TrendingUp className="h-3 w-3" />
+                  From confirmed bookings
+                </p>
+              </div>
 
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">Cancellations</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-3xl font-bold text-red-600">{report.cancelledBookings}</div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {report.totalBookings > 0 
-                      ? `${((report.cancelledBookings / report.totalBookings) * 100).toFixed(1)}% rate`
-                      : '0% rate'}
-                  </p>
-                </CardContent>
-              </Card>
+              <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
+                <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 via-transparent to-transparent pointer-events-none" />
+                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-red-400 to-red-600" />
+                <p className="text-sm font-medium text-muted-foreground mb-2">Cancellations</p>
+                <div className="text-3xl font-bold text-red-600">{report.cancelledBookings}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {report.totalBookings > 0
+                    ? `${((report.cancelledBookings / report.totalBookings) * 100).toFixed(1)}% rate`
+                    : '0% rate'}
+                </p>
+              </div>
 
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">System Status</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-sm">
-                      <span>Pending Sync:</span>
-                      <span className="font-semibold">{report.pendingSyncs}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>Conflicts:</span>
-                      <span className="font-semibold text-red-600">{report.conflicts}</span>
-                    </div>
+              <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
+                <div className="absolute inset-0 bg-gradient-to-br from-slate-500/5 via-transparent to-transparent pointer-events-none" />
+                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-slate-400 to-slate-600" />
+                <p className="text-sm font-medium text-muted-foreground mb-2">System Status</p>
+                <div className="space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span>Pending Sync:</span>
+                    <span className="font-semibold">{report.pendingSyncs}</span>
                   </div>
-                </CardContent>
-              </Card>
+                  <div className="flex justify-between text-sm">
+                    <span>Conflicts:</span>
+                    <span className="font-semibold text-red-600">{report.conflicts}</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Payment Breakdown */}

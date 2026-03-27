@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { UserPlus, Search, Loader2, Edit, Trash2, MoreVertical, Copy, Check } from 'lucide-react'
+import { UserPlus, Search, Loader2, Edit, Trash2, MoreVertical, Copy, Check, Users } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
@@ -769,9 +769,13 @@ export function EmployeesPage() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold">Employees</h2>
-          <p className="text-muted-foreground mt-1">Manage staff members and permissions</p>
-          <p className="text-xs text-muted-foreground mt-1">Total: {employees.length} employees</p>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="p-1.5 rounded-lg bg-primary/10">
+              <Users className="w-5 h-5 text-primary" />
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight">Employees</h1>
+          </div>
+          <p className="text-sm text-muted-foreground">Manage staff members and permissions &mdash; {employees.length} total</p>
         </div>
         <div className="flex gap-2">
           <Button onClick={loadEmployees} variant="outline" disabled={isLoading}>
@@ -817,12 +821,12 @@ export function EmployeesPage() {
               <CardContent className="p-0">
                 <Table>
                   <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Created</TableHead>
-                      {canManageEmployees && <TableHead className="text-right">Actions</TableHead>}
+                    <TableRow className="bg-muted/50 hover:bg-muted/50">
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Name</TableHead>
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Email</TableHead>
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Role</TableHead>
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Created</TableHead>
+                      {canManageEmployees && <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3 text-right">Actions</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -831,9 +835,19 @@ export function EmployeesPage() {
                         <TableCell className="font-medium">{employee.name}</TableCell>
                         <TableCell>{employee.email}</TableCell>
                         <TableCell>
-                          <Badge variant={getRoleBadgeVariant(employee.role)}>
-                            {getRoleDisplay(employee.role)}
-                          </Badge>
+                          {(employee.role === 'owner' || employee.role === 'admin') ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary ring-1 ring-primary/20">
+                              {getRoleDisplay(employee.role)}
+                            </span>
+                          ) : employee.role === 'manager' ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 ring-1 ring-blue-200">
+                              {getRoleDisplay(employee.role)}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground ring-1 ring-border">
+                              {getRoleDisplay(employee.role)}
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {new Date(employee.createdAt).toLocaleDateString()}
@@ -889,12 +903,12 @@ export function EmployeesPage() {
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-[200px]">Resource</TableHead>
-                        <TableHead className="text-center">Staff</TableHead>
-                        <TableHead className="text-center">Manager</TableHead>
-                        <TableHead className="text-center">Admin</TableHead>
-                        <TableHead className="text-center">Owner</TableHead>
+                      <TableRow className="bg-muted/50 hover:bg-muted/50">
+                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3 w-[200px]">Resource</TableHead>
+                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3 text-center">Staff</TableHead>
+                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3 text-center">Manager</TableHead>
+                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3 text-center">Admin</TableHead>
+                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3 text-center">Owner</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>

@@ -39,9 +39,28 @@ function formatGHS(amount: number) {
 }
 
 function StatusBadge({ status }: { status: WeeklyRevenueReport['status'] | 'init' }) {
-  if (status === 'reviewed') return <Badge className="bg-green-100 text-green-800 border-green-200">Reviewed</Badge>
-  if (status === 'submitted') return <Badge className="bg-blue-100 text-blue-800 border-blue-200">Submitted</Badge>
-  return <Badge variant="outline" className="text-muted-foreground">Draft</Badge>
+  if (status === 'reviewed') return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">Reviewed</span>
+  if (status === 'submitted') return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 ring-1 ring-blue-200">Submitted</span>
+  return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-600 ring-1 ring-gray-200">Draft</span>
+}
+
+// ─── Payment method label helper ──────────────────────────────────────────────
+
+function PaymentMethodBadge({ method }: { method: string }) {
+  if (!method) return <span className="text-xs text-muted-foreground">—</span>
+  const map: Record<string, { label: string; className: string }> = {
+    cash:         { label: '💵 Cash',         className: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' },
+    mobile_money: { label: '📱 Mobile Money', className: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' },
+    card:         { label: '💳 Card',          className: 'bg-purple-50 text-purple-700 ring-1 ring-purple-200' },
+    not_paid:     { label: '⏳ Not Paid',      className: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200' },
+  }
+  const entry = map[method]
+  if (!entry) return <span className="text-xs text-muted-foreground">—</span>
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${entry.className}`}>
+      {entry.label}
+    </span>
+  )
 }
 
 // ─── Booking breakdown row ─────────────────────────────────────────────────────
@@ -55,6 +74,7 @@ function BookingRow({ b }: { b: BookingSummary }) {
       <TableCell>{b.checkIn}</TableCell>
       <TableCell>{b.checkOut}</TableCell>
       <TableCell className="text-right font-medium">{formatGHS(b.totalPrice)}</TableCell>
+      <TableCell><PaymentMethodBadge method={b.paymentMethod} /></TableCell>
       <TableCell>
         <Badge variant="outline" className="text-xs capitalize">{b.status}</Badge>
       </TableCell>
@@ -142,6 +162,7 @@ function PastWeekRow({
                       <TableHead>Check-in</TableHead>
                       <TableHead>Check-out</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>Payment</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -277,8 +298,13 @@ export function MyRevenuePage() {
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Page header */}
       <div>
-        <h2 className="text-xl font-bold">My Weekly Revenue</h2>
-        <p className="text-sm text-muted-foreground mt-0.5">
+        <div className="flex items-center gap-2 mb-1">
+          <div className="p-1.5 rounded-lg bg-primary/10">
+            <TrendingUp className="w-5 h-5 text-primary" />
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight">My Weekly Revenue</h1>
+        </div>
+        <p className="text-sm text-muted-foreground">
           Track the revenue you've brought in — one week at a time (Mon–Sun).
         </p>
       </div>
@@ -300,19 +326,51 @@ export function MyRevenuePage() {
         <CardContent className="space-y-4">
           {/* Stats row */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-muted/40 rounded-lg px-4 py-3">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Total Revenue</p>
-              <p className="text-2xl font-bold text-primary">
+            <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+              <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-emerald-400 to-emerald-600" />
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Total Revenue</p>
+              <p className="text-2xl font-bold text-emerald-700">
                 {formatGHS(currentReport?.totalRevenue ?? 0)}
               </p>
             </div>
-            <div className="bg-muted/40 rounded-lg px-4 py-3">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Bookings Created</p>
+            <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+              <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-blue-400 to-blue-600" />
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Bookings Created</p>
               <p className="text-2xl font-bold">
                 {currentReport?.bookingCount ?? 0}
               </p>
             </div>
           </div>
+
+          {/* Payment method breakdown — shown once bookings are loaded */}
+          {currentWeekOpen && currentBookings.length > 0 && (() => {
+            const methods = [
+              { key: 'cash',         label: '💵 Cash',         color: '#10b981' },
+              { key: 'mobile_money', label: '📱 Mobile Money', color: '#3b82f6' },
+              { key: 'card',         label: '💳 Card',          color: '#8b5cf6' },
+              { key: 'not_paid',     label: '⏳ Not Paid',      color: '#f59e0b' },
+            ]
+            const counts = methods.map(m => ({
+              ...m,
+              count: currentBookings.filter(b => b.paymentMethod === m.key).length,
+              revenue: currentBookings.filter(b => b.paymentMethod === m.key).reduce((s, b) => s + b.totalPrice, 0),
+            })).filter(m => m.count > 0)
+            if (!counts.length) return null
+            return (
+              <div className="rounded-xl border bg-card p-4 shadow-sm">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Payment Method Breakdown</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {counts.map(m => (
+                    <div key={m.key} className="rounded-lg bg-muted/30 px-3 py-2">
+                      <p className="text-[11px] text-muted-foreground">{m.label}</p>
+                      <p className="text-base font-bold">{m.count} <span className="text-xs font-normal text-muted-foreground">booking{m.count !== 1 ? 's' : ''}</span></p>
+                      <p className="text-xs font-medium" style={{ color: m.color }}>{formatGHS(m.revenue)}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Status info */}
           {isSubmitted && (
@@ -363,6 +421,7 @@ export function MyRevenuePage() {
                           <TableHead>Check-in</TableHead>
                           <TableHead>Check-out</TableHead>
                           <TableHead className="text-right">Amount</TableHead>
+                          <TableHead>Payment</TableHead>
                           <TableHead>Status</TableHead>
                         </TableRow>
                       </TableHeader>

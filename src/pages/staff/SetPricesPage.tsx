@@ -9,7 +9,7 @@ import { formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useCurrency } from '@/hooks/use-currency'
 import { activityLogService } from '@/services/activity-log-service'
-import { RefreshCw, Plus } from 'lucide-react'
+import { RefreshCw, Plus, Tag } from 'lucide-react'
 
 export function SetPricesPage() {
   const db = (blink.db as any)
@@ -277,7 +277,12 @@ export function SetPricesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold">Set prices</h2>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="p-1.5 rounded-lg bg-primary/10">
+              <Tag className="w-5 h-5 text-primary" />
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight">Set Prices</h1>
+          </div>
           <p className="text-sm text-muted-foreground">Manage base prices for each room type. These prices appear on the public Rooms page.</p>
         </div>
         <div className="flex gap-2">
@@ -308,12 +313,12 @@ export function SetPricesPage() {
           ) : (
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Capacity</TableHead>
-                  <TableHead>Current price</TableHead>
-                  <TableHead>New price</TableHead>
-                  <TableHead className="w-32">Action</TableHead>
+                <TableRow className="bg-muted/50 hover:bg-muted/50">
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Type</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Capacity</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Current Price</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">New Price</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3 w-32">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

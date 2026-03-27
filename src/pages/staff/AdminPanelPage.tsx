@@ -3,8 +3,7 @@ import { bookingEngine, LocalBooking, AuditLog } from '@/services/booking-engine
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Badge } from '@/components/ui/badge'
-import { AlertTriangle, CheckCircle, Clock, RefreshCw, Trash2, XCircle, TestTube } from 'lucide-react'
+import { AlertTriangle, CheckCircle, Clock, RefreshCw, Trash2, XCircle, TestTube, Shield } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { formatCurrencySync } from '@/lib/utils'
@@ -121,20 +120,20 @@ export function AdminPanelPage() {
   }
 
   const getStatusBadge = (status: LocalBooking['status']) => {
-    const variants: Record<string, { variant: any; icon: any }> = {
-      reserved: { variant: 'secondary', icon: Clock },
-      confirmed: { variant: 'default', icon: CheckCircle },
-      cancelled: { variant: 'destructive', icon: XCircle },
-      'checked-in': { variant: 'default', icon: CheckCircle },
-      'checked-out': { variant: 'secondary', icon: CheckCircle }
+    const configs: Record<string, { icon: any; cls: string }> = {
+      reserved:      { icon: Clock,        cls: 'bg-yellow-50 text-yellow-700 ring-yellow-200' },
+      confirmed:     { icon: CheckCircle,  cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
+      cancelled:     { icon: XCircle,      cls: 'bg-red-50 text-red-700 ring-red-200' },
+      'checked-in':  { icon: CheckCircle,  cls: 'bg-blue-50 text-blue-700 ring-blue-200' },
+      'checked-out': { icon: CheckCircle,  cls: 'bg-slate-50 text-slate-700 ring-slate-200' },
     }
-    const config = variants[status] || variants.reserved
+    const config = configs[status] || configs.reserved
     const Icon = config.icon
     return (
-      <Badge variant={config.variant} className="flex items-center gap-1">
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ring-1 ${config.cls}`}>
         <Icon className="h-3 w-3" />
         {status}
-      </Badge>
+      </span>
     )
   }
 
@@ -143,8 +142,13 @@ export function AdminPanelPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-4xl font-serif font-bold mb-2">Admin Panel</h1>
-            <p className="text-muted-foreground">Manage bookings, sync data, and resolve conflicts</p>
+            <div className="flex items-center gap-2 mb-1">
+              <div className="p-1.5 rounded-lg bg-primary/10">
+                <Shield className="w-5 h-5 text-primary" />
+              </div>
+              <h1 className="text-2xl font-bold tracking-tight">Admin Panel</h1>
+            </div>
+            <p className="text-sm text-muted-foreground">Manage bookings, sync data, and resolve conflicts</p>
           </div>
           <div className="flex gap-2">
             <Button
@@ -178,50 +182,72 @@ export function AdminPanelPage() {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total Bookings</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{allBookings.length}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Test Bookings</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-orange-600">
-                {bookingStats?.testBookings || 0}
+          <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
+            <div className="absolute inset-0 bg-gradient-to-br from-slate-500/5 via-transparent to-transparent pointer-events-none" />
+            <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-slate-400 to-slate-600" />
+            <div className="flex items-start justify-between mb-3">
+              <p className="text-sm font-medium text-muted-foreground">Total Bookings</p>
+              <div className="p-2 rounded-lg bg-slate-500/10">
+                <CheckCircle className="w-4 h-4 text-slate-600" />
               </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Pending Sync</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-blue-600">{pendingBookings.length}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Conflicts</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-red-600">{conflictedBookings.length}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Status</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Badge variant={navigator.onLine ? 'default' : 'secondary'}>
-                {navigator.onLine ? 'Online' : 'Offline'}
-              </Badge>
-            </CardContent>
-          </Card>
+            </div>
+            <div className="text-2xl font-bold">{allBookings.length}</div>
+            <p className="text-xs text-muted-foreground mt-1">All local records</p>
+          </div>
+          <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
+            <div className="absolute inset-0 bg-gradient-to-br from-orange-500/5 via-transparent to-transparent pointer-events-none" />
+            <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-orange-400 to-orange-600" />
+            <div className="flex items-start justify-between mb-3">
+              <p className="text-sm font-medium text-muted-foreground">Test Bookings</p>
+              <div className="p-2 rounded-lg bg-orange-500/10">
+                <TestTube className="w-4 h-4 text-orange-600" />
+              </div>
+            </div>
+            <div className="text-2xl font-bold">{bookingStats?.testBookings || 0}</div>
+            <p className="text-xs text-muted-foreground mt-1">Can be cleaned up</p>
+          </div>
+          <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent pointer-events-none" />
+            <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-blue-400 to-blue-600" />
+            <div className="flex items-start justify-between mb-3">
+              <p className="text-sm font-medium text-muted-foreground">Pending Sync</p>
+              <div className="p-2 rounded-lg bg-blue-500/10">
+                <RefreshCw className="w-4 h-4 text-blue-600" />
+              </div>
+            </div>
+            <div className="text-2xl font-bold">{pendingBookings.length}</div>
+            <p className="text-xs text-muted-foreground mt-1">Awaiting remote sync</p>
+          </div>
+          <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
+            <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 via-transparent to-transparent pointer-events-none" />
+            <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-red-400 to-red-600" />
+            <div className="flex items-start justify-between mb-3">
+              <p className="text-sm font-medium text-muted-foreground">Conflicts</p>
+              <div className="p-2 rounded-lg bg-red-500/10">
+                <AlertTriangle className="w-4 h-4 text-red-600" />
+              </div>
+            </div>
+            <div className="text-2xl font-bold">{conflictedBookings.length}</div>
+            <p className="text-xs text-muted-foreground mt-1">Require resolution</p>
+          </div>
+          <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
+            <div className={`absolute inset-0 bg-gradient-to-br ${navigator.onLine ? 'from-emerald-500/5' : 'from-slate-500/5'} via-transparent to-transparent pointer-events-none`} />
+            <div className={`absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r ${navigator.onLine ? 'from-emerald-400 to-emerald-600' : 'from-slate-400 to-slate-600'}`} />
+            <div className="flex items-start justify-between mb-3">
+              <p className="text-sm font-medium text-muted-foreground">Status</p>
+              <div className={`p-2 rounded-lg ${navigator.onLine ? 'bg-emerald-500/10' : 'bg-slate-500/10'}`}>
+                <Shield className={`w-4 h-4 ${navigator.onLine ? 'text-emerald-600' : 'text-slate-600'}`} />
+              </div>
+            </div>
+            <div className="text-2xl font-bold">
+              {navigator.onLine ? (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">Online</span>
+              ) : (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground ring-1 ring-border">Offline</span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">Connection state</p>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -231,17 +257,17 @@ export function AdminPanelPage() {
             <TabsTrigger value="pending">
               Pending Sync
               {pendingBookings.length > 0 && (
-                <Badge variant="secondary" className="ml-2">
+                <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200">
                   {pendingBookings.length}
-                </Badge>
+                </span>
               )}
             </TabsTrigger>
             <TabsTrigger value="conflicts">
               Conflicts
               {conflictedBookings.length > 0 && (
-                <Badge variant="destructive" className="ml-2">
+                <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 ring-1 ring-red-200">
                   {conflictedBookings.length}
-                </Badge>
+                </span>
               )}
             </TabsTrigger>
             <TabsTrigger value="logs">Audit Logs</TabsTrigger>
@@ -269,13 +295,13 @@ export function AdminPanelPage() {
                         <div className="flex flex-col items-end gap-2">
                           {getStatusBadge(booking.status)}
                           {booking.conflict && (
-                            <Badge variant="destructive" className="flex items-center gap-1">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 ring-1 ring-red-200">
                               <AlertTriangle className="h-3 w-3" />
                               Conflict
-                            </Badge>
+                            </span>
                           )}
                           {!booking.synced && (
-                            <Badge variant="secondary">Not Synced</Badge>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground ring-1 ring-border">Not Synced</span>
                           )}
                         </div>
                       </div>
@@ -333,10 +359,10 @@ export function AdminPanelPage() {
                           <h3 className="font-semibold">{booking.guest.fullName}</h3>
                           <p className="text-sm text-muted-foreground">Room {booking.roomNumber}</p>
                         </div>
-                        <Badge variant="secondary">
-                          <Clock className="h-3 w-3 mr-1" />
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200">
+                          <Clock className="h-3 w-3" />
                           Pending
-                        </Badge>
+                        </span>
                       </div>
                       <div className="text-sm text-muted-foreground">
                         Created: {format(new Date(booking.createdAt), 'MMM dd, yyyy HH:mm')}
@@ -375,10 +401,10 @@ export function AdminPanelPage() {
                             Room {booking.roomNumber} • {format(new Date(booking.dates.checkIn), 'MMM dd')} - {format(new Date(booking.dates.checkOut), 'MMM dd')}
                           </p>
                         </div>
-                        <Badge variant="destructive">
-                          <AlertTriangle className="h-3 w-3 mr-1" />
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 ring-1 ring-red-200">
+                          <AlertTriangle className="h-3 w-3" />
                           Conflict
-                        </Badge>
+                        </span>
                       </div>
                       <div className="flex gap-2 mt-3">
                         <Button
