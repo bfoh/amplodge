@@ -170,6 +170,26 @@ class AnalyticsService {
         notPaidCount: _notPaidB.length,
       }
 
+      // Per-period payment method breakdown helper
+      const payBreakdown = (bks: any[]) => {
+        const c = bks.filter(b => getPayMethod(b) === 'cash')
+        const m = bks.filter(b => getPayMethod(b) === 'mobile_money')
+        const k = bks.filter(b => getPayMethod(b) === 'card')
+        return {
+          cash: c.reduce((s, b) => s + Number(b.amount || 0), 0), cashCount: c.length,
+          mobileMoney: m.reduce((s, b) => s + Number(b.amount || 0), 0), mobileMonetyCount: m.length,
+          card: k.reduce((s, b) => s + Number(b.amount || 0), 0), cardCount: k.length,
+        }
+      }
+      const weekBks  = revenueBookings.filter(b => new Date(b.dates.checkIn) >= thisWeekStart)
+      const monthBks = revenueBookings.filter(b => new Date(b.dates.checkIn) >= thisMonthStart)
+      const yearBks  = revenueBookings.filter(b => new Date(b.dates.checkIn) >= thisYearStart)
+      const revenueByPaymentMethodByPeriod = {
+        thisWeek:  payBreakdown(weekBks),
+        thisMonth: payBreakdown(monthBks),
+        thisYear:  payBreakdown(yearBks),
+      }
+
       // Revenue by source
       const revenueBySource = {
         online: revenueBookings
@@ -221,6 +241,7 @@ class AnalyticsService {
         revenueByPeriod,
         revenueByRoomType,
         revenueByPaymentMethod,
+        revenueByPaymentMethodByPeriod,
         revenueBySource,
         averageDailyRate,
         revenuePerAvailableRoom,

@@ -703,19 +703,54 @@ export function AnalyticsPage() {
               <CardTitle className="text-sm font-semibold">Revenue Summary</CardTitle>
             </div>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {[
-              { label: 'This Week', value: revenue?.revenueByPeriod.thisWeek || 0, highlight: true },
-              { label: 'This Month', value: revenue?.revenueByPeriod.thisMonth || 0 },
-              { label: 'This Year', value: revenue?.revenueByPeriod.thisYear || 0 },
-            ].map(({ label, value, highlight }) => (
-              <div key={label} className={cn('flex items-center justify-between rounded-lg px-3 py-2', highlight ? 'bg-emerald-50 dark:bg-emerald-950/30' : 'bg-muted/30')}>
-                <span className="text-xs text-muted-foreground font-medium">{label}</span>
-                <span className={cn('text-sm font-bold', highlight ? 'text-emerald-700 dark:text-emerald-400' : '')}>
-                  {formatCurrencySync(value, currency)}
-                </span>
-              </div>
-            ))}
+          <CardContent className="space-y-2.5">
+            {([
+              { label: 'This Week',  value: revenue?.revenueByPeriod.thisWeek  || 0, pm: revenue?.revenueByPaymentMethodByPeriod?.thisWeek,  highlight: true },
+              { label: 'This Month', value: revenue?.revenueByPeriod.thisMonth || 0, pm: revenue?.revenueByPaymentMethodByPeriod?.thisMonth, highlight: false },
+              { label: 'This Year',  value: revenue?.revenueByPeriod.thisYear  || 0, pm: revenue?.revenueByPaymentMethodByPeriod?.thisYear,  highlight: false },
+            ] as Array<{ label: string; value: number; pm: any; highlight: boolean }>).map(({ label, value, pm, highlight }) => {
+              const methods = pm ? [
+                { key: 'cash', label: 'Cash',  amount: pm.cash,        count: pm.cashCount,        color: '#10b981', dot: 'bg-emerald-500' },
+                { key: 'momo', label: 'Momo',  amount: pm.mobileMoney, count: pm.mobileMonetyCount, color: '#3b82f6', dot: 'bg-blue-500' },
+                { key: 'card', label: 'Card',  amount: pm.card,        count: pm.cardCount,         color: '#8b5cf6', dot: 'bg-purple-500' },
+              ].filter(m => m.amount > 0 || m.count > 0) : []
+              const totalPaid = methods.reduce((s, m) => s + m.amount, 0)
+              return (
+                <div key={label} className={cn('rounded-xl px-3 pt-2.5 pb-3', highlight ? 'bg-emerald-50 dark:bg-emerald-950/30' : 'bg-muted/30')}>
+                  {/* Period label + total */}
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs text-muted-foreground font-medium">{label}</span>
+                    <span className={cn('text-sm font-bold', highlight ? 'text-emerald-700 dark:text-emerald-400' : '')}>
+                      {formatCurrencySync(value, currency)}
+                    </span>
+                  </div>
+                  {/* Payment breakdown */}
+                  {methods.length > 0 ? (
+                    <>
+                      {/* Segmented proportion bar */}
+                      <div className="h-1 w-full rounded-full overflow-hidden flex gap-px mb-2">
+                        {methods.map(m => (
+                          <div key={m.key} className="h-full rounded-full transition-all duration-500"
+                            style={{ width: `${totalPaid > 0 ? (m.amount / totalPaid) * 100 : 0}%`, backgroundColor: m.color }} />
+                        ))}
+                      </div>
+                      {/* Chips */}
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                        {methods.map(m => (
+                          <div key={m.key} className="flex items-center gap-1">
+                            <span className={`w-1.5 h-1.5 rounded-full ${m.dot} flex-shrink-0`} />
+                            <span className="text-[10px] text-muted-foreground">{m.label}</span>
+                            <span className="text-[10px] font-semibold tabular-nums">{formatCurrencySync(m.amount, currency)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground/50 italic">No payment data yet</p>
+                  )}
+                </div>
+              )
+            })}
             <div className="border-t pt-3 space-y-2">
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">Online</span>
@@ -726,41 +761,6 @@ export function AnalyticsPage() {
                 <span className="font-medium">{formatCurrencySync(revenue?.revenueBySource.reception || 0, currency)}</span>
               </div>
             </div>
-
-            {/* Payment Method Breakdown */}
-            {revenue?.revenueByPaymentMethod && (() => {
-              const pm = revenue.revenueByPaymentMethod
-              const methods = [
-                { label: 'Cash',         value: pm.cash,        count: pm.cashCount,         color: '#10b981', dot: 'bg-emerald-500', text: 'text-emerald-700' },
-                { label: 'Mobile Money', value: pm.mobileMoney, count: pm.mobileMonetyCount,  color: '#3b82f6', dot: 'bg-blue-500',    text: 'text-blue-700' },
-                { label: 'Card',         value: pm.card,        count: pm.cardCount,          color: '#8b5cf6', dot: 'bg-purple-500',  text: 'text-purple-700' },
-              ].filter(m => m.value > 0 || m.count > 0)
-              const totalPaid = methods.reduce((s, m) => s + m.value, 0)
-              if (!methods.length) return null
-              return (
-                <div className="border-t pt-3 space-y-2">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">By Payment Method</p>
-                  {methods.map(m => {
-                    const pct = totalPaid > 0 ? Math.round((m.value / totalPaid) * 100) : 0
-                    return (
-                      <div key={m.label}>
-                        <div className="flex items-center justify-between text-xs mb-1">
-                          <span className="flex items-center gap-1.5 text-muted-foreground">
-                            <span className={`w-2 h-2 rounded-full ${m.dot} flex-shrink-0`} />
-                            {m.label}
-                            <span className="text-[10px] text-muted-foreground/60">({m.count})</span>
-                          </span>
-                          <span className={`font-semibold ${m.text}`}>{formatCurrencySync(m.value, currency)}</span>
-                        </div>
-                        <div className="h-1.5 w-full rounded-full bg-muted/50 overflow-hidden">
-                          <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: m.color }} />
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            })()}
           </CardContent>
         </Card>
 

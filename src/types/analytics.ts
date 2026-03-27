@@ -1,3 +1,9 @@
+export interface PayMethodBreakdown {
+  cash: number; cashCount: number
+  mobileMoney: number; mobileMonetyCount: number
+  card: number; cardCount: number
+}
+
 export interface RevenueAnalytics {
   totalRevenue: number
   revenueByPeriod: {
@@ -24,6 +30,11 @@ export interface RevenueAnalytics {
     mobileMonetyCount: number
     cardCount: number
     notPaidCount: number
+  }
+  revenueByPaymentMethodByPeriod: {
+    thisWeek: PayMethodBreakdown
+    thisMonth: PayMethodBreakdown
+    thisYear: PayMethodBreakdown
   }
   revenueBySource: {
     online: number
