@@ -221,7 +221,8 @@ class StayExtensionService {
         newRoomId?: string,
         userId?: string,
         discountAmount?: number,
-        discountReason?: string
+        discountReason?: string,
+        paymentSplits?: Array<{ method: string; amount: number }>
     ): Promise<ExtensionResult> {
         try {
             console.log('[StayExtension] Extending stay:', { bookingId, newCheckoutDate, newRoomId })
@@ -303,11 +304,35 @@ class StayExtensionService {
                 finalCost = Math.max(0, extensionCost - discountAmount)
             }
 
+            // Process split payments for extension if any
+            if (paymentSplits && paymentSplits.length > 0) {
+                for (const split of paymentSplits) {
+                    if (split.amount > 0) {
+                        try {
+                            await bookingChargesService.addCharge({
+                                bookingId,
+                                description: `Payment - Stay Extension`,
+                                category: 'other',
+                                quantity: 1,
+                                unitPrice: -split.amount,
+                                notes: `Payment for extension via ${split.method}`,
+                                paymentMethod: split.method,
+                                createdBy: userId
+                            })
+                            console.log(`[StayExtension] Recorded payment of ${split.amount} via ${split.method}`)
+                        } catch (payErr) {
+                            console.error(`[StayExtension] Failed to record payment of ${split.amount} via ${split.method}`, payErr)
+                        }
+                    }
+                }
+            }
+
             console.log('[StayExtension] Extension completed:', {
                 newCheckout: newCheckoutDate,
                 additionalNights,
                 extensionCost,
-                chargeId: charge?.id
+                chargeId: charge?.id,
+                paymentsProcessed: paymentSplits?.length || 0
             })
 
             return {

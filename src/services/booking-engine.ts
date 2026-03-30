@@ -45,6 +45,8 @@ export interface LocalBooking {
   createdAt: string
   updatedAt: string
   payment_method?: string
+  paymentMethod?: string
+  paymentSplits?: Array<{ method: string; amount: number }>
 
   // Group Booking Fields
   groupId?: string
@@ -407,6 +409,9 @@ class BookingEngine {
     const specialRequests = (bookingData.notes || '') +
       (hasGroupData ? `\n\n<!-- GROUP_DATA:${JSON.stringify(groupData)} -->` : '') +
       (hasPaymentTracking ? `\n\n<!-- PAYMENT_DATA:${JSON.stringify(paymentTrackingData)} -->` : '') +
+      (bookingData.paymentSplits && bookingData.paymentSplits.length > 1
+        ? `\n\n<!-- PAYMENT_SPLITS:${JSON.stringify(bookingData.paymentSplits)} -->`
+        : '') +
       `\n\n<!-- GUEST_SNAPSHOT:${JSON.stringify(guestSnapshot)} -->`
 
     console.log('[BookingEngine Debug] Generated specialRequests length:', specialRequests.length)
@@ -518,6 +523,7 @@ class BookingEngine {
       updatedAt: now,
       synced: true,
       paymentMethod: bookingData.paymentMethod || bookingData.payment_method,
+      paymentSplits: bookingData.paymentSplits || undefined,
       additionalCharges: bookingData.additionalCharges,
       discount: bookingData.discount,
       subtotal: bookingData.subtotal
@@ -1233,6 +1239,17 @@ class BookingEngine {
         }
       }
 
+      // Parse payment splits from specialRequests
+      let paymentSplits: Array<{ method: string; amount: number }> | undefined
+      const splitsMatch = specialReq.match(/<!-- PAYMENT_SPLITS:(.*?) -->/)
+      if (splitsMatch && splitsMatch[1]) {
+        try {
+          paymentSplits = JSON.parse(splitsMatch[1])
+        } catch (e) {
+          // ignore malformed splits data
+        }
+      }
+
       const local: LocalBooking = {
         _id: localId,
         remoteId: remoteId || localId,
@@ -1271,6 +1288,7 @@ class BookingEngine {
         checkInByName: b.checkInByName || b.check_in_by_name || undefined,
         checkOutBy: b.checkOutBy || b.check_out_by || undefined,
         checkOutByName: b.checkOutByName || b.check_out_by_name || undefined,
+        paymentSplits,
       }
       return local
     })

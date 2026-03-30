@@ -47,6 +47,9 @@ export interface RevenueAnalytics {
     revenue: number
     bookingCount: number
   }>
+  additionalRevenueByCategory?: Record<string, number>
+  standaloneSalesTotal?: number
+  roomRevenueTotal?: number
 }
 
 export interface OccupancyAnalytics {

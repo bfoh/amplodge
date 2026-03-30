@@ -29,6 +29,11 @@ export interface Guest {
   createdAt: string
 }
 
+export interface PaymentSplit {
+  method: 'cash' | 'mobile_money' | 'card'
+  amount: number
+}
+
 export interface Booking {
   id: string
   userId?: string
@@ -53,6 +58,7 @@ export interface Booking {
   discountReason?: string      // Reason for discount
   finalAmount?: number         // Amount after discount (totalPrice - discountAmount)
   discountedBy?: string        // Staff ID who applied discount
+  paymentSplits?: PaymentSplit[] // Per-method amounts when guest pays with multiple methods
 
   // Group Booking Fields
   groupId?: string             // Shared ID for all bookings in a group
@@ -197,6 +203,7 @@ export interface BookingCharge {
   unitPrice: number
   amount: number // quantity × unitPrice
   notes?: string
+  paymentMethod?: string  // 'cash' | 'mobile_money' | 'card'
   createdAt: string
   createdBy?: string
   updatedAt?: string

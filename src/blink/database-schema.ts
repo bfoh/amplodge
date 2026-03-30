@@ -45,7 +45,8 @@ export async function initializeDatabaseSchema(): Promise<void> {
       'hr_payroll',
       'hr_performance_reviews',
       'hr_job_applications',
-      'hr_weekly_revenue'
+      'hr_weekly_revenue',
+      'standaloneSales'
     ]
 
     // Test each table and create if necessary
@@ -245,6 +246,28 @@ export async function initializeDatabaseSchema(): Promise<void> {
             }
             await db.hr_weekly_revenue.create(initRecord)
             await db.hr_weekly_revenue.delete(initRecord.id)
+            console.log(`[DatabaseSchema] ✅ Created '${tableName}' table`)
+          } catch (createError: any) {
+            console.warn(`[DatabaseSchema] ⚠️ Could not auto-create '${tableName}':`, createError.message)
+          }
+        } else if (tableName === 'standaloneSales') {
+          try {
+            const initRecord = {
+              id: `sale_init_${Date.now()}`,
+              description: 'Schema initialization',
+              category: 'other',
+              quantity: 1,
+              unitPrice: 0,
+              amount: 0,
+              notes: '',
+              staffId: 'system',
+              staffName: 'System',
+              saleDate: new Date().toISOString().split('T')[0],
+              paymentMethod: 'cash',
+              createdAt: new Date().toISOString()
+            }
+            await db.standaloneSales.create(initRecord)
+            await db.standaloneSales.delete(initRecord.id)
             console.log(`[DatabaseSchema] ✅ Created '${tableName}' table`)
           } catch (createError: any) {
             console.warn(`[DatabaseSchema] ⚠️ Could not auto-create '${tableName}':`, createError.message)

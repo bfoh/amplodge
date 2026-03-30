@@ -1,6 +1,7 @@
 import { blink } from '@/blink/client'
 import { bookingEngine } from './booking-engine'
-import { startOfWeek } from 'date-fns'
+import { startOfWeek, endOfWeek, endOfMonth, endOfYear } from 'date-fns'
+import { standaloneSalesService } from './standalone-sales-service'
 import type {
   RevenueAnalytics,
   OccupancyAnalytics,
@@ -8,6 +9,13 @@ import type {
   PerformanceMetrics,
   FinancialAnalytics
 } from '@/types/analytics'
+
+/** Decode payment method stored in charge notes as <!-- CHARGE_PAY:method --> */
+function decodeChargePaymentMethod(rawNotes: string | undefined | null): string {
+  if (!rawNotes) return ''
+  const match = (rawNotes as string).match(/<!-- CHARGE_PAY:(.*?) -->/)
+  return match?.[1] || ''
+}
 
 class AnalyticsService {
   /**
@@ -20,10 +28,21 @@ class AnalyticsService {
     try {
       const bookings = await bookingEngine.getAllBookings()
       const db = blink.db as any
-      const [roomTypes, properties] = await Promise.all([
+      const [roomTypes, properties, allChargesRaw, allStandaloneSales] = await Promise.all([
         db.roomTypes.list(),
-        db.properties.list()
+        db.properties.list(),
+        (db.bookingCharges.list({ limit: 5000 }) as Promise<any[]>).catch(() => [] as any[]),
+        standaloneSalesService.getAllSales().catch(() => [] as any[]),
       ])
+
+      // Group booking charges by booking ID for O(1) lookup
+      const chargesByBookingId = new Map<string, any[]>()
+      for (const c of (allChargesRaw || [])) {
+        const key = c.bookingId || c.booking_id || ''
+        if (!key) continue
+        if (!chargesByBookingId.has(key)) chargesByBookingId.set(key, [])
+        chargesByBookingId.get(key)!.push(c)
+      }
 
       // Filter by date range if provided
       const filteredBookings = startDate && endDate
@@ -50,10 +69,32 @@ class AnalyticsService {
         })
       }
 
-      const totalRevenue = revenueBookings.reduce(
+      const roomRevenueTotal = revenueBookings.reduce(
         (sum, b) => sum + Number(b.amount || 0),
         0
       )
+
+      // Additional revenue from booking charges — iterate all raw charges directly to avoid
+      // booking-ID mismatch between bookingEngine IDs and remoteId used in GuestChargesDialog
+      const additionalRevenueByCategory: Record<string, number> = {}
+      let additionalChargesTotal = 0
+      for (const c of (allChargesRaw || [])) {
+        const amt = Number(c.amount || 0)
+        additionalChargesTotal += amt
+        const cat = c.category || 'other'
+        additionalRevenueByCategory[cat] = (additionalRevenueByCategory[cat] || 0) + amt
+      }
+
+      // Standalone sales (all-time — filtered by date range below for period breakdowns)
+      const standaloneSalesTotal = (allStandaloneSales || []).reduce(
+        (sum: number, s: any) => sum + Number(s.amount || 0), 0
+      )
+      for (const s of (allStandaloneSales || [])) {
+        const cat = s.category || 'other'
+        additionalRevenueByCategory[cat] = (additionalRevenueByCategory[cat] || 0) + Number(s.amount || 0)
+      }
+
+      const totalRevenue = roomRevenueTotal + additionalChargesTotal + standaloneSalesTotal
 
       // Revenue by period
       const today = new Date().toISOString().split('T')[0]
@@ -71,36 +112,87 @@ class AnalyticsService {
       const lastYearEnd = new Date()
       lastYearEnd.setFullYear(lastYearEnd.getFullYear() - 1, 11, 31)
 
+      // Helper: room revenue only for a set of bookings (no charges — charges counted separately below)
+      const bookingRoomRev = (bks: any[]) =>
+        bks.reduce((sum, b) => sum + Number(b.amount || 0), 0)
+
+      // Helper: standalone sales revenue within a date range
+      const salesInRange = (from: string, to?: string) =>
+        (allStandaloneSales || []).reduce((sum: number, s: any) => {
+          const sd = s.saleDate || s.sale_date || ''
+          if (sd < from) return sum
+          if (to && sd > to) return sum
+          return sum + Number(s.amount || 0)
+        }, 0)
+
+      // Helper: booking charges created within a date range (filter by createdAt)
+      // Uses date-only slicing (YYYY-MM-DD) for correct comparison against timestamps,
+      // matching the same logic as the "Additional Revenue Sources" card.
+      const chargesInRange = (from: string, to?: string) =>
+        (allChargesRaw || []).reduce((sum: number, c: any) => {
+          const cd = c.createdAt || c.created_at || ''
+          if (!cd) return sum
+          const cdDate = cd.slice(0, 10) // YYYY-MM-DD only
+          if (cdDate < from) return sum
+          if (to && cdDate > to) return sum
+          return sum + Number(c.amount || 0)
+        }, 0)
+
+      const thisWeekEnd  = endOfWeek(new Date(), { weekStartsOn: 1 })
+      const thisMonthEnd = endOfMonth(new Date())
+      const thisYearEnd  = endOfYear(new Date())
+
+      const todayStr          = today
+      const weekStartStr      = thisWeekStart.toISOString().split('T')[0]
+      const weekEndStr        = thisWeekEnd.toISOString().split('T')[0]
+      const monthStartStr     = thisMonthStart.toISOString().split('T')[0]
+      const monthEndStr       = thisMonthEnd.toISOString().split('T')[0]
+      const lastMonthStartStr = lastMonthStart.toISOString().split('T')[0]
+      const lastMonthEndStr   = lastMonthEnd.toISOString().split('T')[0]
+      const yearStartStr      = thisYearStart.toISOString().split('T')[0]
+      const yearEndStr        = thisYearEnd.toISOString().split('T')[0]
+      const lastYearStartStr  = lastYearStart.toISOString().split('T')[0]
+      const lastYearEndStr    = lastYearEnd.toISOString().split('T')[0]
+
       const revenueByPeriod = {
-        today: revenueBookings
-          .filter(b => b.dates.checkIn === today)
-          .reduce((sum, b) => sum + Number(b.amount || 0), 0),
+        today: bookingRoomRev(revenueBookings.filter(b => b.dates.checkIn === todayStr))
+          + chargesInRange(todayStr, todayStr)
+          + salesInRange(todayStr, todayStr),
 
-        thisWeek: revenueBookings
-          .filter(b => new Date(b.dates.checkIn) >= thisWeekStart)
-          .reduce((sum, b) => sum + Number(b.amount || 0), 0),
+        thisWeek: bookingRoomRev(revenueBookings.filter(b => {
+            const ci = new Date(b.dates.checkIn)
+            return ci >= thisWeekStart && ci <= thisWeekEnd
+          }))
+          + chargesInRange(weekStartStr, weekEndStr)
+          + salesInRange(weekStartStr, weekEndStr),
 
-        thisMonth: revenueBookings
-          .filter(b => new Date(b.dates.checkIn) >= thisMonthStart)
-          .reduce((sum, b) => sum + Number(b.amount || 0), 0),
+        thisMonth: bookingRoomRev(revenueBookings.filter(b => {
+            const ci = new Date(b.dates.checkIn)
+            return ci >= thisMonthStart && ci <= thisMonthEnd
+          }))
+          + chargesInRange(monthStartStr, monthEndStr)
+          + salesInRange(monthStartStr, monthEndStr),
 
-        lastMonth: revenueBookings
-          .filter(b => {
+        lastMonth: bookingRoomRev(revenueBookings.filter(b => {
             const checkIn = new Date(b.dates.checkIn)
             return checkIn >= lastMonthStart && checkIn <= lastMonthEnd
-          })
-          .reduce((sum, b) => sum + Number(b.amount || 0), 0),
+          }))
+          + chargesInRange(lastMonthStartStr, lastMonthEndStr)
+          + salesInRange(lastMonthStartStr, lastMonthEndStr),
 
-        thisYear: revenueBookings
-          .filter(b => new Date(b.dates.checkIn) >= thisYearStart)
-          .reduce((sum, b) => sum + Number(b.amount || 0), 0),
+        thisYear: bookingRoomRev(revenueBookings.filter(b => {
+            const ci = new Date(b.dates.checkIn)
+            return ci >= thisYearStart && ci <= thisYearEnd
+          }))
+          + chargesInRange(yearStartStr, yearEndStr)
+          + salesInRange(yearStartStr, yearEndStr),
 
-        lastYear: revenueBookings
-          .filter(b => {
+        lastYear: bookingRoomRev(revenueBookings.filter(b => {
             const checkIn = new Date(b.dates.checkIn)
             return checkIn >= lastYearStart && checkIn <= lastYearEnd
-          })
-          .reduce((sum, b) => sum + Number(b.amount || 0), 0)
+          }))
+          + chargesInRange(lastYearStartStr, lastYearEndStr)
+          + salesInRange(lastYearStartStr, lastYearEndStr),
       }
 
       // Revenue by room type
@@ -139,11 +231,11 @@ class AnalyticsService {
           roomTypeName: roomTypeMap.get(typeId) || typeId,
           revenue: data.revenue,
           bookingCount: data.count,
-          percentage: totalRevenue > 0 ? (data.revenue / totalRevenue) * 100 : 0
+          percentage: roomRevenueTotal > 0 ? (data.revenue / roomRevenueTotal) * 100 : 0
         })
       ).sort((a, b) => b.revenue - a.revenue)
 
-      // Revenue by payment method — normalise to canonical lowercase/underscore format
+      // Revenue by payment method — split-aware helpers
       const normalizePayMethod = (raw: string): string => {
         const s = (raw || '').trim().toLowerCase()
         if (s === 'cash') return 'cash'
@@ -151,43 +243,122 @@ class AnalyticsService {
         if (s === 'card' || s.includes('card') || s.includes('credit') || s.includes('debit')) return 'card'
         return 'not_paid'
       }
-      const getPayMethod = (b: any): string =>
-        normalizePayMethod(b.paymentMethod || b.payment?.method || (b as any).payment_method || '')
 
-      const _cashB = revenueBookings.filter(b => getPayMethod(b) === 'cash')
-      const _momoB = revenueBookings.filter(b => getPayMethod(b) === 'mobile_money')
-      const _cardB = revenueBookings.filter(b => getPayMethod(b) === 'card')
-      const _notPaidB = revenueBookings.filter(b => getPayMethod(b) === 'not_paid')
-
-      const revenueByPaymentMethod = {
-        cash: _cashB.reduce((sum, b) => sum + Number(b.amount || 0), 0),
-        mobileMoney: _momoB.reduce((sum, b) => sum + Number(b.amount || 0), 0),
-        card: _cardB.reduce((sum, b) => sum + Number(b.amount || 0), 0),
-        notPaid: _notPaidB.reduce((sum, b) => sum + Number(b.amount || 0), 0),
-        cashCount: _cashB.length,
-        mobileMonetyCount: _momoB.length,
-        cardCount: _cardB.length,
-        notPaidCount: _notPaidB.length,
+      // Returns all (method, amount) pairs for a booking, handling splits
+      const getPaySplits = (b: any): Array<{ method: string; amount: number }> => {
+        if (b.paymentSplits && b.paymentSplits.length > 0) {
+          return b.paymentSplits
+            .map((s: any) => ({ method: normalizePayMethod(s.method), amount: Number(s.amount) || 0 }))
+            .filter((s: any) => s.method && s.method !== 'not_paid')
+        }
+        const m = normalizePayMethod(b.paymentMethod || b.payment?.method || (b as any).payment_method || '')
+        return m && m !== 'not_paid' ? [{ method: m, amount: Number(b.amount || 0) }] : []
       }
 
-      // Per-period payment method breakdown helper
-      const payBreakdown = (bks: any[]) => {
-        const c = bks.filter(b => getPayMethod(b) === 'cash')
-        const m = bks.filter(b => getPayMethod(b) === 'mobile_money')
-        const k = bks.filter(b => getPayMethod(b) === 'card')
-        return {
-          cash: c.reduce((s, b) => s + Number(b.amount || 0), 0), cashCount: c.length,
-          mobileMoney: m.reduce((s, b) => s + Number(b.amount || 0), 0), mobileMonetyCount: m.length,
-          card: k.reduce((s, b) => s + Number(b.amount || 0), 0), cardCount: k.length,
+      let _cash = 0, _cashCount = 0, _mobileMoney = 0, _momoCount = 0, _card = 0, _cardCount = 0
+      let _notPaid = 0, _notPaidCount = 0
+      for (const b of revenueBookings) {
+        const splts = getPaySplits(b)
+        const bCharges = chargesByBookingId.get(b.id) || []
+        // Room price — distribute by splits or mark not_paid
+        if (splts.length === 0) { _notPaid += Number(b.amount || 0); _notPaidCount++ }
+        else {
+          for (const s of splts) {
+            if      (s.method === 'cash')         { _cash += s.amount; _cashCount++ }
+            else if (s.method === 'mobile_money') { _mobileMoney += s.amount; _momoCount++ }
+            else if (s.method === 'card')         { _card += s.amount; _cardCount++ }
+          }
         }
+        // Each charge uses its own payment method if set; otherwise fall back proportional to booking splits
+        const splitsSum = splts.reduce((s: number, p: any) => s + p.amount, 0)
+        for (const c of bCharges) {
+          const amt = Number(c.amount || 0)
+          const cPm = decodeChargePaymentMethod(c.notes).toLowerCase()
+          if (cPm === 'cash' || cPm === 'mobile_money' || cPm === 'card') {
+            if      (cPm === 'cash')         { _cash += amt; _cashCount++ }
+            else if (cPm === 'mobile_money') { _mobileMoney += amt; _momoCount++ }
+            else if (cPm === 'card')         { _card += amt; _cardCount++ }
+          } else if (splts.length > 0) {
+            // Fall back: distribute proportionally across booking splits
+            for (const s of splts) {
+              const proportion = splitsSum > 0 ? s.amount / splitsSum : 1 / splts.length
+              const portionAmt = amt * proportion
+              if      (s.method === 'cash')         { _cash += portionAmt; _cashCount++ }
+              else if (s.method === 'mobile_money') { _mobileMoney += portionAmt; _momoCount++ }
+              else if (s.method === 'card')         { _card += portionAmt; _cardCount++ }
+            }
+          } else {
+            _notPaid += amt
+          }
+        }
+      }
+      // Standalone sales — add to the payment method buckets
+      for (const s of (allStandaloneSales || [])) {
+        const amt = Number((s as any).amount || 0)
+        const pm = ((s as any).paymentMethod || (s as any).payment_method || '').toLowerCase()
+        if      (pm === 'cash')         { _cash += amt; _cashCount++ }
+        else if (pm === 'mobile_money') { _mobileMoney += amt; _momoCount++ }
+        else if (pm === 'card')         { _card += amt; _cardCount++ }
+      }
+
+      const revenueByPaymentMethod = {
+        cash: _cash,         mobileMoney: _mobileMoney,  card: _card,         notPaid: _notPaid,
+        cashCount: _cashCount, mobileMonetyCount: _momoCount, cardCount: _cardCount, notPaidCount: _notPaidCount,
+      }
+
+      // Per-period payment method breakdown helper (split-aware, includes charges)
+      const payBreakdown = (bks: any[], salesFrom?: string, salesTo?: string) => {
+        let c = 0, cN = 0, m = 0, mN = 0, k = 0, kN = 0
+        for (const b of bks) {
+          const splts = getPaySplits(b)
+          const bCharges = chargesByBookingId.get(b.id) || []
+          if (splts.length === 0) continue
+          const splitsSum = splts.reduce((s: number, p: any) => s + p.amount, 0)
+          // Room price splits
+          for (const s of splts) {
+            if      (s.method === 'cash')         { c += s.amount; cN++ }
+            else if (s.method === 'mobile_money') { m += s.amount; mN++ }
+            else if (s.method === 'card')         { k += s.amount; kN++ }
+          }
+          // Charges — use own payment method if set, else proportional fallback
+          for (const cc of bCharges) {
+            const amt = Number(cc.amount || 0)
+            const cPm = decodeChargePaymentMethod(cc.notes).toLowerCase()
+            if (cPm === 'cash' || cPm === 'mobile_money' || cPm === 'card') {
+              if      (cPm === 'cash')         { c += amt; cN++ }
+              else if (cPm === 'mobile_money') { m += amt; mN++ }
+              else if (cPm === 'card')         { k += amt; kN++ }
+            } else {
+              for (const s of splts) {
+                const proportion = splitsSum > 0 ? s.amount / splitsSum : 1 / splts.length
+                const portionAmt = amt * proportion
+                if      (s.method === 'cash')         { c += portionAmt; cN++ }
+                else if (s.method === 'mobile_money') { m += portionAmt; mN++ }
+                else if (s.method === 'card')         { k += portionAmt; kN++ }
+              }
+            }
+          }
+        }
+        // Add standalone sales in the period
+        for (const s of (allStandaloneSales || [])) {
+          const sd = (s as any).saleDate || (s as any).sale_date || ''
+          if (salesFrom && sd < salesFrom) continue
+          if (salesTo && sd > salesTo) continue
+          const amt = Number((s as any).amount || 0)
+          const pm = ((s as any).paymentMethod || '').toLowerCase()
+          if      (pm === 'cash')         { c += amt; cN++ }
+          else if (pm === 'mobile_money') { m += amt; mN++ }
+          else if (pm === 'card')         { k += amt; kN++ }
+        }
+        return { cash: c, cashCount: cN, mobileMoney: m, mobileMonetyCount: mN, card: k, cardCount: kN }
       }
       const weekBks  = revenueBookings.filter(b => new Date(b.dates.checkIn) >= thisWeekStart)
       const monthBks = revenueBookings.filter(b => new Date(b.dates.checkIn) >= thisMonthStart)
       const yearBks  = revenueBookings.filter(b => new Date(b.dates.checkIn) >= thisYearStart)
       const revenueByPaymentMethodByPeriod = {
-        thisWeek:  payBreakdown(weekBks),
-        thisMonth: payBreakdown(monthBks),
-        thisYear:  payBreakdown(yearBks),
+        thisWeek:  payBreakdown(weekBks,  thisWeekStart.toISOString().split('T')[0]),
+        thisMonth: payBreakdown(monthBks, thisMonthStart.toISOString().split('T')[0]),
+        thisYear:  payBreakdown(yearBks,  thisYearStart.toISOString().split('T')[0]),
       }
 
       // Revenue by source
@@ -228,16 +399,24 @@ class AnalyticsService {
 
         const dayBookings = revenueBookings.filter(b => b.dates.checkIn === dateStr)
         const dayRevenue = dayBookings.reduce((sum, b) => sum + Number(b.amount || 0), 0)
+          + chargesInRange(dateStr, dateStr)
+        const daySales = (allStandaloneSales || []).reduce((sum: number, s: any) => {
+          const sd = s.saleDate || s.sale_date || ''
+          return sd === dateStr ? sum + Number(s.amount || 0) : sum
+        }, 0)
 
         dailyRevenueHistory.push({
           date: dateStr,
-          revenue: dayRevenue,
+          revenue: dayRevenue + daySales,
           bookingCount: dayBookings.length
         })
       }
 
       return {
         totalRevenue,
+        roomRevenueTotal,
+        standaloneSalesTotal,
+        additionalRevenueByCategory,
         revenueByPeriod,
         revenueByRoomType,
         revenueByPaymentMethod,

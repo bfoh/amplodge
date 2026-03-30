@@ -51,6 +51,7 @@ export function GuestChargesDialog({
     const [category, setCategory] = useState<ChargeCategory>('food_beverage')
     const [quantity, setQuantity] = useState(1)
     const [unitPrice, setUnitPrice] = useState(0)
+    const [paymentMethod, setPaymentMethod] = useState<'cash' | 'mobile_money' | 'card'>('cash')
     const [notes, setNotes] = useState('')
 
     // Fetch charges when dialog opens
@@ -80,6 +81,7 @@ export function GuestChargesDialog({
         setCategory('food_beverage')
         setQuantity(1)
         setUnitPrice(0)
+        setPaymentMethod('cash')
         setNotes('')
         setEditingChargeId(null)
         setShowAddForm(false)
@@ -104,6 +106,7 @@ export function GuestChargesDialog({
                 category,
                 quantity,
                 unitPrice,
+                paymentMethod,
                 notes: notes.trim() || undefined
             }
 
@@ -128,6 +131,7 @@ export function GuestChargesDialog({
                 category,
                 quantity,
                 unitPrice,
+                paymentMethod,
                 notes: notes.trim() || undefined
             })
             toast.success('Charge updated successfully')
@@ -161,6 +165,7 @@ export function GuestChargesDialog({
         setCategory(charge.category)
         setQuantity(charge.quantity)
         setUnitPrice(charge.unitPrice)
+        setPaymentMethod((charge.paymentMethod as 'cash' | 'mobile_money' | 'card') || 'cash')
         setNotes(charge.notes || '')
         setEditingChargeId(charge.id)
         setShowAddForm(true)
@@ -288,6 +293,20 @@ export function GuestChargesDialog({
                                         </div>
 
                                         <div className="col-span-2">
+                                            <Label>Payment Method</Label>
+                                            <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as 'cash' | 'mobile_money' | 'card')}>
+                                                <SelectTrigger>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="cash">💵 Cash</SelectItem>
+                                                    <SelectItem value="mobile_money">📱 Mobile Money</SelectItem>
+                                                    <SelectItem value="card">💳 Card</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div className="col-span-2">
                                             <Label htmlFor="notes">Notes (Optional)</Label>
                                             <Textarea
                                                 id="notes"
@@ -346,11 +365,18 @@ export function GuestChargesDialog({
                                     className="flex items-center justify-between p-3 border rounded-lg"
                                 >
                                     <div className="flex-1">
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-2 flex-wrap">
                                             <span className="font-medium">{charge.description}</span>
                                             <Badge variant="outline" className="text-xs">
                                                 {CHARGE_CATEGORIES[charge.category]}
                                             </Badge>
+                                            {charge.paymentMethod && (
+                                                <Badge variant="secondary" className="text-xs">
+                                                    {charge.paymentMethod === 'cash' ? '💵 Cash'
+                                                        : charge.paymentMethod === 'mobile_money' ? '📱 MoMo'
+                                                        : '💳 Card'}
+                                                </Badge>
+                                            )}
                                         </div>
                                         <p className="text-sm text-muted-foreground">
                                             {charge.quantity} × {formatCurrencySync(charge.unitPrice, currency)}

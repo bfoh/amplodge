@@ -28,7 +28,13 @@ import { usePermissions } from '@/hooks/use-permissions'
 import { analyticsService } from '@/services/analytics-service'
 import { AnalyticsExportService } from '@/services/analytics-export-service'
 import { bookingEngine } from '@/services/booking-engine'
-import { startOfWeek, endOfWeek, format } from 'date-fns'
+import { blink } from '@/blink/client'
+import { standaloneSalesService } from '@/services/standalone-sales-service'
+import {
+  startOfWeek, endOfWeek, format,
+  subWeeks, subMonths, startOfMonth, endOfMonth,
+  subYears, startOfYear, endOfYear,
+} from 'date-fns'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -84,7 +90,19 @@ export function AnalyticsPage() {
   const [occupancy, setOccupancy] = useState<OccupancyAnalytics | null>(null)
   const [guests, setGuests] = useState<GuestAnalytics | null>(null)
   const [performance, setPerformance] = useState<PerformanceMetrics | null>(null)
-  const [weekBookings, setWeekBookings] = useState<any[]>([])
+  const [allRevenueBookings, setAllRevenueBookings] = useState<any[]>([])
+  const [breakdownMode, setBreakdownMode] = useState<'week' | 'month' | 'year'>('week')
+  const [selectedWeekIdx, setSelectedWeekIdx] = useState(0)
+  const [selectedMonthIdx, setSelectedMonthIdx] = useState(0)
+  const [selectedYearIdx, setSelectedYearIdx] = useState(0)
+  const [isTableExpanded, setIsTableExpanded] = useState(false)
+  // Additional Revenue Sources period state
+  const [allChargesRaw, setAllChargesRaw] = useState<any[]>([])
+  const [allSalesRaw, setAllSalesRaw] = useState<any[]>([])
+  const [chargePeriodMode, setChargePeriodMode] = useState<'week' | 'month' | 'year'>('week')
+  const [chargeWeekIdx, setChargeWeekIdx] = useState(0)
+  const [chargeMonthIdx, setChargeMonthIdx] = useState(0)
+  const [chargeYearIdx, setChargeYearIdx] = useState(0)
 
   useEffect(() => {
     loadAnalytics()
@@ -95,25 +113,25 @@ export function AnalyticsPage() {
   const loadAnalytics = async () => {
     setLoading(true)
     try {
-      const [revenueData, occupancyData, guestData, performanceData, allBookings] =
+      const [revenueData, occupancyData, guestData, performanceData, allBookings, chargesRaw, salesRaw] =
         await Promise.all([
           analyticsService.getRevenueAnalytics(),
           analyticsService.getOccupancyAnalytics(),
           analyticsService.getGuestAnalytics(),
           analyticsService.getPerformanceMetrics(),
           bookingEngine.getAllBookings(),
+          (blink.db as any).bookingCharges.list({ limit: 5000 }).catch(() => []),
+          standaloneSalesService.getAllSales().catch(() => []),
         ])
       setRevenue(revenueData)
       setOccupancy(occupancyData)
       setGuests(guestData)
       setPerformance(performanceData)
-      const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 })
-      setWeekBookings(
-        allBookings.filter(b =>
-          ['checked-in', 'checked-out'].includes(b.status) &&
-          new Date(b.dates.checkIn) >= weekStart
-        )
+      setAllRevenueBookings(
+        allBookings.filter(b => ['checked-in', 'checked-out'].includes(b.status))
       )
+      setAllChargesRaw(chargesRaw || [])
+      setAllSalesRaw(salesRaw || [])
     } catch (error) {
       console.error('Failed to load analytics:', error)
     } finally {
@@ -136,11 +154,135 @@ export function AnalyticsPage() {
     return ((current - previous) / previous) * 100
   }
 
-  const thisWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 })
-  const thisWeekEnd = endOfWeek(new Date(), { weekStartsOn: 1 })
-  const weekTotal = weekBookings.reduce((s, b) => s + Number(b.amount || 0), 0)
+  // ── Period options ─────────────────────────────────────────────────────
+  const weekOptions = Array.from({ length: 12 }, (_, i) => {
+    const weekStart = startOfWeek(subWeeks(new Date(), i), { weekStartsOn: 1 })
+    const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 })
+    return {
+      label: i === 0 ? 'This Week' : `${format(weekStart, 'MMM d')} – ${format(weekEnd, 'MMM d')}`,
+      sublabel: i === 0 ? format(weekStart, 'MMM d') + ' – ' + format(weekEnd, 'MMM d, yyyy') : format(weekEnd, 'yyyy'),
+      start: weekStart, end: weekEnd, idx: i,
+    }
+  })
+  const monthOptions = Array.from({ length: 12 }, (_, i) => {
+    const d = subMonths(new Date(), i)
+    const start = startOfMonth(d)
+    const end = endOfMonth(d)
+    return {
+      label: i === 0 ? 'This Month' : format(start, 'MMMM yyyy'),
+      sublabel: format(start, 'MMMM yyyy'),
+      start, end, idx: i,
+    }
+  })
+  const yearOptions = Array.from({ length: 3 }, (_, i) => {
+    const d = subYears(new Date(), i)
+    const start = startOfYear(d)
+    const end = endOfYear(d)
+    return {
+      label: i === 0 ? 'This Year' : format(start, 'yyyy'),
+      sublabel: format(start, 'yyyy'),
+      start, end, idx: i,
+    }
+  })
+
+  // ── Active period & filtered bookings ──────────────────────────────────
+  const selectedIdx = breakdownMode === 'week' ? selectedWeekIdx
+    : breakdownMode === 'month' ? selectedMonthIdx : selectedYearIdx
+  const activePeriod = breakdownMode === 'week' ? weekOptions[selectedWeekIdx]
+    : breakdownMode === 'month' ? monthOptions[selectedMonthIdx] : yearOptions[selectedYearIdx]
+
+  const breakdownBookings = allRevenueBookings.filter(b => {
+    const d = new Date(b.dates.checkIn)
+    return d >= activePeriod.start && d <= activePeriod.end
+  })
+  const breakdownTotal = breakdownBookings.reduce((s, b) => s + Number(b.amount || 0), 0)
+
+  const normPay = (raw: string) => {
+    const s = (raw || '').trim().toLowerCase()
+    if (s === 'cash') return 'cash'
+    if (s === 'mobile_money' || s === 'mobile money' || s.includes('mobile') || s.includes('momo')) return 'mobile_money'
+    if (s === 'card' || s.includes('card') || s.includes('credit') || s.includes('debit')) return 'card'
+    return ''
+  }
+  const bdAmounts = { cash: 0, mobile_money: 0, card: 0 }
+  const bdCounts  = { cash: 0, mobile_money: 0, card: 0 }
+  for (const b of breakdownBookings) {
+    if ((b as any).paymentSplits?.length > 1) {
+      for (const s of (b as any).paymentSplits) {
+        const m = normPay(s.method)
+        if (m in bdAmounts) {
+          bdAmounts[m as keyof typeof bdAmounts] += Number(s.amount) || 0
+          bdCounts[m as keyof typeof bdCounts]++
+        }
+      }
+    } else {
+      const m = normPay(b.paymentMethod || b.payment?.method || '')
+      if (m in bdAmounts) {
+        bdAmounts[m as keyof typeof bdAmounts] += Number(b.amount) || 0
+        bdCounts[m as keyof typeof bdCounts]++
+      }
+    }
+  }
+  const bdPayMethods = [
+    { key: 'cash', label: 'Cash',  amount: bdAmounts.cash,         count: bdCounts.cash,         color: '#10b981', dot: 'bg-emerald-500' },
+    { key: 'momo', label: 'Momo',  amount: bdAmounts.mobile_money, count: bdCounts.mobile_money, color: '#3b82f6', dot: 'bg-blue-500' },
+    { key: 'card', label: 'Card',  amount: bdAmounts.card,         count: bdCounts.card,          color: '#8b5cf6', dot: 'bg-purple-500' },
+  ].filter(m => m.amount > 0 || m.count > 0)
+  const bdPayTotal = bdPayMethods.reduce((s, m) => s + m.amount, 0)
+
+  // ── Charge period filtering ─────────────────────────────────────────────
+  const chargeActivePeriod = chargePeriodMode === 'week' ? weekOptions[chargeWeekIdx]
+    : chargePeriodMode === 'month' ? monthOptions[chargeMonthIdx] : yearOptions[chargeYearIdx]
+  const chargeSelectedIdx = chargePeriodMode === 'week' ? chargeWeekIdx
+    : chargePeriodMode === 'month' ? chargeMonthIdx : chargeYearIdx
+
+  const filteredCharges = allChargesRaw.filter(c => {
+    const d = new Date(c.createdAt || c.created_at || '')
+    return !isNaN(d.getTime()) && d >= chargeActivePeriod.start && d <= chargeActivePeriod.end
+  })
+  const filteredSales = allSalesRaw.filter((s: any) => {
+    const sd = s.saleDate || s.sale_date || ''
+    if (!sd) return false
+    const d = new Date(sd)
+    return d >= chargeActivePeriod.start && d <= chargeActivePeriod.end
+  })
+  const chargeCatMap: Record<string, number> = {}
+  for (const c of filteredCharges) {
+    const cat = c.category || 'other'
+    chargeCatMap[cat] = (chargeCatMap[cat] || 0) + Number(c.amount || 0)
+  }
+  for (const s of filteredSales) {
+    const cat = (s as any).category || 'other'
+    chargeCatMap[cat] = (chargeCatMap[cat] || 0) + Number((s as any).amount || 0)
+  }
+
+  // ── Page-computed Revenue Summary (uses same raw data as Booking Breakdown & Additional Revenue Sources) ──
+  // This ensures the Revenue Summary is always consistent with the other two cards.
+  const computeRevForPeriod = (period: { start: Date; end: Date }) => {
+    const roomRev = allRevenueBookings
+      .filter(b => { const d = new Date(b.dates.checkIn); return d >= period.start && d <= period.end })
+      .reduce((s: number, b: any) => s + Number(b.amount || 0), 0)
+    const chargesRev = allChargesRaw
+      .filter(c => {
+        const d = new Date(c.createdAt || c.created_at || '')
+        return !isNaN(d.getTime()) && d >= period.start && d <= period.end
+      })
+      .reduce((s: number, c: any) => s + Number(c.amount || 0), 0)
+    const salesRev = allSalesRaw
+      .filter((s: any) => {
+        const sd = s.saleDate || s.sale_date || ''
+        const d = new Date(sd)
+        return !isNaN(d.getTime()) && d >= period.start && d <= period.end
+      })
+      .reduce((s: number, sale: any) => s + Number(sale.amount || 0), 0)
+    return roomRev + chargesRev + salesRev
+  }
+  const pageRevThisWeek  = computeRevForPeriod(weekOptions[0])
+  const pageRevThisMonth = computeRevForPeriod(monthOptions[0])
+  const pageRevThisYear  = computeRevForPeriod(yearOptions[0])
+
   const revenueGrowth = revenue
-    ? calculateGrowth(revenue.revenueByPeriod.thisMonth, revenue.revenueByPeriod.lastMonth)
+    ? calculateGrowth(pageRevThisMonth, computeRevForPeriod(monthOptions[1]))
     : 0
 
   if (!permissions.can('analytics', 'read')) {
@@ -244,7 +386,7 @@ export function AnalyticsPage() {
               <span className="text-xs text-muted-foreground">vs last month</span>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {formatCurrencySync(revenue?.revenueByPeriod.thisMonth || 0, currency)} this month
+              {formatCurrencySync(pageRevThisMonth, currency)} this month
             </p>
           </div>
         </div>
@@ -346,7 +488,7 @@ export function AnalyticsPage() {
               </div>
               <div className="text-right">
                 <p className="text-xs text-muted-foreground">This month</p>
-                <p className="text-sm font-bold text-emerald-600">{formatCurrencySync(revenue?.revenueByPeriod.thisMonth || 0, currency)}</p>
+                <p className="text-sm font-bold text-emerald-600">{formatCurrencySync(pageRevThisMonth, currency)}</p>
               </div>
             </div>
           </CardHeader>
@@ -524,32 +666,237 @@ export function AnalyticsPage() {
         </Card>
       </div>
 
-      {/* ── This Week's Booking Breakdown ────────────────────────────────── */}
+      {/* ── Additional Revenue Sources ───────────────────────────────────── */}
+      {(() => {
+        const catLabels: Record<string, string> = {
+          food_beverage: 'Food & Beverage', room_service: 'Room Service',
+          minibar: 'Minibar', laundry: 'Laundry', phone_internet: 'Phone / Internet',
+          parking: 'Parking', room_extension: 'Room Extension', other: 'Other',
+        }
+        const catIcons: Record<string, string> = {
+          food_beverage: '🍽', room_service: '🛎', minibar: '🍷', laundry: '👕',
+          phone_internet: '📡', parking: '🚗', room_extension: '🛏', other: '📦',
+        }
+        const catEntries = Object.entries(chargeCatMap)
+          .filter(([, v]) => v > 0)
+          .sort((a, b) => b[1] - a[1])
+        const maxVal = catEntries.length > 0 ? catEntries[0][1] : 1
+        const grandTotal = catEntries.reduce((s, [, v]) => s + v, 0)
+        return (
+          <Card className="shadow-sm overflow-hidden">
+            <CardHeader className="border-b pb-0 pt-5 px-5">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4">
+                <div>
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-orange-500" />
+                    Additional Revenue Sources
+                  </CardTitle>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {chargeActivePeriod.sublabel} · charges & walk-in sales by category
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-2xl font-bold text-orange-500 tabular-nums">{formatCurrencySync(grandTotal, currency)}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {filteredCharges.length} charge{filteredCharges.length !== 1 ? 's' : ''}{filteredSales.length > 0 ? ` · ${filteredSales.length} sale${filteredSales.length !== 1 ? 's' : ''}` : ''}
+                  </p>
+                </div>
+              </div>
+
+              {/* Mode switcher */}
+              <div className="flex items-center gap-1 mb-4">
+                {(['week', 'month', 'year'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => setChargePeriodMode(mode)}
+                    className={cn(
+                      'px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all',
+                      chargePeriodMode === mode
+                        ? 'bg-orange-500 text-white shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+                    )}
+                  >
+                    {mode === 'week' ? 'Weekly' : mode === 'month' ? 'Monthly' : 'Yearly'}
+                  </button>
+                ))}
+                <div className="flex-1" />
+                {/* Period selector */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground border rounded-lg px-3 py-1.5 hover:bg-muted/40 transition-all">
+                      <Calendar className="w-3.5 h-3.5" />
+                      {chargePeriodMode === 'week' ? weekOptions[chargeWeekIdx].label
+                        : chargePeriodMode === 'month' ? monthOptions[chargeMonthIdx].label
+                        : yearOptions[chargeYearIdx].label}
+                      <ChevronDown className="w-3 h-3 opacity-50" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48 max-h-72 overflow-y-auto">
+                    {(chargePeriodMode === 'week' ? weekOptions : chargePeriodMode === 'month' ? monthOptions : yearOptions).map((opt, i) => (
+                      <DropdownMenuItem
+                        key={i}
+                        onClick={() => {
+                          if (chargePeriodMode === 'week') setChargeWeekIdx(i)
+                          else if (chargePeriodMode === 'month') setChargeMonthIdx(i)
+                          else setChargeYearIdx(i)
+                        }}
+                        className={cn(chargeSelectedIdx === i && 'font-semibold text-orange-500 bg-orange-50')}
+                      >
+                        {opt.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </CardHeader>
+
+            <CardContent className="pt-4">
+              {catEntries.length === 0 ? (
+                <div className="h-24 flex flex-col items-center justify-center text-muted-foreground gap-1">
+                  <TrendingUp className="w-8 h-8 opacity-20" />
+                  <p className="text-sm">No charges or sales recorded for this period</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {catEntries.map(([cat, total]) => (
+                    <div key={cat}>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="flex items-center gap-1.5 text-muted-foreground">
+                          <span>{catIcons[cat] || '📦'}</span>
+                          <span>{catLabels[cat] || cat}</span>
+                        </span>
+                        <span className="font-semibold tabular-nums">{formatCurrencySync(total, currency)}</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-orange-400 transition-all duration-700"
+                          style={{ width: `${maxVal > 0 ? (total / maxVal) * 100 : 0}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )
+      })()}
+
+      {/* ── Booking Breakdown Archive ─────────────────────────────────────── */}
       <Card className="shadow-sm overflow-hidden">
-        <CardHeader className="border-b pb-4">
-          <div className="flex items-start justify-between gap-4">
+        {/* ── Card Header ── */}
+        <CardHeader className="border-b pb-0 pt-5 px-5">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4">
             <div>
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-primary" />
-                This Week's Booking Breakdown
+                <BarChart3 className="w-4 h-4 text-primary" />
+                Booking Breakdown Archive
               </CardTitle>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                {format(thisWeekStart, 'MMM d')} – {format(thisWeekEnd, 'MMM d, yyyy')} · Synced with staff revenue reports
+                {activePeriod.sublabel} · {breakdownBookings.length} booking{breakdownBookings.length !== 1 ? 's' : ''}
               </p>
             </div>
             <div className="text-right shrink-0">
-              <p className="text-xl font-bold text-primary">{formatCurrencySync(weekTotal, currency)}</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                {weekBookings.length} booking{weekBookings.length !== 1 ? 's' : ''}
-              </p>
+              <p className="text-2xl font-bold text-primary tabular-nums">{formatCurrencySync(breakdownTotal, currency)}</p>
+              {bdPayMethods.length > 0 && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {bdPayMethods.map(m => `${m.label}: ${formatCurrencySync(m.amount, currency)}`).join(' · ')}
+                </p>
+              )}
             </div>
           </div>
+
+          {/* ── Mode switcher tabs ── */}
+          <div className="flex items-center gap-1 mb-4">
+            {(['week', 'month', 'year'] as const).map(mode => (
+              <button
+                key={mode}
+                onClick={() => setBreakdownMode(mode)}
+                className={cn(
+                  'px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all',
+                  breakdownMode === mode
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+                )}
+              >
+                {mode === 'week' ? 'Weekly' : mode === 'month' ? 'Monthly' : 'Yearly'}
+              </button>
+            ))}
+            <div className="flex-1" />
+            {/* ── Period selector ── */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground border rounded-lg px-3 py-1.5 hover:bg-muted/40 transition-all">
+                  <Calendar className="w-3.5 h-3.5" />
+                  {breakdownMode === 'week' ? weekOptions[selectedWeekIdx].label
+                    : breakdownMode === 'month' ? monthOptions[selectedMonthIdx].label
+                    : yearOptions[selectedYearIdx].label}
+                  <ChevronDown className="w-3 h-3 opacity-50" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48 max-h-72 overflow-y-auto">
+                {(breakdownMode === 'week' ? weekOptions : breakdownMode === 'month' ? monthOptions : yearOptions).map((opt, i) => (
+                  <DropdownMenuItem
+                    key={i}
+                    onClick={() => {
+                      if (breakdownMode === 'week') setSelectedWeekIdx(i)
+                      else if (breakdownMode === 'month') setSelectedMonthIdx(i)
+                      else setSelectedYearIdx(i)
+                    }}
+                    className={cn(selectedIdx === i && 'font-semibold text-primary bg-primary/5')}
+                  >
+                    {opt.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          {/* ── Stats bar ── */}
+          {bdPayMethods.length > 0 && (
+            <div className="mb-4 rounded-xl bg-muted/30 px-4 py-3">
+              {/* Segmented revenue bar */}
+              <div className="h-2 w-full rounded-full overflow-hidden flex gap-px mb-3">
+                {bdPayMethods.map(m => (
+                  <div key={m.key} className="h-full rounded-full transition-all duration-700"
+                    style={{ width: `${bdPayTotal > 0 ? (m.amount / bdPayTotal) * 100 : 0}%`, backgroundColor: m.color }} />
+                ))}
+              </div>
+              {/* Method chips */}
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                {bdPayMethods.map(m => (
+                  <div key={m.key} className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${m.dot} shrink-0`} />
+                    <span className="text-[11px] text-muted-foreground">{m.label}</span>
+                    <span className="text-[11px] font-bold tabular-nums">{formatCurrencySync(m.amount, currency)}</span>
+                    <span className="text-[10px] text-muted-foreground/70">({m.count})</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Expand/collapse toggle ── */}
+          <button
+            onClick={() => setIsTableExpanded(v => !v)}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all group"
+          >
+            <ChevronDown className={cn('w-4 h-4 transition-transform duration-300', isTableExpanded && 'rotate-180')} />
+            {isTableExpanded
+              ? `Hide ${breakdownBookings.length} entr${breakdownBookings.length !== 1 ? 'ies' : 'y'}`
+              : `Show ${breakdownBookings.length} entr${breakdownBookings.length !== 1 ? 'ies' : 'y'}`}
+            <ChevronDown className={cn('w-4 h-4 transition-transform duration-300', isTableExpanded && 'rotate-180')} />
+          </button>
         </CardHeader>
+
+        {/* ── Table (collapsible) ── */}
+        {isTableExpanded && (
         <CardContent className="p-0">
-          {weekBookings.length === 0 ? (
+          {breakdownBookings.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-14 text-muted-foreground">
               <Calendar className="w-10 h-10 mb-3 opacity-25" />
-              <p className="text-sm font-medium">No check-ins or check-outs this week</p>
+              <p className="text-sm font-medium">No bookings found for this period</p>
+              <p className="text-xs text-muted-foreground mt-1">Try selecting a different {breakdownMode}</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -568,10 +915,21 @@ export function AnalyticsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
-                  {weekBookings.map((b, i) => {
+                  {breakdownBookings.map((b, i) => {
                     const staffName = b.status === 'checked-out'
                       ? (b.checkOutByName || b.checkInByName || b.createdByName)
                       : (b.checkInByName || b.createdByName)
+                    const rawPay = (b.paymentMethod || b.payment?.method || (b as any).payment_method || '').trim().toLowerCase()
+                    const payMap: Record<string, { label: string; cls: string }> = {
+                      cash:         { label: '💵 Cash',         cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:ring-emerald-800' },
+                      mobile_money: { label: '📱 Mobile Money', cls: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:ring-blue-800' },
+                      card:         { label: '💳 Card',          cls: 'bg-purple-50 text-purple-700 ring-1 ring-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:ring-purple-800' },
+                    }
+                    const normKey = rawPay === 'cash' ? 'cash'
+                      : (rawPay === 'mobile_money' || rawPay === 'mobile money' || rawPay.includes('mobile') || rawPay.includes('momo')) ? 'mobile_money'
+                      : (rawPay === 'card' || rawPay.includes('card') || rawPay.includes('credit') || rawPay.includes('debit')) ? 'card'
+                      : ''
+                    const payEntry = normKey ? payMap[normKey] : null
                     return (
                       <tr key={b.id || i} className="hover:bg-muted/30 transition-colors">
                         <td className="px-4 py-3 text-xs text-muted-foreground">{i + 1}</td>
@@ -583,24 +941,23 @@ export function AnalyticsPage() {
                         <td className="px-4 py-3 text-muted-foreground tabular-nums">{b.dates.checkOut}</td>
                         <td className="px-4 py-3 text-muted-foreground">{staffName || '—'}</td>
                         <td className="px-4 py-3">
-                          {(() => {
-                            const raw = (b.paymentMethod || b.payment?.method || (b as any).payment_method || '').trim().toLowerCase()
-                            const payMap: Record<string, { label: string; cls: string }> = {
-                              cash:         { label: '💵 Cash',         cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' },
-                              mobile_money: { label: '📱 Mobile Money', cls: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' },
-                              card:         { label: '💳 Card',          cls: 'bg-purple-50 text-purple-700 ring-1 ring-purple-200' },
-                              not_paid:     { label: '⏳ Not Paid',      cls: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200' },
-                            }
-                            const norm = raw === 'cash' ? 'cash'
-                              : (raw === 'mobile_money' || raw === 'mobile money' || raw.includes('mobile')) ? 'mobile_money'
-                              : (raw === 'card' || raw.includes('card') || raw.includes('credit') || raw.includes('debit')) ? 'card'
-                              : (raw === 'not_paid' || raw === 'not paid') ? 'not_paid'
-                              : ''
-                            const entry = norm ? payMap[norm] : null
-                            return entry
-                              ? <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${entry.cls}`}>{entry.label}</span>
-                              : <span className="text-xs text-muted-foreground">—</span>
-                          })()}
+                          {(b as any).paymentSplits?.length > 1 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {(b as any).paymentSplits.map((s: any, si: number) => {
+                                const splitKey = normPay(s.method)
+                                const splitEntry = splitKey ? payMap[splitKey] : null
+                                return splitEntry ? (
+                                  <span key={si} className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${splitEntry.cls}`}>
+                                    {splitEntry.label.split(' ')[0]} {formatCurrencySync(Number(s.amount) || 0, currency)}
+                                  </span>
+                                ) : null
+                              })}
+                            </div>
+                          ) : payEntry ? (
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${payEntry.cls}`}>{payEntry.label}</span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <span className={cn(
@@ -622,10 +979,10 @@ export function AnalyticsPage() {
                 <tfoot>
                   <tr className="bg-muted/40 border-t-2 border-border">
                     <td colSpan={8} className="px-4 py-3 text-xs font-semibold text-right text-muted-foreground">
-                      TOTAL ({weekBookings.length} bookings)
+                      TOTAL ({breakdownBookings.length} booking{breakdownBookings.length !== 1 ? 's' : ''})
                     </td>
-                    <td className="px-4 py-3 text-right font-bold text-primary">
-                      {formatCurrencySync(weekTotal, currency)}
+                    <td className="px-4 py-3 text-right font-bold text-primary tabular-nums">
+                      {formatCurrencySync(breakdownTotal, currency)}
                     </td>
                   </tr>
                 </tfoot>
@@ -633,6 +990,7 @@ export function AnalyticsPage() {
             </div>
           )}
         </CardContent>
+        )}
       </Card>
 
       {/* ── Top Guests ──────────────────────────────────────────────────── */}
@@ -705,9 +1063,9 @@ export function AnalyticsPage() {
           </CardHeader>
           <CardContent className="space-y-2.5">
             {([
-              { label: 'This Week',  value: revenue?.revenueByPeriod.thisWeek  || 0, pm: revenue?.revenueByPaymentMethodByPeriod?.thisWeek,  highlight: true },
-              { label: 'This Month', value: revenue?.revenueByPeriod.thisMonth || 0, pm: revenue?.revenueByPaymentMethodByPeriod?.thisMonth, highlight: false },
-              { label: 'This Year',  value: revenue?.revenueByPeriod.thisYear  || 0, pm: revenue?.revenueByPaymentMethodByPeriod?.thisYear,  highlight: false },
+              { label: 'This Week',  value: pageRevThisWeek,  pm: revenue?.revenueByPaymentMethodByPeriod?.thisWeek,  highlight: true },
+              { label: 'This Month', value: pageRevThisMonth, pm: revenue?.revenueByPaymentMethodByPeriod?.thisMonth, highlight: false },
+              { label: 'This Year',  value: pageRevThisYear,  pm: revenue?.revenueByPaymentMethodByPeriod?.thisYear,  highlight: false },
             ] as Array<{ label: string; value: number; pm: any; highlight: boolean }>).map(({ label, value, pm, highlight }) => {
               const methods = pm ? [
                 { key: 'cash', label: 'Cash',  amount: pm.cash,        count: pm.cashCount,        color: '#10b981', dot: 'bg-emerald-500' },

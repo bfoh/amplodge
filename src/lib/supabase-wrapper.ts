@@ -216,6 +216,7 @@ export const db = {
     hr_performance_reviews: createTableWrapper('hr_performance_reviews'),
     hr_job_applications: createTableWrapper('hr_job_applications'),
     hr_weekly_revenue: createTableWrapper('hr_weekly_revenue'),
+    standaloneSales: createTableWrapper('standalone_sales'),
 }
 
 // Auth wrapper that matches Blink's auth interface

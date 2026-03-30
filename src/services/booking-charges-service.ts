@@ -22,6 +22,7 @@ export interface CreateChargeData {
     quantity: number
     unitPrice: number
     notes?: string
+    paymentMethod?: string  // 'cash' | 'mobile_money' | 'card'
     createdBy?: string
 }
 
@@ -31,6 +32,31 @@ export interface UpdateChargeData {
     quantity?: number
     unitPrice?: number
     notes?: string
+    paymentMethod?: string
+}
+
+// ─── Payment method helpers ────────────────────────────────────────────────────
+// payment_method is stored as a dedicated column in the DB.
+// Legacy: some old charges may have <!-- CHARGE_PAY:xxx --> encoded in notes.
+
+function decodePaymentMethodFromNotes(rawNotes: string | undefined | null): { notes: string; paymentMethod: string } {
+    if (!rawNotes) return { notes: '', paymentMethod: '' }
+    const match = rawNotes.match(/<!-- CHARGE_PAY:(.*?) -->/)
+    const paymentMethod = match?.[1] || ''
+    const notes = rawNotes.replace(/\s*<!-- CHARGE_PAY:.*? -->\s*/, '').trim()
+    return { notes, paymentMethod }
+}
+
+/** Enrich a raw DB charge row — reads paymentMethod from dedicated column, falls back to legacy notes encoding */
+function enrichCharge(raw: any): BookingCharge {
+    // Direct column takes priority (new charges)
+    if (raw.paymentMethod) {
+        const cleanNotes = raw.notes ? raw.notes.replace(/\s*<!-- CHARGE_PAY:.*? -->\s*/, '').trim() : undefined
+        return { ...raw, notes: cleanNotes || undefined }
+    }
+    // Legacy fallback: decode from notes field
+    const { notes, paymentMethod } = decodePaymentMethodFromNotes(raw.notes)
+    return { ...raw, notes: notes || undefined, paymentMethod: paymentMethod || undefined }
 }
 
 class BookingChargesService {
@@ -45,7 +71,7 @@ class BookingChargesService {
                 orderBy: { createdAt: 'desc' },
                 limit: 100
             })
-            return charges
+            return (charges || []).map(enrichCharge)
         } catch (error) {
             console.error('[BookingChargesService] Error fetching charges:', error)
             return []
@@ -65,7 +91,6 @@ class BookingChargesService {
      */
     async addCharge(data: CreateChargeData): Promise<BookingCharge | null> {
         try {
-            // Calculate amount from quantity and unit price
             const amount = data.quantity * data.unitPrice
 
             const charge = await db.bookingCharges.create({
@@ -76,12 +101,13 @@ class BookingChargesService {
                 unitPrice: data.unitPrice,
                 amount: amount,
                 notes: data.notes || null,
+                paymentMethod: data.paymentMethod || 'cash',
                 createdBy: data.createdBy || null,
                 createdAt: new Date().toISOString()
             })
 
             console.log('[BookingChargesService] Charge added:', charge.id)
-            return charge
+            return enrichCharge(charge)
         } catch (error) {
             console.error('[BookingChargesService] Error adding charge:', error)
             throw error
@@ -93,31 +119,29 @@ class BookingChargesService {
      */
     async updateCharge(chargeId: string, data: UpdateChargeData): Promise<BookingCharge | null> {
         try {
-            // Get the current charge to check booking status
             const existingCharge = await db.bookingCharges.get(chargeId)
-            if (!existingCharge) {
-                throw new Error('Charge not found')
-            }
+            if (!existingCharge) throw new Error('Charge not found')
 
-            // Check if booking is checked-out (charges should be locked)
             const booking = await db.bookings.get(existingCharge.bookingId)
             if (booking?.status === 'checked-out') {
                 throw new Error('Cannot edit charges for a checked-out booking')
             }
 
-            // Recalculate amount if quantity or unitPrice changed
             const quantity = data.quantity ?? existingCharge.quantity
             const unitPrice = data.unitPrice ?? existingCharge.unitPrice
             const amount = quantity * unitPrice
 
+            const { paymentMethod: _pm, notes: _n, ...rest } = data  // strip from spread
             const updated = await db.bookingCharges.update(chargeId, {
-                ...data,
+                ...rest,
+                notes: data.notes !== undefined ? (data.notes || null) : existingCharge.notes,
+                paymentMethod: data.paymentMethod || existingCharge.paymentMethod || 'cash',
                 amount,
                 updatedAt: new Date().toISOString()
             })
 
             console.log('[BookingChargesService] Charge updated:', chargeId)
-            return updated
+            return enrichCharge(updated)
         } catch (error) {
             console.error('[BookingChargesService] Error updating charge:', error)
             throw error
@@ -129,13 +153,9 @@ class BookingChargesService {
      */
     async deleteCharge(chargeId: string): Promise<boolean> {
         try {
-            // Get the charge to check booking status
             const existingCharge = await db.bookingCharges.get(chargeId)
-            if (!existingCharge) {
-                throw new Error('Charge not found')
-            }
+            if (!existingCharge) throw new Error('Charge not found')
 
-            // Check if booking is checked-out
             const booking = await db.bookings.get(existingCharge.bookingId)
             if (booking?.status === 'checked-out') {
                 throw new Error('Cannot delete charges for a checked-out booking')
@@ -162,7 +182,6 @@ class BookingChargesService {
         const charges = await this.getChargesForBooking(bookingId)
         const totalCharges = charges.reduce((sum, c) => sum + (c.amount || 0), 0)
 
-        // Get booking to get room cost
         const booking = await db.bookings.get(bookingId)
         const roomCost = booking?.totalPrice || 0
 

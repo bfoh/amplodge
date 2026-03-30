@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
-import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, List, LayoutGrid, Filter, Users } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, List, LayoutGrid, Filter, Users, X as XIcon } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { blink } from '../../blink/client'
 import { cn } from '../../lib/utils'
 import { getRoomDisplayName, calculateNights } from '../../lib/display'
@@ -23,7 +24,7 @@ import { CalendarTimeline } from '../../components/CalendarTimeline'
 import { CalendarGridView } from '../../components/CalendarGridView'
 import { CalendarListView } from '../../components/CalendarListView'
 import { useCurrency } from '@/hooks/use-currency'
-import { formatCurrencySync } from '@/lib/utils'
+import { formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
 
 type ViewMode = 'timeline' | 'grid' | 'list'
 
@@ -56,7 +57,8 @@ export function CalendarPage() {
     notes: '',
     paymentMethod: 'Not paid',
     paymentType: 'full' as 'full' | 'part' | 'later',
-    amountPaid: 0
+    amountPaid: 0,
+    paymentSplits: [{ method: 'cash', amount: 0 }]
   })
   const [submitting, setSubmitting] = useState(false)
 
@@ -82,7 +84,7 @@ export function CalendarPage() {
         const rn = String(p.roomNumber || '').trim()
         const roomMatch = rn ? roomByNumber.get(rn) : null
         return {
-          id: roomMatch?.id || (rn ? `room-${rn.toLowerCase().replace(/[^a-z0-9]/g, '-')}` : p.id), // prefer room.id so bookings map correctly
+          id: (roomMatch as any)?.id || (rn ? `room-${rn.toLowerCase().replace(/[^a-z0-9]/g, '-')}` : p.id), // prefer room.id so bookings map correctly
           roomNumber: rn || p.name || '',
           name: p.name || rn || 'Room',
           maxGuests: Number(p.maxGuests || 0),
@@ -225,7 +227,13 @@ export function CalendarPage() {
     const selectedRoomType = roomTypes.find((rt: any) => rt.id === selectedProperty.propertyTypeId)
     const pricePerNight = Number(selectedRoomType?.basePrice) || 0
     const calculatedPrice = nights * pricePerNight
-    setFormData(prev => ({ ...prev, totalPrice: calculatedPrice }))
+    setFormData(prev => {
+      let newSplits = prev.paymentSplits
+      if (prev.paymentType === 'full' && newSplits.length === 1) {
+        newSplits = [{ ...newSplits[0], amount: calculatedPrice }]
+      }
+      return { ...prev, totalPrice: calculatedPrice, paymentSplits: newSplits }
+    })
   }, [formData.propertyId, formData.checkIn, formData.checkOut, properties, roomTypes])
 
   // --- Month helpers ---
@@ -293,6 +301,16 @@ export function CalendarPage() {
       console.log('[CalendarPage] Staff data:', staffData)
       console.log('[CalendarPage] Final createdBy for booking:', createdBy)
 
+      const primaryPaymentMethod = formData.paymentType === 'later'
+        ? 'Not paid'
+        : formData.paymentSplits.reduce((prev, current) => (Number(current.amount) || 0) > (Number(prev.amount) || 0) ? current : prev, formData.paymentSplits[0]).method
+      
+      const splitsPaidTotal = formData.paymentSplits.reduce((sum, split) => sum + (Number(split.amount) || 0), 0)
+      
+      const paymentSplitsData = formData.paymentType !== 'later' && formData.paymentSplits.filter(s => (Number(s.amount) || 0) > 0).length > 1
+        ? formData.paymentSplits.filter(s => (Number(s.amount) || 0) > 0).map(s => ({ method: s.method, amount: Number(s.amount) || 0 }))
+        : undefined
+
       await bookingEngine.createBooking({
         guest: {
           fullName: formData.guestName,
@@ -308,9 +326,11 @@ export function CalendarPage() {
         status: 'confirmed',
         source: 'reception',
         notes: formData.notes,
-        payment_method: formData.paymentType === 'later' ? 'Not paid' : formData.paymentMethod,
-        amountPaid: formData.paymentType === 'full' ? formData.totalPrice : formData.paymentType === 'part' ? formData.amountPaid : 0,
+        payment_method: primaryPaymentMethod,
+        amountPaid: formData.paymentType === 'full' ? formData.totalPrice : formData.paymentType === 'part' ? splitsPaidTotal : 0,
         paymentStatus: formData.paymentType === 'full' ? 'full' : formData.paymentType === 'part' ? 'part' : 'pending',
+        paymentMethod: primaryPaymentMethod,
+        paymentSplits: paymentSplitsData,
         createdBy: createdBy
       })
 
@@ -330,7 +350,8 @@ export function CalendarPage() {
         notes: '',
         paymentMethod: 'Not paid',
         paymentType: 'full',
-        amountPaid: 0
+        amountPaid: 0,
+        paymentSplits: [{ method: 'cash', amount: 0 }]
       })
       // Reload data to refresh calendar timeline with new booking
       await loadData()
@@ -576,7 +597,17 @@ export function CalendarPage() {
                             ? `${opt.color} ring-2 ring-offset-1 ring-primary/30`
                             : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
                           }`}
-                        onClick={() => setFormData({ ...formData, paymentType: opt.value as any })}
+                        onClick={() => {
+                          let newSplits = [...formData.paymentSplits]
+                          if (opt.value === 'full') {
+                            newSplits = [{ method: formData.paymentSplits[0]?.method === 'not_paid' ? 'cash' : (formData.paymentSplits[0]?.method || 'cash'), amount: formData.totalPrice }]
+                          } else if (opt.value === 'part') {
+                            newSplits = [{ method: 'cash', amount: 0 }]
+                          } else {
+                            newSplits = [{ method: 'cash', amount: 0 }]
+                          }
+                          setFormData({ ...formData, paymentType: opt.value as any, paymentSplits: newSplits })
+                        }}
                       >
                         {opt.label}
                       </button>
@@ -584,39 +615,83 @@ export function CalendarPage() {
                   </div>
                 </div>
 
+                {/* Split Payment Rows */}
                 {formData.paymentType !== 'later' && (
-                  <div className="space-y-2">
-                    <Label htmlFor="paymentMethod">Payment Method</Label>
-                    <select
-                      id="paymentMethod"
-                      className="w-full px-3 py-2 border rounded-md"
-                      value={formData.paymentMethod}
-                      onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
+                  <div className="space-y-2 pt-1">
+                    <Label className="block text-sm font-medium">
+                      {formData.paymentType === 'full' ? 'Payment Method' : 'Payment Method(s) & Amounts'}
+                    </Label>
+                    {formData.paymentSplits.map((split, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Select value={split.method} onValueChange={v => setFormData(prev => ({ ...prev, paymentSplits: prev.paymentSplits.map((s, j) => j === i ? { ...s, method: v } : s) }))}>
+                          <SelectTrigger className="w-44 shrink-0 h-10">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="cash">💵 Cash</SelectItem>
+                            <SelectItem value="mobile_money">📱 Mobile Money</SelectItem>
+                            <SelectItem value="card">💳 Card</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <div className="relative flex-1">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                            {getCurrencySymbol(currency)}
+                          </span>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={split.amount || ''}
+                            onChange={e => {
+                              const val = parseFloat(e.target.value) || 0
+                              setFormData(prev => ({ ...prev, paymentSplits: prev.paymentSplits.map((s, j) => j === i ? { ...s, amount: val } : s) }))
+                            }}
+                            className="pl-8 h-10"
+                          />
+                        </div>
+                        {formData.paymentSplits.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, paymentSplits: prev.paymentSplits.filter((_, j) => j !== i) }))}
+                            className="text-destructive hover:text-destructive/80 p-1 rounded hover:bg-destructive/10 transition-colors shrink-0"
+                          >
+                            <XIcon className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {/* Running total for multi-splits */}
+                    {formData.paymentSplits.length > 1 && (() => {
+                      const splitTotal = formData.paymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+                      const diff = (formData.paymentType === 'full' ? formData.totalPrice : 0) - splitTotal
+                      return (
+                        <div className="flex justify-between text-xs px-1">
+                          <span className="text-muted-foreground">Splits total</span>
+                          <span className={diff === 0 || formData.paymentType === 'part' ? 'text-emerald-600 font-semibold' : 'text-amber-600 font-semibold'}>
+                            {formatCurrencySync(splitTotal, currency)}
+                            {formData.paymentType === 'full' && diff > 0 && ` · ${formatCurrencySync(diff, currency)} short`}
+                            {formData.paymentType === 'full' && diff < 0 && ` · ${formatCurrencySync(Math.abs(diff), currency)} over`}
+                            {(formData.paymentType === 'part' || diff === 0) && ' ✓'}
+                          </span>
+                        </div>
+                      )
+                    })()}
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, paymentSplits: [...prev.paymentSplits, { method: 'cash', amount: 0 }] }))}
+                      className="flex items-center gap-1.5 text-xs text-primary hover:underline mt-2"
                     >
-                      <option value="Cash">Cash</option>
-                      <option value="Mobile Money">Mobile Money</option>
-                      <option value="Credit/Debit Card">Credit/Debit Card</option>
-                    </select>
-                  </div>
-                )}
-
-                {formData.paymentType === 'part' && (
-                  <div className="space-y-2">
-                    <Label htmlFor="amountPaid">Amount Paid</Label>
-                    <Input
-                      id="amountPaid"
-                      type="number"
-                      min="0"
-                      max={formData.totalPrice}
-                      step="0.01"
-                      value={formData.amountPaid}
-                      onChange={(e) => setFormData({ ...formData, amountPaid: parseFloat(e.target.value) || 0 })}
-                      placeholder="Enter amount paid"
-                    />
-                    {formData.amountPaid > 0 && formData.totalPrice > 0 && (
-                      <div className="flex items-center justify-between text-sm p-2 bg-amber-50 border border-amber-200 rounded-md">
+                      <Plus className="w-3.5 h-3.5" />
+                      Add another payment method
+                    </button>
+                    
+                    {/* Remaining balance for part payment */}
+                    {formData.paymentType === 'part' && formData.totalPrice > 0 && (
+                      <div className="flex items-center justify-between text-sm p-2 bg-amber-50 border border-amber-200 rounded-md mt-2">
                         <span className="text-amber-800">Remaining Balance:</span>
-                        <span className="font-bold text-red-600">{formatCurrencySync(Math.max(0, formData.totalPrice - formData.amountPaid), currency)}</span>
+                        <span className="font-bold text-red-600">
+                          {formatCurrencySync(Math.max(0, formData.totalPrice - formData.paymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0)), currency)}
+                        </span>
                       </div>
                     )}
                   </div>

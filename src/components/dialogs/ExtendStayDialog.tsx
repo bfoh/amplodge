@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { CalendarIcon, AlertTriangle, CheckCircle2, ArrowRight, Loader2, Tag } from 'lucide-react'
+import { CalendarIcon, AlertTriangle, CheckCircle2, ArrowRight, Loader2, Tag, X, Plus, CreditCard } from 'lucide-react'
 import { toast } from 'sonner'
 import { stayExtensionService, AvailableRoom, RoomAvailability } from '@/services/stay-extension-service'
 import { sendStayExtensionNotification } from '@/services/notifications'
@@ -82,6 +82,10 @@ export function ExtendStayDialog({
     const [discountAmount, setDiscountAmount] = useState<string>('')
     const [discountReason, setDiscountReason] = useState<string>('')
 
+    // Payment state
+    const [paymentType, setPaymentType] = useState<'full' | 'part' | 'later'>('later')
+    const [paymentSplits, setPaymentSplits] = useState<Array<{ method: string; amount: number }>>([{ method: 'cash', amount: 0 }])
+
     // Calculate minimum date (day after current checkout)
     const minDate = format(addDays(new Date(booking.checkOut), 1), 'yyyy-MM-dd')
     const currentCheckout = format(new Date(booking.checkOut), 'MMM dd, yyyy')
@@ -113,6 +117,8 @@ export function ExtendStayDialog({
             setShowRoomSelector(false)
             setDiscountAmount('')
             setDiscountReason('')
+            setPaymentType('later')
+            setPaymentSplits([{ method: 'cash', amount: 0 }])
         }
     }, [open, room.id, room.price, booking.checkIn, booking.checkOut, booking.totalPrice])
 
@@ -197,6 +203,10 @@ export function ExtendStayDialog({
             return
         }
 
+        const validSplits = paymentType !== 'later' && paymentSplits.filter(s => s.amount > 0).length > 0
+            ? paymentSplits.filter(s => s.amount > 0)
+            : undefined
+
         setIsExtending(true)
         try {
             const result = await stayExtensionService.extendStay(
@@ -205,14 +215,15 @@ export function ExtendStayDialog({
                 selectedRoomId || undefined,
                 user?.id || undefined, // userId if needed
                 discount > 0 ? discount : undefined,
-                discount > 0 && discountReason ? discountReason : undefined
+                discount > 0 && discountReason ? discountReason : undefined,
+                validSplits
             )
 
             if (result.success) {
                 // Send notification to guest
                 try {
                     await sendStayExtensionNotification(
-                        guest,
+                        { ...guest, phone: guest.phone || '' },
                         room,
                         {
                             id: booking.id,
@@ -403,6 +414,127 @@ export function ExtendStayDialog({
                                 <div className="text-red-600 bg-red-50 p-3 rounded-lg">
                                     <p className="font-medium">No rooms available</p>
                                     <p className="text-sm">There are no alternative rooms available for this period.</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    
+                    {/* Payment Type */}
+                    {additionalNights > 0 && (
+                        <div className="space-y-4 pt-4 border-t">
+                            <div className="space-y-2">
+                                <Label>Payment for Extension</Label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {[
+                                        { value: 'full', label: '💵 Full', color: 'bg-emerald-50 border-emerald-300 text-emerald-800' },
+                                        { value: 'part', label: '💰 Part', color: 'bg-amber-50 border-amber-300 text-amber-800' },
+                                        { value: 'later', label: '⏳ Later', color: 'bg-gray-50 border-gray-300 text-gray-700' }
+                                    ].map((opt) => (
+                                        <button
+                                            key={opt.value}
+                                            type="button"
+                                            className={`px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all ${paymentType === opt.value
+                                                    ? `${opt.color} ring-2 ring-offset-1 ring-primary/30`
+                                                    : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+                                                }`}
+                                            onClick={() => {
+                                                let newSplits = [...paymentSplits]
+                                                if (opt.value === 'full') {
+                                                    newSplits = [{ method: paymentSplits[0]?.method === 'not_paid' ? 'cash' : (paymentSplits[0]?.method || 'cash'), amount: displayCost }]
+                                                } else if (opt.value === 'part') {
+                                                    newSplits = [{ method: 'cash', amount: 0 }]
+                                                } else {
+                                                    newSplits = [{ method: 'cash', amount: 0 }]
+                                                }
+                                                setPaymentType(opt.value as any)
+                                                setPaymentSplits(newSplits)
+                                            }}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Split Payment Rows */}
+                            {paymentType !== 'later' && (
+                                <div className="space-y-2 pt-1">
+                                    <Label className="block text-sm font-medium">
+                                        {paymentType === 'full' ? 'Payment Method' : 'Payment Method(s) & Amounts'}
+                                    </Label>
+                                    {paymentSplits.map((split, i) => (
+                                        <div key={i} className="flex items-center gap-2">
+                                            <Select value={split.method} onValueChange={v => setPaymentSplits(paymentSplits.map((s, j) => j === i ? { ...s, method: v } : s))}>
+                                                <SelectTrigger className="w-36 shrink-0 h-10">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="cash">💵 Cash</SelectItem>
+                                                    <SelectItem value="mobile_money">📱 Mobile Cash</SelectItem>
+                                                    <SelectItem value="card">💳 Card</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            <div className="relative flex-1">
+                                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                                                    {getCurrencySymbol(currency)}
+                                                </span>
+                                                <Input
+                                                    type="number"
+                                                    min="0"
+                                                    step="1"
+                                                    value={split.amount || ''}
+                                                    onChange={e => {
+                                                        const val = parseFloat(e.target.value) || 0
+                                                        setPaymentSplits(paymentSplits.map((s, j) => j === i ? { ...s, amount: val } : s))
+                                                    }}
+                                                    className="pl-8 h-10"
+                                                />
+                                            </div>
+                                            {paymentSplits.length > 1 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setPaymentSplits(paymentSplits.filter((_, j) => j !== i))}
+                                                    className="text-destructive hover:text-destructive/80 p-1 rounded hover:bg-destructive/10 transition-colors shrink-0"
+                                                >
+                                                    <X className="w-4 h-4" />
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+                                    {/* Running total for multi-splits */}
+                                    {paymentSplits.length > 1 && (() => {
+                                        const splitTotal = paymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+                                        const diff = (paymentType === 'full' ? displayCost : 0) - splitTotal
+                                        return (
+                                            <div className="flex justify-between text-xs px-1">
+                                                <span className="text-muted-foreground">Splits total</span>
+                                                <span className={diff === 0 || paymentType === 'part' ? 'text-emerald-600 font-semibold' : 'text-amber-600 font-semibold'}>
+                                                    {formatCurrencySync(splitTotal, currency)}
+                                                    {paymentType === 'full' && diff > 0 && ` · ${formatCurrencySync(diff, currency)} short`}
+                                                    {paymentType === 'full' && diff < 0 && ` · ${formatCurrencySync(Math.abs(diff), currency)} over`}
+                                                    {(paymentType === 'part' || diff === 0) && ' ✓'}
+                                                </span>
+                                            </div>
+                                        )
+                                    })()}
+                                    <button
+                                        type="button"
+                                        onClick={() => setPaymentSplits([...paymentSplits, { method: 'cash', amount: 0 }])}
+                                        className="flex items-center gap-1.5 text-xs text-primary hover:underline mt-2"
+                                    >
+                                        <Plus className="w-3.5 h-3.5" />
+                                        Add another method
+                                    </button>
+
+                                    {/* Remaining balance for part payment */}
+                                    {paymentType === 'part' && displayCost > 0 && (
+                                        <div className="flex items-center justify-between text-sm p-2 bg-amber-50 border border-amber-200 rounded-md mt-2">
+                                            <span className="text-amber-800">Remaining Cost:</span>
+                                            <span className="font-bold text-red-600">
+                                                {formatCurrencySync(Math.max(0, displayCost - paymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0)), currency)}
+                                            </span>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

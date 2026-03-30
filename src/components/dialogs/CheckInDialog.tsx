@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { format, parseISO } from 'date-fns'
 import {
     Dialog,
@@ -14,8 +14,9 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
-import { useCheckIn, CheckInOptions } from '@/hooks/use-check-in'
-import { Percent, Tag } from 'lucide-react'
+import { useCheckIn } from '@/hooks/use-check-in'
+import { Tag, Plus, X } from 'lucide-react'
+import type { PaymentSplit } from '@/types'
 
 interface CheckInDialogProps {
     open: boolean
@@ -47,33 +48,24 @@ export function CheckInDialog({
 }: CheckInDialogProps) {
     const { currency } = useCurrency()
     const { checkIn, isProcessing } = useCheckIn()
-    const [paymentMethod, setPaymentMethod] = useState<string>('cash')
+    const [splits, setSplits] = useState<Array<{ method: string; amount: number }>>(
+        [{ method: 'cash', amount: 0 }]
+    )
     const [discountAmount, setDiscountAmount] = useState<string>('')
     const [discountReason, setDiscountReason] = useState<string>('')
 
-    // Reset form when dialog opens
-    useEffect(() => {
-        if (open) {
-            setPaymentMethod('Cash')
-            setDiscountAmount('')
-            setDiscountReason('')
-        }
-    }, [open])
-
-    if (!booking || !guest) return null
-
-    // Parse dates safely
-    const checkInDate = booking.checkIn || booking.dates?.checkIn
-    const checkOutDate = booking.checkOut || booking.dates?.checkOut
+    // Parse dates safely (safe even when booking is null)
+    const checkInDate = booking?.checkIn || booking?.dates?.checkIn
+    const checkOutDate = booking?.checkOut || booking?.dates?.checkOut
     const formattedCheckIn = checkInDate ? format(parseISO(checkInDate), 'PPP') : 'N/A'
     const formattedCheckOut = checkOutDate ? format(parseISO(checkOutDate), 'PPP') : 'N/A'
-    const totalAmount = booking.totalPrice || booking.amount || 0
-    const roomNumber = room?.roomNumber || booking.roomNumber || 'N/A'
+    const totalAmount = booking?.totalPrice || booking?.amount || 0
+    const roomNumber = room?.roomNumber || booking?.roomNumber || 'N/A'
 
-    // Prior payment tracking — try direct fields first, then parse from specialRequests metadata
-    let priorAmountPaid = booking.amountPaid || 0
-    let priorPaymentStatus = booking.paymentStatus || 'pending'
-    if (!priorAmountPaid) {
+    // Prior payment tracking
+    let priorAmountPaid = booking?.amountPaid || 0
+    let priorPaymentStatus = booking?.paymentStatus || 'pending'
+    if (!priorAmountPaid && booking) {
         const sr = booking.special_requests || booking.specialRequests || ''
         const pm = sr.match?.(/<!-- PAYMENT_DATA:(.*?) -->/)
         if (pm) {
@@ -85,21 +77,55 @@ export function CheckInDialog({
         }
     }
 
-    // Calculate final amount with discount and prior payment
     const discount = parseFloat(discountAmount) || 0
     const afterDiscount = Math.max(0, totalAmount - discount)
     const remainingBalance = Math.max(0, afterDiscount - priorAmountPaid)
-    const finalAmount = remainingBalance
     const discountError = discount > totalAmount ? 'Discount cannot exceed total amount' : ''
+
+    // Split helpers
+    const splitTotal = splits.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+    const splitRemaining = remainingBalance - splitTotal
+
+    const addSplit = () => setSplits(p => [...p, { method: 'cash', amount: 0 }])
+    const removeSplit = (i: number) => setSplits(p => p.filter((_, j) => j !== i))
+    const updateSplit = (i: number, key: 'method' | 'amount', val: any) =>
+        setSplits(p => p.map((s, j) => j === i ? { ...s, [key]: val } : s))
+
+    // Auto-fill first split with remaining balance when dialog opens or balance changes
+    // IMPORTANT: all useEffect calls must be before any early return (Rules of Hooks)
+    useEffect(() => {
+        if (open) {
+            setSplits([{ method: 'cash', amount: remainingBalance }])
+            setDiscountAmount('')
+            setDiscountReason('')
+        }
+    }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Keep first split's amount in sync when balance changes (only if single split)
+    useEffect(() => {
+        setSplits(prev => {
+            if (prev.length === 1) return [{ ...prev[0], amount: remainingBalance }]
+            return prev
+        })
+    }, [remainingBalance])
+
+    // Early return after all hooks
+    if (!booking || !guest) return null
 
     const handleConfirm = async () => {
         if (discountError) return
+
+        const primaryMethod = splits.reduce((a, b) => b.amount > a.amount ? b : a, splits[0]).method
+        const paymentSplitsArg: PaymentSplit[] | undefined = splits.filter(s => s.amount > 0).length > 1
+            ? splits.filter(s => s.amount > 0).map(s => ({ method: s.method as PaymentSplit['method'], amount: s.amount }))
+            : undefined
 
         const success = await checkIn({
             booking,
             room,
             guest,
-            paymentMethod,
+            paymentMethod: primaryMethod,
+            paymentSplits: paymentSplitsArg,
             discountAmount: discount > 0 ? discount : undefined,
             discountReason: discount > 0 && discountReason ? discountReason : undefined,
             user
@@ -254,19 +280,69 @@ export function CheckInDialog({
                         )}
                     </div>
 
-                    {/* Payment Method */}
+                    {/* Payment Method(s) */}
                     <div className="space-y-2">
                         <Label>Customer Paid By</Label>
-                        <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select payment method" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="cash">Cash</SelectItem>
-                                <SelectItem value="mobile_money">Mobile Money</SelectItem>
-                                <SelectItem value="card">Credit/Debit Card</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <div className="space-y-2">
+                            {splits.map((split, i) => (
+                                <div key={i} className="flex items-center gap-2">
+                                    <Select value={split.method} onValueChange={v => updateSplit(i, 'method', v)}>
+                                        <SelectTrigger className="w-44 shrink-0">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="cash">💵 Cash</SelectItem>
+                                            <SelectItem value="mobile_money">📱 Mobile Money</SelectItem>
+                                            <SelectItem value="card">💳 Card</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <div className="relative flex-1">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                                            {getCurrencySymbol(currency)}
+                                        </span>
+                                        <Input
+                                            type="number"
+                                            min="0"
+                                            step="1"
+                                            value={split.amount || ''}
+                                            onChange={e => updateSplit(i, 'amount', parseFloat(e.target.value) || 0)}
+                                            className="pl-8"
+                                        />
+                                    </div>
+                                    {splits.length > 1 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => removeSplit(i)}
+                                            className="text-destructive hover:text-destructive/80 p-1 rounded hover:bg-destructive/10 transition-colors shrink-0"
+                                        >
+                                            <X className="w-4 h-4" />
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+
+                            {/* Running total indicator when multiple splits */}
+                            {splits.length > 1 && (
+                                <div className="flex justify-between text-xs px-1">
+                                    <span className="text-muted-foreground">Splits total</span>
+                                    <span className={splitRemaining === 0 ? 'text-emerald-600 font-semibold' : 'text-amber-600 font-semibold'}>
+                                        {formatCurrencySync(splitTotal, currency)}
+                                        {splitRemaining > 0 && ` · ${formatCurrencySync(splitRemaining, currency)} short`}
+                                        {splitRemaining < 0 && ` · ${formatCurrencySync(Math.abs(splitRemaining), currency)} over`}
+                                        {splitRemaining === 0 && ' ✓'}
+                                    </span>
+                                </div>
+                            )}
+
+                            <button
+                                type="button"
+                                onClick={addSplit}
+                                className="flex items-center gap-1.5 text-xs text-primary hover:underline mt-1"
+                            >
+                                <Plus className="w-3.5 h-3.5" />
+                                Add another payment method
+                            </button>
+                        </div>
                     </div>
                 </div>
 

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { blink } from '@/blink/client'
 import { toast } from 'sonner'
 import { activityLogService } from '@/services/activity-log-service'
-import { Booking, Room, Guest } from '@/types'
+import { Booking, Room, Guest, PaymentSplit } from '@/types'
 
 // Define a standardized CheckInOptions interface
 export interface CheckInOptions {
@@ -10,6 +10,7 @@ export interface CheckInOptions {
     room: Room | any
     guest: Guest | any
     paymentMethod: string
+    paymentSplits?: PaymentSplit[] // Multiple payment methods when guest splits payment
     discountAmount?: number      // Discount applied at check-in
     discountReason?: string      // Reason for discount
     user?: any // Current user for logging
@@ -18,7 +19,7 @@ export interface CheckInOptions {
 export function useCheckIn() {
     const [isProcessing, setIsProcessing] = useState(false)
 
-    const checkIn = async ({ booking, room, guest, paymentMethod, discountAmount, discountReason, user }: CheckInOptions) => {
+    const checkIn = async ({ booking, room, guest, paymentMethod, paymentSplits, discountAmount, discountReason, user }: CheckInOptions) => {
         setIsProcessing(true)
         const db = (blink.db as any)
 
@@ -101,6 +102,13 @@ export function useCheckIn() {
                     status: 'checked-in',
                     actualCheckIn: new Date().toISOString(),
                     paymentMethod: paymentMethod
+                }
+
+                // Store split payment data in specialRequests (no DB column needed)
+                if (paymentSplits && paymentSplits.length > 1) {
+                    const existingReq = actualBooking?.special_requests || actualBooking?.specialRequests || ''
+                    const cleanedReq = existingReq.replace(/\s*<!-- PAYMENT_SPLITS:.*? -->/g, '')
+                    updateData.specialRequests = cleanedReq + `\n\n<!-- PAYMENT_SPLITS:${JSON.stringify(paymentSplits)} -->`
                 }
 
                 // Add discount fields if discount is applied
@@ -221,6 +229,7 @@ export function useCheckIn() {
                         actualCheckIn: new Date().toISOString(),
                         bookingId: bookingId,
                         paymentMethod,
+                        paymentSplits: paymentSplits || null,
                         originalAmount: totalPrice,
                         discountAmount: discountAmount || 0,
                         discountReason: discountReason || null,
