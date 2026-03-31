@@ -31,7 +31,7 @@ const DEFAULT_SETTINGS: HotelSettings = {
   currency: 'GHS',
   // Manager defaults - can be configured in settings
   managerEmail: 'manager@amplodge.org',
-  managerPhone: '+233555009697',
+  managerPhone: '+233248171409',
   managerNotificationsEnabled: true,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString()
