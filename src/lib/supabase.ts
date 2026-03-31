@@ -1,17 +1,55 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseDirectUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-if (!supabaseUrl || !supabaseAnonKey) {
+if (!supabaseDirectUrl || !supabaseAnonKey) {
     console.error('Missing Supabase environment variables')
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+// In production, intercept every Supabase fetch and route it through our Netlify
+// function proxy to fix geographic routing failures (Ghana → Ireland direct connection
+// times out). The path is passed as ?_sbpath=... so the function knows where to forward.
+function buildProxyFetch(directUrl: string) {
+    return (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
+        const controller = new AbortController()
+        const timeout = setTimeout(
+            () => controller.abort(new DOMException('Request timed out', 'TimeoutError')),
+            45000
+        )
+        const existingSignal = init.signal
+        if (existingSignal) {
+            existingSignal.addEventListener('abort', () => controller.abort(existingSignal.reason))
+        }
+
+        let fetchUrl = typeof input === 'string' ? input
+            : input instanceof URL ? input.href
+            : (input as Request).url
+
+        // Rewrite Supabase URLs → Netlify function proxy
+        if (import.meta.env.PROD && fetchUrl.startsWith(directUrl)) {
+            try {
+                const parsed = new URL(fetchUrl)
+                const proxyUrl = new URL('/.netlify/functions/supabase-proxy', window.location.origin)
+                proxyUrl.searchParams.set('_sbpath', parsed.pathname)
+                parsed.searchParams.forEach((v, k) => proxyUrl.searchParams.set(k, v))
+                fetchUrl = proxyUrl.toString()
+            } catch (_) { /* fall through to original url */ }
+        }
+
+        return fetch(fetchUrl, { ...init, signal: controller.signal })
+            .finally(() => clearTimeout(timeout))
+    }
+}
+
+export const supabase = createClient(supabaseDirectUrl, supabaseAnonKey, {
     auth: {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true
+    },
+    global: {
+        fetch: buildProxyFetch(supabaseDirectUrl)
     }
 })
 

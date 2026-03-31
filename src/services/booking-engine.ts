@@ -47,6 +47,7 @@ export interface LocalBooking {
   payment_method?: string
   paymentMethod?: string
   paymentSplits?: Array<{ method: string; amount: number }>
+  discountAmount?: number   // Discount applied at check-in (0 if none)
 
   // Group Booking Fields
   groupId?: string
@@ -1250,6 +1251,11 @@ class BookingEngine {
         }
       }
 
+      const discountAmt = Number(b.discountAmount || b.discount_amount || 0)
+      const effectiveAmount = (b.finalAmount != null || b.final_amount != null)
+        ? Number(b.finalAmount ?? b.final_amount ?? 0)
+        : Math.max(0, Number(b.totalPrice || 0) - discountAmt)
+
       const local: LocalBooking = {
         _id: localId,
         remoteId: remoteId || localId,
@@ -1266,12 +1272,13 @@ class BookingEngine {
           checkOut: b.checkOut,
         },
         numGuests: b.numGuests || 1,
-        amount: Number(b.totalPrice || 0),
+        amount: effectiveAmount,
+        discountAmount: discountAmt,
         status: b.status || 'confirmed',
         source: b.source || 'online',
         payment: payment ? {
           ...payment,
-          amount: Number(b.totalPrice || 0)
+          amount: effectiveAmount
         } : undefined,
         amountPaid,
         paymentStatus,

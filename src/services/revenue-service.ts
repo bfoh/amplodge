@@ -55,14 +55,16 @@ export interface BookingSummary {
   roomNumber: string
   checkIn: string
   checkOut: string
-  totalPrice: number
+  totalPrice: number       // Original room price before any discount
+  discountAmount: number   // Discount applied at check-in (0 if none)
+  effectivePrice: number   // totalPrice - discountAmount (actual room revenue)
   status: string
   createdAt: string
   paymentMethod: string   // 'cash' | 'mobile_money' | 'card' | 'not_paid'
   paymentSplits?: Array<{ method: string; amount: number }>
   additionalChargesTotal: number
   additionalCharges: ChargeLineSummary[]
-  grandTotal: number       // totalPrice + additionalChargesTotal
+  grandTotal: number       // effectivePrice + additionalChargesTotal
 }
 
 export interface StaffWeekResult {
@@ -233,20 +235,42 @@ export async function fetchBookingsForStaffWeek(
       }))
       const additionalChargesTotal = additionalCharges.reduce((s, c) => s + c.amount, 0)
 
+      const rawPrice = Number(b.totalPrice || 0)
+      const discountAmt = Number(b.discountAmount || b.discount_amount || 0)
+      // Use finalAmount (post-discount amount stored at check-in) when available,
+      // otherwise derive from rawPrice - discountAmt.
+      // Note: blink.db converts snake_case columns (final_amount, discount_amount)
+      // to camelCase so b.finalAmount / b.discountAmount are the canonical fields.
+      const storedFinal = b.finalAmount ?? b.final_amount
+      const effectivePrice = (storedFinal != null && storedFinal !== '')
+        ? Math.max(0, Number(storedFinal))
+        : discountAmt > 0
+          ? Math.max(0, rawPrice - discountAmt)
+          : rawPrice
+
+      if (discountAmt > 0 || (storedFinal != null && storedFinal !== '')) {
+        console.log('[revenue-service] discount booking', b.id, {
+          rawPrice, discountAmt, storedFinal, effectivePrice,
+          finalAmountKey: b.finalAmount, discountKey: b.discountAmount,
+        })
+      }
+
       return {
         id: b.id,
         guestName,
         roomNumber: room?.roomNumber || '—',
         checkIn: b.checkIn,
         checkOut: b.checkOut,
-        totalPrice: Number(b.totalPrice || 0),
+        totalPrice: rawPrice,
+        discountAmount: discountAmt,
+        effectivePrice,
         status: b.status,
         createdAt: b.createdAt || b.created_at || '',
         paymentMethod: normalizePaymentMethod(primaryMethod),
         paymentSplits,
         additionalCharges,
         additionalChargesTotal,
-        grandTotal: Number(b.totalPrice || 0) + additionalChargesTotal,
+        grandTotal: effectivePrice + additionalChargesTotal,
       }
     })
 
@@ -291,7 +315,7 @@ export async function fetchBookingsForStaffWeek(
   const standaloneSales = await standaloneSalesService.getSalesForStaff(staffId, weekStart, weekEnd)
   const standaloneSalesRevenue = standaloneSales.reduce((s, sale) => s + sale.amount, 0)
 
-  const totalRevenue = matched.reduce((s, b) => s + b.totalPrice, 0)
+  const totalRevenue = matched.reduce((s, b) => s + b.effectivePrice, 0)  // after-discount room revenue
   const additionalRevenue = matched.reduce((s, b) => s + b.additionalChargesTotal, 0) + orphanChargesTotal
   const grandRevenue = totalRevenue + additionalRevenue + standaloneSalesRevenue
 

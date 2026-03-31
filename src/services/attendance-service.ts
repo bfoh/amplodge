@@ -112,16 +112,40 @@ function timeStr(): string {
 
 // ─── Service Functions ────────────────────────────────────────────────────────
 
-/** Get today's attendance record for a staff member (null if none). */
+/**
+ * Get the current active attendance record for a staff member.
+ *
+ * Returns the most recent open record (no clock-out) from today OR yesterday
+ * so that overnight/night-shift staff can still clock out the next morning.
+ * Falls back to today's completed record if no open record exists.
+ */
 export async function getTodayRecord(staffId: string): Promise<AttendanceRecord | null> {
   try {
     const rows = await db.hr_attendance.list({ limit: 500 })
     const today = todayStr()
-    return ((rows || []) as AttendanceRecord[]).find((r) => {
+    const yesterdayDate = new Date()
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1)
+    const yesterday = yesterdayDate.toISOString().split('T')[0]
+
+    const staffRows = ((rows || []) as AttendanceRecord[]).filter((r) => {
       const sid = (r as any).staffId || (r as any).staff_id || ''
       const d = (r as any).date || ''
-      return sid === staffId && d === today && r.status !== 'init'
-    }) ?? null
+      return sid === staffId && (d === today || d === yesterday) && r.status !== 'init'
+    })
+
+    // Prefer an open record (no clock-out) — handles night-shift clock-out next morning
+    const open = staffRows
+      .filter((r) => !r.clockOut)
+      .sort((a, b) => {
+        // Sort by date desc, then clockIn desc — pick the most recent open shift
+        const dComp = ((b as any).date || '').localeCompare((a as any).date || '')
+        if (dComp !== 0) return dComp
+        return ((b as any).clockIn || '').localeCompare((a as any).clockIn || '')
+      })
+    if (open.length > 0) return open[0]
+
+    // No open record — return today's completed record if any
+    return staffRows.find((r) => (r as any).date === today) ?? null
   } catch {
     return null
   }
@@ -149,7 +173,7 @@ export async function clockIn(
   return record
 }
 
-/** Clock a staff member out. Updates today's attendance record with clock-out time. */
+/** Clock a staff member out. Updates the active attendance record with clock-out time. */
 export async function clockOut(
   staffId: string,
   opts?: { notes?: string }
@@ -162,10 +186,14 @@ export async function clockOut(
   const outH = now.getHours()
   const outM = now.getMinutes()
   const outS = now.getSeconds()
-  const hoursWorked = Math.max(
-    0,
-    (outH * 3600 + outM * 60 + outS - inH * 3600 - inM * 60 - inS) / 3600
-  )
+
+  // Detect overnight shift: the clock-in record's date is earlier than today.
+  // Add 24 hours (86400 s) to the out-time so the subtraction gives the correct
+  // total duration instead of a negative number that gets clamped to 0.
+  const isNextDay = (existing as any).date !== todayStr()
+  const inTotalSec = inH * 3600 + inM * 60 + inS
+  const outTotalSec = outH * 3600 + outM * 60 + outS + (isNextDay ? 86400 : 0)
+  const hoursWorked = Math.max(0, (outTotalSec - inTotalSec) / 3600)
 
   const updated: AttendanceRecord = {
     ...existing,
@@ -177,15 +205,27 @@ export async function clockOut(
   return updated
 }
 
-/** Get all of today's attendance records (admin live view). */
+/**
+ * Get all attendance records relevant for the admin live view:
+ * - All of today's records
+ * - Any open (no clock-out) records from yesterday (overnight/night-shift staff
+ *   who clocked in the previous evening and haven't clocked out yet).
+ */
 export async function getLiveAttendance(): Promise<AttendanceRecord[]> {
   try {
     const rows = await db.hr_attendance.list({ limit: 500 })
     const today = todayStr()
+    const yesterdayDate = new Date()
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1)
+    const yesterday = yesterdayDate.toISOString().split('T')[0]
+
     return ((rows || []) as AttendanceRecord[])
       .filter((r) => {
         const d = (r as any).date || ''
-        return d === today && r.status !== 'init'
+        if (r.status === 'init') return false
+        if (d === today) return true                      // all of today's records
+        if (d === yesterday && !r.clockOut) return true  // overnight staff still on shift
+        return false
       })
       .sort((a, b) => ((a as any).clockIn || '') < ((b as any).clockIn || '') ? -1 : 1)
   } catch {

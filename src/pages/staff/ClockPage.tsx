@@ -187,27 +187,34 @@ export function ClockPage() {
             </p>
           </div>
 
-          {/* Today's record summary */}
-          {todayRecord && (
-            <div className="bg-muted/40 rounded-xl px-5 py-4 text-sm space-y-2 border">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Clocked in</span>
-                <span className="font-semibold">{todayRecord.clockIn}</span>
-              </div>
-              {todayRecord.clockOut && (
+          {/* Shift record summary */}
+          {todayRecord && (() => {
+            const todayDateStr = new Date().toISOString().split('T')[0]
+            const isOvernightRecord = todayRecord.date && todayRecord.date !== todayDateStr
+            return (
+              <div className={`rounded-xl px-5 py-4 text-sm space-y-2 border ${isOvernightRecord ? 'bg-amber-50 border-amber-200' : 'bg-muted/40'}`}>
+                {isOvernightRecord && (
+                  <p className="text-xs text-amber-700 font-medium mb-1">Overnight shift from {todayRecord.date}</p>
+                )}
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Clocked out</span>
-                  <span className="font-semibold">{todayRecord.clockOut}</span>
+                  <span className="text-muted-foreground">Clocked in</span>
+                  <span className="font-semibold">{todayRecord.clockIn}</span>
                 </div>
-              )}
-              {todayRecord.hoursWorked > 0 && (
-                <div className="flex justify-between border-t pt-2 mt-1">
-                  <span className="text-muted-foreground">Hours worked</span>
-                  <span className="font-semibold text-primary">{todayRecord.hoursWorked}h</span>
-                </div>
-              )}
-            </div>
-          )}
+                {todayRecord.clockOut && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Clocked out</span>
+                    <span className="font-semibold">{todayRecord.clockOut}</span>
+                  </div>
+                )}
+                {todayRecord.hoursWorked > 0 && (
+                  <div className="flex justify-between border-t pt-2 mt-1">
+                    <span className="text-muted-foreground">Hours worked</span>
+                    <span className="font-semibold text-primary">{todayRecord.hoursWorked}h</span>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Action area */}
           {shiftDone ? (
@@ -235,7 +242,9 @@ export function ClockPage() {
                 Clock Out
               </Button>
               <p className="text-center text-xs text-muted-foreground">
-                Clocked in at {todayRecord?.clockIn} · tap to end your shift
+                Clocked in at {todayRecord?.clockIn}
+                {todayRecord?.date && todayRecord.date !== new Date().toISOString().split('T')[0]
+                  ? ` on ${todayRecord.date}` : ''} · tap to end your shift
               </p>
             </div>
           ) : (

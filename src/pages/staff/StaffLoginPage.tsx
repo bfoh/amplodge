@@ -80,7 +80,18 @@ export function StaffLoginPage() {
 
       if (authError) {
         console.error('❌ [StaffLoginPage] Auth error:', authError)
-        toast.error(authError.message || 'Login failed')
+        const isNetworkError = authError.message?.toLowerCase().includes('fetch') ||
+          authError.message?.toLowerCase().includes('network') ||
+          authError.message?.toLowerCase().includes('abort') ||
+          authError.message?.toLowerCase().includes('timeout') ||
+          authError.message?.toLowerCase().includes('signal') ||
+          authError.name === 'AuthRetryableFetchError' ||
+          authError.name === 'AbortError'
+        toast.error(
+          isNetworkError
+            ? 'Cannot reach the server. The service may be temporarily unavailable — please try again in a moment.'
+            : authError.message || 'Login failed'
+        )
         setLoading(false)
         return
       }

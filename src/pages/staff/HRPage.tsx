@@ -470,7 +470,10 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
       if (form.clockIn && form.clockOut) {
         const [inH, inM] = form.clockIn.split(':').map(Number)
         const [outH, outM] = form.clockOut.split(':').map(Number)
-        hoursWorked = Math.max(0, (outH * 60 + outM - inH * 60 - inM) / 60)
+        let diff = outH * 60 + outM - (inH * 60 + inM)
+        // Negative difference means the shift crossed midnight (e.g. 22:00 → 06:00)
+        if (diff < 0) diff += 24 * 60
+        hoursWorked = diff / 60
       }
       await db.hr_attendance.create({
         id: `att_${Date.now()}`,
@@ -1613,7 +1616,7 @@ function StaffRevenueRow({
                       .reduce((a: number, s: any) => a + Number(s.amount || 0), 0)
                     if (splitAmt > 0) { count++; revenue += splitAmt }
                   } else if (b.paymentMethod === m.key) {
-                    count++; revenue += b.totalPrice
+                    count++; revenue += b.effectivePrice
                   }
                 }
                 return { ...m, count, revenue }
@@ -1775,7 +1778,14 @@ function StaffRevenueRow({
                               <TableCell className="text-xs">{b.roomNumber}</TableCell>
                               <TableCell className="text-xs">{b.checkIn}</TableCell>
                               <TableCell className="text-xs">{b.checkOut}</TableCell>
-                              <TableCell className="text-xs text-right font-medium">{formatGHS(b.totalPrice)}</TableCell>
+                              <TableCell className="text-xs text-right font-medium">
+                                {b.discountAmount > 0
+                                  ? <span className="flex flex-col items-end gap-0.5">
+                                      <span className="line-through text-[10px] text-muted-foreground">{formatGHS(b.totalPrice)}</span>
+                                      <span>{formatGHS(b.effectivePrice)}</span>
+                                    </span>
+                                  : formatGHS(b.effectivePrice)}
+                              </TableCell>
                               <TableCell className="text-xs text-right">
                                 {b.additionalChargesTotal > 0
                                   ? <span className="text-orange-600 font-medium">{formatGHS(b.additionalChargesTotal)}</span>

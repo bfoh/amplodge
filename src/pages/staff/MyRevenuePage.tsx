@@ -109,7 +109,14 @@ function BookingRow({ b }: { b: BookingSummary }) {
         <TableCell>{b.roomNumber}</TableCell>
         <TableCell>{b.checkIn}</TableCell>
         <TableCell>{b.checkOut}</TableCell>
-        <TableCell className="text-right font-medium">{formatGHS(b.totalPrice)}</TableCell>
+        <TableCell className="text-right font-medium">
+          {b.discountAmount > 0
+            ? <span className="flex flex-col items-end gap-0.5">
+                <span className="line-through text-xs text-muted-foreground">{formatGHS(b.totalPrice)}</span>
+                <span>{formatGHS(b.effectivePrice)}</span>
+              </span>
+            : formatGHS(b.effectivePrice)}
+        </TableCell>
         <TableCell className="text-right">
           {b.additionalChargesTotal > 0
             ? <span className="text-orange-600 font-medium">{formatGHS(b.additionalChargesTotal)}</span>
@@ -617,7 +624,7 @@ export function MyRevenuePage() {
                     .reduce((a: number, s: any) => a + Number(s.amount || 0), 0)
                   if (splitAmt > 0) { count++; revenue += splitAmt }
                 } else if (b.paymentMethod === m.key) {
-                  count++; revenue += b.totalPrice
+                  count++; revenue += b.effectivePrice
                 }
               }
               return { ...m, count, revenue }
