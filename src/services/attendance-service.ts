@@ -47,7 +47,15 @@ export function secondsUntilNextToken(): number {
 // AMP Lodge, Abuakwa DKC junction, Kumasi-Sunyani Rd, Kumasi, Ghana
 const HOTEL_LAT = 6.7127
 const HOTEL_LNG = -1.6250
-const MAX_DISTANCE_METERS = 300
+
+/**
+ * Geofence radius in metres.
+ * 500 m gives comfortable margin for:
+ *   - Staff at the gate / car park / security post
+ *   - Typical mobile GPS drift (10–50 m indoors, up to 100 m in buildings)
+ *   - Network-assisted positioning on older devices
+ */
+const MAX_DISTANCE_METERS = 500
 
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000
@@ -60,22 +68,134 @@ function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
   return R * 2 * Math.asin(Math.sqrt(a))
 }
 
-/** True if the given coordinates are within the hotel radius. */
-export function isWithinHotel(lat: number, lng: number): boolean {
-  return haversineDistance(lat, lng, HOTEL_LAT, HOTEL_LNG) <= MAX_DISTANCE_METERS
+/** Returns the straight-line distance in metres between the given coordinates and the hotel. */
+export function distanceFromHotel(lat: number, lng: number): number {
+  return haversineDistance(lat, lng, HOTEL_LAT, HOTEL_LNG)
 }
 
-/** Resolve the device's current GPS position.
- *  Returns coords on success, 'denied' if the user blocked permission, or null if unavailable/timeout. */
-export async function getCurrentLocation(): Promise<{ lat: number; lng: number } | 'denied' | null> {
+/** True if the given coordinates are within the hotel geofence. */
+export function isWithinHotel(lat: number, lng: number): boolean {
+  return distanceFromHotel(lat, lng) <= MAX_DISTANCE_METERS
+}
+
+// ─── Location Data ────────────────────────────────────────────────────────────
+
+/**
+ * Rich location snapshot captured at clock-in time.
+ * Stored inside the `notes` field as a machine-readable comment so no schema
+ * change is needed — existing records stay readable and the comment is ignored
+ * by any human reading the plain text.
+ */
+export interface LocationData {
+  lat: number       // WGS-84 latitude
+  lng: number       // WGS-84 longitude
+  accuracy: number  // GPS accuracy radius reported by the device (metres)
+  distance: number  // straight-line distance from hotel (metres)
+  inside: boolean   // whether within geofence at time of clock-in
+}
+
+/**
+ * Encode a LocationData snapshot into the notes string.
+ * Format:  <!-- LOC:{...} -->Human readable label
+ * The comment prefix is stripped when displaying to users; it exists only for
+ * machine parsing so coordinates survive in the notes field without a schema change.
+ */
+function buildLocationNote(loc: LocationData): string {
+  const payload = JSON.stringify({
+    lat: parseFloat(loc.lat.toFixed(7)),
+    lng: parseFloat(loc.lng.toFixed(7)),
+    acc: Math.round(loc.accuracy),
+    dist: Math.round(loc.distance),
+    in: loc.inside,
+  })
+  const label = loc.inside
+    ? `Within hotel (${Math.round(loc.distance)} m)`
+    : `Outside hotel (${Math.round(loc.distance)} m away)`
+  return `<!-- LOC:${payload} -->${label}`
+}
+
+/**
+ * Parse a LocationData snapshot from a notes string.
+ * Returns null for old-format records that pre-date this encoding.
+ */
+export function parseLocationFromNotes(notes: string | undefined | null): LocationData | null {
+  if (!notes) return null
+  const match = notes.match(/<!-- LOC:(.*?) -->/)
+  if (!match?.[1]) return null
+  try {
+    const d = JSON.parse(match[1])
+    return {
+      lat: d.lat,
+      lng: d.lng,
+      accuracy: d.acc ?? 0,
+      distance: d.dist ?? 0,
+      inside: !!d.in,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Return the human-readable portion of a notes string,
+ * stripping any embedded <!-- LOC:... --> comment.
+ */
+export function getNotesLabel(notes: string | undefined | null): string {
+  if (!notes) return ''
+  return notes.replace(/<!-- LOC:.*? -->/, '').trim()
+}
+
+/**
+ * Acquire the device's current GPS position using high-accuracy mode.
+ *
+ * Design choices:
+ *   - enableHighAccuracy: true  → requests the device's best fix (GPS chip,
+ *     not just cell-tower/Wi-Fi triangulation).  Takes longer but gives a
+ *     much more reliable position — critical for attendance fraud prevention.
+ *   - timeout: 15 000 ms        → extra headroom for devices that need time
+ *     to acquire a satellite fix (cold-start indoors can take 10–15 s).
+ *   - maximumAge: 30 000 ms     → accept a cached fix up to 30 s old.
+ *     Using 60 s risks returning a position from when the staff member was
+ *     still at home or in a vehicle.
+ *
+ * Returns:
+ *   { lat, lng, accuracy } on success
+ *   'denied'               if the user blocked location permission
+ *   null                   if the API is unavailable or timed out
+ */
+export async function getCurrentLocation(): Promise<{ lat: number; lng: number; accuracy: number } | 'denied' | null> {
   if (!navigator.geolocation) return null
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (pos) => resolve({
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+      }),
       (err) => resolve(err.code === 1 /* PERMISSION_DENIED */ ? 'denied' : null),
-      { timeout: 8000, maximumAge: 60000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
     )
   })
+}
+
+/**
+ * Convenience wrapper: acquire GPS, compute distance from hotel, return a full
+ * LocationData snapshot (or 'denied' / null on failure).
+ * This is the single call ClockPage should make — it combines GPS acquisition,
+ * distance calculation, and geofence check in one step.
+ */
+export async function resolveLocation(): Promise<LocationData | 'denied' | null> {
+  const raw = await getCurrentLocation()
+  if (raw === 'denied') return 'denied'
+  if (!raw) return null
+  const distance = distanceFromHotel(raw.lat, raw.lng)
+  return {
+    lat: raw.lat,
+    lng: raw.lng,
+    accuracy: raw.accuracy,
+    distance,
+    inside: distance <= MAX_DISTANCE_METERS,
+  }
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -89,7 +209,7 @@ export interface AttendanceRecord {
   clockOut: string   // HH:MM:SS or ''
   hoursWorked: number
   status: 'present' | 'absent' | 'late' | 'init'
-  notes: string
+  notes: string      // may embed <!-- LOC:{...} --> prefix — use getNotesLabel() to display
   createdAt: string
 }
 
@@ -137,7 +257,6 @@ export async function getTodayRecord(staffId: string): Promise<AttendanceRecord 
     const open = staffRows
       .filter((r) => !r.clockOut)
       .sort((a, b) => {
-        // Sort by date desc, then clockIn desc — pick the most recent open shift
         const dComp = ((b as any).date || '').localeCompare((a as any).date || '')
         if (dComp !== 0) return dComp
         return ((b as any).clockIn || '').localeCompare((a as any).clockIn || '')
@@ -151,12 +270,21 @@ export async function getTodayRecord(staffId: string): Promise<AttendanceRecord 
   }
 }
 
-/** Clock a staff member in. Creates a new attendance record for today. */
+/**
+ * Clock a staff member in. Creates a new attendance record for today.
+ *
+ * Pass `opts.location` (from `resolveLocation()`) to record a rich GPS snapshot.
+ * If location is omitted, falls back to `opts.notes` for backward compatibility.
+ */
 export async function clockIn(
   staffId: string,
   staffName: string,
-  opts?: { notes?: string; late?: boolean }
+  opts?: { notes?: string; late?: boolean; location?: LocationData }
 ): Promise<AttendanceRecord> {
+  const notesValue = opts?.location
+    ? buildLocationNote(opts.location)
+    : (opts?.notes ?? '')
+
   const record: AttendanceRecord = {
     id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     staffId,
@@ -166,7 +294,7 @@ export async function clockIn(
     clockOut: '',
     hoursWorked: 0,
     status: opts?.late ? 'late' : 'present',
-    notes: opts?.notes ?? '',
+    notes: notesValue,
     createdAt: new Date().toISOString(),
   }
   await db.hr_attendance.create(record)
@@ -223,7 +351,7 @@ export async function getLiveAttendance(): Promise<AttendanceRecord[]> {
       .filter((r) => {
         const d = (r as any).date || ''
         if (r.status === 'init') return false
-        if (d === today) return true                      // all of today's records
+        if (d === today) return true
         if (d === yesterday && !r.clockOut) return true  // overnight staff still on shift
         return false
       })
@@ -251,20 +379,31 @@ export async function getRecentAttendance(days = 30): Promise<AttendanceRecord[]
   }
 }
 
-/** Convert records to a CSV string. */
+/**
+ * Convert records to a CSV string.
+ * Includes decoded location columns (Lat, Lng, Distance, GPS Accuracy) so the
+ * exported spreadsheet has full audit-ready location data.
+ */
 export function exportToCsv(records: AttendanceRecord[]): string {
-  const header = 'Staff Name,Date,Clock In,Clock Out,Hours Worked,Status,Notes'
-  const rows = records.map((r) =>
-    [
+  const header = 'Staff Name,Date,Clock In,Clock Out,Hours Worked,Status,Location Status,Distance (m),Latitude,Longitude,GPS Accuracy (m),Notes'
+  const rows = records.map((r) => {
+    const loc = parseLocationFromNotes(r.notes)
+    const label = getNotesLabel(r.notes) || r.notes || ''
+    return [
       `"${r.staffName}"`,
       r.date,
       r.clockIn || '',
       r.clockOut || '',
       r.hoursWorked ?? 0,
       r.status,
-      `"${(r.notes || '').replace(/"/g, '""')}"`,
+      loc ? (loc.inside ? 'Within hotel' : 'Outside hotel') : (label || ''),
+      loc ? Math.round(loc.distance) : '',
+      loc ? loc.lat.toFixed(7) : '',
+      loc ? loc.lng.toFixed(7) : '',
+      loc ? Math.round(loc.accuracy) : '',
+      `"${label.replace(/"/g, '""')}"`,
     ].join(',')
-  )
+  })
   return [header, ...rows].join('\n')
 }
 

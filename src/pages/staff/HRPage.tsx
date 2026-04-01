@@ -65,6 +65,8 @@ import {
   generateClockUrl,
   secondsUntilNextToken,
   downloadCsv,
+  parseLocationFromNotes,
+  getNotesLabel,
   type AttendanceRecord as LiveAttendanceRecord,
 } from '@/services/attendance-service'
 import { QRCodeSVG } from 'qrcode.react'
@@ -560,20 +562,70 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
                   <td className="px-4 py-3 whitespace-nowrap">{r.clockOut || '—'}</td>
                   <td className="px-4 py-3 whitespace-nowrap">{r.hoursWorked ? `${r.hoursWorked}h` : '—'}</td>
                   <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
-                  <td className="px-4 py-3 max-w-[200px]">
-                    {r.notes === 'GPS: location access denied' ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 text-red-800 text-xs font-medium px-2.5 py-1 border border-red-200">
-                        <MapPin className="w-3 h-3 flex-shrink-0" />
-                        Location denied
-                      </span>
-                    ) : r.notes === 'GPS: clocked in outside hotel premises' ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 text-amber-800 text-xs font-medium px-2.5 py-1 border border-amber-200">
-                        <MapPin className="w-3 h-3 flex-shrink-0" />
-                        Outside hotel
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground truncate block">{r.notes || '—'}</span>
-                    )}
+                  <td className="px-4 py-3 max-w-[220px]">
+                    {(() => {
+                      const loc = parseLocationFromNotes(r.notes)
+                      const label = getNotesLabel(r.notes)
+
+                      // ── New rich format ──────────────────────────────────
+                      if (loc) {
+                        const mapsUrl = `https://maps.google.com/maps?q=${loc.lat.toFixed(7)},${loc.lng.toFixed(7)}`
+                        const poorAccuracy = loc.accuracy > 100
+                        return (
+                          <div className="flex flex-col gap-1">
+                            <a
+                              href={mapsUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={`Open in Google Maps\nLat: ${loc.lat.toFixed(6)}, Lng: ${loc.lng.toFixed(6)}\nGPS accuracy: ±${Math.round(loc.accuracy)} m`}
+                              className={`inline-flex items-center gap-1.5 rounded-full text-xs font-medium px-2.5 py-1 border hover:opacity-80 transition-opacity cursor-pointer ${
+                                loc.inside
+                                  ? 'bg-green-100 text-green-800 border-green-200'
+                                  : 'bg-amber-100 text-amber-800 border-amber-200'
+                              }`}
+                            >
+                              <MapPin className="w-3 h-3 flex-shrink-0" />
+                              {label || (loc.inside ? `Within hotel (${Math.round(loc.distance)} m)` : `Outside hotel (${Math.round(loc.distance)} m)`)}
+                            </a>
+                            {poorAccuracy && (
+                              <span className="text-[10px] text-muted-foreground pl-1">
+                                ±{Math.round(loc.accuracy)} m GPS accuracy
+                              </span>
+                            )}
+                          </div>
+                        )
+                      }
+
+                      // ── Legacy format (old records without LOC comment) ──
+                      if (r.notes === 'GPS: location access denied' || r.notes?.includes('denied')) {
+                        return (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 text-red-800 text-xs font-medium px-2.5 py-1 border border-red-200">
+                            <MapPin className="w-3 h-3 flex-shrink-0" />
+                            Location denied
+                          </span>
+                        )
+                      }
+                      if (r.notes === 'GPS: clocked in outside hotel premises' || r.notes?.includes('outside hotel') || r.notes?.includes('Outside hotel')) {
+                        return (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 text-amber-800 text-xs font-medium px-2.5 py-1 border border-amber-200">
+                            <MapPin className="w-3 h-3 flex-shrink-0" />
+                            Outside hotel
+                          </span>
+                        )
+                      }
+                      if (r.notes?.includes('unavailable')) {
+                        return (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 text-gray-600 text-xs font-medium px-2.5 py-1 border border-gray-200">
+                            <MapPin className="w-3 h-3 flex-shrink-0" />
+                            Location N/A
+                          </span>
+                        )
+                      }
+
+                      return (
+                        <span className="text-muted-foreground truncate block text-xs">{r.notes || '—'}</span>
+                      )
+                    })()}
                   </td>
                   <td className="px-4 py-3">
                     <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(r.id)}>
