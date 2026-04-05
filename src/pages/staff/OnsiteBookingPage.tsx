@@ -18,6 +18,7 @@ import { bookingEngine, LocalBooking } from '@/services/booking-engine'
 import { sendTransactionalEmail } from '@/services/email-service'
 import { sendBookingConfirmationSMS } from '@/services/sms-service'
 import { activityLogService } from '@/services/activity-log-service'
+import { buildBookingPaymentEvent, appendPaymentEvent } from '@/lib/payment-events'
 
 export function OnsiteBookingPage() {
   const db = (blink.db as any)
@@ -334,10 +335,31 @@ export function OnsiteBookingPage() {
         : undefined
 
       // Build a booking data object for a single cart item
+      const staffName = user?.user_metadata?.full_name || user?.email || 'Staff'
       const buildBookingItem = (item: typeof cart[0], index: number) => {
         const itemNights = differenceInDays(item.checkOut, item.checkIn)
         const itemTotal = Number(item.price) * itemNights
+
+        // Proportional payment amount for this room (exact for single-room, proportional for group)
+        const itemPaymentAmount = paymentType === 'full'
+          ? itemTotal
+          : paymentType === 'part' && grandTotal > 0
+            ? Math.round((itemTotal / grandTotal) * splitsPaidTotal * 100) / 100
+            : 0
+
         const assigned = guestAssignments[item.id] || { name: guestInfo.name, email: guestInfo.email }
+
+        // Encode booking-stage payment event so revenue-service can attribute correctly
+        const bookingEvent = buildBookingPaymentEvent({
+          paymentType,
+          amount: itemPaymentAmount,
+          staffId: user?.id || '',
+          staffName,
+          method: primaryPaymentMethod,
+          splits: paymentSplitsData,
+        })
+        const specialRequests = appendPaymentEvent(guestInfo.specialRequests || '', bookingEvent!)
+
         return {
           guest: {
             fullName: assigned.name,
@@ -367,7 +389,8 @@ export function OnsiteBookingPage() {
           amountPaid: paymentType === 'full' ? grandTotal : (paymentType === 'part' ? splitsPaidTotal : 0),
           paymentStatus: paymentType,
           createdBy: user?.id,
-          createdByName: user?.user_metadata?.full_name || user?.email,
+          createdByName: staffName,
+          specialRequests: bookingEvent ? specialRequests : (guestInfo.specialRequests || ''),
           ...(index === 0 ? { subtotal: totalPrice } : {})
         }
       }

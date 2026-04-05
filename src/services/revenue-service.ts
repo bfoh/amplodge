@@ -10,6 +10,7 @@ import { blink } from '@/blink/client'
 import { startOfWeek, endOfWeek, format, subWeeks } from 'date-fns'
 import { standaloneSalesService, type StandaloneSale } from './standalone-sales-service'
 import { CHARGE_CATEGORIES } from './booking-charges-service'
+import { parsePaymentEvents, computeStaffAttributedRevenue } from '@/lib/payment-events'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -58,8 +59,17 @@ export interface BookingSummary {
   totalPrice: number       // Original room price before any discount
   discountAmount: number   // Discount applied at check-in (0 if none)
   effectivePrice: number   // totalPrice - discountAmount (actual room revenue)
+  /**
+   * How much of effectivePrice is attributed to this staff member.
+   * For legacy bookings (no PaymentEvents), equals effectivePrice for the creator, 0 for others.
+   * For new bookings with PaymentEvents, equals the sum of events where event.staffId === this staff's ID.
+   */
+  staffAttributedRevenue: number
   status: string
   createdAt: string
+  createdBy: string        // staff who created/reserved the booking
+  checkInBy: string        // staff who performed the check-in (may differ from creator)
+  checkInByName: string
   paymentMethod: string   // 'cash' | 'mobile_money' | 'card' | 'not_paid'
   paymentSplits?: Array<{ method: string; amount: number }>
   additionalChargesTotal: number
@@ -197,7 +207,9 @@ export async function fetchBookingsForStaffWeek(
   const matched: BookingSummary[] = ((allBookings || []) as any[])
     .filter((b: any) => {
       const creator = b.createdBy || b.created_by || ''
-      if (creator !== staffId) return false
+      const checker = b.checkInBy || b.check_in_by || ''
+      // Include booking if this staff created it OR performed the check-in
+      if (creator !== staffId && checker !== staffId) return false
       if (!['checked-in', 'checked-out'].includes(b.status)) return false
       const checkIn = b.checkIn || b.check_in || ''
       if (!checkIn) return false
@@ -255,6 +267,13 @@ export async function fetchBookingsForStaffWeek(
         })
       }
 
+      // --- Payment event attribution ---
+      const paymentEvents = parsePaymentEvents(specialReq)
+      const creatorId = b.createdBy || b.created_by || ''
+      const staffAttributedRevenue = computeStaffAttributedRevenue(
+        paymentEvents, staffId, effectivePrice, creatorId
+      )
+
       return {
         id: b.id,
         guestName,
@@ -264,8 +283,12 @@ export async function fetchBookingsForStaffWeek(
         totalPrice: rawPrice,
         discountAmount: discountAmt,
         effectivePrice,
+        staffAttributedRevenue,
         status: b.status,
         createdAt: b.createdAt || b.created_at || '',
+        createdBy: creatorId,
+        checkInBy: b.checkInBy || b.check_in_by || '',
+        checkInByName: b.checkInByName || b.check_in_by_name || '',
         paymentMethod: normalizePaymentMethod(primaryMethod),
         paymentSplits,
         additionalCharges,
@@ -273,15 +296,22 @@ export async function fetchBookingsForStaffWeek(
         grandTotal: effectivePrice + additionalChargesTotal,
       }
     })
+    // After mapping, exclude bookings where this staff has zero attributed revenue
+    // (e.g. a booking where they did the check-in but everything was pre-paid by the creator)
+    .filter((b) => b.staffAttributedRevenue > 0 || b.effectivePrice === 0)
 
   // ── Orphan charges ────────────────────────────────────────────────────────
   // Charges created THIS WEEK on bookings owned by this staff member whose
   // check-in date falls outside this week (not already covered by `matched`).
   const matchedIds = new Set(matched.map((b) => b.id))
-  // All booking IDs owned by this staff member (any date)
+  // All booking IDs attributed to this staff member (created or checked in by them)
   const allStaffBookingIds = new Set(
     ((allBookings || []) as any[])
-      .filter((b: any) => (b.createdBy || b.created_by || '') === staffId)
+      .filter((b: any) => {
+        const creator = b.createdBy || b.created_by || ''
+        const checker = b.checkInBy || b.check_in_by || ''
+        return creator === staffId || checker === staffId
+      })
       .map((b: any) => b.id)
   )
 
@@ -315,7 +345,7 @@ export async function fetchBookingsForStaffWeek(
   const standaloneSales = await standaloneSalesService.getSalesForStaff(staffId, weekStart, weekEnd)
   const standaloneSalesRevenue = standaloneSales.reduce((s, sale) => s + sale.amount, 0)
 
-  const totalRevenue = matched.reduce((s, b) => s + b.effectivePrice, 0)  // after-discount room revenue
+  const totalRevenue = matched.reduce((s, b) => s + b.staffAttributedRevenue, 0)  // after-discount, per-staff attributed room revenue
   const additionalRevenue = matched.reduce((s, b) => s + b.additionalChargesTotal, 0) + orphanChargesTotal
   const grandRevenue = totalRevenue + additionalRevenue + standaloneSalesRevenue
 

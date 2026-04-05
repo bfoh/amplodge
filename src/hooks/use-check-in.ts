@@ -3,6 +3,7 @@ import { blink } from '@/blink/client'
 import { toast } from 'sonner'
 import { activityLogService } from '@/services/activity-log-service'
 import { Booking, Room, Guest, PaymentSplit } from '@/types'
+import { buildCheckInPaymentEvent, appendPaymentEvent } from '@/lib/payment-events'
 
 // Define a standardized CheckInOptions interface
 export interface CheckInOptions {
@@ -11,15 +12,16 @@ export interface CheckInOptions {
     guest: Guest | any
     paymentMethod: string
     paymentSplits?: PaymentSplit[] // Multiple payment methods when guest splits payment
-    discountAmount?: number      // Discount applied at check-in
-    discountReason?: string      // Reason for discount
+    checkInAmount?: number        // Total amount collected at check-in (for revenue attribution)
+    discountAmount?: number       // Discount applied at check-in
+    discountReason?: string       // Reason for discount
     user?: any // Current user for logging
 }
 
 export function useCheckIn() {
     const [isProcessing, setIsProcessing] = useState(false)
 
-    const checkIn = async ({ booking, room, guest, paymentMethod, paymentSplits, discountAmount, discountReason, user }: CheckInOptions) => {
+    const checkIn = async ({ booking, room, guest, paymentMethod, paymentSplits, checkInAmount, discountAmount, discountReason, user }: CheckInOptions) => {
         setIsProcessing(true)
         const db = (blink.db as any)
 
@@ -98,18 +100,37 @@ export function useCheckIn() {
             // 4. Update Booking with the resolved ID
             console.log('[useCheckIn] Attempting to update booking:', bookingId, 'with discount:', discountAmount)
             try {
+                const staffName = user?.user_metadata?.full_name || user?.email || user?.name || 'Staff'
                 const updateData: any = {
                     status: 'checked-in',
                     actualCheckIn: new Date().toISOString(),
-                    paymentMethod: paymentMethod
+                    paymentMethod: paymentMethod,
+                    // Record who performed the check-in for revenue attribution
+                    checkInBy: user?.id || '',
+                    checkInByName: staffName,
                 }
 
-                // Store split payment data in specialRequests (no DB column needed)
+                // Build specialRequests: preserve existing content, append payment event + splits
+                let existingReq = actualBooking?.special_requests || actualBooking?.specialRequests || ''
+
+                // Store split payment data (no DB column needed)
                 if (paymentSplits && paymentSplits.length > 1) {
-                    const existingReq = actualBooking?.special_requests || actualBooking?.specialRequests || ''
-                    const cleanedReq = existingReq.replace(/\s*<!-- PAYMENT_SPLITS:.*? -->/g, '')
-                    updateData.specialRequests = cleanedReq + `\n\n<!-- PAYMENT_SPLITS:${JSON.stringify(paymentSplits)} -->`
+                    existingReq = existingReq.replace(/\s*<!-- PAYMENT_SPLITS:.*? -->/g, '').trimEnd()
+                    existingReq = existingReq + `\n\n<!-- PAYMENT_SPLITS:${JSON.stringify(paymentSplits)} -->`
                 }
+
+                // Append check-in payment event for revenue attribution
+                const checkInEvent = buildCheckInPaymentEvent({
+                    amount: checkInAmount ?? 0,
+                    staffId: user?.id || '',
+                    staffName,
+                    method: paymentMethod,
+                    splits: paymentSplits?.map(s => ({ method: s.method, amount: s.amount })),
+                })
+                if (checkInEvent) {
+                    existingReq = appendPaymentEvent(existingReq, checkInEvent)
+                }
+                updateData.specialRequests = existingReq
 
                 // Add discount fields if discount is applied
                 if (discountAmount && discountAmount > 0) {

@@ -120,12 +120,15 @@ export function CheckInDialog({
             ? splits.filter(s => s.amount > 0).map(s => ({ method: s.method as PaymentSplit['method'], amount: s.amount }))
             : undefined
 
+        const checkInPaidAmount = splits.filter(s => s.amount > 0).reduce((s, p) => s + p.amount, 0)
+
         const success = await checkIn({
             booking,
             room,
             guest,
             paymentMethod: primaryMethod,
             paymentSplits: paymentSplitsArg,
+            checkInAmount: checkInPaidAmount,
             discountAmount: discount > 0 ? discount : undefined,
             discountReason: discount > 0 && discountReason ? discountReason : undefined,
             user

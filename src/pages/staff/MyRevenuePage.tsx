@@ -116,6 +116,11 @@ function BookingRow({ b }: { b: BookingSummary }) {
                 <span>{formatGHS(b.effectivePrice)}</span>
               </span>
             : formatGHS(b.effectivePrice)}
+          {b.staffAttributedRevenue < b.effectivePrice && b.effectivePrice > 0 && (
+            <span className="block text-[10px] text-blue-600 font-normal mt-0.5">
+              Your share: {formatGHS(b.staffAttributedRevenue)}
+            </span>
+          )}
         </TableCell>
         <TableCell className="text-right">
           {b.additionalChargesTotal > 0
@@ -624,7 +629,7 @@ export function MyRevenuePage() {
                     .reduce((a: number, s: any) => a + Number(s.amount || 0), 0)
                   if (splitAmt > 0) { count++; revenue += splitAmt }
                 } else if (b.paymentMethod === m.key) {
-                  count++; revenue += b.effectivePrice
+                  count++; revenue += b.staffAttributedRevenue
                 }
               }
               return { ...m, count, revenue }
