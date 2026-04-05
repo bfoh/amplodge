@@ -208,6 +208,22 @@ export async function fetchBookingsForStaffWeek(
   const from = new Date(weekStart + 'T00:00:00')
   const to = new Date(weekEnd + 'T23:59:59')
 
+  // Debug: log all bookings belonging to this staff member so we can diagnose misses
+  const myBookings = ((allBookings || []) as any[]).filter((b: any) => {
+    const creator = b.createdBy || b.created_by || ''
+    const checker = b.checkInBy || b.check_in_by || ''
+    const checkOuter = b.checkOutBy || b.check_out_by || ''
+    return creator === staffId || checker === staffId || checkOuter === staffId
+  })
+  console.log(`[revenue-service] staffId=${staffId} week=${weekStart}→${weekEnd}`)
+  console.log(`[revenue-service] total bookings in DB: ${(allBookings || []).length}`)
+  console.log(`[revenue-service] my bookings (any status): ${myBookings.length}`)
+  myBookings.forEach((b: any) => {
+    const paid = Number(b.amountPaid ?? b.amount_paid ?? 0)
+    const payEvent = (b.special_requests || b.specialRequests || '').includes('PAYMENT_EVENTS')
+    console.log(`  booking ${b.id.slice(0,8)} status=${b.status} amountPaid=${paid} payStatus=${b.paymentStatus||b.payment_status} hasPayEvent=${payEvent} checkIn=${b.checkIn||b.check_in} createdAt=${b.createdAt||b.created_at} createdBy=${b.createdBy||b.created_by}`)
+  })
+
   const matched: BookingSummary[] = ((allBookings || []) as any[])
     .filter((b: any) => {
       const creator = b.createdBy || b.created_by || ''
@@ -218,7 +234,6 @@ export async function fetchBookingsForStaffWeek(
       const status = b.status || ''
 
       if (['checked-in', 'checked-out'].includes(status)) {
-        // Use check-in date for week boundary — this is the stay week
         const checkIn = b.checkIn || b.check_in || ''
         if (!checkIn) return false
         const d = new Date(checkIn)
@@ -226,17 +241,21 @@ export async function fetchBookingsForStaffWeek(
       }
 
       if (status === 'confirmed') {
-        // Only include if payment was actually collected at booking time
         const paid = Number(b.amountPaid ?? b.amount_paid ?? 0)
         const pStatus = b.paymentStatus || b.payment_status || 'pending'
-        if (paid <= 0 && pStatus === 'pending') return false
-        // Only if the booking CREATOR is this staff (they're the one who collected)
+        // Also check PAYMENT_EVENTS for new-style bookings
+        const specialReq = b.special_requests || b.specialRequests || ''
+        const hasPayEvent = specialReq.includes('PAYMENT_EVENTS')
+        console.log(`  [confirmed filter] booking ${b.id.slice(0,8)} paid=${paid} pStatus=${pStatus} hasPayEvent=${hasPayEvent} creator=${creator} staffId=${staffId}`)
+        if (paid <= 0 && pStatus === 'pending' && !hasPayEvent) return false
         if (creator !== staffId) return false
-        // Use creation date for week boundary — deposit was received this week
+        // Use creation date for week boundary
         const createdAt = b.createdAt || b.created_at || ''
         if (!createdAt) return false
         const d = new Date(createdAt)
-        return d >= from && d <= to
+        const inRange = d >= from && d <= to
+        console.log(`  [confirmed filter] createdAt=${createdAt} inRange=${inRange} from=${from.toISOString()} to=${to.toISOString()}`)
+        return inRange
       }
 
       return false
