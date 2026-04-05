@@ -127,23 +127,33 @@ export function buildCheckOutPaymentEvent(opts: {
  * revenue is attributed to a specific staff member.
  *
  * Rules:
- * - If there are recorded events, sum all event amounts where event.staffId === staffId.
- * - If no events are recorded (legacy booking), attribute the full effectivePrice
- *   to the booking creator (caller must pass createdBy to handle this fallback).
- * - Any gap between effectivePrice and the sum of all events is treated as
- *   unattributed (e.g. payment still pending at check-out).
+ * - If there are no recorded events (legacy booking), attribute the full
+ *   effectivePrice to the booking creator.
+ * - Otherwise, sum all event amounts where event.staffId === staffId.
+ * - If the total of all events is less than effectivePrice and this staff
+ *   performed the checkout (checkOutBy), attribute the remaining gap to them.
  */
 export function computeStaffAttributedRevenue(
   events: PaymentEvent[],
   staffId: string,
   effectivePrice: number,
-  createdBy: string
+  createdBy: string,
+  checkOutBy?: string
 ): number {
   if (events.length === 0) {
     // Legacy booking — no events recorded; full price → creator
     return createdBy === staffId ? effectivePrice : 0
   }
-  return events
+  const directAmount = events
     .filter((e) => e.staffId === staffId)
     .reduce((sum, e) => sum + e.amount, 0)
+
+  // Gap = effectivePrice not yet covered by any recorded payment event
+  const coveredTotal = events.reduce((sum, e) => sum + e.amount, 0)
+  const gap = Math.max(0, effectivePrice - coveredTotal)
+
+  // The checkout staff collects any remaining balance at departure
+  const gapAmount = gap > 0 && checkOutBy === staffId ? gap : 0
+
+  return directAmount + gapAmount
 }

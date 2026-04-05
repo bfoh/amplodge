@@ -70,6 +70,8 @@ export interface BookingSummary {
   createdBy: string        // staff who created/reserved the booking
   checkInBy: string        // staff who performed the check-in (may differ from creator)
   checkInByName: string
+  checkOutBy: string       // staff who performed the check-out
+  checkOutByName: string
   paymentMethod: string   // 'cash' | 'mobile_money' | 'card' | 'not_paid'
   paymentSplits?: Array<{ method: string; amount: number }>
   additionalChargesTotal: number
@@ -208,8 +210,9 @@ export async function fetchBookingsForStaffWeek(
     .filter((b: any) => {
       const creator = b.createdBy || b.created_by || ''
       const checker = b.checkInBy || b.check_in_by || ''
-      // Include booking if this staff created it OR performed the check-in
-      if (creator !== staffId && checker !== staffId) return false
+      const checkOuter = b.checkOutBy || b.check_out_by || ''
+      // Include booking if this staff created, checked-in, or checked-out
+      if (creator !== staffId && checker !== staffId && checkOuter !== staffId) return false
       if (!['checked-in', 'checked-out'].includes(b.status)) return false
       const checkIn = b.checkIn || b.check_in || ''
       if (!checkIn) return false
@@ -270,8 +273,9 @@ export async function fetchBookingsForStaffWeek(
       // --- Payment event attribution ---
       const paymentEvents = parsePaymentEvents(specialReq)
       const creatorId = b.createdBy || b.created_by || ''
+      const checkOutById = b.checkOutBy || b.check_out_by || ''
       const staffAttributedRevenue = computeStaffAttributedRevenue(
-        paymentEvents, staffId, effectivePrice, creatorId
+        paymentEvents, staffId, effectivePrice, creatorId, checkOutById
       )
 
       return {
@@ -289,6 +293,8 @@ export async function fetchBookingsForStaffWeek(
         createdBy: creatorId,
         checkInBy: b.checkInBy || b.check_in_by || '',
         checkInByName: b.checkInByName || b.check_in_by_name || '',
+        checkOutBy: b.checkOutBy || b.check_out_by || '',
+        checkOutByName: b.checkOutByName || b.check_out_by_name || '',
         paymentMethod: normalizePaymentMethod(primaryMethod),
         paymentSplits,
         additionalCharges,
@@ -304,13 +310,14 @@ export async function fetchBookingsForStaffWeek(
   // Charges created THIS WEEK on bookings owned by this staff member whose
   // check-in date falls outside this week (not already covered by `matched`).
   const matchedIds = new Set(matched.map((b) => b.id))
-  // All booking IDs attributed to this staff member (created or checked in by them)
+  // All booking IDs attributed to this staff member (created, checked-in, or checked-out by them)
   const allStaffBookingIds = new Set(
     ((allBookings || []) as any[])
       .filter((b: any) => {
         const creator = b.createdBy || b.created_by || ''
         const checker = b.checkInBy || b.check_in_by || ''
-        return creator === staffId || checker === staffId
+        const checkOuter = b.checkOutBy || b.check_out_by || ''
+        return creator === staffId || checker === staffId || checkOuter === staffId
       })
       .map((b: any) => b.id)
   )
