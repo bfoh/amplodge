@@ -48,6 +48,18 @@ exports.handler = async (event) => {
         if (event.headers['prefer'])          forwardHeaders['prefer']          = event.headers['prefer']
         if (event.headers['x-upsert'])        forwardHeaders['x-upsert']        = event.headers['x-upsert']
 
+        // Forward the real client IP so Supabase rate-limits per-user not per-proxy.
+        // Without this, every Ghana user shares the same Netlify function IP and a few
+        // retries/failed attempts from any user locks auth for everyone routing through
+        // this proxy.
+        const clientIp = event.headers['x-nf-client-connection-ip']
+            || event.headers['x-forwarded-for']?.split(',')[0]?.trim()
+            || event.headers['client-ip']
+        if (clientIp) {
+            forwardHeaders['x-forwarded-for'] = clientIp
+            forwardHeaders['x-real-ip'] = clientIp
+        }
+
         const fetchOptions = { method: event.httpMethod, headers: forwardHeaders }
 
         if (event.body && event.httpMethod !== 'GET' && event.httpMethod !== 'HEAD') {
