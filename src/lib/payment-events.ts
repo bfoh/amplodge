@@ -127,23 +127,51 @@ export function buildCheckOutPaymentEvent(opts: {
  * revenue is attributed to a specific staff member.
  *
  * Rules:
- * - If there are no recorded events (legacy booking), attribute the full
- *   effectivePrice to the booking creator.
- * - Otherwise, sum all event amounts where event.staffId === staffId.
- * - If the total of all events is less than effectivePrice and this staff
- *   performed the checkout (checkOutBy), attribute the remaining gap to them.
+ * - If there are recorded PaymentEvents, sum events where event.staffId === staffId.
+ *   Any gap between effectivePrice and total events is attributed to checkOutBy staff.
+ * - If there are NO recorded events (legacy booking), use amountPaidAtBooking and
+ *   paymentStatus to attribute only what the creator actually collected:
+ *     · 'full'    → effectivePrice to creator
+ *     · 'part'    → amountPaidAtBooking to creator
+ *     · 'pending' → 0 to creator (nothing collected at booking)
+ *   Any unattributed remainder goes to the checkout staff (checkOutBy), who collected
+ *   it at departure — or to checkInBy if that field is populated and checkOutBy is not.
  */
 export function computeStaffAttributedRevenue(
   events: PaymentEvent[],
   staffId: string,
   effectivePrice: number,
   createdBy: string,
-  checkOutBy?: string
+  checkOutBy?: string,
+  checkInBy?: string,
+  amountPaidAtBooking?: number,
+  paymentStatus?: 'full' | 'part' | 'pending'
 ): number {
   if (events.length === 0) {
-    // Legacy booking — no events recorded; full price → creator
-    return createdBy === staffId ? effectivePrice : 0
+    // Legacy booking — derive from stored amountPaid / paymentStatus
+    const status = paymentStatus || 'pending'
+    const paid = amountPaidAtBooking ?? 0
+
+    // How much the booking creator collected
+    const creatorAmount = status === 'full'
+      ? effectivePrice
+      : status === 'part'
+        ? paid
+        : 0 // pending = nothing collected at booking time
+
+    if (createdBy === staffId) return creatorAmount
+
+    // Remaining balance collected by check-in or check-out staff
+    const remainder = Math.max(0, effectivePrice - creatorAmount)
+    if (remainder > 0) {
+      // Prefer checkInBy as the next attributee; fall back to checkOutBy
+      const collector = checkInBy || checkOutBy || ''
+      if (collector === staffId) return remainder
+    }
+    return 0
   }
+
+  // Modern booking with recorded PaymentEvents
   const directAmount = events
     .filter((e) => e.staffId === staffId)
     .reduce((sum, e) => sum + e.amount, 0)

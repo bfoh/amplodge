@@ -273,9 +273,33 @@ export async function fetchBookingsForStaffWeek(
       // --- Payment event attribution ---
       const paymentEvents = parsePaymentEvents(specialReq)
       const creatorId = b.createdBy || b.created_by || ''
+      const checkInById = b.checkInBy || b.check_in_by || ''
       const checkOutById = b.checkOutBy || b.check_out_by || ''
+
+      // Legacy booking: read amountPaid / paymentStatus from DB field or PAYMENT_DATA comment
+      let legacyAmountPaid: number | undefined
+      let legacyPaymentStatus: 'full' | 'part' | 'pending' | undefined
+      if (paymentEvents.length === 0) {
+        legacyAmountPaid = Number(b.amountPaid ?? b.amount_paid ?? 0) || 0
+        legacyPaymentStatus = (b.paymentStatus || b.payment_status || 'pending') as 'full' | 'part' | 'pending'
+        // Also check PAYMENT_DATA comment (older booking format)
+        if (legacyAmountPaid === 0 || legacyPaymentStatus === 'pending') {
+          const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
+          if (pdMatch?.[1]) {
+            try {
+              const pd = JSON.parse(pdMatch[1])
+              if (!legacyAmountPaid) legacyAmountPaid = pd.amountPaid || 0
+              if (!legacyPaymentStatus || legacyPaymentStatus === 'pending') {
+                legacyPaymentStatus = pd.paymentStatus || 'pending'
+              }
+            } catch { /* ignore */ }
+          }
+        }
+      }
+
       const staffAttributedRevenue = computeStaffAttributedRevenue(
-        paymentEvents, staffId, effectivePrice, creatorId, checkOutById
+        paymentEvents, staffId, effectivePrice, creatorId,
+        checkOutById, checkInById, legacyAmountPaid, legacyPaymentStatus
       )
 
       return {
