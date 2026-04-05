@@ -65,6 +65,8 @@ export interface BookingSummary {
    * For new bookings with PaymentEvents, equals the sum of events where event.staffId === this staff's ID.
    */
   staffAttributedRevenue: number
+  isDeposit: boolean       // true for confirmed bookings where only deposit was collected
+  depositAmount: number    // amount collected at booking time (0 for non-deposit rows)
   status: string
   createdAt: string
   createdBy: string        // staff who created/reserved the booking
@@ -211,13 +213,33 @@ export async function fetchBookingsForStaffWeek(
       const creator = b.createdBy || b.created_by || ''
       const checker = b.checkInBy || b.check_in_by || ''
       const checkOuter = b.checkOutBy || b.check_out_by || ''
-      // Include booking if this staff created, checked-in, or checked-out
       if (creator !== staffId && checker !== staffId && checkOuter !== staffId) return false
-      if (!['checked-in', 'checked-out'].includes(b.status)) return false
-      const checkIn = b.checkIn || b.check_in || ''
-      if (!checkIn) return false
-      const d = new Date(checkIn)
-      return d >= from && d <= to
+
+      const status = b.status || ''
+
+      if (['checked-in', 'checked-out'].includes(status)) {
+        // Use check-in date for week boundary — this is the stay week
+        const checkIn = b.checkIn || b.check_in || ''
+        if (!checkIn) return false
+        const d = new Date(checkIn)
+        return d >= from && d <= to
+      }
+
+      if (status === 'confirmed') {
+        // Only include if payment was actually collected at booking time
+        const paid = Number(b.amountPaid ?? b.amount_paid ?? 0)
+        const pStatus = b.paymentStatus || b.payment_status || 'pending'
+        if (paid <= 0 && pStatus === 'pending') return false
+        // Only if the booking CREATOR is this staff (they're the one who collected)
+        if (creator !== staffId) return false
+        // Use creation date for week boundary — deposit was received this week
+        const createdAt = b.createdAt || b.created_at || ''
+        if (!createdAt) return false
+        const d = new Date(createdAt)
+        return d >= from && d <= to
+      }
+
+      return false
     })
     .map((b: any) => {
       const room = roomMap.get(b.roomId) as any
@@ -252,10 +274,6 @@ export async function fetchBookingsForStaffWeek(
 
       const rawPrice = Number(b.totalPrice || 0)
       const discountAmt = Number(b.discountAmount || b.discount_amount || 0)
-      // Use finalAmount (post-discount amount stored at check-in) when available,
-      // otherwise derive from rawPrice - discountAmt.
-      // Note: blink.db converts snake_case columns (final_amount, discount_amount)
-      // to camelCase so b.finalAmount / b.discountAmount are the canonical fields.
       const storedFinal = b.finalAmount ?? b.final_amount
       const effectivePrice = (storedFinal != null && storedFinal !== '')
         ? Math.max(0, Number(storedFinal))
@@ -266,23 +284,73 @@ export async function fetchBookingsForStaffWeek(
       if (discountAmt > 0 || (storedFinal != null && storedFinal !== '')) {
         console.log('[revenue-service] discount booking', b.id, {
           rawPrice, discountAmt, storedFinal, effectivePrice,
-          finalAmountKey: b.finalAmount, discountKey: b.discountAmount,
         })
       }
 
-      // --- Payment event attribution ---
-      const paymentEvents = parsePaymentEvents(specialReq)
       const creatorId = b.createdBy || b.created_by || ''
       const checkInById = b.checkInBy || b.check_in_by || ''
       const checkOutById = b.checkOutBy || b.check_out_by || ''
 
-      // Legacy booking: read amountPaid / paymentStatus from DB field or PAYMENT_DATA comment
+      // --- For CONFIRMED bookings: only count what was actually collected as deposit ---
+      const isConfirmed = b.status === 'confirmed'
+      let depositAmount = 0
+      let depositMethod = rawMethod
+      if (isConfirmed) {
+        depositAmount = Number(b.amountPaid ?? b.amount_paid ?? 0)
+        // Also check PAYMENT_DATA comment for very old bookings
+        if (depositAmount === 0) {
+          const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
+          if (pdMatch?.[1]) {
+            try { depositAmount = JSON.parse(pdMatch[1]).amountPaid || 0 } catch { /* ignore */ }
+          }
+        }
+        // Also check PAYMENT_EVENTS for new-style bookings
+        const events = parsePaymentEvents(specialReq)
+        if (events.length > 0) {
+          depositAmount = events
+            .filter((e) => e.stage === 'booking' && e.staffId === creatorId)
+            .reduce((s, e) => s + e.amount, 0)
+          const bookingEvent = events.find((e) => e.stage === 'booking')
+          if (bookingEvent) depositMethod = bookingEvent.method
+        }
+
+        // For confirmed bookings the creator gets exactly the deposit — nothing more
+        return {
+          id: b.id,
+          guestName,
+          roomNumber: room?.roomNumber || '—',
+          checkIn: b.checkIn,
+          checkOut: b.checkOut,
+          totalPrice: rawPrice,
+          discountAmount: 0,
+          effectivePrice: rawPrice,    // full booking value shown for context
+          staffAttributedRevenue: depositAmount,
+          isDeposit: true,
+          depositAmount,
+          status: b.status,
+          createdAt: b.createdAt || b.created_at || '',
+          createdBy: creatorId,
+          checkInBy: '',
+          checkInByName: '',
+          checkOutBy: '',
+          checkOutByName: '',
+          paymentMethod: normalizePaymentMethod(depositMethod),
+          paymentSplits,
+          additionalCharges: [],
+          additionalChargesTotal: 0,
+          grandTotal: depositAmount,
+        }
+      }
+
+      // --- Payment event attribution for checked-in / checked-out bookings ---
+      const paymentEvents = parsePaymentEvents(specialReq)
+
+      // Read amountPaid / paymentStatus from DB or PAYMENT_DATA comment (legacy)
       let legacyAmountPaid: number | undefined
       let legacyPaymentStatus: 'full' | 'part' | 'pending' | undefined
       if (paymentEvents.length === 0) {
         legacyAmountPaid = Number(b.amountPaid ?? b.amount_paid ?? 0) || 0
         legacyPaymentStatus = (b.paymentStatus || b.payment_status || 'pending') as 'full' | 'part' | 'pending'
-        // Also check PAYMENT_DATA comment (older booking format)
         if (legacyAmountPaid === 0 || legacyPaymentStatus === 'pending') {
           const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
           if (pdMatch?.[1]) {
@@ -312,12 +380,14 @@ export async function fetchBookingsForStaffWeek(
         discountAmount: discountAmt,
         effectivePrice,
         staffAttributedRevenue,
+        isDeposit: false,
+        depositAmount: 0,
         status: b.status,
         createdAt: b.createdAt || b.created_at || '',
         createdBy: creatorId,
-        checkInBy: b.checkInBy || b.check_in_by || '',
+        checkInBy: checkInById,
         checkInByName: b.checkInByName || b.check_in_by_name || '',
-        checkOutBy: b.checkOutBy || b.check_out_by || '',
+        checkOutBy: checkOutById,
         checkOutByName: b.checkOutByName || b.check_out_by_name || '',
         paymentMethod: normalizePaymentMethod(primaryMethod),
         paymentSplits,
@@ -326,8 +396,7 @@ export async function fetchBookingsForStaffWeek(
         grandTotal: effectivePrice + additionalChargesTotal,
       }
     })
-    // After mapping, exclude bookings where this staff has zero attributed revenue
-    // (e.g. a booking where they did the check-in but everything was pre-paid by the creator)
+    // Exclude bookings where this staff has zero attributed revenue
     .filter((b) => b.staffAttributedRevenue > 0 || b.effectivePrice === 0)
 
   // ── Orphan charges ────────────────────────────────────────────────────────

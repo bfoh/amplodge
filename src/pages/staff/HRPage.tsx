@@ -1824,20 +1824,30 @@ function StaffRevenueRow({
                         </TableHeader>
                         <TableBody>
                           {bookings.map((b) => (
-                            <TableRow key={b.id}>
+                            <TableRow key={b.id} className={b.isDeposit ? 'bg-amber-50/60' : ''}>
                               <TableCell className="font-mono text-xs">{b.id.slice(0, 8)}…</TableCell>
-                              <TableCell className="text-xs">{b.guestName}</TableCell>
+                              <TableCell className="text-xs">
+                                {b.guestName}
+                                {b.isDeposit && (
+                                  <span className="ml-1 inline-flex items-center px-1 py-0.5 rounded-full text-[9px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">Deposit</span>
+                                )}
+                              </TableCell>
                               <TableCell className="text-xs">{b.roomNumber}</TableCell>
                               <TableCell className="text-xs">{b.checkIn}</TableCell>
                               <TableCell className="text-xs">{b.checkOut}</TableCell>
                               <TableCell className="text-xs text-right font-medium">
-                                {b.discountAmount > 0
+                                {b.isDeposit
                                   ? <span className="flex flex-col items-end gap-0.5">
                                       <span className="line-through text-[10px] text-muted-foreground">{formatGHS(b.totalPrice)}</span>
-                                      <span>{formatGHS(b.effectivePrice)}</span>
+                                      <span className="text-amber-700">{formatGHS(b.depositAmount)} <span className="text-[9px] font-normal">dep.</span></span>
                                     </span>
-                                  : formatGHS(b.effectivePrice)}
-                                {b.staffAttributedRevenue < b.effectivePrice && b.effectivePrice > 0 && (
+                                  : b.discountAmount > 0
+                                    ? <span className="flex flex-col items-end gap-0.5">
+                                        <span className="line-through text-[10px] text-muted-foreground">{formatGHS(b.totalPrice)}</span>
+                                        <span>{formatGHS(b.effectivePrice)}</span>
+                                      </span>
+                                    : formatGHS(b.effectivePrice)}
+                                {!b.isDeposit && b.staffAttributedRevenue < b.effectivePrice && b.effectivePrice > 0 && (
                                   <span className="block text-[10px] text-blue-600 font-normal mt-0.5">
                                     Attributed: {formatGHS(b.staffAttributedRevenue)}
                                   </span>

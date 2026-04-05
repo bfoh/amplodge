@@ -101,22 +101,34 @@ function BookingRow({ b }: { b: BookingSummary }) {
   return (
     <>
       <TableRow
-        className={b.additionalChargesTotal > 0 ? 'cursor-pointer hover:bg-muted/30' : ''}
+        className={`${b.isDeposit ? 'bg-amber-50/60' : ''} ${b.additionalChargesTotal > 0 ? 'cursor-pointer hover:bg-muted/30' : ''}`}
         onClick={() => b.additionalChargesTotal > 0 && setExpanded(e => !e)}
       >
         <TableCell className="font-mono text-xs">{b.id.slice(0, 8)}…</TableCell>
-        <TableCell>{b.guestName}</TableCell>
+        <TableCell>
+          {b.guestName}
+          {b.isDeposit && (
+            <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+              Deposit
+            </span>
+          )}
+        </TableCell>
         <TableCell>{b.roomNumber}</TableCell>
         <TableCell>{b.checkIn}</TableCell>
         <TableCell>{b.checkOut}</TableCell>
         <TableCell className="text-right font-medium">
-          {b.discountAmount > 0
+          {b.isDeposit
             ? <span className="flex flex-col items-end gap-0.5">
-                <span className="line-through text-xs text-muted-foreground">{formatGHS(b.totalPrice)}</span>
-                <span>{formatGHS(b.effectivePrice)}</span>
+                <span className="text-xs text-muted-foreground line-through">{formatGHS(b.totalPrice)}</span>
+                <span className="text-amber-700">{formatGHS(b.depositAmount)} <span className="text-[10px] font-normal">deposit</span></span>
               </span>
-            : formatGHS(b.effectivePrice)}
-          {b.staffAttributedRevenue < b.effectivePrice && b.effectivePrice > 0 && (
+            : b.discountAmount > 0
+              ? <span className="flex flex-col items-end gap-0.5">
+                  <span className="line-through text-xs text-muted-foreground">{formatGHS(b.totalPrice)}</span>
+                  <span>{formatGHS(b.effectivePrice)}</span>
+                </span>
+              : formatGHS(b.effectivePrice)}
+          {!b.isDeposit && b.staffAttributedRevenue < b.effectivePrice && b.effectivePrice > 0 && (
             <span className="block text-[10px] text-blue-600 font-normal mt-0.5">
               Your share: {formatGHS(b.staffAttributedRevenue)}
             </span>
@@ -130,7 +142,9 @@ function BookingRow({ b }: { b: BookingSummary }) {
         <TableCell className="text-right font-semibold text-emerald-700">{formatGHS(b.grandTotal)}</TableCell>
         <TableCell><PaymentMethodBadge method={b.paymentMethod} splits={b.paymentSplits} /></TableCell>
         <TableCell>
-          <Badge variant="outline" className="text-xs capitalize">{b.status}</Badge>
+          <Badge variant="outline" className={`text-xs capitalize ${b.isDeposit ? 'border-amber-300 text-amber-700' : ''}`}>
+            {b.isDeposit ? 'Confirmed' : b.status}
+          </Badge>
         </TableCell>
         {b.additionalChargesTotal > 0 && (
           <TableCell>
