@@ -224,11 +224,13 @@ export async function fetchBookingsForStaffWeek(
       .map((b: any) => `${b.roomId || b.room_id}|${b.checkIn || b.check_in}`)
   )
 
-  // Build a map of groupId → sum of all room prices in that group.
-  // subtotal is only written on the primary booking (index 0); for other rooms
-  // we sum rawPrice across all bookings sharing the same groupId.
+  // Build a map of groupId → sum of room prices for active bookings in that group.
+  // Only include confirmed/checked-in/checked-out — exclude cancelled, no-show, etc.
+  // This gives the true group total used for proportional deposit distribution.
   const groupSubtotalMap = new Map<string, number>()
   for (const b of (allBookings || []) as any[]) {
+    const status = b.status || ''
+    if (!['confirmed', 'checked-in', 'checked-out'].includes(status)) continue
     const sr = b.special_requests || b.specialRequests || ''
     const gdMatch = sr.match(/<!-- GROUP_DATA:(.*?) -->/)
     if (!gdMatch?.[1]) continue
