@@ -208,21 +208,13 @@ export async function fetchBookingsForStaffWeek(
   const from = new Date(weekStart + 'T00:00:00')
   const to = new Date(weekEnd + 'T23:59:59')
 
-  // Debug: log all bookings belonging to this staff member so we can diagnose misses
-  const myBookings = ((allBookings || []) as any[]).filter((b: any) => {
-    const creator = b.createdBy || b.created_by || ''
-    const checker = b.checkInBy || b.check_in_by || ''
-    const checkOuter = b.checkOutBy || b.check_out_by || ''
-    return creator === staffId || checker === staffId || checkOuter === staffId
-  })
-  console.log(`[revenue-service] staffId=${staffId} week=${weekStart}→${weekEnd}`)
-  console.log(`[revenue-service] total bookings in DB: ${(allBookings || []).length}`)
-  console.log(`[revenue-service] my bookings (any status): ${myBookings.length}`)
-  myBookings.forEach((b: any) => {
-    const paid = Number(b.amountPaid ?? b.amount_paid ?? 0)
-    const payEvent = (b.special_requests || b.specialRequests || '').includes('PAYMENT_EVENTS')
-    console.log(`  booking ${b.id.slice(0,8)} status=${b.status} amountPaid=${paid} payStatus=${b.paymentStatus||b.payment_status} hasPayEvent=${payEvent} checkIn=${b.checkIn||b.check_in} createdAt=${b.createdAt||b.created_at} createdBy=${b.createdBy||b.created_by}`)
-  })
+  // Build a set of booking IDs that have already progressed past 'confirmed' —
+  // used to exclude deposit rows for bookings that are now checked-in/out (avoid double-count)
+  const checkedInOrOutIds = new Set(
+    ((allBookings || []) as any[])
+      .filter((b: any) => ['checked-in', 'checked-out'].includes(b.status || ''))
+      .map((b: any) => b.id)
+  )
 
   const matched: BookingSummary[] = ((allBookings || []) as any[])
     .filter((b: any) => {
@@ -242,11 +234,13 @@ export async function fetchBookingsForStaffWeek(
 
       if (status === 'confirmed') {
         if (creator !== staffId) return false
+        // Never show a deposit row for a booking that has since been checked-in/out
+        // (it will appear in the checked-in/out section instead, with full attribution)
+        if (checkedInOrOutIds.has(b.id)) return false
         // Payment data is stored ONLY in specialRequests comments — not as direct DB columns
         const specialReq = b.special_requests || b.specialRequests || ''
         const hasPayEvent = specialReq.includes('PAYMENT_EVENTS')
         const hasPayData = specialReq.includes('PAYMENT_DATA')
-        // Check PAYMENT_DATA comment
         let paidFromComment = 0
         let pStatusFromComment = 'pending'
         if (hasPayData) {
@@ -260,14 +254,11 @@ export async function fetchBookingsForStaffWeek(
           }
         }
         const hasAnyPayment = hasPayEvent || paidFromComment > 0 || pStatusFromComment !== 'pending'
-        console.log(`  [confirmed filter] booking ${b.id.slice(0,8)} hasPayEvent=${hasPayEvent} paidFromComment=${paidFromComment} pStatus=${pStatusFromComment} creator=${creator} staffId=${staffId}`)
         if (!hasAnyPayment) return false
         const createdAt = b.createdAt || b.created_at || ''
         if (!createdAt) return false
         const d = new Date(createdAt)
-        const inRange = d >= from && d <= to
-        console.log(`  [confirmed filter] createdAt=${createdAt} inRange=${inRange}`)
-        return inRange
+        return d >= from && d <= to
       }
 
       return false
@@ -327,7 +318,10 @@ export async function fetchBookingsForStaffWeek(
       let depositAmount = 0
       let depositMethod = rawMethod
       if (isConfirmed) {
-        // 1. Try PAYMENT_EVENTS (new-style bookings from OnsiteBookingPage)
+        // Detect group booking — GROUP_DATA comment is present on group members
+        const isGroupMember = specialReq.includes('GROUP_DATA')
+
+        // 1. PAYMENT_EVENTS: always the most accurate source (proportional per room for groups)
         const events = parsePaymentEvents(specialReq)
         if (events.length > 0) {
           depositAmount = events
@@ -337,25 +331,23 @@ export async function fetchBookingsForStaffWeek(
           if (bookingEvent) depositMethod = bookingEvent.method
         }
 
-        // 2. Fall back to PAYMENT_DATA comment (booking-engine path)
-        if (depositAmount === 0) {
+        // 2. PAYMENT_DATA fallback — but ONLY for single-room bookings.
+        //    For group members, PAYMENT_DATA.amountPaid holds the full group total (wrong per room).
+        //    Use rawPrice as deposit if paymentStatus='full', or nothing if group+no event.
+        if (depositAmount === 0 && !isGroupMember) {
           const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
           if (pdMatch?.[1]) {
             try {
               const pd = JSON.parse(pdMatch[1])
-              depositAmount = pd.amountPaid || 0
+              if (pd.paymentStatus === 'full') {
+                depositAmount = rawPrice
+              } else if (pd.paymentStatus === 'part' && pd.amountPaid > 0) {
+                depositAmount = pd.amountPaid
+              }
               if (pd.paymentMethod) depositMethod = pd.paymentMethod
             } catch { /* ignore */ }
           }
         }
-
-        // 3. If paymentStatus says 'full', use totalPrice as fallback
-        const storedPStatus = (b.paymentStatus || b.payment_status || '')
-        if (depositAmount === 0 && storedPStatus === 'full') {
-          depositAmount = rawPrice
-        }
-
-        console.log(`  [confirmed map] booking ${b.id.slice(0,8)} depositAmount=${depositAmount} depositMethod=${depositMethod}`)
 
         // For confirmed bookings the creator gets exactly the deposit — nothing more
         return {
@@ -388,22 +380,28 @@ export async function fetchBookingsForStaffWeek(
       // --- Payment event attribution for checked-in / checked-out bookings ---
       const paymentEvents = parsePaymentEvents(specialReq)
 
-      // Read amountPaid / paymentStatus from PAYMENT_DATA comment (amountPaid is NOT a direct DB column)
+      // Read amountPaid / paymentStatus from PAYMENT_DATA comment (amountPaid is NOT a direct DB column).
+      // IMPORTANT: for group bookings, PAYMENT_DATA.amountPaid stores the full group total — not the
+      // per-room amount. Only use it for single-room bookings; treat group members as 'pending' so
+      // the full effectivePrice is attributed to whoever collected it (check-in/out staff).
       let legacyAmountPaid: number | undefined
       let legacyPaymentStatus: 'full' | 'part' | 'pending' | undefined
       if (paymentEvents.length === 0) {
-        // Primary source: PAYMENT_DATA comment in specialRequests
-        const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
-        if (pdMatch?.[1]) {
-          try {
-            const pd = JSON.parse(pdMatch[1])
-            legacyAmountPaid = pd.amountPaid || 0
-            legacyPaymentStatus = pd.paymentStatus || 'pending'
-          } catch { /* ignore */ }
+        const isGroupMember = specialReq.includes('GROUP_DATA')
+        if (!isGroupMember) {
+          const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
+          if (pdMatch?.[1]) {
+            try {
+              const pd = JSON.parse(pdMatch[1])
+              legacyAmountPaid = pd.amountPaid || 0
+              legacyPaymentStatus = pd.paymentStatus || 'pending'
+            } catch { /* ignore */ }
+          }
+          if (!legacyAmountPaid) legacyAmountPaid = Number(b.amountPaid ?? b.amount_paid ?? 0) || 0
+          if (!legacyPaymentStatus) legacyPaymentStatus = (b.paymentStatus || b.payment_status || 'pending') as 'full' | 'part' | 'pending'
         }
-        // Fallback: direct DB fields (may exist on some older records)
-        if (!legacyAmountPaid) legacyAmountPaid = Number(b.amountPaid ?? b.amount_paid ?? 0) || 0
-        if (!legacyPaymentStatus) legacyPaymentStatus = (b.paymentStatus || b.payment_status || 'pending') as 'full' | 'part' | 'pending'
+        // Group members: no reliable per-room deposit data without PAYMENT_EVENTS → treat as pending
+        // so full effectivePrice is attributed to the check-in/out staff
       }
 
       const staffAttributedRevenue = computeStaffAttributedRevenue(
