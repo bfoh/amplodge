@@ -216,6 +216,14 @@ export async function fetchBookingsForStaffWeek(
       .map((b: any) => b.id)
   )
 
+  // Build a set of "roomId|checkIn" keys for checked-in/out bookings.
+  // Used to exclude confirmed duplicate bookings for the same room+dates.
+  const occupiedRoomDates = new Set(
+    ((allBookings || []) as any[])
+      .filter((b: any) => ['checked-in', 'checked-out'].includes(b.status || ''))
+      .map((b: any) => `${b.roomId || b.room_id}|${b.checkIn || b.check_in}`)
+  )
+
   const matched: BookingSummary[] = ((allBookings || []) as any[])
     .filter((b: any) => {
       const creator = b.createdBy || b.created_by || ''
@@ -235,8 +243,11 @@ export async function fetchBookingsForStaffWeek(
       if (status === 'confirmed') {
         if (creator !== staffId) return false
         // Never show a deposit row for a booking that has since been checked-in/out
-        // (it will appear in the checked-in/out section instead, with full attribution)
         if (checkedInOrOutIds.has(b.id)) return false
+        // Also exclude confirmed bookings where the same room+checkIn already has a
+        // checked-in/out booking (catches duplicate booking IDs for same room/dates)
+        const roomDateKey = `${b.roomId || b.room_id}|${b.checkIn || b.check_in}`
+        if (occupiedRoomDates.has(roomDateKey)) return false
         // Payment data is stored ONLY in specialRequests comments — not as direct DB columns
         const specialReq = b.special_requests || b.specialRequests || ''
         const hasPayEvent = specialReq.includes('PAYMENT_EVENTS')
@@ -331,20 +342,38 @@ export async function fetchBookingsForStaffWeek(
           if (bookingEvent) depositMethod = bookingEvent.method
         }
 
-        // 2. PAYMENT_DATA fallback — but ONLY for single-room bookings.
-        //    For group members, PAYMENT_DATA.amountPaid holds the full group total (wrong per room).
-        //    Use rawPrice as deposit if paymentStatus='full', or nothing if group+no event.
-        if (depositAmount === 0 && !isGroupMember) {
+        // 2. PAYMENT_DATA fallback
+        if (depositAmount === 0) {
           const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
           if (pdMatch?.[1]) {
             try {
               const pd = JSON.parse(pdMatch[1])
-              if (pd.paymentStatus === 'full') {
-                depositAmount = rawPrice
-              } else if (pd.paymentStatus === 'part' && pd.amountPaid > 0) {
-                depositAmount = pd.amountPaid
-              }
               if (pd.paymentMethod) depositMethod = pd.paymentMethod
+
+              if (isGroupMember) {
+                // GROUP_DATA.subtotal = total price of all rooms in the group.
+                // Distribute the group deposit proportionally: (thisRoomPrice / groupTotal) * totalDeposit
+                const gdMatch = (specialReq as string).match(/<!-- GROUP_DATA:(.*?) -->/)
+                if (gdMatch?.[1]) {
+                  try {
+                    const gd = JSON.parse(gdMatch[1])
+                    const groupSubtotal = Number(gd.subtotal || 0)
+                    const totalDeposit = Number(pd.amountPaid || 0)
+                    if (groupSubtotal > 0 && totalDeposit > 0) {
+                      depositAmount = Math.round((rawPrice / groupSubtotal) * totalDeposit * 100) / 100
+                    } else if (pd.paymentStatus === 'full') {
+                      depositAmount = rawPrice
+                    }
+                  } catch { /* ignore */ }
+                }
+              } else {
+                // Single-room booking — amountPaid is exactly this room's deposit
+                if (pd.paymentStatus === 'full') {
+                  depositAmount = rawPrice
+                } else if (pd.paymentStatus === 'part' && pd.amountPaid > 0) {
+                  depositAmount = pd.amountPaid
+                }
+              }
             } catch { /* ignore */ }
           }
         }
@@ -388,20 +417,31 @@ export async function fetchBookingsForStaffWeek(
       let legacyPaymentStatus: 'full' | 'part' | 'pending' | undefined
       if (paymentEvents.length === 0) {
         const isGroupMember = specialReq.includes('GROUP_DATA')
-        if (!isGroupMember) {
-          const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
-          if (pdMatch?.[1]) {
-            try {
-              const pd = JSON.parse(pdMatch[1])
+        const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
+        if (pdMatch?.[1]) {
+          try {
+            const pd = JSON.parse(pdMatch[1])
+            legacyPaymentStatus = (pd.paymentStatus || 'pending') as 'full' | 'part' | 'pending'
+            if (isGroupMember) {
+              // Distribute group deposit proportionally using GROUP_DATA.subtotal
+              const gdMatch = (specialReq as string).match(/<!-- GROUP_DATA:(.*?) -->/)
+              if (gdMatch?.[1]) {
+                try {
+                  const gd = JSON.parse(gdMatch[1])
+                  const groupSubtotal = Number(gd.subtotal || 0)
+                  const totalDeposit = Number(pd.amountPaid || 0)
+                  if (groupSubtotal > 0 && totalDeposit > 0) {
+                    legacyAmountPaid = Math.round((effectivePrice / groupSubtotal) * totalDeposit * 100) / 100
+                  }
+                } catch { /* ignore */ }
+              }
+            } else {
               legacyAmountPaid = pd.amountPaid || 0
-              legacyPaymentStatus = pd.paymentStatus || 'pending'
-            } catch { /* ignore */ }
-          }
-          if (!legacyAmountPaid) legacyAmountPaid = Number(b.amountPaid ?? b.amount_paid ?? 0) || 0
-          if (!legacyPaymentStatus) legacyPaymentStatus = (b.paymentStatus || b.payment_status || 'pending') as 'full' | 'part' | 'pending'
+            }
+          } catch { /* ignore */ }
         }
-        // Group members: no reliable per-room deposit data without PAYMENT_EVENTS → treat as pending
-        // so full effectivePrice is attributed to the check-in/out staff
+        if (!legacyAmountPaid) legacyAmountPaid = Number(b.amountPaid ?? b.amount_paid ?? 0) || 0
+        if (!legacyPaymentStatus) legacyPaymentStatus = (b.paymentStatus || b.payment_status || 'pending') as 'full' | 'part' | 'pending'
       }
 
       const staffAttributedRevenue = computeStaffAttributedRevenue(
