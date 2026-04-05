@@ -224,6 +224,23 @@ export async function fetchBookingsForStaffWeek(
       .map((b: any) => `${b.roomId || b.room_id}|${b.checkIn || b.check_in}`)
   )
 
+  // Build a map of groupId → sum of all room prices in that group.
+  // subtotal is only written on the primary booking (index 0); for other rooms
+  // we sum rawPrice across all bookings sharing the same groupId.
+  const groupSubtotalMap = new Map<string, number>()
+  for (const b of (allBookings || []) as any[]) {
+    const sr = b.special_requests || b.specialRequests || ''
+    const gdMatch = sr.match(/<!-- GROUP_DATA:(.*?) -->/)
+    if (!gdMatch?.[1]) continue
+    try {
+      const gd = JSON.parse(gdMatch[1])
+      const gid = gd.groupId
+      if (!gid) continue
+      const price = Number(b.totalPrice || 0)
+      groupSubtotalMap.set(gid, (groupSubtotalMap.get(gid) || 0) + price)
+    } catch { /* ignore */ }
+  }
+
   const matched: BookingSummary[] = ((allBookings || []) as any[])
     .filter((b: any) => {
       const creator = b.createdBy || b.created_by || ''
@@ -351,13 +368,15 @@ export async function fetchBookingsForStaffWeek(
               if (pd.paymentMethod) depositMethod = pd.paymentMethod
 
               if (isGroupMember) {
-                // GROUP_DATA.subtotal = total price of all rooms in the group.
-                // Distribute the group deposit proportionally: (thisRoomPrice / groupTotal) * totalDeposit
+                // Distribute group deposit proportionally: (thisRoomPrice / groupTotal) * totalDeposit
+                // groupSubtotalMap is pre-built by summing all rooms sharing the same groupId —
+                // more reliable than GROUP_DATA.subtotal which is only on the primary booking.
                 const gdMatch = (specialReq as string).match(/<!-- GROUP_DATA:(.*?) -->/)
                 if (gdMatch?.[1]) {
                   try {
                     const gd = JSON.parse(gdMatch[1])
-                    const groupSubtotal = Number(gd.subtotal || 0)
+                    const gid = gd.groupId
+                    const groupSubtotal = gid ? (groupSubtotalMap.get(gid) || 0) : 0
                     const totalDeposit = Number(pd.amountPaid || 0)
                     if (groupSubtotal > 0 && totalDeposit > 0) {
                       depositAmount = Math.round((rawPrice / groupSubtotal) * totalDeposit * 100) / 100
@@ -423,12 +442,13 @@ export async function fetchBookingsForStaffWeek(
             const pd = JSON.parse(pdMatch[1])
             legacyPaymentStatus = (pd.paymentStatus || 'pending') as 'full' | 'part' | 'pending'
             if (isGroupMember) {
-              // Distribute group deposit proportionally using GROUP_DATA.subtotal
+              // Distribute group deposit proportionally using groupSubtotalMap
               const gdMatch = (specialReq as string).match(/<!-- GROUP_DATA:(.*?) -->/)
               if (gdMatch?.[1]) {
                 try {
                   const gd = JSON.parse(gdMatch[1])
-                  const groupSubtotal = Number(gd.subtotal || 0)
+                  const gid = gd.groupId
+                  const groupSubtotal = gid ? (groupSubtotalMap.get(gid) || 0) : 0
                   const totalDeposit = Number(pd.amountPaid || 0)
                   if (groupSubtotal > 0 && totalDeposit > 0) {
                     legacyAmountPaid = Math.round((effectivePrice / groupSubtotal) * totalDeposit * 100) / 100
