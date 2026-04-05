@@ -241,20 +241,32 @@ export async function fetchBookingsForStaffWeek(
       }
 
       if (status === 'confirmed') {
-        const paid = Number(b.amountPaid ?? b.amount_paid ?? 0)
-        const pStatus = b.paymentStatus || b.payment_status || 'pending'
-        // Also check PAYMENT_EVENTS for new-style bookings
+        if (creator !== staffId) return false
+        // Payment data is stored ONLY in specialRequests comments — not as direct DB columns
         const specialReq = b.special_requests || b.specialRequests || ''
         const hasPayEvent = specialReq.includes('PAYMENT_EVENTS')
-        console.log(`  [confirmed filter] booking ${b.id.slice(0,8)} paid=${paid} pStatus=${pStatus} hasPayEvent=${hasPayEvent} creator=${creator} staffId=${staffId}`)
-        if (paid <= 0 && pStatus === 'pending' && !hasPayEvent) return false
-        if (creator !== staffId) return false
-        // Use creation date for week boundary
+        const hasPayData = specialReq.includes('PAYMENT_DATA')
+        // Check PAYMENT_DATA comment
+        let paidFromComment = 0
+        let pStatusFromComment = 'pending'
+        if (hasPayData) {
+          const pdMatch = specialReq.match(/<!-- PAYMENT_DATA:(.*?) -->/)
+          if (pdMatch?.[1]) {
+            try {
+              const pd = JSON.parse(pdMatch[1])
+              paidFromComment = pd.amountPaid || 0
+              pStatusFromComment = pd.paymentStatus || 'pending'
+            } catch { /* ignore */ }
+          }
+        }
+        const hasAnyPayment = hasPayEvent || paidFromComment > 0 || pStatusFromComment !== 'pending'
+        console.log(`  [confirmed filter] booking ${b.id.slice(0,8)} hasPayEvent=${hasPayEvent} paidFromComment=${paidFromComment} pStatus=${pStatusFromComment} creator=${creator} staffId=${staffId}`)
+        if (!hasAnyPayment) return false
         const createdAt = b.createdAt || b.created_at || ''
         if (!createdAt) return false
         const d = new Date(createdAt)
         const inRange = d >= from && d <= to
-        console.log(`  [confirmed filter] createdAt=${createdAt} inRange=${inRange} from=${from.toISOString()} to=${to.toISOString()}`)
+        console.log(`  [confirmed filter] createdAt=${createdAt} inRange=${inRange}`)
         return inRange
       }
 
@@ -315,23 +327,35 @@ export async function fetchBookingsForStaffWeek(
       let depositAmount = 0
       let depositMethod = rawMethod
       if (isConfirmed) {
-        depositAmount = Number(b.amountPaid ?? b.amount_paid ?? 0)
-        // Also check PAYMENT_DATA comment for very old bookings
-        if (depositAmount === 0) {
-          const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
-          if (pdMatch?.[1]) {
-            try { depositAmount = JSON.parse(pdMatch[1]).amountPaid || 0 } catch { /* ignore */ }
-          }
-        }
-        // Also check PAYMENT_EVENTS for new-style bookings
+        // 1. Try PAYMENT_EVENTS (new-style bookings from OnsiteBookingPage)
         const events = parsePaymentEvents(specialReq)
         if (events.length > 0) {
           depositAmount = events
-            .filter((e) => e.stage === 'booking' && e.staffId === creatorId)
+            .filter((e) => e.stage === 'booking')
             .reduce((s, e) => s + e.amount, 0)
           const bookingEvent = events.find((e) => e.stage === 'booking')
           if (bookingEvent) depositMethod = bookingEvent.method
         }
+
+        // 2. Fall back to PAYMENT_DATA comment (booking-engine path)
+        if (depositAmount === 0) {
+          const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
+          if (pdMatch?.[1]) {
+            try {
+              const pd = JSON.parse(pdMatch[1])
+              depositAmount = pd.amountPaid || 0
+              if (pd.paymentMethod) depositMethod = pd.paymentMethod
+            } catch { /* ignore */ }
+          }
+        }
+
+        // 3. If paymentStatus says 'full', use totalPrice as fallback
+        const storedPStatus = (b.paymentStatus || b.payment_status || '')
+        if (depositAmount === 0 && storedPStatus === 'full') {
+          depositAmount = rawPrice
+        }
+
+        console.log(`  [confirmed map] booking ${b.id.slice(0,8)} depositAmount=${depositAmount} depositMethod=${depositMethod}`)
 
         // For confirmed bookings the creator gets exactly the deposit — nothing more
         return {
@@ -342,7 +366,7 @@ export async function fetchBookingsForStaffWeek(
           checkOut: b.checkOut,
           totalPrice: rawPrice,
           discountAmount: 0,
-          effectivePrice: rawPrice,    // full booking value shown for context
+          effectivePrice: rawPrice,
           staffAttributedRevenue: depositAmount,
           isDeposit: true,
           depositAmount,
@@ -364,24 +388,22 @@ export async function fetchBookingsForStaffWeek(
       // --- Payment event attribution for checked-in / checked-out bookings ---
       const paymentEvents = parsePaymentEvents(specialReq)
 
-      // Read amountPaid / paymentStatus from DB or PAYMENT_DATA comment (legacy)
+      // Read amountPaid / paymentStatus from PAYMENT_DATA comment (amountPaid is NOT a direct DB column)
       let legacyAmountPaid: number | undefined
       let legacyPaymentStatus: 'full' | 'part' | 'pending' | undefined
       if (paymentEvents.length === 0) {
-        legacyAmountPaid = Number(b.amountPaid ?? b.amount_paid ?? 0) || 0
-        legacyPaymentStatus = (b.paymentStatus || b.payment_status || 'pending') as 'full' | 'part' | 'pending'
-        if (legacyAmountPaid === 0 || legacyPaymentStatus === 'pending') {
-          const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
-          if (pdMatch?.[1]) {
-            try {
-              const pd = JSON.parse(pdMatch[1])
-              if (!legacyAmountPaid) legacyAmountPaid = pd.amountPaid || 0
-              if (!legacyPaymentStatus || legacyPaymentStatus === 'pending') {
-                legacyPaymentStatus = pd.paymentStatus || 'pending'
-              }
-            } catch { /* ignore */ }
-          }
+        // Primary source: PAYMENT_DATA comment in specialRequests
+        const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
+        if (pdMatch?.[1]) {
+          try {
+            const pd = JSON.parse(pdMatch[1])
+            legacyAmountPaid = pd.amountPaid || 0
+            legacyPaymentStatus = pd.paymentStatus || 'pending'
+          } catch { /* ignore */ }
         }
+        // Fallback: direct DB fields (may exist on some older records)
+        if (!legacyAmountPaid) legacyAmountPaid = Number(b.amountPaid ?? b.amount_paid ?? 0) || 0
+        if (!legacyPaymentStatus) legacyPaymentStatus = (b.paymentStatus || b.payment_status || 'pending') as 'full' | 'part' | 'pending'
       }
 
       const staffAttributedRevenue = computeStaffAttributedRevenue(
@@ -415,8 +437,9 @@ export async function fetchBookingsForStaffWeek(
         grandTotal: effectivePrice + additionalChargesTotal,
       }
     })
-    // Exclude bookings where this staff has zero attributed revenue
-    .filter((b) => b.staffAttributedRevenue > 0 || b.effectivePrice === 0)
+    // Exclude non-deposit bookings where this staff has zero attributed revenue.
+    // Always keep deposit (confirmed) rows — they passed the filter so payment was made.
+    .filter((b) => b.isDeposit || b.staffAttributedRevenue > 0 || b.effectivePrice === 0)
 
   // ── Orphan charges ────────────────────────────────────────────────────────
   // Charges created THIS WEEK on bookings owned by this staff member whose
