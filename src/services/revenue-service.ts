@@ -224,24 +224,11 @@ export async function fetchBookingsForStaffWeek(
       .map((b: any) => `${b.roomId || b.room_id}|${b.checkIn || b.check_in}`)
   )
 
-  // Build a map of groupId → sum of room prices for active bookings in that group.
-  // Only include confirmed/checked-in/checked-out — exclude cancelled, no-show, etc.
-  // This gives the true group total used for proportional deposit distribution.
-  const groupSubtotalMap = new Map<string, number>()
-  for (const b of (allBookings || []) as any[]) {
-    const status = b.status || ''
-    if (!['confirmed', 'checked-in', 'checked-out'].includes(status)) continue
-    const sr = b.special_requests || b.specialRequests || ''
-    const gdMatch = sr.match(/<!-- GROUP_DATA:(.*?) -->/)
-    if (!gdMatch?.[1]) continue
-    try {
-      const gd = JSON.parse(gdMatch[1])
-      const gid = gd.groupId
-      if (!gid) continue
-      const price = Number(b.totalPrice || 0)
-      groupSubtotalMap.set(gid, (groupSubtotalMap.get(gid) || 0) + price)
-    } catch { /* ignore */ }
-  }
+  // Build a set of groupIds that already have their deposit accounted for.
+  // Group deposits are shown ONCE on the primary booking (isPrimaryBooking=true)
+  // with the full deposit amount — non-primary rooms are skipped for deposit rows.
+  // This prevents splitting GHS 600 into 4 × GHS 100 and showing partial amounts.
+  const groupDepositAccountedFor = new Set<string>()
 
   const matched: BookingSummary[] = ((allBookings || []) as any[])
     .filter((b: any) => {
@@ -263,8 +250,7 @@ export async function fetchBookingsForStaffWeek(
         if (creator !== staffId) return false
         // Never show a deposit row for a booking that has since been checked-in/out
         if (checkedInOrOutIds.has(b.id)) return false
-        // Also exclude confirmed bookings where the same room+checkIn already has a
-        // checked-in/out booking (catches duplicate booking IDs for same room/dates)
+        // Exclude confirmed bookings where the same room+checkIn already has a checked-in/out booking
         const roomDateKey = `${b.roomId || b.room_id}|${b.checkIn || b.check_in}`
         if (occupiedRoomDates.has(roomDateKey)) return false
         // Payment data is stored ONLY in specialRequests comments — not as direct DB columns
@@ -285,6 +271,25 @@ export async function fetchBookingsForStaffWeek(
         }
         const hasAnyPayment = hasPayEvent || paidFromComment > 0 || pStatusFromComment !== 'pending'
         if (!hasAnyPayment) return false
+
+        // For GROUP bookings: only let the PRIMARY booking through.
+        // The full group deposit is shown once on the primary booking — non-primary rooms are skipped.
+        const isGroupMember = specialReq.includes('GROUP_DATA')
+        if (isGroupMember) {
+          const gdMatch = specialReq.match(/<!-- GROUP_DATA:(.*?) -->/)
+          if (gdMatch?.[1]) {
+            try {
+              const gd = JSON.parse(gdMatch[1])
+              const gid = gd.groupId
+              if (gid) {
+                if (!gd.isPrimaryBooking) return false  // skip non-primary rooms
+                if (groupDepositAccountedFor.has(gid)) return false  // already handled
+                groupDepositAccountedFor.add(gid)
+              }
+            } catch { /* ignore */ }
+          }
+        }
+
         const createdAt = b.createdAt || b.created_at || ''
         if (!createdAt) return false
         const d = new Date(createdAt)
@@ -351,7 +356,11 @@ export async function fetchBookingsForStaffWeek(
         // Detect group booking — GROUP_DATA comment is present on group members
         const isGroupMember = specialReq.includes('GROUP_DATA')
 
-        // 1. PAYMENT_EVENTS: always the most accurate source (proportional per room for groups)
+        // For group primary booking: show the FULL group deposit (not per-room split).
+        // The deposit was paid once by the group owner for all rooms.
+        // For single-room bookings: show the actual amount paid.
+
+        // 1. PAYMENT_EVENTS: sum all booking-stage events (covers both single and group)
         const events = parsePaymentEvents(specialReq)
         if (events.length > 0) {
           depositAmount = events
@@ -359,6 +368,31 @@ export async function fetchBookingsForStaffWeek(
             .reduce((s, e) => s + e.amount, 0)
           const bookingEvent = events.find((e) => e.stage === 'booking')
           if (bookingEvent) depositMethod = bookingEvent.method
+
+          // For group primary: PAYMENT_EVENTS only stored this room's proportional share.
+          // Multiply back up to get full group deposit by summing all rooms in the group.
+          if (isGroupMember && depositAmount > 0) {
+            const gdMatch = (specialReq as string).match(/<!-- GROUP_DATA:(.*?) -->/)
+            if (gdMatch?.[1]) {
+              try {
+                const gd = JSON.parse(gdMatch[1])
+                const gid = gd.groupId
+                if (gid) {
+                  // Sum all booking-stage PAYMENT_EVENTS across all group members
+                  let groupDepositTotal = 0
+                  for (const gb of (allBookings || []) as any[]) {
+                    const gsr = gb.special_requests || gb.specialRequests || ''
+                    if (!gsr.includes(gid)) continue
+                    const gevents = parsePaymentEvents(gsr)
+                    groupDepositTotal += gevents
+                      .filter((e) => e.stage === 'booking')
+                      .reduce((s, e) => s + e.amount, 0)
+                  }
+                  if (groupDepositTotal > 0) depositAmount = groupDepositTotal
+                }
+              } catch { /* ignore */ }
+            }
+          }
         }
 
         // 2. PAYMENT_DATA fallback
@@ -368,47 +402,54 @@ export async function fetchBookingsForStaffWeek(
             try {
               const pd = JSON.parse(pdMatch[1])
               if (pd.paymentMethod) depositMethod = pd.paymentMethod
-
-              if (isGroupMember) {
-                // Distribute group deposit proportionally: (thisRoomPrice / groupTotal) * totalDeposit
-                // groupSubtotalMap is pre-built by summing all rooms sharing the same groupId —
-                // more reliable than GROUP_DATA.subtotal which is only on the primary booking.
-                const gdMatch = (specialReq as string).match(/<!-- GROUP_DATA:(.*?) -->/)
-                if (gdMatch?.[1]) {
-                  try {
-                    const gd = JSON.parse(gdMatch[1])
-                    const gid = gd.groupId
-                    const groupSubtotal = gid ? (groupSubtotalMap.get(gid) || 0) : 0
-                    const totalDeposit = Number(pd.amountPaid || 0)
-                    if (groupSubtotal > 0 && totalDeposit > 0) {
-                      depositAmount = Math.round((rawPrice / groupSubtotal) * totalDeposit * 100) / 100
-                    } else if (pd.paymentStatus === 'full') {
-                      depositAmount = rawPrice
-                    }
-                  } catch { /* ignore */ }
-                }
-              } else {
-                // Single-room booking — amountPaid is exactly this room's deposit
-                if (pd.paymentStatus === 'full') {
-                  depositAmount = rawPrice
-                } else if (pd.paymentStatus === 'part' && pd.amountPaid > 0) {
-                  depositAmount = pd.amountPaid
-                }
+              // amountPaid in PAYMENT_DATA is the full group deposit total — use it directly
+              if (pd.paymentStatus === 'full') {
+                depositAmount = isGroupMember
+                  ? Number(pd.amountPaid || rawPrice)  // full group deposit or room price
+                  : rawPrice
+              } else if (pd.amountPaid > 0) {
+                depositAmount = Number(pd.amountPaid)  // the exact amount collected
               }
             } catch { /* ignore */ }
           }
         }
 
-        // For confirmed bookings the creator gets exactly the deposit — nothing more
+        // For group primary: show "Group Deposit" with full amount and group reference in room field
+        let displayRoomNumber = room?.roomNumber || '—'
+        let displayTotalPrice = rawPrice
+        if (isGroupMember) {
+          const gdMatch2 = (specialReq as string).match(/<!-- GROUP_DATA:(.*?) -->/)
+          if (gdMatch2?.[1]) {
+            try {
+              const gd = JSON.parse(gdMatch2[1])
+              if (gd.groupReference) displayRoomNumber = `Group ${gd.groupReference}`
+              // Show full group total as the "room rate" context
+              const gid = gd.groupId
+              if (gid) {
+                const groupTotal = ((allBookings || []) as any[])
+                  .filter((gb: any) => {
+                    const gsr = gb.special_requests || gb.specialRequests || ''
+                    if (!gsr.includes(gid)) return false
+                    const gdm = gsr.match(/<!-- GROUP_DATA:(.*?) -->/)
+                    if (!gdm?.[1]) return false
+                    try { return JSON.parse(gdm[1]).groupId === gid } catch { return false }
+                  })
+                  .reduce((s: number, gb: any) => s + Number(gb.totalPrice || 0), 0)
+                if (groupTotal > 0) displayTotalPrice = groupTotal
+              }
+            } catch { /* ignore */ }
+          }
+        }
+
         return {
           id: b.id,
           guestName,
-          roomNumber: room?.roomNumber || '—',
+          roomNumber: displayRoomNumber,
           checkIn: b.checkIn,
           checkOut: b.checkOut,
-          totalPrice: rawPrice,
+          totalPrice: displayTotalPrice,
           discountAmount: 0,
-          effectivePrice: rawPrice,
+          effectivePrice: displayTotalPrice,
           staffAttributedRevenue: depositAmount,
           isDeposit: true,
           depositAmount,
