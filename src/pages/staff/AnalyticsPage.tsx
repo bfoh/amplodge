@@ -91,6 +91,7 @@ export function AnalyticsPage() {
   const [guests, setGuests] = useState<GuestAnalytics | null>(null)
   const [performance, setPerformance] = useState<PerformanceMetrics | null>(null)
   const [allRevenueBookings, setAllRevenueBookings] = useState<any[]>([])
+  const [allDepositBookings, setAllDepositBookings] = useState<any[]>([])
   const [breakdownMode, setBreakdownMode] = useState<'week' | 'month' | 'year'>('week')
   const [selectedWeekIdx, setSelectedWeekIdx] = useState(0)
   const [selectedMonthIdx, setSelectedMonthIdx] = useState(0)
@@ -129,6 +130,21 @@ export function AnalyticsPage() {
       setPerformance(performanceData)
       setAllRevenueBookings(
         allBookings.filter(b => ['checked-in', 'checked-out'].includes(b.status))
+      )
+      // Confirmed bookings that collected a deposit — these are real cash received
+      // For groups: only the primary booking (to avoid double-counting)
+      const _seenDepositGroups = new Set<string>()
+      setAllDepositBookings(
+        allBookings.filter(b => {
+          if (b.status !== 'confirmed') return false
+          if ((b.amountPaid || 0) <= 0 && (b.paymentStatus || 'pending') === 'pending') return false
+          if (b.groupId) {
+            if (!b.isPrimaryBooking) return false
+            if (_seenDepositGroups.has(b.groupId)) return false
+            _seenDepositGroups.add(b.groupId)
+          }
+          return true
+        })
       )
       setAllChargesRaw(chargesRaw || [])
       setAllSalesRaw(salesRaw || [])
@@ -191,11 +207,15 @@ export function AnalyticsPage() {
   const activePeriod = breakdownMode === 'week' ? weekOptions[selectedWeekIdx]
     : breakdownMode === 'month' ? monthOptions[selectedMonthIdx] : yearOptions[selectedYearIdx]
 
-  const breakdownBookings = allRevenueBookings.filter(b => {
-    const d = new Date(b.dates.checkIn)
-    return d >= activePeriod.start && d <= activePeriod.end
-  })
-  const breakdownTotal = breakdownBookings.reduce((s, b) => s + Number(b.amount || 0), 0)
+  const breakdownBookings = [
+    ...allRevenueBookings
+      .filter(b => { const d = new Date(b.dates.checkIn); return d >= activePeriod.start && d <= activePeriod.end })
+      .map(b => ({ ...b, _isDeposit: false, _displayAmount: Number(b.amount || 0) })),
+    ...allDepositBookings
+      .filter(b => { const d = new Date(b.createdAt || ''); return !isNaN(d.getTime()) && d >= activePeriod.start && d <= activePeriod.end })
+      .map(b => ({ ...b, _isDeposit: true, _displayAmount: Number(b.amountPaid || 0) })),
+  ]
+  const breakdownTotal = breakdownBookings.reduce((s, b) => s + (b as any)._displayAmount, 0)
 
   const normPay = (raw: string) => {
     const s = (raw || '').trim().toLowerCase()
@@ -218,7 +238,7 @@ export function AnalyticsPage() {
     } else {
       const m = normPay(b.paymentMethod || b.payment?.method || '')
       if (m in bdAmounts) {
-        bdAmounts[m as keyof typeof bdAmounts] += Number(b.amount) || 0
+        bdAmounts[m as keyof typeof bdAmounts] += ((b as any)._displayAmount ?? Number(b.amount)) || 0
         bdCounts[m as keyof typeof bdCounts]++
       }
     }
@@ -262,6 +282,9 @@ export function AnalyticsPage() {
     const roomRev = allRevenueBookings
       .filter(b => { const d = new Date(b.dates.checkIn); return d >= period.start && d <= period.end })
       .reduce((s: number, b: any) => s + Number(b.amount || 0), 0)
+    const depositRev = allDepositBookings
+      .filter(b => { const d = new Date(b.createdAt || ''); return !isNaN(d.getTime()) && d >= period.start && d <= period.end })
+      .reduce((s: number, b: any) => s + Number(b.amountPaid || 0), 0)
     const chargesRev = allChargesRaw
       .filter(c => {
         const d = new Date(c.createdAt || c.created_at || '')
@@ -275,7 +298,7 @@ export function AnalyticsPage() {
         return !isNaN(d.getTime()) && d >= period.start && d <= period.end
       })
       .reduce((s: number, sale: any) => s + Number(sale.amount || 0), 0)
-    return roomRev + chargesRev + salesRev
+    return roomRev + depositRev + chargesRev + salesRev
   }
   const pageRevThisWeek  = computeRevForPeriod(weekOptions[0])
   const pageRevThisMonth = computeRevForPeriod(monthOptions[0])
@@ -960,17 +983,23 @@ export function AnalyticsPage() {
                           )}
                         </td>
                         <td className="px-4 py-3">
-                          <span className={cn(
-                            'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold',
-                            b.status === 'checked-out'
-                              ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-                              : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
-                          )}>
-                            {b.status === 'checked-out' ? 'Checked Out' : 'Checked In'}
-                          </span>
+                          {(b as any)._isDeposit ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+                              Deposit
+                            </span>
+                          ) : (
+                            <span className={cn(
+                              'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold',
+                              b.status === 'checked-out'
+                                ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                                : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+                            )}>
+                              {b.status === 'checked-out' ? 'Checked Out' : 'Checked In'}
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                          {formatCurrencySync(Number(b.amount || 0), currency)}
+                          {formatCurrencySync((b as any)._displayAmount ?? Number(b.amount || 0), currency)}
                         </td>
                       </tr>
                     )

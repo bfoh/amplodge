@@ -57,6 +57,46 @@ class AnalyticsService {
         b => ['checked-in', 'checked-out'].includes(b.status)
       )
 
+      // Also include deposits paid on CONFIRMED bookings.
+      // These are real cash received — the guest paid at booking time.
+      // For group bookings: only count the primary booking to avoid double-counting.
+      // Use createdAt (date deposit received) not checkIn for period placement.
+      const seenGroupDeposits = new Set<string>()
+      const depositBookings = bookings.filter(b => {
+        if (b.status !== 'confirmed') return false
+        if ((b.amountPaid || 0) <= 0 && b.paymentStatus === 'pending') return false
+        // For groups: only the primary booking carries the deposit
+        if (b.groupId) {
+          if (!b.isPrimaryBooking) return false
+          if (seenGroupDeposits.has(b.groupId)) return false
+          seenGroupDeposits.add(b.groupId)
+        }
+        return true
+      })
+
+      // Helper: get deposit amount for a booking (amountPaid for singles, full group deposit for groups)
+      const getDepositAmount = (b: any): number => {
+        return Number(b.amountPaid || 0)
+      }
+
+      // Helper: place a deposit in a date range using createdAt
+      const depositInRange = (from: Date, to: Date): number =>
+        depositBookings.reduce((sum, b) => {
+          const created = new Date(b.createdAt || '')
+          if (isNaN(created.getTime())) return sum
+          if (created < from || created > to) return sum
+          return sum + getDepositAmount(b)
+        }, 0)
+
+      const depositInRangeStr = (fromStr: string, toStr?: string): number =>
+        depositBookings.reduce((sum, b) => {
+          const created = (b.createdAt || '').slice(0, 10)
+          if (!created) return sum
+          if (created < fromStr) return sum
+          if (toStr && created > toStr) return sum
+          return sum + getDepositAmount(b)
+        }, 0)
+
       // Debug logging
       console.log('[AnalyticsService] Total bookings:', bookings.length)
       console.log('[AnalyticsService] Revenue bookings (confirmed/checked-in/out):', revenueBookings.length)
@@ -73,6 +113,9 @@ class AnalyticsService {
         (sum, b) => sum + Number(b.amount || 0),
         0
       )
+
+      // Total deposits collected on confirmed bookings (cash already received)
+      const depositRevenueTotal = depositBookings.reduce((sum, b) => sum + getDepositAmount(b), 0)
 
       // Additional revenue from booking charges — iterate all raw charges directly to avoid
       // booking-ID mismatch between bookingEngine IDs and remoteId used in GuestChargesDialog
@@ -94,7 +137,7 @@ class AnalyticsService {
         additionalRevenueByCategory[cat] = (additionalRevenueByCategory[cat] || 0) + Number(s.amount || 0)
       }
 
-      const totalRevenue = roomRevenueTotal + additionalChargesTotal + standaloneSalesTotal
+      const totalRevenue = roomRevenueTotal + depositRevenueTotal + additionalChargesTotal + standaloneSalesTotal
 
       // Revenue by period
       const today = new Date().toISOString().split('T')[0]
@@ -156,6 +199,7 @@ class AnalyticsService {
 
       const revenueByPeriod = {
         today: bookingRoomRev(revenueBookings.filter(b => b.dates.checkIn === todayStr))
+          + depositInRangeStr(todayStr, todayStr)
           + chargesInRange(todayStr, todayStr)
           + salesInRange(todayStr, todayStr),
 
@@ -163,6 +207,7 @@ class AnalyticsService {
             const ci = new Date(b.dates.checkIn)
             return ci >= thisWeekStart && ci <= thisWeekEnd
           }))
+          + depositInRange(thisWeekStart, thisWeekEnd)
           + chargesInRange(weekStartStr, weekEndStr)
           + salesInRange(weekStartStr, weekEndStr),
 
@@ -170,6 +215,7 @@ class AnalyticsService {
             const ci = new Date(b.dates.checkIn)
             return ci >= thisMonthStart && ci <= thisMonthEnd
           }))
+          + depositInRange(thisMonthStart, thisMonthEnd)
           + chargesInRange(monthStartStr, monthEndStr)
           + salesInRange(monthStartStr, monthEndStr),
 
@@ -177,6 +223,7 @@ class AnalyticsService {
             const checkIn = new Date(b.dates.checkIn)
             return checkIn >= lastMonthStart && checkIn <= lastMonthEnd
           }))
+          + depositInRange(lastMonthStart, lastMonthEnd)
           + chargesInRange(lastMonthStartStr, lastMonthEndStr)
           + salesInRange(lastMonthStartStr, lastMonthEndStr),
 
@@ -184,6 +231,7 @@ class AnalyticsService {
             const ci = new Date(b.dates.checkIn)
             return ci >= thisYearStart && ci <= thisYearEnd
           }))
+          + depositInRange(thisYearStart, thisYearEnd)
           + chargesInRange(yearStartStr, yearEndStr)
           + salesInRange(yearStartStr, yearEndStr),
 
@@ -191,6 +239,7 @@ class AnalyticsService {
             const checkIn = new Date(b.dates.checkIn)
             return checkIn >= lastYearStart && checkIn <= lastYearEnd
           }))
+          + depositInRange(lastYearStart, lastYearEnd)
           + chargesInRange(lastYearStartStr, lastYearEndStr)
           + salesInRange(lastYearStartStr, lastYearEndStr),
       }
@@ -255,6 +304,18 @@ class AnalyticsService {
         return m && m !== 'not_paid' ? [{ method: m, amount: Number(b.amount || 0) }] : []
       }
 
+      // Like getPaySplits but uses the deposit amount (amountPaid) for non-split bookings
+      const getDepositPaySplits = (b: any): Array<{ method: string; amount: number }> => {
+        const depositAmt = getDepositAmount(b)
+        if (b.paymentSplits && b.paymentSplits.length > 0) {
+          return b.paymentSplits
+            .map((s: any) => ({ method: normalizePayMethod(s.method), amount: Number(s.amount) || 0 }))
+            .filter((s: any) => s.method && s.method !== 'not_paid')
+        }
+        const m = normalizePayMethod(b.paymentMethod || b.payment?.method || (b as any).payment_method || '')
+        return m && m !== 'not_paid' ? [{ method: m, amount: depositAmt }] : []
+      }
+
       let _cash = 0, _cashCount = 0, _mobileMoney = 0, _momoCount = 0, _card = 0, _cardCount = 0
       let _notPaid = 0, _notPaidCount = 0
       for (const b of revenueBookings) {
@@ -300,15 +361,41 @@ class AnalyticsService {
         else if (pm === 'mobile_money') { _mobileMoney += amt; _momoCount++ }
         else if (pm === 'card')         { _card += amt; _cardCount++ }
       }
+      // Deposits on confirmed bookings — add by the method used at booking time
+      for (const b of depositBookings) {
+        const splts = getDepositPaySplits(b)
+        if (splts.length === 0) { _notPaid += getDepositAmount(b); _notPaidCount++ }
+        else {
+          for (const s of splts) {
+            if      (s.method === 'cash')         { _cash += s.amount; _cashCount++ }
+            else if (s.method === 'mobile_money') { _mobileMoney += s.amount; _momoCount++ }
+            else if (s.method === 'card')         { _card += s.amount; _cardCount++ }
+          }
+        }
+      }
 
       const revenueByPaymentMethod = {
         cash: _cash,         mobileMoney: _mobileMoney,  card: _card,         notPaid: _notPaid,
         cashCount: _cashCount, mobileMonetyCount: _momoCount, cardCount: _cardCount, notPaidCount: _notPaidCount,
       }
 
-      // Per-period payment method breakdown helper (split-aware, includes charges)
-      const payBreakdown = (bks: any[], salesFrom?: string, salesTo?: string) => {
+      // Per-period payment method breakdown helper (split-aware, includes charges + deposits)
+      const payBreakdown = (bks: any[], salesFrom?: string, salesTo?: string, depositsFrom?: Date, depositsTo?: Date) => {
         let c = 0, cN = 0, m = 0, mN = 0, k = 0, kN = 0
+        // Deposits whose createdAt falls in the period
+        if (depositsFrom && depositsTo) {
+          for (const b of depositBookings) {
+            const created = new Date(b.createdAt || '')
+            if (isNaN(created.getTime())) continue
+            if (created < depositsFrom || created > depositsTo) continue
+            const splts = getDepositPaySplits(b)
+            for (const s of splts) {
+              if      (s.method === 'cash')         { c += s.amount; cN++ }
+              else if (s.method === 'mobile_money') { m += s.amount; mN++ }
+              else if (s.method === 'card')         { k += s.amount; kN++ }
+            }
+          }
+        }
         for (const b of bks) {
           const splts = getPaySplits(b)
           const bCharges = chargesByBookingId.get(b.id) || []
@@ -356,9 +443,9 @@ class AnalyticsService {
       const monthBks = revenueBookings.filter(b => new Date(b.dates.checkIn) >= thisMonthStart)
       const yearBks  = revenueBookings.filter(b => new Date(b.dates.checkIn) >= thisYearStart)
       const revenueByPaymentMethodByPeriod = {
-        thisWeek:  payBreakdown(weekBks,  thisWeekStart.toISOString().split('T')[0]),
-        thisMonth: payBreakdown(monthBks, thisMonthStart.toISOString().split('T')[0]),
-        thisYear:  payBreakdown(yearBks,  thisYearStart.toISOString().split('T')[0]),
+        thisWeek:  payBreakdown(weekBks,  thisWeekStart.toISOString().split('T')[0], undefined, thisWeekStart, thisWeekEnd),
+        thisMonth: payBreakdown(monthBks, thisMonthStart.toISOString().split('T')[0], undefined, thisMonthStart, thisMonthEnd),
+        thisYear:  payBreakdown(yearBks,  thisYearStart.toISOString().split('T')[0], undefined, thisYearStart, thisYearEnd),
       }
 
       // Revenue by source
@@ -400,6 +487,7 @@ class AnalyticsService {
         const dayBookings = revenueBookings.filter(b => b.dates.checkIn === dateStr)
         const dayRevenue = dayBookings.reduce((sum, b) => sum + Number(b.amount || 0), 0)
           + chargesInRange(dateStr, dateStr)
+          + depositInRangeStr(dateStr, dateStr)
         const daySales = (allStandaloneSales || []).reduce((sum: number, s: any) => {
           const sd = s.saleDate || s.sale_date || ''
           return sd === dateStr ? sum + Number(s.amount || 0) : sum

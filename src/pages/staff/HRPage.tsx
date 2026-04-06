@@ -1582,7 +1582,7 @@ function StaffRevenueRow({
 }: {
   report: WeeklyRevenueReport
   onReview: (r: WeeklyRevenueReport) => void
-  onLiveData: (id: string, count: number, revenue: number) => void
+  onLiveData: (id: string, count: number, revenue: number, bookingIds: string[]) => void
 }) {
   const [open, setOpen] = useState(false)
   const [weekResult, setWeekResult] = useState<StaffWeekResult | null>(null)
@@ -1597,7 +1597,7 @@ function StaffRevenueRow({
       setWeekResult(result)
       setLiveCount(result.bookingCount)
       setLiveGrandRevenue(result.grandRevenue)
-      onLiveData(report.id, result.bookingCount, result.grandRevenue)
+      onLiveData(report.id, result.bookingCount, result.grandRevenue, result.bookings.map(b => b.id))
     } catch { /* silent */ } finally { setLoadingBks(false) }
   }, [report.staffId, report.weekStart, report.weekEnd, report.id, onLiveData])
 
@@ -1928,10 +1928,10 @@ function RevenueReportTab() {
   const [reviewTarget, setReviewTarget] = useState<WeeklyRevenueReport | null>(null)
   const [adminNotes, setAdminNotes] = useState('')
   const [reviewing, setReviewing] = useState(false)
-  const [liveData, setLiveData] = useState<Record<string, { count: number; revenue: number }>>({})
+  const [liveData, setLiveData] = useState<Record<string, { count: number; revenue: number; bookingIds: string[] }>>({})
 
-  const handleLiveData = useCallback((id: string, count: number, revenue: number) => {
-    setLiveData(prev => ({ ...prev, [id]: { count, revenue } }))
+  const handleLiveData = useCallback((id: string, count: number, revenue: number, bookingIds: string[]) => {
+    setLiveData(prev => ({ ...prev, [id]: { count, revenue, bookingIds } }))
   }, [])
 
   const loadReports = useCallback(async () => {
@@ -1969,7 +1969,22 @@ function RevenueReportTab() {
   }
 
   const totalRevenue = reports.reduce((s, r) => s + (liveData[r.id]?.revenue ?? r.totalRevenue), 0)
-  const totalBookings = reports.reduce((s, r) => s + (liveData[r.id]?.count ?? r.bookingCount), 0)
+  // Count UNIQUE booking IDs across all staff to avoid double-counting bookings
+  // attributed to multiple staff members (e.g., creator + checkInBy are different people).
+  const allUniqueBookingIds = new Set<string>()
+  for (const r of reports) {
+    const ids = liveData[r.id]?.bookingIds
+    if (ids) {
+      ids.forEach(id => allUniqueBookingIds.add(id))
+    } else {
+      // liveData not yet loaded — fall back to saved bookingIds JSON
+      try {
+        const saved: string[] = JSON.parse((r as any).bookingIds || '[]')
+        saved.forEach(id => allUniqueBookingIds.add(id))
+      } catch { /* ignore */ }
+    }
+  }
+  const totalBookings = allUniqueBookingIds.size
   const submittedCount = reports.filter((r) => r.status === 'submitted' || r.status === 'reviewed').length
 
   return (

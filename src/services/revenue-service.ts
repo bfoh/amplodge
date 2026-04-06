@@ -733,14 +733,89 @@ export async function reviewWeekReport(
 /** Get all staff reports for a specific week (admin view). */
 export async function getAllStaffReportsForWeek(weekStart: string): Promise<WeeklyRevenueReport[]> {
   const db = blink.db as any
+
+  // weekEnd = Saturday of that ISO week (weekStart is Monday)
+  const weekEndDate = new Date(weekStart + 'T00:00:00')
+  weekEndDate.setDate(weekEndDate.getDate() + 6)
+  const weekEnd = weekEndDate.toISOString().split('T')[0]
+
+  const from = new Date(weekStart + 'T00:00:00')
+  const to   = new Date(weekEnd   + 'T23:59:59')
+
   try {
-    const rows = await db.hr_weekly_revenue.list({ limit: 500 })
-    return ((rows || []) as WeeklyRevenueReport[])
-      .filter((r) => {
-        const ws = (r as any).weekStart || (r as any).week_start || ''
-        return ws === weekStart && r.status !== 'init'
+    const [rows, allBookings] = await Promise.all([
+      db.hr_weekly_revenue.list({ limit: 500 }),
+      db.bookings.list({ limit: 2000 }),
+    ])
+
+    // Saved reports for this week
+    const savedReports: WeeklyRevenueReport[] = ((rows || []) as WeeklyRevenueReport[]).filter((r) => {
+      const ws = (r as any).weekStart || (r as any).week_start || ''
+      return ws === weekStart && r.status !== 'init'
+    })
+    const savedStaffIds = new Set(savedReports.map((r) => (r as any).staffId || (r as any).staff_id || ''))
+
+    // Scan bookings to find staff with activity in this week but no saved report.
+    // A booking contributes to a staff member's week if:
+    //   - checked-in/out: checkIn date is in the week
+    //   - confirmed deposit: createdAt is in the week (and has payment)
+    const unsavedStaff = new Map<string, string>() // staffId → staffName
+    for (const b of (allBookings || []) as any[]) {
+      const status = b.status || ''
+      let inWeek = false
+
+      if (['checked-in', 'checked-out'].includes(status)) {
+        const ci = new Date(b.checkIn || b.check_in || '')
+        inWeek = !isNaN(ci.getTime()) && ci >= from && ci <= to
+      } else if (status === 'confirmed') {
+        const sr = b.special_requests || b.specialRequests || ''
+        const hasPayment = sr.includes('PAYMENT_EVENTS') || sr.includes('PAYMENT_DATA')
+        if (hasPayment) {
+          const ca = new Date(b.createdAt || b.created_at || '')
+          inWeek = !isNaN(ca.getTime()) && ca >= from && ca <= to
+        }
+      }
+
+      if (!inWeek) continue
+
+      const staffIds = [
+        { id: b.createdBy || b.created_by || '', name: b.createdByName || b.created_by_name || '' },
+        { id: b.checkInBy || b.check_in_by || '', name: b.checkInByName || b.check_in_by_name || '' },
+        { id: b.checkOutBy || b.check_out_by || '', name: b.checkOutByName || b.check_out_by_name || '' },
+      ]
+      for (const { id, name } of staffIds) {
+        if (id && !savedStaffIds.has(id) && !unsavedStaff.has(id)) {
+          unsavedStaff.set(id, name || id)
+        }
+      }
+    }
+
+    // Build synthetic (in-memory only) reports for staff with activity but no saved record.
+    // bookingCount/totalRevenue start at 0 — StaffWeekCard.loadBks() populates them via liveData.
+    const now = new Date().toISOString()
+    const syntheticReports: WeeklyRevenueReport[] = []
+    for (const [staffId, staffName] of unsavedStaff) {
+      syntheticReports.push({
+        id: `synthetic_${staffId}_${weekStart}`,
+        staffId,
+        staffName,
+        weekStart,
+        weekEnd,
+        totalRevenue: 0,
+        bookingCount: 0,
+        bookingIds: '[]',
+        status: 'draft',
+        notes: '',
+        adminNotes: '',
+        reviewedBy: '',
+        reviewedAt: '',
+        submittedAt: '',
+        createdAt: now,
+        updatedAt: now,
       })
-      .sort((a, b) => b.totalRevenue - a.totalRevenue)
+    }
+
+    return [...savedReports, ...syntheticReports].sort((a, b) => b.totalRevenue - a.totalRevenue)
   } catch (e) {
     console.warn('[getAllStaffReportsForWeek] failed:', e)
     return []

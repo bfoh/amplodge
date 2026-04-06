@@ -58,6 +58,7 @@
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
     "embla-carousel-react": "^8.6.0",
+    "events": "^3.3.0",
     "framer-motion": "^12.23.12",
     "html2canvas": "^1.4.1",
     "ical-generator": "^10.0.0",
