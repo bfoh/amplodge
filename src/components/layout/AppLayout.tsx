@@ -34,6 +34,8 @@ import {
 import { blink } from '../../blink/client'
 import { cn } from '../../lib/utils'
 import { useStaffRole } from '../../hooks/use-staff-role'
+import { OfflineIndicator } from '../OfflineIndicator'
+import { SyncStatusBadge } from '../SyncStatusBadge'
 
 const navigation = [
   { name: 'Dashboard', href: '/staff/dashboard', icon: LayoutDashboard },
@@ -493,6 +495,7 @@ export function AppLayout() {
       </ScrollArea>
 
       <div className="border-t p-4 bg-sidebar/50 backdrop-blur-sm">
+        <SyncStatusBadge />
         <Button
           onClick={handleLogout}
           variant="ghost"
@@ -544,6 +547,7 @@ export function AppLayout() {
           </Button>
         </div>
 
+        <OfflineIndicator />
         <div className="flex-1 overflow-auto pt-16 lg:pt-0">
           <div className="px-4 lg:px-6 py-4 lg:py-6">
             <Outlet />

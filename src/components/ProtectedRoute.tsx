@@ -3,8 +3,9 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useStaffRole } from '@/hooks/use-staff-role'
 import { canAccessRoute, ROUTE_ACCESS } from '@/lib/rbac'
 import { toast } from 'sonner'
-import { Loader2 } from 'lucide-react'
+import { Loader2, WifiOff } from 'lucide-react'
 import { blink } from '@/blink/client'
+import { useNetworkStatus } from '@/lib/network-status'
 
 interface ProtectedRouteProps {
   children: ReactNode
@@ -12,6 +13,7 @@ interface ProtectedRouteProps {
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { role, loading, userId } = useStaffRole()
+  const { isOnline } = useNetworkStatus()
   const navigate = useNavigate()
   const location = useLocation()
   const [hasChecked, setHasChecked] = useState(false)
@@ -43,8 +45,22 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
 
     isCheckingRef.current = true
 
-    // If no userId at all, redirect to login (preserve return URL for QR clock flow)
+    // If no userId at all — check if we have a cached session (offline mode)
     if (!userId) {
+      if (!isOnline) {
+        // We're offline — the cached auth session might still be valid
+        // The useStaffRole hook should have loaded from cache already
+        // If there's truly no cached session, show offline error instead of redirecting
+        console.log('📴 [ProtectedRoute] Offline with no userId — checking cached session...')
+        toast.error('Offline', {
+          description: 'No cached session. Please connect to the internet and log in.',
+          duration: 5000,
+        })
+        setHasChecked(true)
+        isCheckingRef.current = false
+        return
+      }
+
       console.log('❌ [ProtectedRoute] No userId found, redirecting to login')
       const returnTo = encodeURIComponent(location.pathname + location.search)
       navigate(`/staff/login?returnTo=${returnTo}`, { replace: true })

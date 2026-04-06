@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { blink } from '@/blink/client'
 import type { StaffRole } from '@/lib/rbac'
+import { getNetworkOnline } from '@/lib/network-status'
 
 // Cache helper functions
 const CACHE_KEY_PREFIX = 'staff_role_cache_'
-const CACHE_EXPIRY = 5 * 60 * 1000 // 5 minutes
+const CACHE_EXPIRY = 7 * 24 * 60 * 60 * 1000 // 7 days (for offline support)
+const CACHE_REFRESH_INTERVAL = 5 * 60 * 1000 // 5 minutes (refresh from network when online)
 
 function saveToCache(userId: string, staffRecord: StaffRecord, role: StaffRole) {
   try {
@@ -19,22 +21,31 @@ function saveToCache(userId: string, staffRecord: StaffRecord, role: StaffRole) 
   }
 }
 
-function loadFromCache(userId: string): { staffRecord: StaffRecord; role: StaffRole } | null {
+function loadFromCache(userId: string): { staffRecord: StaffRecord; role: StaffRole; isStale: boolean } | null {
   try {
     const cached = localStorage.getItem(`${CACHE_KEY_PREFIX}${userId}`)
     if (!cached) return null
 
     const cacheData = JSON.parse(cached)
-    const isExpired = Date.now() - cacheData.timestamp > CACHE_EXPIRY
+    const age = Date.now() - cacheData.timestamp
+    const isExpired = age > CACHE_EXPIRY
+    const isStale = age > CACHE_REFRESH_INTERVAL
 
-    if (isExpired) {
+    // If expired AND online, purge the cache
+    if (isExpired && getNetworkOnline()) {
       localStorage.removeItem(`${CACHE_KEY_PREFIX}${userId}`)
       return null
     }
 
+    // If expired but offline, still return it (stale data > no data)
+    if (isExpired && !getNetworkOnline()) {
+      console.log('[useStaffRole] 📴 Using expired cache (offline mode)')
+    }
+
     return {
       staffRecord: cacheData.staffRecord,
-      role: cacheData.role
+      role: cacheData.role,
+      isStale,
     }
   } catch (error) {
     console.warn('Failed to load staff role from cache:', error)
@@ -74,6 +85,34 @@ export function useStaffRole() {
   const isStaff = role === 'staff'
   const canManageEmployees = role === 'owner' || role === 'admin'
 
+  // Background refresh from network (non-blocking, no loading state changes)
+  const loadStaffRoleFromNetwork = useCallback(async (uid: string) => {
+    try {
+      let staff = await (blink.db as any).staff.list({
+        where: { userId: uid },
+        limit: 1,
+      })
+
+      if (staff.length === 0) {
+        staff = await (blink.db as any).staff.list({
+          where: { user_id: uid } as any,
+          limit: 1,
+        })
+      }
+
+      if (staff.length > 0) {
+        const record = staff[0] as unknown as StaffRecord
+        const staffRole = record.role as StaffRole
+        setStaffRecord(record)
+        setRole(staffRole)
+        saveToCache(uid, record, staffRole)
+        console.log('🔄 [useStaffRole] Background refresh complete:', staffRole)
+      }
+    } catch (err) {
+      console.warn('⚠️ [useStaffRole] Background refresh failed:', err)
+    }
+  }, [])
+
   const loadStaffRole = useCallback(async (uid: string) => {
     // Prevent duplicate loads for the same user
     if (isLoadingRef.current || loadedUserIdRef.current === uid) {
@@ -97,8 +136,27 @@ export function useStaffRole() {
         console.log('✅ [useStaffRole] Loaded from cache:', {
           userId: uid,
           role: cached.role,
-          name: cached.staffRecord.name
+          name: cached.staffRecord.name,
+          isStale: cached.isStale,
         })
+
+        // If stale but online, refresh in background (non-blocking)
+        if (cached.isStale && getNetworkOnline()) {
+          console.log('🔄 [useStaffRole] Cache is stale, refreshing in background...')
+          // Don't await — fire and forget
+          loadStaffRoleFromNetwork(uid).catch(() => {})
+        }
+
+        return
+      }
+
+      // If offline and no cache, we can't fetch — bail gracefully
+      if (!getNetworkOnline()) {
+        console.warn('📴 [useStaffRole] Offline with no cache for userId:', uid)
+        setRole(null)
+        setStaffRecord(null)
+        setLoading(false)
+        isLoadingRef.current = false
         return
       }
 
