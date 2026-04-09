@@ -7,7 +7,7 @@
  */
 
 import { blink } from '@/blink/client'
-import { startOfWeek, endOfWeek, format, subWeeks } from 'date-fns'
+import { startOfWeek, endOfWeek, format, subWeeks, addDays, parseISO } from 'date-fns'
 import { standaloneSalesService, type StandaloneSale } from './standalone-sales-service'
 import { CHARGE_CATEGORIES } from './booking-charges-service'
 import { parsePaymentEvents, computeStaffAttributedRevenue } from '@/lib/payment-events'
@@ -507,6 +507,21 @@ export async function fetchBookingsForStaffWeek(
         if (!legacyPaymentStatus) legacyPaymentStatus = (b.paymentStatus || b.payment_status || 'pending') as 'full' | 'part' | 'pending'
       }
 
+      // Fallback for completed bookings (checked-in/out) with no payment events,
+      // no PAYMENT_DATA, and no collector recorded (checkInBy/checkOutBy both empty).
+      // The booking is done — someone received payment. If we have no collector info,
+      // attribute the full amount to the creator rather than leaving it unattributed.
+      if (
+        paymentEvents.length === 0 &&
+        legacyPaymentStatus === 'pending' &&
+        !legacyAmountPaid &&
+        !checkInById &&
+        !checkOutById &&
+        (b.status === 'checked-out' || b.status === 'checked-in')
+      ) {
+        legacyPaymentStatus = 'full'
+      }
+
       const staffAttributedRevenue = computeStaffAttributedRevenue(
         paymentEvents, staffId, effectivePrice, creatorId,
         checkOutById, checkInById, legacyAmountPaid, legacyPaymentStatus
@@ -734,10 +749,9 @@ export async function reviewWeekReport(
 export async function getAllStaffReportsForWeek(weekStart: string): Promise<WeeklyRevenueReport[]> {
   const db = blink.db as any
 
-  // weekEnd = Saturday of that ISO week (weekStart is Monday)
-  const weekEndDate = new Date(weekStart + 'T00:00:00')
-  weekEndDate.setDate(weekEndDate.getDate() + 6)
-  const weekEnd = weekEndDate.toISOString().split('T')[0]
+  // weekEnd = Sunday of that ISO week (weekStart is Monday).
+  // Use date-fns addDays + parseISO to avoid timezone-driven off-by-one from toISOString().
+  const weekEnd = format(addDays(parseISO(weekStart), 6), 'yyyy-MM-dd')
 
   const from = new Date(weekStart + 'T00:00:00')
   const to   = new Date(weekEnd   + 'T23:59:59')
