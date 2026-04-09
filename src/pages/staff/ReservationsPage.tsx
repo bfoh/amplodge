@@ -562,9 +562,12 @@ export function ReservationsPage() {
       let housekeepingTaskCreated = false
 
       // Update booking status to checked-out
+      const staffName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Staff'
       await db.bookings.update(booking.id, {
         status: 'checked-out',
-        actualCheckOut: new Date().toISOString()
+        actualCheckOut: new Date().toISOString(),
+        checkOutBy: user?.id || '',
+        checkOutByName: staffName,
       })
 
       // Update room status to cleaning

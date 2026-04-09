@@ -152,23 +152,22 @@ export function computeStaffAttributedRevenue(
     const status = paymentStatus || 'pending'
     const paid = amountPaidAtBooking ?? 0
 
-    // How much the booking creator collected
+    // How much the booking creator collected at booking time
     const creatorAmount = status === 'full'
       ? effectivePrice
       : status === 'part'
         ? paid
         : 0 // pending = nothing collected at booking time
 
-    if (createdBy === staffId) return creatorAmount
-
-    // Remaining balance collected by check-in or check-out staff
+    // Remaining balance is collected at check-out (or check-in if no checkout staff recorded).
     const remainder = Math.max(0, effectivePrice - creatorAmount)
-    if (remainder > 0) {
-      // Prefer checkInBy as the next attributee; fall back to checkOutBy
-      const collector = checkInBy || checkOutBy || ''
-      if (collector === staffId) return remainder
-    }
-    return 0
+    // Prefer checkOutBy since remaining balance is typically collected at departure.
+    const collector = checkOutBy || checkInBy || ''
+
+    let attributed = 0
+    if (createdBy === staffId) attributed += creatorAmount
+    if (remainder > 0 && collector === staffId) attributed += remainder
+    return attributed
   }
 
   // Modern booking with recorded PaymentEvents
