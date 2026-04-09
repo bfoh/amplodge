@@ -326,8 +326,8 @@ export function ReservationsPage() {
   const filtered = useMemo(() => {
     return bookings.filter(b => {
       if (status !== 'all' && b.status !== status) return false
-      if (from && isBefore(parseISO(b.checkOut), parseISO(from))) return false
-      if (to && isAfter(parseISO(b.checkIn), parseISO(to))) return false
+      if (from && b.checkOut && isBefore(parseISO(b.checkOut), parseISO(from))) return false
+      if (to && b.checkIn && isAfter(parseISO(b.checkIn), parseISO(to))) return false
       if (query) {
         const guest = guestMap.get(b.guestId)
         const room = roomMap.get(b.roomId)
@@ -1017,11 +1017,11 @@ export function ReservationsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Check-in</p>
-                  <p className="text-sm">{format(parseISO(cancelDialog.checkIn), 'MMM dd, yyyy')}</p>
+                  <p className="text-sm">{cancelDialog.checkIn ? format(parseISO(cancelDialog.checkIn), 'MMM dd, yyyy') : '—'}</p>
                 </div>
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Check-out</p>
-                  <p className="text-sm">{format(parseISO(cancelDialog.checkOut), 'MMM dd, yyyy')}</p>
+                  <p className="text-sm">{cancelDialog.checkOut ? format(parseISO(cancelDialog.checkOut), 'MMM dd, yyyy') : '—'}</p>
                 </div>
               </div>
 
@@ -1227,8 +1227,8 @@ export function ReservationsPage() {
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-col text-sm">
-                                <span className="font-medium">{format(parseISO(b.checkIn), 'MMM dd')} <span className="text-muted-foreground">-</span> {format(parseISO(b.checkOut), 'MMM dd')}</span>
-                                <span className="text-xs text-muted-foreground">{format(parseISO(b.checkOut), 'yyyy')}</span>
+                                <span className="font-medium">{b.checkIn ? format(parseISO(b.checkIn), 'MMM dd') : '—'} <span className="text-muted-foreground">-</span> {b.checkOut ? format(parseISO(b.checkOut), 'MMM dd') : '—'}</span>
+                                <span className="text-xs text-muted-foreground">{b.checkOut ? format(parseISO(b.checkOut), 'yyyy') : ''}</span>
                               </div>
                             </TableCell>
                             <TableCell className="text-right font-medium text-sm">

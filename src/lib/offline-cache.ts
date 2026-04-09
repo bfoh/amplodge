@@ -122,7 +122,7 @@ export async function warmTable(tableName: string, rows: Record<string, any>[]):
   try {
     // Fetch all existing local docs
     const existing = await db.allDocs({ include_docs: false })
-    const localIds = new Set(existing.rows.map(r => r.id))
+    const localRevs = new Map(existing.rows.map(r => [r.id, r.value.rev]))
     const remoteIds = new Set<string>()
 
     // Upsert all remote rows
@@ -131,16 +131,7 @@ export async function warmTable(tableName: string, rows: Record<string, any>[]):
       const docId = String(row.id)
       remoteIds.add(docId)
 
-      // Try to get existing doc for _rev
-      let existingRev: string | undefined
-      if (localIds.has(docId)) {
-        try {
-          const existingDoc = await db.get(docId)
-          existingRev = existingDoc._rev
-        } catch {
-          // doc doesn't exist locally, will create
-        }
-      }
+      const existingRev = localRevs.get(docId)
 
       bulkDocs.push({
         ...row,
@@ -150,14 +141,10 @@ export async function warmTable(tableName: string, rows: Record<string, any>[]):
     }
 
     // Remove local docs not in remote set (deleted on server)
-    for (const localId of localIds) {
+    for (const r of existing.rows) {
+      const localId = r.id
       if (!remoteIds.has(localId) && !localId.startsWith('_design/')) {
-        try {
-          const doc = await db.get(localId)
-          bulkDocs.push({ _id: localId, _rev: doc._rev, _deleted: true })
-        } catch {
-          // already gone
-        }
+        bulkDocs.push({ _id: localId, _rev: r.value.rev, _deleted: true })
       }
     }
 

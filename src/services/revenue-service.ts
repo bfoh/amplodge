@@ -175,6 +175,26 @@ export async function fetchBookingsForStaffWeek(
   const db = blink.db as any
 
   let allBookings: any = null, allRooms: any = null, allGuests: any = null, allChargesRaw: any = null
+  // Build a set of all IDs that identify this staff member across bookings.
+  // Some older bookings store the staff TABLE row ID instead of the auth user UUID.
+  // We resolve both so no bookings are missed.
+  let staffIdSet = new Set<string>([staffId])
+  try {
+    // Look up the staff record — if staffId is an auth UUID, also grab the staff table row ID.
+    // If staffId IS the staff table row ID, also grab the auth userId.
+    const staffRows: any[] = await db.staff.list({ limit: 200 }).catch(() => [])
+    for (const s of staffRows) {
+      const sid = s.id || ''
+      const uid = s.userId || s.user_id || ''
+      // If this record matches by either field, add both to the set
+      if (sid === staffId || uid === staffId) {
+        if (sid) staffIdSet.add(sid)
+        if (uid) staffIdSet.add(uid)
+      }
+    }
+    console.log(`[fetchBookingsForStaffWeek] staffId=${staffId} resolved set:`, [...staffIdSet])
+  } catch (e) { console.warn('[fetchBookingsForStaffWeek] staff lookup failed:', e) }
+
   try {
     ;[allBookings, allRooms, allGuests, allChargesRaw] = await Promise.all([
       db.bookings.list({ limit: 2000 }),
@@ -208,6 +228,37 @@ export async function fetchBookingsForStaffWeek(
   const from = new Date(weekStart + 'T00:00:00')
   const to = new Date(weekEnd + 'T23:59:59')
 
+  // Debug: show sample booking fields to verify camelCase conversion
+  const sample = (allBookings || [])[0]
+  if (sample) {
+    console.log(`[fetchBookingsForStaffWeek] sample booking fields:`, {
+      id: sample.id, status: sample.status,
+      checkIn: sample.checkIn, check_in: sample.check_in,
+      createdBy: sample.createdBy, created_by: sample.created_by,
+      checkInBy: sample.checkInBy, check_in_by: sample.check_in_by,
+    })
+  }
+  // Count how many bookings match week range regardless of staffId
+  const inWeekBookings = ((allBookings || []) as any[]).filter((b: any) => {
+    if (!['checked-in', 'checked-out'].includes(b.status || '')) return false
+    const ci = new Date(b.checkIn || b.check_in || '')
+    return !isNaN(ci.getTime()) && ci >= from && ci <= to
+  })
+  console.log(`[fetchBookingsForStaffWeek] staffId=${staffId} week=${weekStart}→${weekEnd} totalBookings=${(allBookings||[]).length} inWeek=${inWeekBookings.length}`)
+  // Log every in-week booking's staff fields — one line each so they can't collapse
+  if (inWeekBookings.length > 0) {
+    const mySet = [...staffIdSet].join(', ')
+    inWeekBookings.forEach((b: any, i: number) => {
+      const cb = b.createdBy || b.created_by || '(empty)'
+      const ci = b.checkInBy || b.check_in_by || '(empty)'
+      const co = b.checkOutBy || b.check_out_by || '(empty)'
+      const matchCb = staffIdSet.has(cb) ? '✓' : '✗'
+      const matchCi = staffIdSet.has(ci) ? '✓' : '✗'
+      const matchCo = staffIdSet.has(co) ? '✓' : '✗'
+      console.log(`[revenue] ${i+1}/${inWeekBookings.length} staffId=${staffId.slice(0,8)} set=[${mySet.slice(0,40)}] bk=${b.id?.slice(0,8)} createdBy=${cb} ${matchCb} checkInBy=${ci} ${matchCi} checkOutBy=${co} ${matchCo}`)
+    })
+  }
+
   // Build a set of booking IDs that have already progressed past 'confirmed' —
   // used to exclude deposit rows for bookings that are now checked-in/out (avoid double-count)
   const checkedInOrOutIds = new Set(
@@ -235,7 +286,7 @@ export async function fetchBookingsForStaffWeek(
       const creator = b.createdBy || b.created_by || ''
       const checker = b.checkInBy || b.check_in_by || ''
       const checkOuter = b.checkOutBy || b.check_out_by || ''
-      if (creator !== staffId && checker !== staffId && checkOuter !== staffId) return false
+      if (!staffIdSet.has(creator) && !staffIdSet.has(checker) && !staffIdSet.has(checkOuter)) return false
 
       const status = b.status || ''
 
@@ -247,7 +298,7 @@ export async function fetchBookingsForStaffWeek(
       }
 
       if (status === 'confirmed') {
-        if (creator !== staffId) return false
+        if (!staffIdSet.has(creator)) return false
         // Never show a deposit row for a booking that has since been checked-in/out
         if (checkedInOrOutIds.has(b.id)) return false
         // Exclude confirmed bookings where the same room+checkIn already has a checked-in/out booking
@@ -344,9 +395,14 @@ export async function fetchBookingsForStaffWeek(
         })
       }
 
-      const creatorId = b.createdBy || b.created_by || ''
-      const checkInById = b.checkInBy || b.check_in_by || ''
-      const checkOutById = b.checkOutBy || b.check_out_by || ''
+      const creatorIdRaw = b.createdBy || b.created_by || ''
+      const checkInByIdRaw = b.checkInBy || b.check_in_by || ''
+      const checkOutByIdRaw = b.checkOutBy || b.check_out_by || ''
+      // Normalize: if any stored ID belongs to THIS staff member, substitute staffId
+      // so computeStaffAttributedRevenue can match correctly regardless of which ID was stored.
+      const creatorId = staffIdSet.has(creatorIdRaw) ? staffId : creatorIdRaw
+      const checkInById = staffIdSet.has(checkInByIdRaw) ? staffId : checkInByIdRaw
+      const checkOutById = staffIdSet.has(checkOutByIdRaw) ? staffId : checkOutByIdRaw
 
       // --- For CONFIRMED bookings: only count what was actually collected as deposit ---
       const isConfirmed = b.status === 'confirmed'
@@ -469,7 +525,14 @@ export async function fetchBookingsForStaffWeek(
       }
 
       // --- Payment event attribution for checked-in / checked-out bookings ---
-      const paymentEvents = parsePaymentEvents(specialReq)
+      const rawPaymentEvents = parsePaymentEvents(specialReq)
+      // Normalize payment event staffIds: if an event was recorded with a different variant of this
+      // staff member's ID (e.g., auth UUID vs staff-table row ID), replace it with the canonical
+      // staffId so computeStaffAttributedRevenue can match correctly.
+      const paymentEvents = rawPaymentEvents.map((e) => ({
+        ...e,
+        staffId: staffIdSet.has(e.staffId) ? staffId : e.staffId,
+      }))
 
       // Read amountPaid / paymentStatus from PAYMENT_DATA comment (amountPaid is NOT a direct DB column).
       // IMPORTANT: for group bookings, PAYMENT_DATA.amountPaid stores the full group total — not the
@@ -568,7 +631,7 @@ export async function fetchBookingsForStaffWeek(
         const creator = b.createdBy || b.created_by || ''
         const checker = b.checkInBy || b.check_in_by || ''
         const checkOuter = b.checkOutBy || b.check_out_by || ''
-        return creator === staffId || checker === staffId || checkOuter === staffId
+        return staffIdSet.has(creator) || staffIdSet.has(checker) || staffIdSet.has(checkOuter)
       })
       .map((b: any) => b.id)
   )
@@ -757,23 +820,45 @@ export async function getAllStaffReportsForWeek(weekStart: string): Promise<Week
   const to   = new Date(weekEnd   + 'T23:59:59')
 
   try {
-    const [rows, allBookings] = await Promise.all([
+    const [rows, allBookings, allStaff] = await Promise.all([
       db.hr_weekly_revenue.list({ limit: 500 }),
       db.bookings.list({ limit: 2000 }),
+      db.staff.list({ limit: 200 }).catch(() => [] as any[]),
     ])
+
+    // Build two maps from staff table:
+    //   anyIdToCanonical: any known ID (row ID or auth UUID) → canonical ID (prefer userId/auth UUID)
+    //   canonicalToName:  canonical ID → staff name
+    const anyIdToCanonical = new Map<string, string>()
+    const canonicalToName = new Map<string, string>()
+    for (const s of (allStaff || []) as any[]) {
+      const rowId   = s.id || ''
+      const authId  = s.userId || s.user_id || ''
+      const canonical = authId || rowId   // prefer auth UUID as canonical
+      const sname   = s.name || s.staffName || s.staff_name || ''
+      if (!canonical) continue
+      if (rowId)  anyIdToCanonical.set(rowId, canonical)
+      if (authId) anyIdToCanonical.set(authId, canonical)
+      if (sname)  canonicalToName.set(canonical, sname)
+    }
 
     // Saved reports for this week
     const savedReports: WeeklyRevenueReport[] = ((rows || []) as WeeklyRevenueReport[]).filter((r) => {
       const ws = (r as any).weekStart || (r as any).week_start || ''
       return ws === weekStart && r.status !== 'init'
     })
-    const savedStaffIds = new Set(savedReports.map((r) => (r as any).staffId || (r as any).staff_id || ''))
+    // Canonicalize saved report staff IDs so we don't create a duplicate synthetic report
+    // for the same person when the saved report used a different ID variant.
+    const savedStaffIds = new Set(
+      savedReports.map((r) => {
+        const raw = (r as any).staffId || (r as any).staff_id || ''
+        return anyIdToCanonical.get(raw) || raw
+      })
+    )
 
     // Scan bookings to find staff with activity in this week but no saved report.
-    // A booking contributes to a staff member's week if:
-    //   - checked-in/out: checkIn date is in the week
-    //   - confirmed deposit: createdAt is in the week (and has payment)
-    const unsavedStaff = new Map<string, string>() // staffId → staffName
+    // Normalize every found ID to its canonical form to prevent one person getting two cards.
+    const unsavedStaff = new Map<string, string>() // canonical staffId → staffName
     for (const b of (allBookings || []) as any[]) {
       const status = b.status || ''
       let inWeek = false
@@ -798,8 +883,11 @@ export async function getAllStaffReportsForWeek(weekStart: string): Promise<Week
         { id: b.checkOutBy || b.check_out_by || '', name: b.checkOutByName || b.check_out_by_name || '' },
       ]
       for (const { id, name } of staffIds) {
-        if (id && !savedStaffIds.has(id) && !unsavedStaff.has(id)) {
-          unsavedStaff.set(id, name || id)
+        if (!id) continue
+        // Resolve to canonical ID (dedup auth UUID ↔ staff row ID for the same person)
+        const canonical = anyIdToCanonical.get(id) || id
+        if (!savedStaffIds.has(canonical) && !unsavedStaff.has(canonical)) {
+          unsavedStaff.set(canonical, name || id)
         }
       }
     }
@@ -809,10 +897,14 @@ export async function getAllStaffReportsForWeek(weekStart: string): Promise<Week
     const now = new Date().toISOString()
     const syntheticReports: WeeklyRevenueReport[] = []
     for (const [staffId, staffName] of unsavedStaff) {
+      // Prefer the staff table name; fall back to booking name; last resort: truncated UUID
+      const resolvedName = canonicalToName.get(staffId)
+        || (staffName !== staffId ? staffName : '')
+        || `Staff (${staffId.slice(0, 8)}…)`
       syntheticReports.push({
         id: `synthetic_${staffId}_${weekStart}`,
         staffId,
-        staffName,
+        staffName: resolvedName,
         weekStart,
         weekEnd,
         totalRevenue: 0,

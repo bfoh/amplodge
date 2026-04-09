@@ -557,11 +557,8 @@ class BookingEngine {
           last_check_in: local.dates.checkIn,
           last_check_out: local.dates.checkOut,
           last_source: local.source || 'reception',
-          last_created_by: local.createdBy,
-          last_created_by_name: local.createdByName,
           total_revenue: (await db.guests.get(guestId).then((g: any) => g.total_revenue || 0).catch(() => 0)) + Number(local.amount || 0),
-          total_stays: (await db.guests.get(guestId).then((g: any) => g.total_stays || 0).catch(() => 0)) + 1,
-          updatedAt: now
+          total_stays: (await db.guests.get(guestId).then((g: any) => g.total_stays || 0).catch(() => 0)) + 1
         }
 
         console.log('[BookingEngine] Persisting booking source to guest record:', guestId, guestUpdatePayload)
@@ -1142,7 +1139,6 @@ class BookingEngine {
                 last_check_in: booking.checkIn,
                 last_check_out: booking.checkOut,
                 last_source: booking.source || 'reception',
-                last_created_by_name: booking.created_by_name || booking.createdByName || '',
                 total_revenue: Number(booking.totalPrice || 0),
                 total_stays: (guestForUpdate.total_stays || 0) + 1
               }
@@ -1581,9 +1577,6 @@ class BookingEngine {
               last_check_in: booking.checkIn || booking.check_in,
               last_check_out: booking.checkOut || booking.check_out,
               last_source: booking.source || 'reception',
-              last_created_by_name: booking.created_by_name || booking.createdByName || '',
-              last_check_in_by_name: booking.checkInByName || booking.check_in_by_name || '',
-              last_check_out_by_name: currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.name || currentUser?.email || '',
               total_revenue: (guest?.total_revenue || 0) + Number(booking.totalPrice || booking.total_price || 0),
               total_stays: (guest?.total_stays || 0) + 1
             }

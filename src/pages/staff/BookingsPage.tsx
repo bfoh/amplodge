@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { AlertCircle, RefreshCw, CheckCircle2 } from 'lucide-react'
+import * as syncQueue from '../../lib/sync-queue'
 import { Card, CardContent } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
@@ -25,7 +27,7 @@ import { useStaffRole } from '../../hooks/use-staff-role'
 import { bookingEngine } from '../../services/booking-engine'
 import { calculateNights } from '../../lib/display'
 import { activityLogService } from '../../services/activity-log-service'
-import { formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
+import { cn, formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 
 // Helper function to get current user ID
@@ -75,6 +77,7 @@ export function BookingsPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [qrBooking, setQrBooking] = useState<BookingWithDetails | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [syncState, setSyncState] = useState(syncQueue.getSyncState())
   const [formData, setFormData] = useState({
     propertyId: '',
     guestName: '',
@@ -138,6 +141,11 @@ export function BookingsPage() {
 
   useEffect(() => {
     loadData()
+    // Subscribe to sync state changes
+    const unsubscribe = syncQueue.onSyncStateChange((state) => {
+      setSyncState(state)
+    })
+    return () => unsubscribe()
   }, [])
 
   const loadData = async () => {
@@ -504,6 +512,47 @@ export function BookingsPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Sync Status Banner */}
+      {syncState.pendingCount > 0 && (
+        <div className={cn(
+          "flex items-center justify-between p-3 rounded-lg border shadow-sm transition-all animate-in fade-in slide-in-from-top-2 duration-300",
+          syncState.status === 'error' ? "bg-red-50 border-red-200 text-red-800" : "bg-primary/5 border-primary/20 text-primary"
+        )}>
+          <div className="flex items-center gap-3">
+            {syncState.status === 'syncing' ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : syncState.status === 'error' ? (
+              <AlertCircle className="w-4 h-4" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4" />
+            )}
+            <div className="text-sm">
+              <span className="font-bold">{syncState.pendingCount} offline {syncState.pendingCount === 1 ? 'change' : 'changes'} pending.</span>
+              {syncState.status === 'error' && (
+                <span className="ml-1 opacity-90 italic">Some items are failing and retrying...</span>
+              )}
+              {syncState.status === 'syncing' && (
+                <span className="ml-1 opacity-90">{syncState.currentMessage || 'Uploading to database...'}</span>
+              )}
+            </div>
+          </div>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="h-8 text-xs font-semibold hover:bg-white/50" 
+            onClick={async () => {
+              if (syncState.status === 'error') {
+                await syncQueue.retryFailed()
+              }
+              // The triggerSync in supabase-wrapper is private, but processQueue is public.
+              // We'll rely on the heartbeat or wait for it to naturally trigger.
+            }}
+          >
+            {syncState.status === 'error' ? 'Retry All' : 'Syncing...'}
+          </Button>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">

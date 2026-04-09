@@ -32,6 +32,7 @@ export interface QueueEntry {
   retries: number
   lastError?: string
   status: 'pending' | 'processing' | 'failed'
+  nextRetryAt?: string
 }
 
 export type SyncStatus = 'idle' | 'syncing' | 'error'
@@ -154,10 +155,16 @@ export async function enqueue(
 export async function getPendingEntries(): Promise<QueueEntry[]> {
   const db = getQueueDB()
   const all = await db.allDocs({ include_docs: true })
+  const now = Date.now()
+  
   return all.rows
     .filter(r => r.doc && !r.id.startsWith('_design/'))
     .map(r => r.doc as unknown as QueueEntry)
-    .filter(e => e.status === 'pending')
+    .filter(e => {
+      if (e.status !== 'pending') return false
+      if (e.nextRetryAt && new Date(e.nextRetryAt).getTime() > now) return false
+      return true
+    })
     .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
 }
 
@@ -225,13 +232,13 @@ export async function processQueue(
           err
         )
       } else {
+        // Backoff delay before next retry
+        const backoffMs = RETRY_DELAY_BASE_MS * Math.pow(2, entry.retries - 1)
         entry.status = 'pending'
+        entry.nextRetryAt = new Date(Date.now() + backoffMs).toISOString()
+        
         console.warn(
-          `[SyncQueue] ⚠️ Retry ${entry.retries}/${MAX_RETRIES} for ${entry.operation} on ${entry.table}/${entry.recordId}`
-        )
-        // Exponential backoff delay
-        await new Promise(resolve =>
-          setTimeout(resolve, RETRY_DELAY_BASE_MS * Math.pow(2, entry.retries - 1))
+          `[SyncQueue] ⚠️ Retry ${entry.retries}/${MAX_RETRIES} scheduled for ${entry.operation} on ${entry.table}/${entry.recordId} in ${backoffMs}ms`
         )
       }
 
