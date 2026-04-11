@@ -88,6 +88,10 @@ export interface AuditLog {
 class BookingEngine {
   private syncHandlers: Array<(status: 'syncing' | 'synced' | 'error', message?: string) => void> = []
 
+  // Short-lived cache for getAllBookings — avoids N redundant fetches when analytics/pages load simultaneously
+  private _allBookingsCache: { data: LocalBooking[]; ts: number } | null = null
+  private _allBookingsTTL = 8000 // 8 seconds
+
   public onSyncStatusChange(handler: (status: 'syncing' | 'synced' | 'error', message?: string) => void) {
     this.syncHandlers.push(handler)
     return () => {
@@ -113,18 +117,15 @@ class BookingEngine {
     // Check for duplicate bookings before creating
     const normalizedEmail = (bookingData.guest.email || '').trim().toLowerCase()
 
-    // Get all existing bookings and guests to check for duplicates
-    const [allExistingBookings, allGuests] = await Promise.all([
+    // Fetch all data needed for duplicate check + guest resolution in parallel
+    const [allExistingBookings, allGuests, allRoomsForDupCheck] = await Promise.all([
       db.bookings.list(),
-      db.guests.list()
+      db.guests.list(),
+      db.rooms.list()
     ])
 
     // Create a map of guest IDs to guest data for quick lookup
     const guestMap = new Map(allGuests.map((g: any) => [g.id, g]))
-
-    // Check for duplicates
-    // Note: bookings store roomId not roomNumber, so we resolve via a room lookup
-    const allRoomsForDupCheck = await db.rooms.list()
     const roomIdToNumberMap = new Map((allRoomsForDupCheck as any[]).map((r: any) => [r.id, r.roomNumber]))
     const normDateForDup = (d: string) => (d || '').split('T')[0]
     const isDuplicate = allExistingBookings.some((existing: any) => {
@@ -663,6 +664,7 @@ class BookingEngine {
     }
 
     console.log('[BookingEngine] Booking completed successfully:', localId)
+    this.invalidateBookingsCache()
     this.notifySyncHandlers('synced', 'Booking saved to database')
     return local
   }
@@ -984,15 +986,7 @@ class BookingEngine {
       console.log('[BookingEngine] Attempting to delete booking:', remoteId)
       try {
         await db.bookings.delete(remoteId)
-        console.log('[BookingEngine] Delete command executed for:', remoteId)
-
-        // Verify the booking was actually deleted
-        const verifyDeleted = await db.bookings.get(remoteId).catch(() => null)
-        if (verifyDeleted) {
-          console.error('[BookingEngine] WARNING: Booking still exists after deletion attempt!', remoteId)
-          throw new Error(`Failed to delete booking ${remoteId} - booking still exists in database`)
-        }
-        console.log('[BookingEngine] Verified booking deletion successful:', remoteId)
+        console.log('[BookingEngine] Booking deleted successfully:', remoteId)
       } catch (deleteError: any) {
         console.error('[BookingEngine] Delete operation failed:', deleteError)
         console.error('[BookingEngine] Delete error details:', {
@@ -1159,6 +1153,7 @@ class BookingEngine {
         }
       }
 
+      this.invalidateBookingsCache()
       this.notifySyncHandlers('synced', 'Booking deleted successfully')
     } catch (error) {
       console.error('[BookingEngine] Failed to delete booking:', error)
@@ -1167,8 +1162,18 @@ class BookingEngine {
     }
   }
 
+  // Invalidate the getAllBookings cache (call after create/update/delete)
+  invalidateBookingsCache() {
+    this._allBookingsCache = null
+  }
+
   // Map DB bookings to LocalBooking for Admin views
   async getAllBookings(): Promise<LocalBooking[]> {
+    const now = Date.now()
+    if (this._allBookingsCache && now - this._allBookingsCache.ts < this._allBookingsTTL) {
+      return this._allBookingsCache.data
+    }
+
     const db = blink.db as any
     const [bookings, rooms, guests] = await Promise.all([
       db.bookings.list(),
@@ -1353,6 +1358,7 @@ class BookingEngine {
       return acc
     }, [])
 
+    this._allBookingsCache = { data: uniqueBookings, ts: Date.now() }
     return uniqueBookings
   }
 
@@ -1606,6 +1612,8 @@ class BookingEngine {
       console.error('[BookingEngine] Error updating booking status:', error)
       // Still try to update status even if logging fails
       await db.bookings.update(remoteId, { status })
+    } finally {
+      this.invalidateBookingsCache()
     }
   }
 
