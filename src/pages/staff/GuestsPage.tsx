@@ -477,7 +477,118 @@ export function GuestsPage() {
         <Input placeholder="Search guests by name or email..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-9 bg-card" />
       </div>
 
-      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+      {/* Mobile card view */}
+      <div className="sm:hidden space-y-3">
+        {filteredGuests.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 rounded-xl border bg-card">
+            <Users className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
+            <p className="text-lg font-medium text-muted-foreground">
+              {searchTerm ? 'No guests found' : 'No guests in the database'}
+            </p>
+            {!searchTerm && (
+              <Button variant="link" onClick={() => setDialogOpen(true)} className="mt-2">
+                Add your first guest
+              </Button>
+            )}
+          </div>
+        ) : (
+          filteredGuests.map((guest) => (
+            <Card key={guest.id} className="shadow-sm">
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <p className="font-semibold text-base">{guest.name}</p>
+                    {guest.country && <p className="text-xs text-muted-foreground">{guest.country}</p>}
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 -mt-1 -mr-1">
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => {
+                        setEditingId(guest.id)
+                        setFormData({
+                          name: guest.name || '',
+                          email: guest.email || '',
+                          phone: guest.phone || '',
+                          address: guest.address || '',
+                          country: guest.country || '',
+                          notes: guest.notes || ''
+                        })
+                        setDialogOpen(true)
+                      }}>
+                        <Pencil className="h-4 w-4 mr-2" />
+                        Edit
+                      </DropdownMenuItem>
+                      {canDeleteGuests && (
+                        <DropdownMenuItem
+                          onClick={() => handleDeleteClick(guest.id)}
+                          className="text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+                <div className="space-y-1.5 text-sm text-muted-foreground mb-3">
+                  {guest.email && (
+                    <div className="flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{guest.email}</span>
+                    </div>
+                  )}
+                  {guest.phone && (
+                    <div className="flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5 shrink-0" />
+                      <span>{guest.phone}</span>
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs border-t pt-3">
+                  <div>
+                    <p className="text-muted-foreground uppercase tracking-wide font-medium mb-0.5">Revenue</p>
+                    <p className="font-semibold text-sm">{formatCurrencySync(guest.totalRevenue || 0, currency)}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground uppercase tracking-wide font-medium mb-0.5">Room</p>
+                    <p className="font-medium">{guest.lastBooking?.roomNumber || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground uppercase tracking-wide font-medium mb-0.5">Check In</p>
+                    <p>{formatDate(guest.lastBooking?.checkIn)}</p>
+                    {(guest.lastBooking?.checkInByName || guest.lastBooking?.checkInBy) && (
+                      <p className="text-[10px] text-muted-foreground">by {guest.lastBooking?.checkInByName || resolveName(guest.lastBooking?.checkInBy)}</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground uppercase tracking-wide font-medium mb-0.5">Check Out</p>
+                    {getCheckOutDisplay(guest.lastBooking)}
+                  </div>
+                  {guest.lastBooking?.source && (
+                    <div className="col-span-2">
+                      <p className="text-muted-foreground uppercase tracking-wide font-medium mb-0.5">Source</p>
+                      {(!guest.lastBooking?.source || guest.lastBooking?.source === 'online') ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">Online</span>
+                      ) : guest.lastBooking?.source === 'voice_agent' ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">Voice Agent</span>
+                      ) : (
+                        <span>Staff: {guest.lastBooking?.createdByName || resolveName(guest.lastBooking?.createdBy) || 'Unknown'}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </div>
+
+      {/* Desktop table view */}
+      <div className="hidden sm:block rounded-xl border bg-card shadow-sm overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
@@ -495,7 +606,7 @@ export function GuestsPage() {
           <TableBody>
             {filteredGuests.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center">
+                <TableCell colSpan={9} className="h-24 text-center">
                   <div className="flex flex-col items-center justify-center py-8">
                     <Users className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
                     <p className="text-lg font-medium text-muted-foreground">

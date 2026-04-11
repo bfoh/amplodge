@@ -1,0 +1,23 @@
+[33mYou are using Node.js 21.7.1. Vite requires Node.js version 20.19+ or 22.12+. Please upgrade your Node.js version.[39m
+[31m✗[39m Build failed in 7.95s
+[31merror during build:
+[31msrc/pages/staff/BookingsPage.tsx (4:9): "syncQueue" is not exported by "src/lib/sync-queue.ts", imported by "src/pages/staff/BookingsPage.tsx".[31m
+file: [36m/Users/ebenezerbarning/Desktop/projectamp/src/pages/staff/BookingsPage.tsx:4:9[31m
+[33m
+2: import { useNavigate } from 'react-router-dom'
+3: import { AlertCircle, RefreshCw, CheckCircle2 } from 'lucide-react'
+4: import { syncQueue } from '../../lib/sync-queue'
+            ^
+5: import { Card, CardContent } from '../../components/ui/card'
+6: import { Button } from '../../components/ui/button'
+[31m
+    at getRollupError (file:///Users/ebenezerbarning/Desktop/projectamp/node_modules/rollup/dist/es/shared/parseAst.js:401:41)
+    at error (file:///Users/ebenezerbarning/Desktop/projectamp/node_modules/rollup/dist/es/shared/parseAst.js:397:42)
+    at Module.error (file:///Users/ebenezerbarning/Desktop/projectamp/node_modules/rollup/dist/es/shared/node-entry.js:16956:16)
+    at Module.traceVariable (file:///Users/ebenezerbarning/Desktop/projectamp/node_modules/rollup/dist/es/shared/node-entry.js:17412:29)
+    at ModuleScope.findVariable (file:///Users/ebenezerbarning/Desktop/projectamp/node_modules/rollup/dist/es/shared/node-entry.js:15076:39)
+    at FunctionScope.findVariable (file:///Users/ebenezerbarning/Desktop/projectamp/node_modules/rollup/dist/es/shared/node-entry.js:5649:38)
+    at FunctionBodyScope.findVariable (file:///Users/ebenezerbarning/Desktop/projectamp/node_modules/rollup/dist/es/shared/node-entry.js:5649:38)
+    at MemberExpression.bind (file:///Users/ebenezerbarning/Desktop/projectamp/node_modules/rollup/dist/es/shared/node-entry.js:7363:49)
+    at CallExpression.bind (file:///Users/ebenezerbarning/Desktop/projectamp/node_modules/rollup/dist/es/shared/node-entry.js:2813:23)
+    at CallExpression.bind (file:///Users/ebenezerbarning/Desktop/projectamp/node_modules/rollup/dist/es/shared/node-entry.js:12123:15)[39m

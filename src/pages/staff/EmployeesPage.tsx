@@ -819,7 +819,7 @@ export function EmployeesPage() {
               </CardContent>
             ) : (
               <CardContent className="p-0">
-                <Table>
+                <div className="overflow-x-auto"><Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50 hover:bg-muted/50">
                       <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Name</TableHead>
@@ -883,7 +883,7 @@ export function EmployeesPage() {
                       </TableRow>
                     ))}
                   </TableBody>
-                </Table>
+                </Table></div>
               </CardContent>
             )}
           </Card>

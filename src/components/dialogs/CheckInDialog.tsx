@@ -142,7 +142,7 @@ export function CheckInDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="w-[calc(100vw-2rem)] max-w-lg max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>Confirm Guest Check-In</DialogTitle>
                     <DialogDescription>
@@ -151,36 +151,36 @@ export function CheckInDialog({
                 </DialogHeader>
 
                 <div className="space-y-4 py-4">
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <p className="text-sm font-medium text-muted-foreground">Guest Name</p>
-                            <p className="text-base font-semibold">{guest.name || booking.guestName || 'Guest'}</p>
+                            <p className="text-xs font-medium text-muted-foreground">Guest Name</p>
+                            <p className="text-sm font-semibold">{guest.name || booking.guestName || 'Guest'}</p>
                         </div>
                         <div>
-                            <p className="text-sm font-medium text-muted-foreground">Room Number</p>
-                            <p className="text-base font-semibold">{roomNumber}</p>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <p className="text-sm font-medium text-muted-foreground">Check-in Date</p>
-                            <p className="text-base">{formattedCheckIn}</p>
-                        </div>
-                        <div>
-                            <p className="text-sm font-medium text-muted-foreground">Check-out Date</p>
-                            <p className="text-base">{formattedCheckOut}</p>
+                            <p className="text-xs font-medium text-muted-foreground">Room Number</p>
+                            <p className="text-sm font-semibold">{roomNumber}</p>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <p className="text-sm font-medium text-muted-foreground">Number of Guests</p>
-                            <p className="text-base">{booking.numGuests || 1}</p>
+                            <p className="text-xs font-medium text-muted-foreground">Check-in Date</p>
+                            <p className="text-sm">{formattedCheckIn}</p>
                         </div>
                         <div>
-                            <p className="text-sm font-medium text-muted-foreground">Room Rate (Original)</p>
-                            <p className="text-base font-semibold">
+                            <p className="text-xs font-medium text-muted-foreground">Check-out Date</p>
+                            <p className="text-sm">{formattedCheckOut}</p>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <p className="text-xs font-medium text-muted-foreground">Number of Guests</p>
+                            <p className="text-sm">{booking.numGuests || 1}</p>
+                        </div>
+                        <div>
+                            <p className="text-xs font-medium text-muted-foreground">Room Rate (Original)</p>
+                            <p className="text-sm font-semibold">
                                 {formatCurrencySync(totalAmount, currency)}
                             </p>
                         </div>
@@ -213,7 +213,7 @@ export function CheckInDialog({
                             <span>Apply Discount (Optional)</span>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div className="space-y-2">
                                 <Label htmlFor="discountAmount">Discount Amount</Label>
                                 <div className="relative">
@@ -290,7 +290,7 @@ export function CheckInDialog({
                             {splits.map((split, i) => (
                                 <div key={i} className="flex items-center gap-2">
                                     <Select value={split.method} onValueChange={v => updateSplit(i, 'method', v)}>
-                                        <SelectTrigger className="w-44 shrink-0">
+                                        <SelectTrigger className="w-32 sm:w-44 shrink-0">
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>

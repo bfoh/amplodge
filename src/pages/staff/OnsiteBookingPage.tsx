@@ -1071,7 +1071,7 @@ export function OnsiteBookingPage() {
                 {/* Payment Type */}
                 <div className="bg-secondary/50 p-6 rounded-lg space-y-4">
                   <h3 className="font-semibold">Payment Status</h3>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-3 gap-2">
                     <button
                       type="button"
                       onClick={() => {
@@ -1079,13 +1079,13 @@ export function OnsiteBookingPage() {
                         setAmountPaid(grandTotal)
                         setPaymentSplits(prev => [{ method: prev[0]?.method === 'not_paid' ? 'cash' : (prev[0]?.method || 'cash'), amount: grandTotal }])
                       }}
-                      className={`p-3 rounded-lg border-2 text-center transition-all ${paymentType === 'full'
+                      className={`p-2 sm:p-3 rounded-lg border-2 text-center transition-all ${paymentType === 'full'
                         ? 'border-green-500 bg-green-50 text-green-700'
                         : 'border-gray-200 hover:border-gray-300'
                         }`}
                     >
-                      <div className="font-semibold text-sm">💰 Full Payment</div>
-                      <div className="text-xs text-muted-foreground mt-1">Paid in full</div>
+                      <div className="font-semibold text-xs sm:text-sm">💰 Full</div>
+                      <div className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 hidden sm:block">Paid in full</div>
                     </button>
                     <button
                       type="button"
@@ -1094,13 +1094,13 @@ export function OnsiteBookingPage() {
                         setAmountPaid(0)
                         setPaymentSplits([{ method: 'cash', amount: 0 }])
                       }}
-                      className={`p-3 rounded-lg border-2 text-center transition-all ${paymentType === 'part'
+                      className={`p-2 sm:p-3 rounded-lg border-2 text-center transition-all ${paymentType === 'part'
                         ? 'border-amber-500 bg-amber-50 text-amber-700'
                         : 'border-gray-200 hover:border-gray-300'
                         }`}
                     >
-                      <div className="font-semibold text-sm">💸 Part Payment</div>
-                      <div className="text-xs text-muted-foreground mt-1">Partial amount</div>
+                      <div className="font-semibold text-xs sm:text-sm">💸 Part</div>
+                      <div className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 hidden sm:block">Partial amount</div>
                     </button>
                     <button
                       type="button"
@@ -1109,13 +1109,13 @@ export function OnsiteBookingPage() {
                         setAmountPaid(0)
                         setPaymentSplits([{ method: 'cash', amount: 0 }])
                       }}
-                      className={`p-3 rounded-lg border-2 text-center transition-all ${paymentType === 'pending'
+                      className={`p-2 sm:p-3 rounded-lg border-2 text-center transition-all ${paymentType === 'pending'
                         ? 'border-red-500 bg-red-50 text-red-700'
                         : 'border-gray-200 hover:border-gray-300'
                         }`}
                     >
-                      <div className="font-semibold text-sm">⏳ Pay Later</div>
-                      <div className="text-xs text-muted-foreground mt-1">No payment yet</div>
+                      <div className="font-semibold text-xs sm:text-sm">⏳ Later</div>
+                      <div className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 hidden sm:block">No payment yet</div>
                     </button>
                   </div>
 
@@ -1128,7 +1128,7 @@ export function OnsiteBookingPage() {
                       {paymentSplits.map((split, i) => (
                         <div key={i} className="flex items-center gap-2">
                           <Select value={split.method} onValueChange={v => setPaymentSplits(prev => prev.map((s, j) => j === i ? { ...s, method: v } : s))}>
-                            <SelectTrigger className="w-44 shrink-0">
+                            <SelectTrigger className="w-32 sm:w-44 shrink-0">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>

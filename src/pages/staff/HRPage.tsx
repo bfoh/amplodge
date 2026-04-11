@@ -1766,7 +1766,7 @@ function StaffRevenueRow({
                         </div>
                         <span className="text-xs font-bold text-amber-800">{formatGHS(weekResult.orphanChargesTotal ?? 0)}</span>
                       </div>
-                      <Table>
+                      <div className="overflow-x-auto"><Table>
                         <TableHeader>
                           <TableRow>
                             <TableHead className="text-xs">Description</TableHead>
@@ -1801,7 +1801,7 @@ function StaffRevenueRow({
                             </TableRow>
                           ))}
                         </TableBody>
-                      </Table>
+                      </Table></div>
                     </div>
                   )}
 
@@ -1876,7 +1876,7 @@ function StaffRevenueRow({
                         </p>
                         <span className="text-xs font-bold text-emerald-700">{formatGHS(weekResult.standaloneSalesRevenue)}</span>
                       </div>
-                      <Table>
+                      <div className="overflow-x-auto"><Table>
                         <TableHeader>
                           <TableRow>
                             <TableHead className="text-xs">Description</TableHead>
@@ -1901,7 +1901,7 @@ function StaffRevenueRow({
                             </TableRow>
                           ))}
                         </TableBody>
-                      </Table>
+                      </Table></div>
                     </div>
                   )}
 
@@ -1999,7 +1999,7 @@ function RevenueReportTab() {
             if (found) setSelectedWeek(found)
           }}
         >
-          <SelectTrigger className="w-56">
+          <SelectTrigger className="w-full sm:w-56">
             <SelectValue placeholder="Select week" />
           </SelectTrigger>
           <SelectContent>
@@ -2011,7 +2011,7 @@ function RevenueReportTab() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="bg-card border rounded-xl p-4 flex items-center gap-3">
           <div className="p-2 bg-primary/10 rounded-lg"><TrendingUp className="w-5 h-5 text-primary" /></div>
           <div>

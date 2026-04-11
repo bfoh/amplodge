@@ -184,7 +184,7 @@ export function ReviewsPage() {
                 <TabsContent value={filter} className="mt-4">
                     <Card>
                         <CardContent className="p-0">
-                            <Table>
+                            <div className="overflow-x-auto"><Table>
                                 <TableHeader>
                                     <TableRow className="bg-muted/50 hover:bg-muted/50">
                                         <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Date</TableHead>
@@ -267,7 +267,7 @@ export function ReviewsPage() {
                                         ))
                                     )}
                                 </TableBody>
-                            </Table>
+                            </Table></div>
                         </CardContent>
                     </Card>
                 </TabsContent>

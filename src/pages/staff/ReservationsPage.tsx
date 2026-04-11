@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Download, Loader2 } from 'lucide-react'
+import { Download, Loader2, Calendar } from 'lucide-react'
 import { format, parseISO, isBefore, isAfter } from 'date-fns'
 import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
@@ -1088,18 +1088,38 @@ export function ReservationsPage() {
                 className="border-stone-200 hover:bg-stone-50 hover:border-stone-300 transition-all"
                 onClick={() => navigate('/staff/onsite-booking')}
               >
-                <span className="mr-1">+</span> New Booking
+                <span className="mr-1">+</span>
+                <span className="hidden sm:inline">New Booking</span>
+                <span className="sm:hidden">New</span>
               </Button>
               <Button
                 variant="outline"
-                className="border-stone-200 hover:bg-stone-50 hover:border-stone-300 transition-all"
+                size="icon"
+                className="border-stone-200 hover:bg-stone-50 hover:border-stone-300 transition-all sm:hidden"
+                onClick={() => navigate('/staff/calendar')}
+                title="Calendar View"
+              >
+                <Calendar className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="outline"
+                className="border-stone-200 hover:bg-stone-50 hover:border-stone-300 transition-all hidden sm:flex"
                 onClick={() => navigate('/staff/calendar')}
               >
                 Calendar View
               </Button>
               <Button
                 variant="outline"
-                className="border-stone-200 hover:bg-stone-50 hover:border-stone-300 transition-all"
+                size="icon"
+                className="border-stone-200 hover:bg-stone-50 hover:border-stone-300 transition-all sm:hidden"
+                onClick={() => navigate('/staff/invoices')}
+                title="Manage Invoices"
+              >
+                <Receipt className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="outline"
+                className="border-stone-200 hover:bg-stone-50 hover:border-stone-300 transition-all hidden sm:flex"
                 onClick={() => navigate('/staff/invoices')}
               >
                 <Receipt className="w-4 h-4 mr-1.5" />
@@ -1138,8 +1158,8 @@ export function ReservationsPage() {
                   </Select>
                 </div>
                 <div className="md:col-span-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-stone-500 whitespace-nowrap">From:</span>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs text-stone-500 font-medium">From</span>
                     <Input
                       type="date"
                       value={from}
@@ -1149,8 +1169,8 @@ export function ReservationsPage() {
                   </div>
                 </div>
                 <div className="md:col-span-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-stone-500 whitespace-nowrap">To:</span>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs text-stone-500 font-medium">To</span>
                     <Input
                       type="date"
                       value={to}

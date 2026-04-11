@@ -317,7 +317,7 @@ function BookingBreakdown({ result, onDeleteSale }: { result: StaffWeekResult; o
             </div>
             <span className="text-sm font-bold text-amber-800">{formatGHS(orphanChargesTotal)}</span>
           </div>
-          <Table>
+          <div className="overflow-x-auto"><Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Description</TableHead>
@@ -351,7 +351,7 @@ function BookingBreakdown({ result, onDeleteSale }: { result: StaffWeekResult; o
                 </TableRow>
               ))}
             </TableBody>
-          </Table>
+          </Table></div>
         </div>
       )}
 
@@ -382,7 +382,7 @@ function StandaloneSalesTable({
         </p>
         <span className="text-xs font-bold text-emerald-700">{formatGHS(total)}</span>
       </div>
-      <Table>
+      <div className="overflow-x-auto"><Table>
         <TableHeader>
           <TableRow>
             <TableHead>Description</TableHead>
@@ -421,7 +421,7 @@ function StandaloneSalesTable({
             </TableRow>
           ))}
         </TableBody>
-      </Table>
+      </Table></div>
     </div>
   )
 }

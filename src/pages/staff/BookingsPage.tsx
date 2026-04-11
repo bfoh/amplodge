@@ -588,7 +588,7 @@ export function BookingsPage() {
                 New Booking
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>{editingId ? 'Edit Booking' : 'Create New Booking'}</DialogTitle>
                 <DialogDescription>
@@ -729,14 +729,14 @@ export function BookingsPage() {
                   <Label>Payment Type</Label>
                   <div className="grid grid-cols-3 gap-2">
                     {[
-                      { value: 'full', label: '💵 Full Payment', color: 'bg-green-50 border-green-300 text-green-800' },
-                      { value: 'part', label: '💰 Part Payment', color: 'bg-amber-50 border-amber-300 text-amber-800' },
-                      { value: 'later', label: '⏳ Pay Later', color: 'bg-gray-50 border-gray-300 text-gray-700' }
+                      { value: 'full', label: '💵 Full', color: 'bg-green-50 border-green-300 text-green-800' },
+                      { value: 'part', label: '💰 Part', color: 'bg-amber-50 border-amber-300 text-amber-800' },
+                      { value: 'later', label: '⏳ Later', color: 'bg-gray-50 border-gray-300 text-gray-700' }
                     ].map((opt) => (
                       <button
                         key={opt.value}
                         type="button"
-                        className={`px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all ${formData.paymentType === opt.value
+                        className={`px-2 py-2.5 rounded-lg border-2 text-xs sm:text-sm font-medium transition-all ${formData.paymentType === opt.value
                             ? `${opt.color} ring-2 ring-offset-1 ring-primary/30`
                             : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
                           }`}
@@ -767,7 +767,7 @@ export function BookingsPage() {
                     {formData.paymentSplits.map((split, i) => (
                       <div key={i} className="flex items-center gap-2">
                         <Select value={split.method} onValueChange={v => setFormData(prev => ({ ...prev, paymentSplits: prev.paymentSplits.map((s, j) => j === i ? { ...s, method: v } : s) }))}>
-                          <SelectTrigger className="w-44 shrink-0 h-10">
+                          <SelectTrigger className="w-32 sm:w-44 shrink-0 h-10">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>

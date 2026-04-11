@@ -179,7 +179,7 @@ export function GuestChargesDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>
                         Guest Charges - {guest?.name || 'Guest'}
@@ -194,7 +194,7 @@ export function GuestChargesDialog({
                 {/* Summary Card */}
                 <Card className="bg-muted/50">
                     <CardContent className="pt-4">
-                        <div className="grid grid-cols-3 gap-4 text-center">
+                        <div className="grid grid-cols-3 gap-2 text-center">
                             <div>
                                 <p className="text-sm text-muted-foreground">Room Cost</p>
                                 <p className="text-lg font-semibold">{formatCurrencySync(roomCost, currency)}</p>
@@ -235,8 +235,8 @@ export function GuestChargesDialog({
                                         </Button>
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="col-span-2">
+                                    <div className="space-y-3">
+                                        <div>
                                             <Label htmlFor="description">Description</Label>
                                             <Input
                                                 id="description"
@@ -246,53 +246,57 @@ export function GuestChargesDialog({
                                             />
                                         </div>
 
-                                        <div>
-                                            <Label htmlFor="category">Category</Label>
-                                            <Select value={category} onValueChange={(v) => setCategory(v as ChargeCategory)}>
-                                                <SelectTrigger>
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {Object.entries(CHARGE_CATEGORIES)
-                                                        .filter(([key]) => key !== 'room_extension')
-                                                        .map(([key, label]) => (
-                                                            <SelectItem key={key} value={key}>{label}</SelectItem>
-                                                        ))}
-                                                </SelectContent>
-                                            </Select>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <Label htmlFor="category">Category</Label>
+                                                <Select value={category} onValueChange={(v) => setCategory(v as ChargeCategory)}>
+                                                    <SelectTrigger>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {Object.entries(CHARGE_CATEGORIES)
+                                                            .filter(([key]) => key !== 'room_extension')
+                                                            .map(([key, label]) => (
+                                                                <SelectItem key={key} value={key}>{label}</SelectItem>
+                                                            ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            <div>
+                                                <Label htmlFor="quantity">Quantity</Label>
+                                                <Input
+                                                    id="quantity"
+                                                    type="number"
+                                                    min={1}
+                                                    value={quantity}
+                                                    onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <Label htmlFor="unitPrice">Unit Price</Label>
+                                                <Input
+                                                    id="unitPrice"
+                                                    type="number"
+                                                    min={0}
+                                                    step={0.01}
+                                                    value={unitPrice}
+                                                    onChange={(e) => setUnitPrice(parseFloat(e.target.value) || 0)}
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <Label>Total Amount</Label>
+                                                <p className="text-lg font-semibold mt-2">
+                                                    {formatCurrencySync(quantity * unitPrice, currency)}
+                                                </p>
+                                            </div>
                                         </div>
 
                                         <div>
-                                            <Label htmlFor="quantity">Quantity</Label>
-                                            <Input
-                                                id="quantity"
-                                                type="number"
-                                                min={1}
-                                                value={quantity}
-                                                onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
-                                            />
-                                        </div>
-
-                                        <div>
-                                            <Label htmlFor="unitPrice">Unit Price</Label>
-                                            <Input
-                                                id="unitPrice"
-                                                type="number"
-                                                min={0}
-                                                step={0.01}
-                                                value={unitPrice}
-                                                onChange={(e) => setUnitPrice(parseFloat(e.target.value) || 0)}
-                                            />
-                                        </div>
-
-                                        <div>
-                                            <Label>Amount</Label>
-                                            <p className="text-lg font-semibold mt-2">
-                                                {formatCurrencySync(quantity * unitPrice, currency)}
-                                            </p>
-                                        </div>
-
-                                        <div className="col-span-2">
                                             <Label>Payment Method</Label>
                                             <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as 'cash' | 'mobile_money' | 'card')}>
                                                 <SelectTrigger>
@@ -306,7 +310,7 @@ export function GuestChargesDialog({
                                             </Select>
                                         </div>
 
-                                        <div className="col-span-2">
+                                        <div>
                                             <Label htmlFor="notes">Notes (Optional)</Label>
                                             <Textarea
                                                 id="notes"
