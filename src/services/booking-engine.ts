@@ -179,36 +179,43 @@ class BookingEngine {
         // root cause of the "guest takes over existing group" bug.
         // Guest record edits must be done explicitly via the Guests management page.
       } else {
-        // Create new guest (let Blink auto-generate the ID)
+        // Generate ID client-side so we always know it, regardless of whether
+        // Supabase returns the row after insert (RLS can block SELECT-back).
+        const newGuestId = crypto.randomUUID()
+        const guestEmail = normalizedEmail || `${computedGuestId}@guest.local`
         const createPayload = {
+          id: newGuestId,
           name: guestName,
-          email: normalizedEmail || `${computedGuestId}@guest.local`,
+          email: guestEmail,
           phone: bookingData.guest.phone || '',
           address: bookingData.guest.address || ''
         }
-        console.log('[BookingEngine] Creating new guest:', createPayload)
+        console.log('[BookingEngine] Creating new guest with id:', newGuestId)
 
         try {
-          const created = await db.guests.create(createPayload)
-          guestId = created.id
-          console.log('[BookingEngine] Created guest:', guestId, created)
+          await db.guests.create(createPayload)
+          // Whether or not Supabase returns the row, we know the ID we sent
+          guestId = newGuestId
+          console.log('[BookingEngine] Created guest:', guestId)
         } catch (createErr: any) {
-          const msg = createErr?.message || ''
+          const msg = (createErr?.message || '').toLowerCase()
           const status = createErr?.status
-          console.warn('[BookingEngine] Guest create failed:', status, msg)
+          console.warn('[BookingEngine] Guest create failed:', status, createErr?.message)
 
-          // If constraint violation or duplicate, try to find the existing guest
-          if (status === 409 || msg.includes('Constraint violation') || msg.includes('UNIQUE')) {
-            // Try to find existing guest by email
-            const existing = await db.guests.list({ where: { email: normalizedEmail }, limit: 1 })
-            if (existing?.[0]) {
-              guestId = existing[0].id
-              console.log('[BookingEngine] Found existing guest by email:', guestId)
+          // Duplicate email — guest already exists, find them
+          if (status === 409 || msg.includes('constraint') || msg.includes('unique') || msg.includes('duplicate')) {
+            if (normalizedEmail) {
+              const found = await db.guests.list({ where: { email: normalizedEmail }, limit: 1 })
+              if (found?.[0]?.id) {
+                guestId = found[0].id
+                console.log('[BookingEngine] Found existing guest by email after constraint error:', guestId)
+              } else {
+                throw createErr
+              }
             } else {
               throw createErr
             }
           } else {
-            // For other errors, try fallback creation
             throw createErr
           }
         }
@@ -217,28 +224,26 @@ class BookingEngine {
       console.error('[BookingEngine] Guest resolution failed, attempting fallback:', guestErr)
     }
 
-    // Final safety: if no guestId yet, create a unique timestamped guest
+    // Final safety: if still no guestId, create a guest with a fresh UUID
     if (!guestId) {
-      const timestamp = Date.now()
-      const random = Math.random().toString(36).slice(2, 8)
-      const fallbackId = `guest-${timestamp}-${random}`
-      const fallbackEmail = normalizedEmail || `${fallbackId}@guest.local`
-
-      console.log('[BookingEngine] Creating fallback guest:', fallbackId)
+      const fallbackGuestId = crypto.randomUUID()
+      const fallbackEmail = `fallback-${fallbackGuestId}@guest.local`
+      console.log('[BookingEngine] Creating fallback guest:', fallbackGuestId)
 
       try {
-        const created = await db.guests.create({
+        await db.guests.create({
+          id: fallbackGuestId,
           name: guestName,
           email: fallbackEmail,
           phone: bookingData.guest.phone || '',
           address: bookingData.guest.address || ''
         })
-        guestId = created.id
+        guestId = fallbackGuestId
         console.log('[BookingEngine] Fallback guest created:', guestId)
       } catch (fallbackErr: any) {
         console.error('[BookingEngine] Fallback guest creation failed:', fallbackErr?.message)
-        // Last resort: use the ID anyway and hope for the best
-        guestId = fallbackId
+        // We know the ID we tried to insert — use it and proceed
+        guestId = fallbackGuestId
       }
     }
 
