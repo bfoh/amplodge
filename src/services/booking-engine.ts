@@ -451,7 +451,6 @@ class BookingEngine {
       totalPrice: bookingData.amount ?? 0,
       numGuests: bookingData.numGuests ?? 1,
       paymentMethod: bookingData.paymentMethod || bookingData.payment_method,
-      paymentStatus: bookingData.paymentStatus ?? 'pending',
       createdBy: bookingData.createdBy || currentUser?.id || null,
       specialRequests: specialRequests
     }
