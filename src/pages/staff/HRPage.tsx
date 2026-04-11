@@ -242,24 +242,31 @@ export function HRPage() {
       </div>
 
       <Tabs defaultValue="attendance" className="space-y-4">
-        <TabsList className="grid grid-cols-6 w-full lg:w-auto">
-          <TabsTrigger value="attendance" className="flex items-center gap-2 text-xs">
-            <Clock className="w-4 h-4" /> Attendance
+        {/* Mobile: 3×2 grid. Desktop: single row */}
+        <TabsList className="grid grid-cols-3 sm:grid-cols-6 w-full h-auto gap-1 p-1">
+          <TabsTrigger value="attendance" className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2 text-xs py-2 sm:py-1.5 h-auto">
+            <Clock className="w-4 h-4 shrink-0" />
+            <span>Attendance</span>
           </TabsTrigger>
-          <TabsTrigger value="leave" className="flex items-center gap-2 text-xs">
-            <CalendarDays className="w-4 h-4" /> Leave
+          <TabsTrigger value="leave" className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2 text-xs py-2 sm:py-1.5 h-auto">
+            <CalendarDays className="w-4 h-4 shrink-0" />
+            <span>Leave</span>
           </TabsTrigger>
-          <TabsTrigger value="payroll" className="flex items-center gap-2 text-xs">
-            <DollarSign className="w-4 h-4" /> Payroll
+          <TabsTrigger value="payroll" className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2 text-xs py-2 sm:py-1.5 h-auto">
+            <DollarSign className="w-4 h-4 shrink-0" />
+            <span>Payroll</span>
           </TabsTrigger>
-          <TabsTrigger value="performance" className="flex items-center gap-2 text-xs">
-            <Star className="w-4 h-4" /> Performance
+          <TabsTrigger value="performance" className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2 text-xs py-2 sm:py-1.5 h-auto">
+            <Star className="w-4 h-4 shrink-0" />
+            <span>Performance</span>
           </TabsTrigger>
-          <TabsTrigger value="applications" className="flex items-center gap-2 text-xs">
-            <FileText className="w-4 h-4" /> Applications
+          <TabsTrigger value="applications" className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2 text-xs py-2 sm:py-1.5 h-auto">
+            <FileText className="w-4 h-4 shrink-0" />
+            <span>Applications</span>
           </TabsTrigger>
-          <TabsTrigger value="revenue" className="flex items-center gap-2 text-xs">
-            <TrendingUp className="w-4 h-4" /> Revenue
+          <TabsTrigger value="revenue" className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2 text-xs py-2 sm:py-1.5 h-auto">
+            <TrendingUp className="w-4 h-4 shrink-0" />
+            <span>Revenue</span>
           </TabsTrigger>
         </TabsList>
 
