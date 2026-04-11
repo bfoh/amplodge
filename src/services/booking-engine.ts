@@ -403,6 +403,16 @@ class BookingEngine {
     }
     const hasPaymentTracking = paymentTrackingData.amountPaid > 0 || paymentTrackingData.paymentStatus !== 'pending'
 
+    // Preserve any PAYMENT_EVENTS comment already present in bookingData.specialRequests.
+    // OnsiteBookingPage, GroupManageDialog, etc. encode the payment event there for per-staff
+    // revenue attribution. createBooking rebuilds specialRequests from scratch, so we must
+    // carry the comment forward explicitly.
+    const incomingSpecialReq = (bookingData as any).specialRequests || ''
+    const existingPaymentEventsMatch = incomingSpecialReq.match(/<!-- PAYMENT_EVENTS:(.*?) -->/)
+    const preservedPaymentEvents = existingPaymentEventsMatch
+      ? `\n\n<!-- PAYMENT_EVENTS:${existingPaymentEventsMatch[1]} -->`
+      : ''
+
     // Always snapshot the guest name/email at booking time.
     // This is the single source of truth for "who was this booking for" and is immune
     // to changes in the shared guests table (which would otherwise retroactively rename
@@ -414,6 +424,7 @@ class BookingEngine {
     }
 
     const specialRequests = (bookingData.notes || '') +
+      preservedPaymentEvents +
       (hasGroupData ? `\n\n<!-- GROUP_DATA:${JSON.stringify(groupData)} -->` : '') +
       (hasPaymentTracking ? `\n\n<!-- PAYMENT_DATA:${JSON.stringify(paymentTrackingData)} -->` : '') +
       (bookingData.paymentSplits && bookingData.paymentSplits.length > 1
@@ -440,6 +451,7 @@ class BookingEngine {
       totalPrice: bookingData.amount ?? 0,
       numGuests: bookingData.numGuests ?? 1,
       paymentMethod: bookingData.paymentMethod || bookingData.payment_method,
+      paymentStatus: bookingData.paymentStatus ?? 'pending',
       createdBy: bookingData.createdBy || currentUser?.id || null,
       specialRequests: specialRequests
     }
