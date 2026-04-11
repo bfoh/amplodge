@@ -440,7 +440,11 @@ class BookingEngine {
       console.log('[BookingEngine Debug] Attached Payment Data:', JSON.stringify(paymentTrackingData, null, 2))
     }
 
-    const bookingPayload = {
+    // Explicitly list only columns that exist in the bookings table schema.
+    // Never spread bookingData directly — it contains UI-only fields (paymentStatus,
+    // amountPaid, paymentSplits, etc.) that have no DB column and would cause
+    // "column not found in schema cache" errors.
+    const bookingPayload: Record<string, any> = {
       userId: currentUser?.id || null,
       guestId,
       roomId: room.id,
@@ -450,10 +454,13 @@ class BookingEngine {
       source: bookingData.source,
       totalPrice: bookingData.amount ?? 0,
       numGuests: bookingData.numGuests ?? 1,
-      paymentMethod: bookingData.paymentMethod || bookingData.payment_method,
+      specialRequests,
       createdBy: bookingData.createdBy || currentUser?.id || null,
-      specialRequests: specialRequests
     }
+
+    // paymentMethod IS a real DB column — include only when present
+    const rawPaymentMethod = bookingData.paymentMethod || (bookingData as any).payment_method
+    if (rawPaymentMethod) bookingPayload.paymentMethod = rawPaymentMethod
 
     console.log('[BookingEngine] Creating booking with payload:', JSON.stringify(bookingPayload, null, 2))
 

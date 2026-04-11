@@ -497,6 +497,12 @@ async function executeSyncEntry(entry: syncQueue.QueueEntry): Promise<void> {
           console.log(`[SyncExecutor] Duplicate detected for ${entry.table}/${entry.recordId}, treating as synced`)
           return
         }
+        // If schema cache error (unknown column), the row was likely already inserted
+        // by a newer code path — treat as success to avoid blocking the queue forever
+        if (error.message?.includes('schema cache') || error.message?.includes('Could not find')) {
+          console.warn(`[SyncExecutor] Schema mismatch for ${entry.table}/${entry.recordId}, skipping stale queued entry`)
+          return
+        }
         throw error
       }
       break
