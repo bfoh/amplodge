@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect } from 'react'
 import { blink } from '@/blink/client'
 import { bookingEngine } from '@/services/booking-engine'
-import { formatCurrencySync } from '@/lib/utils'
+import { formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { toast } from 'sonner'
 import { format, parseISO, differenceInDays } from 'date-fns'
 import { sendGroupMemberAddedNotification, sendGroupMemberUpdatedNotification } from '@/services/notifications'
+import { buildBookingPaymentEvent, appendPaymentEvent } from '@/lib/payment-events'
 import {
     Dialog,
     DialogContent,
@@ -21,7 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Loader2, Plus, Trash2, Users, AlertTriangle, Crown, Pencil } from 'lucide-react'
+import { Loader2, Plus, Trash2, Users, AlertTriangle, Crown, Pencil, PlusCircle, Minus } from 'lucide-react'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -64,6 +65,13 @@ export function GroupManageDialog({
     const { currency } = useCurrency()
     const db = blink.db as any
 
+    // Current user for payment attribution
+    const [currentUser, setCurrentUser] = useState<any>(null)
+    useEffect(() => {
+        const unsub = blink.auth.onAuthStateChanged((state: any) => setCurrentUser(state.user))
+        return unsub
+    }, [])
+
     // State
     const [loading, setLoading] = useState(true)
     const [members, setMembers] = useState<GroupMember[]>([])
@@ -81,6 +89,12 @@ export function GroupManageDialog({
     const [newCheckIn, setNewCheckIn] = useState('')
     const [newCheckOut, setNewCheckOut] = useState('')
     const [addingMember, setAddingMember] = useState(false)
+
+    // Payment state for new member
+    const [newPaymentType, setNewPaymentType] = useState<'full' | 'part' | 'pending'>('pending')
+    const [newPaymentSplits, setNewPaymentSplits] = useState<Array<{ method: string; amount: number }>>(
+        [{ method: 'cash', amount: 0 }]
+    )
 
     // Remove confirmation
     const [removeConfirm, setRemoveConfirm] = useState<GroupMember | null>(null)
@@ -278,6 +292,33 @@ export function GroupManageDialog({
 
             const roomType = roomTypes.find((rt: any) => rt.id === property.propertyTypeId)
 
+                const roomAmount = getRoomPricePerNight(property) * newMemberNights
+            const splitsPaidTotal = newPaymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+            const validSplits = newPaymentSplits.filter(s => s.amount > 0)
+            const primaryMethod: any = newPaymentType === 'pending'
+                ? 'not_paid'
+                : validSplits.length > 0
+                    ? validSplits.reduce((a, b) => b.amount > a.amount ? b : a, validSplits[0]).method
+                    : 'cash'
+            const paymentSplitsData = newPaymentType !== 'pending' && validSplits.length > 1
+                ? validSplits.map(s => ({ method: s.method, amount: s.amount }))
+                : undefined
+            const amountPaid = newPaymentType === 'full' ? roomAmount : newPaymentType === 'part' ? splitsPaidTotal : 0
+
+            // Payment event attribution
+            const staffName = currentUser?.user_metadata?.full_name || currentUser?.email || 'Staff'
+            const staffId = currentUser?.id || ''
+
+            const paymentEvent = buildBookingPaymentEvent({
+                paymentType: newPaymentType,
+                amount: amountPaid,
+                staffId,
+                staffName,
+                method: primaryMethod,
+                splits: paymentSplitsData,
+            })
+            const specialRequests = paymentEvent ? appendPaymentEvent('', paymentEvent) : ''
+
             const bookingData = {
                 guest: {
                     fullName: newGuestName.trim(),
@@ -292,9 +333,21 @@ export function GroupManageDialog({
                     checkOut: newCheckOut
                 },
                 numGuests: 1,
-                amount: getRoomPricePerNight(property) * newMemberNights,
+                amount: roomAmount,
                 status: 'confirmed' as const,
                 source: 'reception' as const,
+                payment: {
+                    method: primaryMethod,
+                    status: newPaymentType === 'full' ? 'completed' : 'pending',
+                    amount: amountPaid,
+                    reference: `PAY-${Date.now()}`,
+                    paidAt: newPaymentType !== 'pending' ? new Date().toISOString() : undefined
+                },
+                paymentMethod: primaryMethod,
+                paymentSplits: paymentSplitsData,
+                amountPaid,
+                paymentStatus: newPaymentType,
+                specialRequests,
                 notes: ''
             }
 
@@ -327,6 +380,8 @@ export function GroupManageDialog({
             setNewGuestName('')
             setNewGuestEmail('')
             setNewGuestPhone('')
+            setNewPaymentType('pending')
+            setNewPaymentSplits([{ method: 'cash', amount: 0 }])
             if (groupDates) {
                 setNewCheckIn(groupDates.checkIn.split('T')[0])
                 setNewCheckOut(groupDates.checkOut.split('T')[0])
@@ -550,10 +605,128 @@ export function GroupManageDialog({
                                             </div>
                                             {selectedRoomId && newMemberNights > 0 && (
                                                 <div className="text-sm text-muted-foreground">
-                                                    Price: <span className="font-medium text-foreground">{formatCurrencySync(getSelectedRoomPrice(), currency)}</span>
-                                                    {' '}for {newMemberNights} night{newMemberNights !== 1 ? 's' : ''}
+                                                    Room total: <span className="font-medium text-foreground">{formatCurrencySync(getSelectedRoomPrice(), currency)}</span>
+                                                    {' '}({newMemberNights} night{newMemberNights !== 1 ? 's' : ''})
                                                 </div>
                                             )}
+
+                                            {/* Payment Section */}
+                                            <div className="border rounded-lg p-3 space-y-3 bg-background">
+                                                <Label className="text-sm font-medium">Payment Status</Label>
+                                                <div className="grid grid-cols-3 gap-2">
+                                                    {(
+                                                        [
+                                                            { key: 'full', label: 'Full', sub: 'Paid in full', color: 'text-green-700 bg-green-50 border-green-300' },
+                                                            { key: 'part', label: 'Part', sub: 'Partial amount', color: 'text-amber-700 bg-amber-50 border-amber-300' },
+                                                            { key: 'pending', label: 'Later', sub: 'No payment yet', color: 'text-gray-600 bg-gray-50 border-gray-200' },
+                                                        ] as const
+                                                    ).map(opt => (
+                                                        <button
+                                                            key={opt.key}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setNewPaymentType(opt.key)
+                                                                if (opt.key === 'full') {
+                                                                    setNewPaymentSplits([{ method: 'cash', amount: getSelectedRoomPrice() }])
+                                                                } else if (opt.key === 'pending') {
+                                                                    setNewPaymentSplits([{ method: 'cash', amount: 0 }])
+                                                                }
+                                                            }}
+                                                            className={`rounded-lg border-2 p-2 text-center transition-all ${
+                                                                newPaymentType === opt.key
+                                                                    ? `${opt.color} border-current font-semibold`
+                                                                    : 'border-transparent bg-muted/40 text-muted-foreground hover:bg-muted'
+                                                            }`}
+                                                        >
+                                                            <div className="text-xs font-medium">{opt.label}</div>
+                                                            <div className="text-[10px] opacity-70 hidden sm:block">{opt.sub}</div>
+                                                        </button>
+                                                    ))}
+                                                </div>
+
+                                                {newPaymentType !== 'pending' && (
+                                                    <div className="space-y-2">
+                                                        {newPaymentSplits.map((split, idx) => (
+                                                            <div key={idx} className="flex items-center gap-2">
+                                                                <Select
+                                                                    value={split.method}
+                                                                    onValueChange={(val) => {
+                                                                        const updated = [...newPaymentSplits]
+                                                                        updated[idx] = { ...updated[idx], method: val }
+                                                                        setNewPaymentSplits(updated)
+                                                                    }}
+                                                                >
+                                                                    <SelectTrigger className="w-36 shrink-0">
+                                                                        <SelectValue />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        <SelectItem value="cash">💵 Cash</SelectItem>
+                                                                        <SelectItem value="mobile_money">📱 Mobile Money</SelectItem>
+                                                                        <SelectItem value="card">💳 Card</SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
+                                                                <div className="relative flex-1">
+                                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                                                                        {getCurrencySymbol(currency)}
+                                                                    </span>
+                                                                    <Input
+                                                                        type="number"
+                                                                        min={0}
+                                                                        className="pl-8"
+                                                                        value={split.amount || ''}
+                                                                        onChange={(e) => {
+                                                                            const updated = [...newPaymentSplits]
+                                                                            updated[idx] = { ...updated[idx], amount: Number(e.target.value) || 0 }
+                                                                            setNewPaymentSplits(updated)
+                                                                        }}
+                                                                        placeholder="Amount"
+                                                                    />
+                                                                </div>
+                                                                {newPaymentSplits.length > 1 && (
+                                                                    <Button
+                                                                        type="button"
+                                                                        size="icon"
+                                                                        variant="ghost"
+                                                                        className="h-9 w-9 shrink-0 text-destructive"
+                                                                        onClick={() => setNewPaymentSplits(newPaymentSplits.filter((_, i) => i !== idx))}
+                                                                    >
+                                                                        <Minus className="w-4 h-4" />
+                                                                    </Button>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                        <Button
+                                                            type="button"
+                                                            size="sm"
+                                                            variant="ghost"
+                                                            className="text-xs h-7"
+                                                            onClick={() => setNewPaymentSplits([...newPaymentSplits, { method: 'cash', amount: 0 }])}
+                                                        >
+                                                            <PlusCircle className="w-3 h-3 mr-1" />
+                                                            Add another payment method
+                                                        </Button>
+                                                        {(() => {
+                                                            const paid = newPaymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+                                                            const total = getSelectedRoomPrice()
+                                                            const balance = total - paid
+                                                            return (
+                                                                <div className="flex justify-between text-sm pt-1 border-t">
+                                                                    <span className="text-muted-foreground">
+                                                                        {newPaymentType === 'full' ? 'Amount Paid:' : 'Partial Payment:'}
+                                                                    </span>
+                                                                    <div className="text-right">
+                                                                        <span className="font-medium text-green-700">{formatCurrencySync(paid, currency)}</span>
+                                                                        {newPaymentType === 'part' && balance > 0 && (
+                                                                            <div className="text-xs text-amber-600">Balance: {formatCurrencySync(balance, currency)}</div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            )
+                                                        })()}
+                                                    </div>
+                                                )}
+                                            </div>
+
                                             <div className="flex gap-2">
                                                 <Button
                                                     size="sm"
