@@ -17,23 +17,56 @@ function decodeChargePaymentMethod(rawNotes: string | undefined | null): string 
   return match?.[1] || ''
 }
 
+/** Pre-fetched shared data — pass to analytics methods to avoid redundant DB calls. */
+export interface AnalyticsSharedData {
+  bookings: any[]
+  roomTypes: any[]
+  properties: any[]
+  chargesRaw: any[]
+  standaloneSales: any[]
+  guests: any[]
+  rooms: any[]
+}
+
 class AnalyticsService {
+  /**
+   * Fetch all shared data once. Pass result to individual analytics methods
+   * to eliminate redundant DB calls across a single page load.
+   */
+  async prefetchSharedData(): Promise<AnalyticsSharedData> {
+    const db = blink.db as any
+    const [bookings, roomTypes, properties, chargesRaw, standaloneSales, guests, rooms] =
+      await Promise.all([
+        bookingEngine.getAllBookings(),
+        db.roomTypes.list(),
+        db.properties.list(),
+        (db.bookingCharges.list({ limit: 5000 }) as Promise<any[]>).catch(() => [] as any[]),
+        standaloneSalesService.getAllSales().catch(() => [] as any[]),
+        db.guests.list(),
+        db.rooms.list(),
+      ])
+    return { bookings, roomTypes, properties, chargesRaw, standaloneSales, guests, rooms }
+  }
+
   /**
    * Calculate comprehensive revenue analytics
    */
   async getRevenueAnalytics(
     startDate?: Date,
-    endDate?: Date
+    endDate?: Date,
+    shared?: AnalyticsSharedData
   ): Promise<RevenueAnalytics> {
     try {
-      const bookings = await bookingEngine.getAllBookings()
+      const bookings = shared?.bookings ?? await bookingEngine.getAllBookings()
       const db = blink.db as any
-      const [roomTypes, properties, allChargesRaw, allStandaloneSales] = await Promise.all([
-        db.roomTypes.list(),
-        db.properties.list(),
-        (db.bookingCharges.list({ limit: 5000 }) as Promise<any[]>).catch(() => [] as any[]),
-        standaloneSalesService.getAllSales().catch(() => [] as any[]),
-      ])
+      const [roomTypes, properties, allChargesRaw, allStandaloneSales] = shared
+        ? [shared.roomTypes, shared.properties, shared.chargesRaw, shared.standaloneSales]
+        : await Promise.all([
+            db.roomTypes.list(),
+            db.properties.list(),
+            (db.bookingCharges.list({ limit: 5000 }) as Promise<any[]>).catch(() => [] as any[]),
+            standaloneSalesService.getAllSales().catch(() => [] as any[]),
+          ])
 
       // Group booking charges by booking ID for O(1) lookup
       const chargesByBookingId = new Map<string, any[]>()
@@ -523,14 +556,16 @@ class AnalyticsService {
   /**
    * Calculate occupancy analytics
    */
-  async getOccupancyAnalytics(): Promise<OccupancyAnalytics> {
+  async getOccupancyAnalytics(shared?: AnalyticsSharedData): Promise<OccupancyAnalytics> {
     try {
-      const bookings = await bookingEngine.getAllBookings()
+      const bookings = shared?.bookings ?? await bookingEngine.getAllBookings()
       const db = blink.db as any
-      const [properties, roomTypes] = await Promise.all([
-        db.properties.list(),
-        db.roomTypes.list()
-      ])
+      const [properties, roomTypes] = shared
+        ? [shared.properties, shared.roomTypes]
+        : await Promise.all([
+            db.properties.list(),
+            db.roomTypes.list()
+          ])
 
       const totalRooms = new Set(
         properties.map((p: any) => String(p.roomNumber || '').trim()).filter(Boolean)
@@ -706,11 +741,11 @@ class AnalyticsService {
   /**
    * Calculate guest analytics
    */
-  async getGuestAnalytics(): Promise<GuestAnalytics> {
+  async getGuestAnalytics(shared?: AnalyticsSharedData): Promise<GuestAnalytics> {
     try {
       const db = blink.db as any
-      const guests = await db.guests.list()
-      const bookings = await bookingEngine.getAllBookings()
+      const guests = shared?.guests ?? await db.guests.list()
+      const bookings = shared?.bookings ?? await bookingEngine.getAllBookings()
 
       const totalGuests = guests.length
 
@@ -888,22 +923,28 @@ class AnalyticsService {
   }
 
   /**
-   * Calculate performance metrics
+   * Calculate performance metrics.
+   * Accepts pre-computed revenue/occupancy to avoid re-fetching everything.
    */
-  async getPerformanceMetrics(): Promise<PerformanceMetrics> {
+  async getPerformanceMetrics(
+    shared?: AnalyticsSharedData,
+    precomputed?: { revenue: RevenueAnalytics; occupancy: OccupancyAnalytics }
+  ): Promise<PerformanceMetrics> {
     try {
-      const [revenueAnalytics, occupancyAnalytics] = await Promise.all([
-        this.getRevenueAnalytics(),
-        this.getOccupancyAnalytics()
-      ])
+      const [revenueAnalytics, occupancyAnalytics] = precomputed
+        ? [precomputed.revenue, precomputed.occupancy]
+        : await Promise.all([
+            this.getRevenueAnalytics(undefined, undefined, shared),
+            this.getOccupancyAnalytics(shared)
+          ])
 
-      const bookings = await bookingEngine.getAllBookings()
+      const bookings = shared?.bookings ?? await bookingEngine.getAllBookings()
 
       const totalBookings = bookings.filter(
-        b => ['checked-in', 'checked-out'].includes(b.status)
+        (b: any) => ['checked-in', 'checked-out'].includes(b.status)
       ).length
 
-      const cancelledBookings = bookings.filter(b => b.status === 'cancelled').length
+      const cancelledBookings = bookings.filter((b: any) => b.status === 'cancelled').length
       const cancellationRate = (totalBookings + cancelledBookings) > 0
         ? (cancelledBookings / (totalBookings + cancelledBookings)) * 100
         : 0
@@ -913,9 +954,9 @@ class AnalyticsService {
         ? revenueAnalytics.totalRevenue / occupancyAnalytics.occupiedRooms
         : 0
 
-      // Room status distribution (placeholder - implement when housekeeping data available)
+      // Room status distribution
       const db = blink.db as any
-      const rooms = await db.rooms.list()
+      const rooms = shared?.rooms ?? await db.rooms.list()
 
       const roomStatusDistribution = {
         available: rooms.filter((r: any) => r.status === 'available').length,
@@ -950,12 +991,12 @@ class AnalyticsService {
   /**
    * Calculate financial analytics
    */
-  async getFinancialAnalytics(): Promise<FinancialAnalytics> {
+  async getFinancialAnalytics(shared?: AnalyticsSharedData): Promise<FinancialAnalytics> {
     try {
       const db = blink.db as any
       const [invoices, revenueAnalytics] = await Promise.all([
         db.invoices.list(),
-        this.getRevenueAnalytics()
+        this.getRevenueAnalytics(undefined, undefined, shared)
       ])
 
       // Revenue breakdown

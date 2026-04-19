@@ -91,7 +91,9 @@ class BookingEngine {
 
   // Short-lived cache for getAllBookings — avoids N redundant fetches when analytics/pages load simultaneously
   private _allBookingsCache: { data: LocalBooking[]; ts: number } | null = null
-  private _allBookingsTTL = 8000 // 8 seconds
+  private _allBookingsTTL = 30000 // 30 seconds
+  // In-flight dedup: if a fetch is already running, return the same promise instead of firing a new one
+  private _allBookingsInflight: Promise<LocalBooking[]> | null = null
 
   public onSyncStatusChange(handler: (status: 'syncing' | 'synced' | 'error', message?: string) => void) {
     this.syncHandlers.push(handler)
@@ -1192,7 +1194,17 @@ class BookingEngine {
     if (this._allBookingsCache && now - this._allBookingsCache.ts < this._allBookingsTTL) {
       return this._allBookingsCache.data
     }
+    // If a fetch is already in-flight, return same promise (dedup concurrent callers)
+    if (this._allBookingsInflight) return this._allBookingsInflight
+    this._allBookingsInflight = this._fetchAllBookings()
+    try {
+      return await this._allBookingsInflight
+    } finally {
+      this._allBookingsInflight = null
+    }
+  }
 
+  private async _fetchAllBookings(): Promise<LocalBooking[]> {
     const db = blink.db as any
     const [bookings, rooms, guests] = await Promise.all([
       db.bookings.list(),

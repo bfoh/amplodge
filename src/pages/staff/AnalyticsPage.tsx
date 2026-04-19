@@ -114,16 +114,19 @@ export function AnalyticsPage() {
   const loadAnalytics = async () => {
     setLoading(true)
     try {
-      const [revenueData, occupancyData, guestData, performanceData, allBookings, chargesRaw, salesRaw] =
-        await Promise.all([
-          analyticsService.getRevenueAnalytics(),
-          analyticsService.getOccupancyAnalytics(),
-          analyticsService.getGuestAnalytics(),
-          analyticsService.getPerformanceMetrics(),
-          bookingEngine.getAllBookings(),
-          (blink.db as any).bookingCharges.list({ limit: 5000 }).catch(() => []),
-          standaloneSalesService.getAllSales().catch(() => []),
-        ])
+      // Fetch all shared data ONCE, then pass to each analytics method — no redundant DB calls
+      const shared = await analyticsService.prefetchSharedData()
+      const [revenueData, occupancyData, guestData] = await Promise.all([
+        analyticsService.getRevenueAnalytics(undefined, undefined, shared),
+        analyticsService.getOccupancyAnalytics(shared),
+        analyticsService.getGuestAnalytics(shared),
+      ])
+      const performanceData = await analyticsService.getPerformanceMetrics(
+        shared, { revenue: revenueData, occupancy: occupancyData }
+      )
+      const allBookings = shared.bookings
+      const chargesRaw = shared.chargesRaw
+      const salesRaw = shared.standaloneSales
       setRevenue(revenueData)
       setOccupancy(occupancyData)
       setGuests(guestData)
