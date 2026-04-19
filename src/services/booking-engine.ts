@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { activityLogService } from './activity-log-service'
 import { sendBookingConfirmation } from './notifications'
 import { createPreInvoiceData, generateInvoicePDF, blobToBase64 } from './invoice-service'
+import { parsePaymentEvents } from '@/lib/payment-events'
 
 export interface LocalBooking {
   _id: string
@@ -1208,8 +1209,8 @@ class BookingEngine {
       const remoteId: string = b.id || ''
       const localId = `booking_${remoteId.replace(/^booking-/, '')}`
       const createdAt = b.createdAt || b.checkIn
-      // Map payment data if available
-      const payment = b.paymentMethod || b.payment_method ? {
+      // Map payment data if available (may be enhanced after PAYMENT_EVENTS parsing below)
+      let payment = b.paymentMethod || b.payment_method ? {
         method: b.paymentMethod || b.payment_method || 'cash',
         status: b.paymentStatus || b.payment_status || 'pending'
       } : undefined
@@ -1227,6 +1228,29 @@ class BookingEngine {
         } catch (e) {
           console.warn('[BookingEngine] Failed to parse payment data from specialRequests')
         }
+      }
+      // Fallback: if PAYMENT_DATA didn't provide amountPaid, check PAYMENT_EVENTS
+      // (newer bookings may record events without a separate PAYMENT_DATA comment)
+      let paymentEventMethod: string | undefined
+      if (amountPaid <= 0 && paymentStatus === 'pending') {
+        const events = parsePaymentEvents(specialReq)
+        if (events.length > 0) {
+          const bookingStageEvents = events.filter(e => e.stage === 'booking')
+          const bookingStageTotal = bookingStageEvents.reduce((s, e) => s + (e.amount || 0), 0)
+          const allTotal = events.reduce((s, e) => s + (e.amount || 0), 0)
+          amountPaid = bookingStageTotal || allTotal
+          if (amountPaid > 0) {
+            const roomPrice = Number(b.totalPrice || 0)
+            paymentStatus = amountPaid >= roomPrice ? 'full' : 'part'
+          }
+          // Derive payment method from the booking-stage event (or first event)
+          const methodEvent = bookingStageEvents[0] || events[0]
+          if (methodEvent?.method) paymentEventMethod = methodEvent.method
+        }
+      }
+      // If no payment object yet but PAYMENT_EVENTS provided a method, create one
+      if (!payment && paymentEventMethod) {
+        payment = { method: paymentEventMethod, status: paymentStatus }
       }
 
       // Parse group data from specialRequests so consumers know about group membership
@@ -1309,7 +1333,7 @@ class BookingEngine {
         } : undefined,
         amountPaid,
         paymentStatus,
-        payment_method: b.paymentMethod || b.payment_method,
+        payment_method: b.paymentMethod || b.payment_method || paymentEventMethod,
         createdAt,
         updatedAt: b.updatedAt || createdAt,
         synced: true,
