@@ -404,7 +404,9 @@ export async function fetchBookingsForStaffWeek(
       const rawPrice = Number(b.totalPrice || 0)
       const discountAmt = Number(b.discountAmount || b.discount_amount || 0)
       const storedFinal = b.finalAmount ?? b.final_amount
-      const effectivePrice = (storedFinal != null && storedFinal !== '')
+      // Only use storedFinal when a discount was actually applied — prevents a DB default of 0
+      // on final_amount from being treated as an explicitly-set post-discount price
+      const effectivePrice = (discountAmt > 0 && storedFinal != null && storedFinal !== '')
         ? Math.max(0, Number(storedFinal))
         : discountAmt > 0
           ? Math.max(0, rawPrice - discountAmt)
@@ -746,11 +748,27 @@ export async function getOrCreateWeekReport(
   } catch (e) {
     console.warn('[getOrCreateWeekReport] list failed (table may not exist yet):', e)
   }
+
+  // Build a set of all IDs that identify this staff member (auth UUID + staff table row ID)
+  // so we match existing reports regardless of which ID variant was used when saving.
+  const staffIdSet = new Set<string>([staffId])
+  try {
+    const staffRows: any[] = await db.staff.list({ limit: 200 }).catch(() => [])
+    for (const s of staffRows) {
+      const sid = s.id || ''
+      const uid = s.userId || s.user_id || ''
+      if (sid === staffId || uid === staffId) {
+        if (sid) staffIdSet.add(sid)
+        if (uid) staffIdSet.add(uid)
+      }
+    }
+  } catch { /* ignore */ }
+
   const existing = allRows.find(
     (r) => {
       const sid = (r as any).staffId || (r as any).staff_id || ''
       const ws  = (r as any).weekStart || (r as any).week_start || ''
-      return sid === staffId && ws === week.weekStart && r.status !== 'init'
+      return staffIdSet.has(sid) && ws === week.weekStart && r.status !== 'init'
     }
   )
 
@@ -877,19 +895,24 @@ export async function getAllStaffReportsForWeek(weekStart: string): Promise<Week
       if (sname)  canonicalToName.set(canonical, sname)
     }
 
-    // Saved reports for this week
-    const savedReports: WeeklyRevenueReport[] = ((rows || []) as WeeklyRevenueReport[]).filter((r) => {
+    // Saved reports for this week — deduplicate by canonical staff ID so the same
+    // person never appears twice (e.g. when two DB rows exist with different ID variants).
+    const rawSavedReports: WeeklyRevenueReport[] = ((rows || []) as WeeklyRevenueReport[]).filter((r) => {
       const ws = (r as any).weekStart || (r as any).week_start || ''
       return ws === weekStart && r.status !== 'init'
     })
-    // Canonicalize saved report staff IDs so we don't create a duplicate synthetic report
-    // for the same person when the saved report used a different ID variant.
-    const savedStaffIds = new Set(
-      savedReports.map((r) => {
-        const raw = (r as any).staffId || (r as any).staff_id || ''
-        return anyIdToCanonical.get(raw) || raw
-      })
-    )
+    const statusPriority: Record<string, number> = { reviewed: 3, submitted: 2, draft: 1 }
+    const savedByCanonical = new Map<string, WeeklyRevenueReport>()
+    for (const r of rawSavedReports) {
+      const raw = (r as any).staffId || (r as any).staff_id || ''
+      const canonical = anyIdToCanonical.get(raw) || raw
+      const existing = savedByCanonical.get(canonical)
+      if (!existing || (statusPriority[r.status] || 0) > (statusPriority[existing.status] || 0)) {
+        savedByCanonical.set(canonical, r)
+      }
+    }
+    const savedReports = Array.from(savedByCanonical.values())
+    const savedStaffIds = new Set(savedByCanonical.keys())
 
     // Scan bookings to find staff with activity in this week but no saved report.
     // Normalize every found ID to its canonical form to prevent one person getting two cards.

@@ -26,17 +26,37 @@ export function useCheckIn() {
         const db = (blink.db as any)
 
         try {
-            // 1. Validation
-            if (room && room.status !== 'available' && booking.status !== 'checked-in') {
-                if (room.status === 'occupied') {
-                    throw new Error(`Cannot check in: Room ${room.roomNumber} is currently occupied. Check out the previous guest first.`)
+            // 1. Validation — fetch fresh room status from DB to avoid stale state
+            if (room && booking.status !== 'checked-in') {
+                let freshRoomStatus = room.status
+                try {
+                    const freshRoom = await db.rooms.get(room.id)
+                    if (freshRoom) freshRoomStatus = freshRoom.status
+                } catch {
+                    // Fall back to passed-in room status
                 }
-                if (room.status === 'cleaning') {
-                    throw new Error(`Cannot check in: Room ${room.roomNumber} is currently being cleaned. Please complete housekeeping first.`)
+
+                if (freshRoomStatus === 'occupied') {
+                    // Double-check: is there actually another checked-in booking for this room?
+                    // Room status can get stuck on 'occupied' if a prior check-out failed to update it.
+                    const allBookings = await db.bookings.list({ limit: 500 })
+                    const conflicting = allBookings.find((b: any) =>
+                        b.status === 'checked-in' &&
+                        (b.roomId === room.id || b.room_id === room.id) &&
+                        b.id !== (booking.remoteId || booking.id || booking._id)
+                    )
+                    if (conflicting) {
+                        throw new Error(`Cannot check in: Room ${room.roomNumber} is currently occupied. Check out the previous guest first.`)
+                    }
+                    // No conflicting booking found — room status is stale, auto-fix it
+                    console.warn(`[useCheckIn] Room ${room.roomNumber} status was 'occupied' but no checked-in booking found — auto-correcting to 'available'`)
+                    await db.rooms.update(room.id, { status: 'available' }).catch(() => {})
                 }
-                if (room.status === 'maintenance') {
+                if (freshRoomStatus === 'maintenance') {
                     throw new Error(`Cannot check in: Room ${room.roomNumber} is under maintenance.`)
                 }
+                // 'cleaning' status is allowed — staff can check in after cleaning even if
+                // housekeeping hasn't formally marked the room as available yet
             }
 
             // Extract and normalize booking ID - Calendar views use various ID formats

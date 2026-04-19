@@ -1276,8 +1276,11 @@ class BookingEngine {
       }
 
       const discountAmt = Number(b.discountAmount || b.discount_amount || 0)
-      const effectiveAmount = (b.finalAmount != null || b.final_amount != null)
-        ? Number(b.finalAmount ?? b.final_amount ?? 0)
+      // Only use stored finalAmount when a discount was actually applied — prevents
+      // a Supabase/ORM default of 0 on the final_amount column from overriding totalPrice
+      const rawFinalAmount = b.finalAmount ?? b.final_amount
+      const effectiveAmount = (discountAmt > 0 && rawFinalAmount != null && Number(rawFinalAmount) >= 0)
+        ? Number(rawFinalAmount)
         : Math.max(0, Number(b.totalPrice || 0) - discountAmt)
 
       const local: LocalBooking = {
