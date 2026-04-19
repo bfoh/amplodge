@@ -224,6 +224,39 @@ export async function fetchBookingsForStaffWeek(
   const roomMap = new Map(((allRooms || []) as any[]).map((r: any) => [r.id, r]))
   const guestMap = new Map(((allGuests || []) as any[]).map((g: any) => [g.id, g]))
 
+  // Deduplicate raw bookings — same logic as bookingEngine.getAllBookings().
+  // Multiple DB rows can exist for the same guest+room+dates (e.g. confirmed then checked-in).
+  // Keep only the highest-status row to match the analytics count.
+  const dedupPriority: Record<string, number> = {
+    'checked-out': 5, 'checked-in': 4, 'confirmed': 3, 'reserved': 2, 'cancelled': 1,
+  }
+  const normDateStr = (d: string) => (d || '').split('T')[0]
+  {
+    const seen = new Map<string, { idx: number; status: string }>()
+    const deduped: any[] = []
+    for (const b of ((allBookings || []) as any[])) {
+      const roomId = b.roomId || b.room_id || ''
+      const ci = normDateStr(b.checkIn || b.check_in || '')
+      const co = normDateStr(b.checkOut || b.check_out || '')
+      const guest = guestMap.get(b.guestId || b.guest_id) as any
+      const guestKey = (guest?.email || guest?.name || '').trim().toLowerCase()
+      const key = `${roomId}|${ci}|${co}|${guestKey}`
+      const existing = seen.get(key)
+      if (existing) {
+        const existingPri = dedupPriority[existing.status] || 0
+        const currentPri = dedupPriority[b.status || ''] || 0
+        if (currentPri > existingPri) {
+          deduped[existing.idx] = b
+          seen.set(key, { idx: existing.idx, status: b.status || '' })
+        }
+      } else {
+        seen.set(key, { idx: deduped.length, status: b.status || '' })
+        deduped.push(b)
+      }
+    }
+    allBookings = deduped
+  }
+
   // Group booking charges by booking ID
   const chargesByBookingId = new Map<string, any[]>()
   for (const c of (allChargesRaw || [])) {
