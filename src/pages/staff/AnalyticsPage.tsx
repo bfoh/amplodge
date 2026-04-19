@@ -115,7 +115,11 @@ export function AnalyticsPage() {
     setLoading(true)
     try {
       // Fetch all shared data ONCE, then pass to each analytics method — no redundant DB calls
-      const shared = await analyticsService.prefetchSharedData()
+      // Timeout after 15s to prevent infinite hang from IndexedDB/network issues
+      const shared = await Promise.race([
+        analyticsService.prefetchSharedData(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Analytics data fetch timed out')), 15000)),
+      ])
       const [revenueData, occupancyData, guestData] = await Promise.all([
         analyticsService.getRevenueAnalytics(undefined, undefined, shared),
         analyticsService.getOccupancyAnalytics(shared),

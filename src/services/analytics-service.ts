@@ -37,13 +37,13 @@ class AnalyticsService {
     const db = blink.db as any
     const [bookings, roomTypes, properties, chargesRaw, standaloneSales, guests, rooms] =
       await Promise.all([
-        bookingEngine.getAllBookings(),
-        db.roomTypes.list(),
-        db.properties.list(),
+        bookingEngine.getAllBookings().catch(() => [] as any[]),
+        db.roomTypes.list().catch(() => [] as any[]),
+        db.properties.list().catch(() => [] as any[]),
         (db.bookingCharges.list({ limit: 5000 }) as Promise<any[]>).catch(() => [] as any[]),
         standaloneSalesService.getAllSales().catch(() => [] as any[]),
-        db.guests.list(),
-        db.rooms.list(),
+        db.guests.list().catch(() => [] as any[]),
+        db.rooms.list().catch(() => [] as any[]),
       ])
     return { bookings, roomTypes, properties, chargesRaw, standaloneSales, guests, rooms }
   }
