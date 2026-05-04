@@ -268,6 +268,96 @@ function createTableWrapper(tableName: string) {
       return []
     },
 
+    /**
+     * Fetch ALL rows by paginating server-side via .range(), bypassing the
+     * Supabase per-request row cap (default 1000). Use when you need the
+     * complete table — counts, dedup passes, etc.
+     */
+    async listAll(options: { where?: Record<string, any>; orderBy?: Record<string, any>; pageSize?: number } = {}) {
+      const pageSize = options.pageSize ?? 1000
+
+      const buildBaseQuery = () => {
+        let query = supabase.from(tableName).select('*')
+        if (options.where) {
+          Object.entries(options.where).forEach(([key, value]) => {
+            const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase()
+            if (value && typeof value === 'object' && !Array.isArray(value)) {
+              if ('in' in value) query = query.in(snakeKey, value.in)
+              else if ('gt' in value) query = query.gt(snakeKey, value.gt)
+              else if ('gte' in value) query = query.gte(snakeKey, value.gte)
+              else if ('lt' in value) query = query.lt(snakeKey, value.lt)
+              else if ('lte' in value) query = query.lte(snakeKey, value.lte)
+              else if ('neq' in value) query = query.neq(snakeKey, value.neq)
+              else if ('like' in value) query = query.like(snakeKey, value.like)
+              else if ('ilike' in value) query = query.ilike(snakeKey, value.ilike)
+              else if ('is' in value) query = query.is(snakeKey, value.is)
+            } else {
+              query = query.eq(snakeKey, value)
+            }
+          })
+        }
+        if (options.orderBy) {
+          if ('column' in options.orderBy && typeof options.orderBy.column === 'string') {
+            const snakeColumn = options.orderBy.column.replace(/([A-Z])/g, '_$1').toLowerCase()
+            query = query.order(snakeColumn, { ascending: options.orderBy.ascending ?? false })
+          } else {
+            Object.entries(options.orderBy).forEach(([key, value]) => {
+              const snakeColumn = key.replace(/([A-Z])/g, '_$1').toLowerCase()
+              const ascending = value === 'asc'
+              query = query.order(snakeColumn, { ascending })
+            })
+          }
+        }
+        return query
+      }
+
+      // Offline: just return whatever cache has
+      if (!getNetworkOnline()) {
+        if (offlineCache.isTableCached(tableName)) {
+          try {
+            const cached = await offlineCache.readAll(tableName)
+            return (cached || []).map(convertToCamelCase)
+          } catch {
+            return []
+          }
+        }
+        return []
+      }
+
+      const all: Record<string, any>[] = []
+      let offset = 0
+      // Hard safety ceiling so a runaway loop can't exhaust memory
+      const HARD_CEILING = 100000
+      while (offset < HARD_CEILING) {
+        const query = buildBaseQuery().range(offset, offset + pageSize - 1)
+        const { data, error } = await query
+        if (error) {
+          console.error(`[SupabaseDB] listAll error for ${tableName} at offset ${offset}:`, error)
+          // Fallback: return what we have, or cache as last resort
+          if (all.length === 0 && offlineCache.isTableCached(tableName)) {
+            try {
+              const cached = await offlineCache.readAll(tableName)
+              return (cached || []).map(convertToCamelCase)
+            } catch {
+              throw error
+            }
+          }
+          break
+        }
+        if (!data || data.length === 0) break
+        all.push(...data)
+        if (data.length < pageSize) break
+        offset += pageSize
+      }
+
+      // Refresh cache opportunistically when fetching the full table unfiltered
+      if (!options.where) {
+        offlineCache.warmTable(tableName, all).catch(() => {})
+      }
+
+      return all.map(convertToCamelCase)
+    },
+
     async get(id: string) {
       // --- Try Supabase first if online ---
       if (getNetworkOnline()) {

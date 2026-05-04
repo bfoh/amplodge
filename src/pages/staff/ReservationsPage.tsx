@@ -132,11 +132,11 @@ export function ReservationsPage() {
     const load = async () => {
       try {
         const [b, r, g, rt, charges] = await Promise.all([
-          db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 500 }),
-          db.rooms.list({ limit: 500 }),
-          db.guests.list({ limit: 500 }),
+          db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
+          db.rooms.listAll(),
+          db.guests.listAll(),
           db.roomTypes.list({ limit: 100 }),
-          db.bookingCharges?.list({ limit: 1000 }) || Promise.resolve([])
+          db.bookingCharges?.listAll() || Promise.resolve([])
         ])
 
         // Store charges for calculating totals
@@ -764,7 +764,7 @@ export function ReservationsPage() {
       console.error('Check-out failed:', error)
       toast.error('Failed to check out guest')
       // Reload data to restore correct state
-      const [b] = await Promise.all([db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 500 })])
+      const [b] = await Promise.all([db.bookings.listAll({ orderBy: { createdAt: 'desc' } })])
       setBookings(b)
     } finally {
       setProcessing(false)
@@ -810,10 +810,10 @@ export function ReservationsPage() {
           // Optimistic UI update or reload
           if (checkInDialog) {
             // Reload data to ensure everything is synced
-            const [b] = await Promise.all([db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 500 })])
+            const [b] = await Promise.all([db.bookings.listAll({ orderBy: { createdAt: 'desc' } })])
             setBookings(b)
             // Also reload rooms to update status
-            const [r] = await Promise.all([db.rooms.list({ limit: 500 })])
+            const [r] = await Promise.all([db.rooms.listAll()])
             setRooms(r)
           }
         }}
@@ -827,7 +827,7 @@ export function ReservationsPage() {
         guest={chargesDialog ? guestMap.get(chargesDialog.guestId) : null}
         onChargesUpdated={async () => {
           // Refresh charges data when charges are updated
-          const charges = await db.bookingCharges?.list({ limit: 1000 }) || []
+          const charges = await db.bookingCharges?.listAll() || []
           setAllCharges(charges)
         }}
       />
@@ -850,8 +850,8 @@ export function ReservationsPage() {
             onExtensionComplete={async () => {
               // Refresh bookings and charges data after extension
               const [b, charges] = await Promise.all([
-                db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 500 }),
-                db.bookingCharges?.list({ limit: 1000 }) || Promise.resolve([])
+                db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
+                db.bookingCharges?.listAll() || Promise.resolve([])
               ])
               setBookings(b)
               setAllCharges(charges || [])
@@ -870,8 +870,8 @@ export function ReservationsPage() {
           onUpdate={async () => {
             // Refresh bookings data
             const [b, charges] = await Promise.all([
-              db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 500 }),
-              db.bookingCharges?.list({ limit: 1000 }) || Promise.resolve([])
+              db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
+              db.bookingCharges?.listAll() || Promise.resolve([])
             ])
             setBookings(b)
             setAllCharges(charges || [])
