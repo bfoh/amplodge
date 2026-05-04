@@ -5,7 +5,7 @@
  * a Blink-compatible API with offline caching and sync queue.
  */
 
-export { blink, db, auth } from '../lib/supabase-wrapper'
+export { blink, db, auth, onTableUpdated } from '../lib/supabase-wrapper'
 
 // For backwards compatibility with code using blinkManaged
 export { blink as blinkManaged } from '../lib/supabase-wrapper'

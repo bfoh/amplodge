@@ -21,6 +21,37 @@ import * as syncQueue from './sync-queue'
 import { getNetworkOnline, onNetworkChange } from './network-status'
 
 // ---------------------------------------------------------------------------
+// Table-update pub/sub
+// ---------------------------------------------------------------------------
+// Pages subscribe to table updates and re-run their loader when fresh server
+// data has been written into the cache by a background SWR refresh.
+
+const tableListeners = new Map<string, Set<() => void>>()
+
+export function onTableUpdated(table: string, cb: () => void): () => void {
+  let set = tableListeners.get(table)
+  if (!set) {
+    set = new Set()
+    tableListeners.set(table, set)
+  }
+  set.add(cb)
+  return () => {
+    set!.delete(cb)
+  }
+}
+
+function emitTableUpdated(table: string) {
+  const set = tableListeners.get(table)
+  if (!set || set.size === 0) return
+  // Fire async so the wrapper return value lands first
+  queueMicrotask(() => {
+    set.forEach(cb => {
+      try { cb() } catch (e) { console.warn(`[SupabaseDB] listener for ${table} threw:`, e) }
+    })
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Cache warm-up management
 // ---------------------------------------------------------------------------
 
@@ -182,78 +213,84 @@ function createTableWrapper(tableName: string) {
         }
       }
 
-      // --- Try Supabase (online path) ---
-      if (getNetworkOnline()) {
-        try {
-          let query = supabase.from(tableName).select('*')
+      // --- Build the network fetch as a function so we can run it foreground
+      //     (no cache) or background (SWR refresh after returning cache). ---
+      const fetchFromSupabase = async (): Promise<Record<string, any>[]> => {
+        let query = supabase.from(tableName).select('*')
 
-          if (options.where) {
-            Object.entries(options.where).forEach(([key, value]) => {
-              const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase()
-              if (value && typeof value === 'object' && !Array.isArray(value)) {
-                if ('in' in value) query = query.in(snakeKey, value.in)
-                else if ('gt' in value) query = query.gt(snakeKey, value.gt)
-                else if ('gte' in value) query = query.gte(snakeKey, value.gte)
-                else if ('lt' in value) query = query.lt(snakeKey, value.lt)
-                else if ('lte' in value) query = query.lte(snakeKey, value.lte)
-                else if ('neq' in value) query = query.neq(snakeKey, value.neq)
-                else if ('like' in value) query = query.like(snakeKey, value.like)
-                else if ('ilike' in value) query = query.ilike(snakeKey, value.ilike)
-                else if ('is' in value) query = query.is(snakeKey, value.is)
-                else {
-                  console.warn(`[SupabaseDB] Unknown operator in where clause for ${snakeKey}:`, value)
-                }
-              } else {
-                query = query.eq(snakeKey, value)
+        if (options.where) {
+          Object.entries(options.where).forEach(([key, value]) => {
+            const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase()
+            if (value && typeof value === 'object' && !Array.isArray(value)) {
+              if ('in' in value) query = query.in(snakeKey, value.in)
+              else if ('gt' in value) query = query.gt(snakeKey, value.gt)
+              else if ('gte' in value) query = query.gte(snakeKey, value.gte)
+              else if ('lt' in value) query = query.lt(snakeKey, value.lt)
+              else if ('lte' in value) query = query.lte(snakeKey, value.lte)
+              else if ('neq' in value) query = query.neq(snakeKey, value.neq)
+              else if ('like' in value) query = query.like(snakeKey, value.like)
+              else if ('ilike' in value) query = query.ilike(snakeKey, value.ilike)
+              else if ('is' in value) query = query.is(snakeKey, value.is)
+              else {
+                console.warn(`[SupabaseDB] Unknown operator in where clause for ${snakeKey}:`, value)
               }
+            } else {
+              query = query.eq(snakeKey, value)
+            }
+          })
+        }
+
+        if (options.orderBy) {
+          if ('column' in options.orderBy && typeof options.orderBy.column === 'string') {
+            const snakeColumn = options.orderBy.column.replace(/([A-Z])/g, '_$1').toLowerCase()
+            query = query.order(snakeColumn, { ascending: options.orderBy.ascending ?? false })
+          } else {
+            Object.entries(options.orderBy).forEach(([key, value]) => {
+              const snakeColumn = key.replace(/([A-Z])/g, '_$1').toLowerCase()
+              const ascending = value === 'asc'
+              query = query.order(snakeColumn, { ascending })
             })
           }
+        }
 
-          if (options.orderBy) {
-            if ('column' in options.orderBy && typeof options.orderBy.column === 'string') {
-              const snakeColumn = options.orderBy.column.replace(/([A-Z])/g, '_$1').toLowerCase()
-              query = query.order(snakeColumn, { ascending: options.orderBy.ascending ?? false })
-            } else {
-              Object.entries(options.orderBy).forEach(([key, value]) => {
-                const snakeColumn = key.replace(/([A-Z])/g, '_$1').toLowerCase()
-                const ascending = value === 'asc'
-                query = query.order(snakeColumn, { ascending })
-              })
-            }
+        if (options.limit) {
+          query = query.limit(options.limit)
+        }
+
+        const { data, error } = await query
+        if (error) throw error
+
+        // Update cache with fresh data
+        if (data && !options.where) {
+          offlineCache.warmTable(tableName, data).catch(() => {})
+        } else if (data) {
+          for (const row of data) {
+            offlineCache.writeOne(tableName, row).catch(() => {})
           }
+        }
 
-          if (options.limit) {
-            query = query.limit(options.limit)
-          }
+        return data || []
+      }
 
-          const { data, error } = await query
+      // --- SWR: cache hit + online → return cached now, refresh in background ---
+      if (cached && getNetworkOnline()) {
+        const cachedSnapshot = cached.map(convertToCamelCase)
+        // Background refresh + emit on completion. Failures don't surface to caller.
+        fetchFromSupabase()
+          .then(() => emitTableUpdated(tableName))
+          .catch(err => {
+            console.warn(`[SupabaseDB] Background refresh failed for ${tableName}:`, err?.message || err)
+          })
+        return cachedSnapshot
+      }
 
-          if (error) {
-            console.error(`[SupabaseDB] Error listing ${tableName}:`, error)
-            // Fall back to cache if available
-            if (cached) {
-              console.log(`[SupabaseDB] Falling back to cached data for ${tableName}`)
-              return cached.map(convertToCamelCase)
-            }
-            throw error
-          }
-
-          // Update cache in background with fresh data
-          if (data && !options.where) {
-            offlineCache.warmTable(tableName, data).catch(() => {})
-          } else if (data) {
-            for (const row of data) {
-              offlineCache.writeOne(tableName, row).catch(() => {})
-            }
-          }
-
-          return (data || []).map(convertToCamelCase)
+      // --- No cache, online → fetch foreground (block on network) ---
+      if (getNetworkOnline()) {
+        try {
+          const data = await fetchFromSupabase()
+          return data.map(convertToCamelCase)
         } catch (err) {
-          // Network error — fall back to cache
-          if (cached) {
-            console.log(`[SupabaseDB] Network error, using cached data for ${tableName}`)
-            return cached.map(convertToCamelCase)
-          }
+          console.error(`[SupabaseDB] Error listing ${tableName}:`, err)
           throw err
         }
       }
@@ -311,51 +348,110 @@ function createTableWrapper(tableName: string) {
         return query
       }
 
-      // Offline: just return whatever cache has
-      if (!getNetworkOnline()) {
-        if (offlineCache.isTableCached(tableName)) {
-          try {
-            const cached = await offlineCache.readAll(tableName)
-            return (cached || []).map(convertToCamelCase)
-          } catch {
-            return []
+      // Background paginator — used both as foreground (no cache) and
+      // background SWR refresh (cache hit).
+      const paginate = async (): Promise<Record<string, any>[]> => {
+        const all: Record<string, any>[] = []
+        let offset = 0
+        const HARD_CEILING = 100000
+        while (offset < HARD_CEILING) {
+          const query = buildBaseQuery().range(offset, offset + pageSize - 1)
+          const { data, error } = await query
+          if (error) throw error
+          if (!data || data.length === 0) break
+          all.push(...data)
+          if (data.length < pageSize) break
+          offset += pageSize
+        }
+        if (!options.where) {
+          offlineCache.warmTable(tableName, all).catch(() => {})
+        } else {
+          for (const row of all) {
+            offlineCache.writeOne(tableName, row).catch(() => {})
           }
         }
-        return []
+        return all
       }
 
-      const all: Record<string, any>[] = []
-      let offset = 0
-      // Hard safety ceiling so a runaway loop can't exhaust memory
-      const HARD_CEILING = 100000
-      while (offset < HARD_CEILING) {
-        const query = buildBaseQuery().range(offset, offset + pageSize - 1)
-        const { data, error } = await query
-        if (error) {
-          console.error(`[SupabaseDB] listAll error for ${tableName} at offset ${offset}:`, error)
-          // Fallback: return what we have, or cache as last resort
-          if (all.length === 0 && offlineCache.isTableCached(tableName)) {
-            try {
-              const cached = await offlineCache.readAll(tableName)
-              return (cached || []).map(convertToCamelCase)
-            } catch {
-              throw error
+      // Read cache snapshot if we have one (for SWR or offline)
+      let cached: Record<string, any>[] | null = null
+      if (offlineCache.isTableCached(tableName)) {
+        try {
+          cached = await offlineCache.readAll(tableName)
+          if (cached && options.where) {
+            cached = cached.filter(row => {
+              return Object.entries(options.where!).every(([key, value]) => {
+                const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase()
+                const rowValue = row[snakeKey] ?? row[key]
+                if (value && typeof value === 'object' && !Array.isArray(value)) {
+                  if ('in' in value) return value.in.includes(rowValue)
+                  if ('gt' in value) return rowValue > value.gt
+                  if ('gte' in value) return rowValue >= value.gte
+                  if ('lt' in value) return rowValue < value.lt
+                  if ('lte' in value) return rowValue <= value.lte
+                  if ('neq' in value) return rowValue !== value.neq
+                  if ('like' in value) return String(rowValue || '').includes(value.like.replace(/%/g, ''))
+                  if ('ilike' in value) return String(rowValue || '').toLowerCase().includes(value.ilike.replace(/%/g, '').toLowerCase())
+                  if ('is' in value) return rowValue === value.is
+                  return true
+                }
+                return String(rowValue) === String(value)
+              })
+            })
+          }
+          if (cached && options.orderBy) {
+            if ('column' in options.orderBy && typeof options.orderBy.column === 'string') {
+              const col = options.orderBy.column.replace(/([A-Z])/g, '_$1').toLowerCase()
+              const asc = options.orderBy.ascending ?? false
+              cached.sort((a, b) => {
+                const va = a[col] ?? a[options.orderBy!.column]
+                const vb = b[col] ?? b[options.orderBy!.column]
+                const cmp = String(va ?? '').localeCompare(String(vb ?? ''))
+                return asc ? cmp : -cmp
+              })
+            } else {
+              Object.entries(options.orderBy).forEach(([key, value]) => {
+                const col = key.replace(/([A-Z])/g, '_$1').toLowerCase()
+                const asc = value === 'asc'
+                cached!.sort((a, b) => {
+                  const va = a[col] ?? a[key]
+                  const vb = b[col] ?? b[key]
+                  const cmp = String(va ?? '').localeCompare(String(vb ?? ''))
+                  return asc ? cmp : -cmp
+                })
+              })
             }
           }
-          break
+        } catch (err) {
+          console.warn(`[SupabaseDB] listAll cache read failed for ${tableName}:`, err)
+          cached = null
         }
-        if (!data || data.length === 0) break
-        all.push(...data)
-        if (data.length < pageSize) break
-        offset += pageSize
       }
 
-      // Refresh cache opportunistically when fetching the full table unfiltered
-      if (!options.where) {
-        offlineCache.warmTable(tableName, all).catch(() => {})
+      // Offline: cache or empty
+      if (!getNetworkOnline()) {
+        return (cached || []).map(convertToCamelCase)
       }
 
-      return all.map(convertToCamelCase)
+      // SWR: cache hit + online → return cached, paginate in background
+      if (cached && cached.length > 0) {
+        const cachedSnapshot = cached.map(convertToCamelCase)
+        paginate()
+          .then(() => emitTableUpdated(tableName))
+          .catch(err => {
+            console.warn(`[SupabaseDB] listAll background refresh failed for ${tableName}:`, err?.message || err)
+          })
+        return cachedSnapshot
+      }
+
+      // No cache, online → paginate foreground
+      try {
+        const all = await paginate()
+        return all.map(convertToCamelCase)
+      } catch (err) {
+        console.error(`[SupabaseDB] listAll foreground error for ${tableName}:`, err)
+        return []
+      }
     },
 
     async get(id: string) {

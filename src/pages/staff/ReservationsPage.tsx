@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { blink } from '@/blink/client'
+import { blink, onTableUpdated } from '@/blink/client'
 import type { Booking, Room, Guest } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -271,6 +271,14 @@ export function ReservationsPage() {
       }
     }
     load()
+    // SWR: re-run loader when background refresh writes fresh rows into cache.
+    const unsubs = [
+      onTableUpdated('bookings', () => { load() }),
+      onTableUpdated('rooms', () => { load() }),
+      onTableUpdated('guests', () => { load() }),
+      onTableUpdated('booking_charges', () => { load() }),
+    ]
+    return () => { unsubs.forEach(u => u()) }
   }, [user])
 
   const roomMap = useMemo(() => new Map(rooms.map(r => [r.id, r])), [rooms])

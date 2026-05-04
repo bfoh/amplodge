@@ -28,7 +28,7 @@ import { usePermissions } from '@/hooks/use-permissions'
 import { analyticsService } from '@/services/analytics-service'
 import { AnalyticsExportService } from '@/services/analytics-export-service'
 import { bookingEngine } from '@/services/booking-engine'
-import { blink } from '@/blink/client'
+import { blink, onTableUpdated } from '@/blink/client'
 import { standaloneSalesService } from '@/services/standalone-sales-service'
 import {
   startOfWeek, endOfWeek, format,
@@ -108,7 +108,27 @@ export function AnalyticsPage() {
   useEffect(() => {
     loadAnalytics()
     const interval = setInterval(() => { loadAnalytics() }, 5 * 60 * 1000)
-    return () => clearInterval(interval)
+    // SWR: re-run loader when background refresh writes fresh rows.
+    // Throttle so a burst of writes doesn't trigger many recomputes.
+    let pending: ReturnType<typeof setTimeout> | null = null
+    const queueRefresh = () => {
+      if (pending) return
+      pending = setTimeout(() => { pending = null; loadAnalytics() }, 800)
+    }
+    const unsubs = [
+      onTableUpdated('bookings', queueRefresh),
+      onTableUpdated('rooms', queueRefresh),
+      onTableUpdated('guests', queueRefresh),
+      onTableUpdated('booking_charges', queueRefresh),
+      onTableUpdated('properties', queueRefresh),
+      onTableUpdated('room_types', queueRefresh),
+      onTableUpdated('standalone_sales', queueRefresh),
+    ]
+    return () => {
+      clearInterval(interval)
+      unsubs.forEach(u => u())
+      if (pending) clearTimeout(pending)
+    }
   }, [])
 
   const loadAnalytics = async () => {
