@@ -72,6 +72,11 @@ export interface LocalBooking {
     amount: number
   }
   subtotal?: number
+
+  // Idempotency key sent with the create request. The server enforces uniqueness
+  // on bookings.client_request_id; a duplicate insert (e.g. double-click race)
+  // returns 23505 and the engine re-reads the existing row instead of inserting.
+  idempotencyKey?: string
 }
 
 export interface AuditLog {
@@ -375,8 +380,8 @@ class BookingEngine {
     const timestamp = Date.now()
     const random = Math.random().toString(36).slice(2, 8)
     const suffix = `${timestamp}_${random}`
-    const localId = `booking_${suffix}`
-    const remoteId = `booking-${suffix}`
+    let localId = `booking_${suffix}`
+    let remoteId = `booking-${suffix}`
 
     // Create booking remotely
     const currentUser = await blink.auth.me().catch(() => null)
@@ -465,6 +470,11 @@ class BookingEngine {
     const rawPaymentMethod = bookingData.paymentMethod || (bookingData as any).payment_method
     if (rawPaymentMethod) bookingPayload.paymentMethod = rawPaymentMethod
 
+    // Idempotency key: lets the DB unique index dedupe double-click races.
+    if (bookingData.idempotencyKey) {
+      bookingPayload.clientRequestId = bookingData.idempotencyKey
+    }
+
     console.log('[BookingEngine] Creating booking with payload:', JSON.stringify(bookingPayload, null, 2))
 
     try {
@@ -472,14 +482,56 @@ class BookingEngine {
       console.log('[BookingEngine] Booking created successfully:', JSON.stringify(created, null, 2))
     } catch (bookingErr: any) {
       const msg = bookingErr?.message || ''
+      const code = bookingErr?.code
       const status = bookingErr?.status
-      console.error('[BookingEngine] Booking creation failed:', status, msg)
+      console.error('[BookingEngine] Booking creation failed:', code, status, msg)
       console.error('[BookingEngine] Full error object:', JSON.stringify(bookingErr, null, 2))
       console.error('[BookingEngine] Error stack:', bookingErr?.stack)
 
-      // Only ignore if it's truly a duplicate
-      if (status === 409 || msg.includes('Constraint violation')) {
-        console.warn('[BookingEngine] Booking already exists (duplicate), continuing...')
+      const isDuplicate =
+        code === '23505' ||
+        status === 409 ||
+        msg.includes('Constraint violation') ||
+        msg.toLowerCase().includes('duplicate key value')
+
+      if (isDuplicate) {
+        // Re-read the existing row so the rest of the function operates on the
+        // canonical DB id, not the locally-generated one that never landed.
+        let existing: any = null
+        if (bookingData.idempotencyKey) {
+          try {
+            const matches = await db.bookings.list({
+              where: { clientRequestId: bookingData.idempotencyKey },
+              limit: 1,
+            })
+            existing = matches?.[0]
+          } catch (lookupErr) {
+            console.warn('[BookingEngine] Idempotency lookup failed:', lookupErr)
+          }
+        }
+        if (!existing) {
+          try {
+            const matches = await db.bookings.list({
+              where: {
+                guestId,
+                roomId: room.id,
+                checkIn: bookingData.dates.checkIn,
+                checkOut: bookingData.dates.checkOut,
+              },
+              limit: 1,
+            })
+            existing = matches?.[0]
+          } catch (lookupErr) {
+            console.warn('[BookingEngine] Active-uniqueness lookup failed:', lookupErr)
+          }
+        }
+        if (existing?.id) {
+          console.log('[BookingEngine] Reusing existing booking row:', existing.id)
+          remoteId = existing.id
+          localId = existing.id
+        } else {
+          console.warn('[BookingEngine] Duplicate signaled but existing row not found; continuing with local id')
+        }
       } else {
         // For any other error, throw it with full details
         const errorMessage = `Failed to create booking: ${msg || 'Unknown error'} (Status: ${status || 'N/A'})`
@@ -559,8 +611,8 @@ class BookingEngine {
     console.log('[BookingEngine] Local booking created with createdBy:', local.createdBy)
     console.log('[BookingEngine] Full local booking object:', JSON.stringify(local, null, 2))
 
-    // Log activity
-    await activityLogService.logBookingCreated(remoteId, {
+    // Log activity (fire-and-forget — non-blocking; never let it gate the toast).
+    activityLogService.logBookingCreated(remoteId, {
       guestName: bookingData.guest.fullName,
       guestEmail: bookingData.guest.email,
       roomNumber: bookingData.roomNumber,
@@ -574,25 +626,29 @@ class BookingEngine {
       console.error('[BookingEngine] Failed to log activity:', err)
     })
 
-    // Update Guest record with latest booking details for persistence
-    // This ensures that even if the booking is deleted (and guest is kept), we know the source
+    // Update Guest record with latest booking details (fire-and-forget).
+    // Two sequential db.guests.get + an update were costing ~600 ms in Ghana on
+    // every booking. The data is for guest-history bookkeeping; correctness is
+    // eventually-consistent and a failure here must not block the booking flow.
     if (guestId) {
-      try {
-        const guestUpdatePayload = {
-          last_booking_date: now,
-          last_room_number: local.roomNumber,
-          last_check_in: local.dates.checkIn,
-          last_check_out: local.dates.checkOut,
-          last_source: local.source || 'reception',
-          total_revenue: (await db.guests.get(guestId).then((g: any) => g.total_revenue || 0).catch(() => 0)) + Number(local.amount || 0),
-          total_stays: (await db.guests.get(guestId).then((g: any) => g.total_stays || 0).catch(() => 0)) + 1
+      Promise.resolve().then(async () => {
+        try {
+          const existingGuest = await db.guests.get(guestId).catch(() => ({} as any))
+          const guestUpdatePayload = {
+            last_booking_date: now,
+            last_room_number: local.roomNumber,
+            last_check_in: local.dates.checkIn,
+            last_check_out: local.dates.checkOut,
+            last_source: local.source || 'reception',
+            total_revenue: (existingGuest?.total_revenue || 0) + Number(local.amount || 0),
+            total_stays: (existingGuest?.total_stays || 0) + 1,
+          }
+          console.log('[BookingEngine] Persisting booking source to guest record:', guestId, guestUpdatePayload)
+          await db.guests.update(guestId, guestUpdatePayload)
+        } catch (guestUpdateErr) {
+          console.warn('[BookingEngine] Failed to persist booking source to guest record:', guestUpdateErr)
         }
-
-        console.log('[BookingEngine] Persisting booking source to guest record:', guestId, guestUpdatePayload)
-        await db.guests.update(guestId, guestUpdatePayload)
-      } catch (guestUpdateErr) {
-        console.warn('[BookingEngine] Failed to persist booking source to guest record:', guestUpdateErr)
-      }
+      })
     }
 
     // Send Booking Confirmation Email

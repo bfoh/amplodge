@@ -7,6 +7,23 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Generate a v4 UUID. Prefers crypto.randomUUID (modern browsers, Node 19+);
+ * falls back to a Math.random-based v4 for older runtimes.
+ */
+export function makeUuid(): string {
+  const cryptoObj = (globalThis as any).crypto
+  if (cryptoObj && typeof cryptoObj.randomUUID === 'function') {
+    return cryptoObj.randomUUID()
+  }
+  // RFC4122 v4 fallback
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
+/**
  * Format currency using hotel settings currency (defaults to GHS)
  * This function now uses the hotel's preferred currency instead of hardcoded USD
  * For backward compatibility, it still works with all existing formatUSD calls

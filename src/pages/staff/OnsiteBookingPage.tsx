@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { blink } from '@/blink/client'
 import { RoomType, Room } from '@/types'
@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { CalendarIcon, Check, ArrowLeft, Plus, Trash, ShoppingCart, Users, ArrowRight, Minus, X as XIcon } from 'lucide-react'
 import { format, differenceInDays } from 'date-fns'
 import { toast } from 'sonner'
-import { formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
+import { formatCurrencySync, getCurrencySymbol, makeUuid } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { bookingEngine, LocalBooking } from '@/services/booking-engine'
 import { sendTransactionalEmail } from '@/services/email-service'
@@ -63,6 +63,10 @@ export function OnsiteBookingPage() {
   const [paymentType, setPaymentType] = useState<'full' | 'part' | 'pending'>('pending')
   const [amountPaid, setAmountPaid] = useState<number>(0)
   const [loading, setLoading] = useState(false)
+  // Synchronous double-click guard. React state lags one render behind the click;
+  // a ref flips on the click handler's very first line, closing the 200-400 ms
+  // gap (RTT to Supabase from Ghana) where two clicks could fire two pipelines.
+  const submittingRef = useRef(false)
 
   // Billing Adjustments State
   const [additionalCharges, setAdditionalCharges] = useState<{ id: string, description: string, amount: number }[]>([])
@@ -316,10 +320,24 @@ export function OnsiteBookingPage() {
   const grandTotal = Math.max(0, totalBeforeDiscount - discountAmount)
 
   const handleBooking = async () => {
+    // Synchronous guard: prevents the second click from racing the first when
+    // React hasn't yet rendered disabled={loading}. The first click flips this
+    // ref; subsequent clicks bail until the in-flight submit resolves.
+    if (submittingRef.current) {
+      console.log('[OnsiteBooking] Submit already in flight, ignoring duplicate click')
+      return
+    }
     if (cart.length === 0 || !guestInfo.name || !guestInfo.email) {
       toast.error('Please fill in all required fields and select at least one room')
       return
     }
+    submittingRef.current = true
+
+    // One idempotency UUID per cart item. If the request is somehow re-sent
+    // (sync queue retry, network blip), the DB unique index on
+    // bookings.client_request_id rejects the duplicate insert and the engine
+    // re-reads the existing row.
+    const idempotencyKeys: string[] = cart.map(() => makeUuid())
 
     setLoading(true)
     try {
@@ -391,6 +409,7 @@ export function OnsiteBookingPage() {
           createdBy: user?.id,
           createdByName: staffName,
           specialRequests: bookingEvent ? specialRequests : (guestInfo.specialRequests || ''),
+          idempotencyKey: idempotencyKeys[index],
           ...(index === 0 ? { subtotal: totalPrice } : {})
         }
       }
@@ -528,6 +547,7 @@ export function OnsiteBookingPage() {
       toast.error(`Booking failed: ${error.message}`)
     } finally {
       setLoading(false)
+      submittingRef.current = false
     }
   }
 

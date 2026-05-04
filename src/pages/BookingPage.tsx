@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { blink } from '@/blink/client'
 import { RoomType, Room } from '@/types'
@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { CalendarIcon, Check } from 'lucide-react'
 import { format, differenceInDays, parseISO } from 'date-fns'
 import { toast } from 'sonner'
-import { formatCurrencySync } from '@/lib/utils'
+import { formatCurrencySync, makeUuid } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { useBookingCart } from '@/context/BookingCartContext'
 import { bookingEngine } from '@/services/booking-engine'
@@ -43,6 +43,8 @@ export function BookingPage() {
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'mobile_money' | 'card' | 'not_paid'>('not_paid')
   const [isReceptionBooking, setIsReceptionBooking] = useState(false)
   const [loading, setLoading] = useState(false)
+  // Synchronous double-click guard. State lags one render; ref flips on click.
+  const submittingRef = useRef(false)
   const [bookings, setBookings] = useState<any[]>([])
 
   // Guest Assignment State (Map of tempId -> Guest Details)
@@ -390,10 +392,19 @@ export function BookingPage() {
   }
 
   const handleFinalCheckout = async () => {
+    if (submittingRef.current) {
+      console.log('[BookingPage] Submit already in flight, ignoring duplicate click')
+      return
+    }
     if (!billingContact) {
       toast.error('Billing contact information is missing')
       return
     }
+    submittingRef.current = true
+
+    // One idempotency UUID per cart item — DB unique index on
+    // bookings.client_request_id rejects duplicate inserts on retry.
+    const idempotencyKeys: string[] = cartItems.map(() => makeUuid())
 
     setLoading(true)
     try {
@@ -445,7 +456,7 @@ export function BookingPage() {
       // Prepare booking data from cart items and assignments
       const assignedRoomIds = new Set<string>()
 
-      const bookingsToCreate = cartItems.map(item => {
+      const bookingsToCreate = cartItems.map((item, itemIdx) => {
         // Find all candidates of this room type
         const candidates = properties.filter(p =>
           p.propertyTypeId === item.roomTypeId ||
@@ -504,7 +515,8 @@ export function BookingPage() {
             reference: `PAY-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
             paidAt: new Date().toISOString()
           },
-          payment_method: paymentMethod
+          payment_method: paymentMethod,
+          idempotencyKey: idempotencyKeys[itemIdx],
         }
       })
 
@@ -520,6 +532,7 @@ export function BookingPage() {
       toast.error(`Booking failed: ${error.message || 'Unknown error'}`)
     } finally {
       setLoading(false)
+      submittingRef.current = false
     }
   }
 
