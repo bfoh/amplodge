@@ -42,6 +42,10 @@ export default defineConfig(({ mode }) => ({
       output: {
         manualChunks: {
           'vendor': ['react', 'react-dom', 'react-router-dom'],
+          'charts': ['recharts'],
+          'pouch': ['pouchdb-browser', 'pouchdb-find'],
+          'supabase': ['@supabase/supabase-js'],
+          'dates': ['date-fns'],
         },
       },
     },

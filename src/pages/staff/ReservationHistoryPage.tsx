@@ -92,13 +92,21 @@ export function ReservationHistoryPage() {
         
         // Fetch all relevant data from database with reduced limits for better performance
         const db = blink.db as any
-        const [bookingsData, guestsData, invoicesData, staffData, contactData] = await Promise.all([
+        // Fetch full guests + rooms once (cache-instant via SWR wrapper) so the
+        // activity loop below can resolve names by Map lookup instead of doing
+        // 2 sequential round trips per booking (50 bookings = 100 round trips
+        // ~ 30 s in Ghana).
+        const [bookingsData, guestsData, invoicesData, staffData, contactData, allGuestsForMap, allRoomsForMap] = await Promise.all([
           db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
           db.guests.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
           db.invoices.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
           db.staff.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
-          db.contact_messages.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => [])
+          db.contact_messages.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
+          db.guests.list().catch(() => []),
+          db.rooms.list().catch(() => []),
         ])
+        const guestLookupMap = new Map<string, any>(allGuestsForMap.map((g: any) => [g.id, g]))
+        const roomLookupMap = new Map<string, any>(allRoomsForMap.map((r: any) => [r.id, r]))
 
         // Fetch activity logs to show booking deletions and other activities
         const activityLogsData = await db.contact_messages.list({
@@ -126,26 +134,18 @@ export function ReservationHistoryPage() {
           let guestName = 'Unknown Guest'
           let roomNumber = 'Unknown Room'
           
-          try {
-            if (booking.guestId) {
-              const guest = await db.guests.get(booking.guestId)
-              guestName = guest.name || guestName
-            } else if (booking.guest?.fullName) {
-              guestName = booking.guest.fullName
-            }
-          } catch (error) {
-            console.warn('Failed to fetch guest info:', error)
+          if (booking.guestId) {
+            const guest = guestLookupMap.get(booking.guestId)
+            if (guest?.name) guestName = guest.name
+          } else if (booking.guest?.fullName) {
+            guestName = booking.guest.fullName
           }
-          
-          try {
-            if (booking.roomId) {
-              const room = await db.rooms.get(booking.roomId)
-              roomNumber = room.roomNumber || room.name || roomNumber
-            } else if (booking.roomNumber) {
-              roomNumber = booking.roomNumber
-            }
-          } catch (error) {
-            console.warn('Failed to fetch room info:', error)
+
+          if (booking.roomId) {
+            const room = roomLookupMap.get(booking.roomId)
+            if (room) roomNumber = room.roomNumber || room.name || roomNumber
+          } else if (booking.roomNumber) {
+            roomNumber = booking.roomNumber
           }
           
           // Booking creation
