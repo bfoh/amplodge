@@ -129,7 +129,11 @@ export function ReservationsPage() {
 
   useEffect(() => {
     if (!user) return
+    let inFlight = false
+    let pending: ReturnType<typeof setTimeout> | null = null
     const load = async () => {
+      if (inFlight) return
+      inFlight = true
       try {
         const [b, r, g, rt, charges] = await Promise.all([
           db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
@@ -268,17 +272,29 @@ export function ReservationsPage() {
         console.error('Failed to load reservations', e)
       } finally {
         setLoading(false)
+        inFlight = false
       }
     }
     load()
-    // SWR: re-run loader when background refresh writes fresh rows into cache.
+    // SWR: re-run loader when background refresh writes new rows. Debounced
+    // and gated by inFlight to prevent emit-cascades from looping.
+    const queueLoad = () => {
+      if (pending || inFlight) return
+      pending = setTimeout(() => {
+        pending = null
+        if (!inFlight) load()
+      }, 800)
+    }
     const unsubs = [
-      onTableUpdated('bookings', () => { load() }),
-      onTableUpdated('rooms', () => { load() }),
-      onTableUpdated('guests', () => { load() }),
-      onTableUpdated('booking_charges', () => { load() }),
+      onTableUpdated('bookings', queueLoad),
+      onTableUpdated('rooms', queueLoad),
+      onTableUpdated('guests', queueLoad),
+      onTableUpdated('booking_charges', queueLoad),
     ]
-    return () => { unsubs.forEach(u => u()) }
+    return () => {
+      unsubs.forEach(u => u())
+      if (pending) clearTimeout(pending)
+    }
   }, [user])
 
   const roomMap = useMemo(() => new Map(rooms.map(r => [r.id, r])), [rooms])

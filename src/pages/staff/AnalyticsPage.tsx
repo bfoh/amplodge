@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -105,23 +105,26 @@ export function AnalyticsPage() {
   const [chargeMonthIdx, setChargeMonthIdx] = useState(0)
   const [chargeYearIdx, setChargeYearIdx] = useState(0)
 
+  const loadingRef = useRef(false)
   useEffect(() => {
     loadAnalytics()
     const interval = setInterval(() => { loadAnalytics() }, 5 * 60 * 1000)
-    // SWR: re-run loader when background refresh writes fresh rows.
-    // Throttle so a burst of writes doesn't trigger many recomputes.
+    // SWR: re-run loader when background refresh writes new rows. Guarded so
+    // a refresh fired while one is already in flight doesn't pile up — the
+    // analytics fan-out is heavy (7 list calls + 3 reductions) and a tight
+    // emit loop here briefly broke the page.
     let pending: ReturnType<typeof setTimeout> | null = null
     const queueRefresh = () => {
-      if (pending) return
-      pending = setTimeout(() => { pending = null; loadAnalytics() }, 800)
+      if (pending || loadingRef.current) return
+      pending = setTimeout(() => {
+        pending = null
+        if (loadingRef.current) return
+        loadAnalytics()
+      }, 1500)
     }
     const unsubs = [
       onTableUpdated('bookings', queueRefresh),
-      onTableUpdated('rooms', queueRefresh),
-      onTableUpdated('guests', queueRefresh),
       onTableUpdated('booking_charges', queueRefresh),
-      onTableUpdated('properties', queueRefresh),
-      onTableUpdated('room_types', queueRefresh),
       onTableUpdated('standalone_sales', queueRefresh),
     ]
     return () => {
@@ -132,6 +135,8 @@ export function AnalyticsPage() {
   }, [])
 
   const loadAnalytics = async () => {
+    if (loadingRef.current) return
+    loadingRef.current = true
     setLoading(true)
     try {
       // Fetch all shared data ONCE, then pass to each analytics method — no redundant DB calls
@@ -179,6 +184,7 @@ export function AnalyticsPage() {
       console.error('Failed to load analytics:', error)
     } finally {
       setLoading(false)
+      loadingRef.current = false
     }
   }
 

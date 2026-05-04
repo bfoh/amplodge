@@ -275,9 +275,21 @@ function createTableWrapper(tableName: string) {
       // --- SWR: cache hit + online → return cached now, refresh in background ---
       if (cached && getNetworkOnline()) {
         const cachedSnapshot = cached.map(convertToCamelCase)
-        // Background refresh + emit on completion. Failures don't surface to caller.
+        // Capture pre-refresh row count so we can decide whether to emit.
+        // Emitting on every refresh — even when nothing changed — would loop:
+        // a subscriber re-runs its loader, which calls list() again, which
+        // triggers another refresh, which emits, ad infinitum.
+        const cachedCount = cached.length
         fetchFromSupabase()
-          .then(() => emitTableUpdated(tableName))
+          .then(freshData => {
+            // Only signal subscribers if the row count actually changed.
+            // In-place updates without a count change are picked up by the
+            // page's own polling interval; the cost of missing them is far
+            // smaller than the cost of an emit-loop.
+            if (freshData.length !== cachedCount) {
+              emitTableUpdated(tableName)
+            }
+          })
           .catch(err => {
             console.warn(`[SupabaseDB] Background refresh failed for ${tableName}:`, err?.message || err)
           })
@@ -433,11 +445,18 @@ function createTableWrapper(tableName: string) {
         return (cached || []).map(convertToCamelCase)
       }
 
-      // SWR: cache hit + online → return cached, paginate in background
+      // SWR: cache hit + online → return cached, paginate in background.
+      // Emit only if the row count changed; otherwise we'd loop with any
+      // subscriber that re-fetches on update.
       if (cached && cached.length > 0) {
         const cachedSnapshot = cached.map(convertToCamelCase)
+        const cachedCount = cached.length
         paginate()
-          .then(() => emitTableUpdated(tableName))
+          .then(freshData => {
+            if (freshData.length !== cachedCount) {
+              emitTableUpdated(tableName)
+            }
+          })
           .catch(err => {
             console.warn(`[SupabaseDB] listAll background refresh failed for ${tableName}:`, err?.message || err)
           })
