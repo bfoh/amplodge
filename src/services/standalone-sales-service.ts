@@ -6,6 +6,7 @@
 
 import { blink } from '@/blink/client'
 import { format } from 'date-fns'
+import { inventoryService } from './inventory-service'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,7 @@ export interface StandaloneSale {
   saleDate: string          // YYYY-MM-DD — used for week-range filter
   paymentMethod: 'cash' | 'mobile_money' | 'card'
   createdAt: string
+  inventoryId?: string     // Added for accountability
 }
 
 export const SALE_CATEGORIES: Record<StandaloneSale['category'], string> = {
@@ -43,12 +45,32 @@ export const standaloneSalesService = {
       id: `sale_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       createdAt: new Date().toISOString(),
     }
+    
     try {
       await db.standaloneSales.create(record)
+      
+      // If linked to inventory, reduce stock in real-time
+      if (data.inventoryId) {
+        await inventoryService.reduceStock(
+          data.inventoryId, 
+          data.quantity, 
+          { id: data.staffId, name: data.staffName },
+          `Linked to sale: ${data.description}`
+        )
+      }
     } catch (e) {
       console.warn('[standaloneSalesService] create failed (table may not exist yet):', e)
       // Try again — blink sometimes needs two attempts after auto-creating
       await db.standaloneSales.create(record)
+      
+      if (data.inventoryId) {
+        await inventoryService.reduceStock(
+          data.inventoryId, 
+          data.quantity, 
+          { id: data.staffId, name: data.staffName },
+          `Linked to sale: ${data.description}`
+        )
+      }
     }
     return record
   },

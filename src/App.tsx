@@ -41,6 +41,8 @@ const ServiceRequestsPage = lazy(() => import('./pages/staff/ServiceRequestsPage
 const HRPage = lazy(() => import('./pages/staff/HRPage').then(m => ({ default: m.HRPage })))
 const MyRevenuePage = lazy(() => import('./pages/staff/MyRevenuePage').then(m => ({ default: m.MyRevenuePage })))
 const ClockPage = lazy(() => import('./pages/staff/ClockPage').then(m => ({ default: m.ClockPage })))
+const InventoryPage = lazy(() => import('./pages/staff/InventoryPage').then(m => ({ default: m.InventoryPage })))
+const InventoryTransactionsPage = lazy(() => import('./pages/staff/InventoryTransactionsPage').then(m => ({ default: m.InventoryTransactionsPage })))
 import GuestLayout from './layouts/GuestLayout'
 import GuestDashboard from './pages/guest/GuestDashboard'
 import { ConciergePage } from './pages/guest/ConciergePage'
@@ -229,6 +231,8 @@ function App() {
                 <Route path="requests" element={<ServiceRequestsPage />} />
                 <Route path="hr" element={<HRPage />} />
                 <Route path="my-revenue" element={<MyRevenuePage />} />
+                <Route path="inventory" element={<InventoryPage />} />
+                <Route path="inventory/transactions" element={<InventoryTransactionsPage />} />
               </Route>
 
               {/* Invoice debug route */}

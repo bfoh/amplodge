@@ -1,5 +1,6 @@
 import { blink } from '@/blink/client'
 import { BookingCharge, ChargeCategory } from '@/types'
+import { inventoryService } from './inventory-service'
 
 const db = blink.db as any
 
@@ -24,6 +25,7 @@ export interface CreateChargeData {
     notes?: string
     paymentMethod?: string  // 'cash' | 'mobile_money' | 'card'
     createdBy?: string
+    inventoryId?: string
 }
 
 export interface UpdateChargeData {
@@ -103,8 +105,23 @@ class BookingChargesService {
                 notes: data.notes || null,
                 paymentMethod: data.paymentMethod || 'cash',
                 createdBy: data.createdBy || null,
+                inventoryId: data.inventoryId || null,
                 createdAt: new Date().toISOString()
             })
+
+            // Trigger real-time inventory reduction if inventoryId is provided
+            if (data.inventoryId) {
+                try {
+                    await inventoryService.recordTransaction({
+                        inventoryId: data.inventoryId,
+                        type: 'sale',
+                        quantity: -data.quantity,
+                        notes: `Guest charge: ${data.description} (Booking ${data.bookingId})`
+                    })
+                } catch (invError) {
+                    console.error('[BookingChargesService] Failed to reduce stock:', invError)
+                }
+            }
 
             console.log('[BookingChargesService] Charge added:', charge.id)
             return enrichCharge(charge)

@@ -46,7 +46,9 @@ export async function initializeDatabaseSchema(): Promise<void> {
       'hr_performance_reviews',
       'hr_job_applications',
       'hr_weekly_revenue',
-      'standaloneSales'
+      'standaloneSales',
+      'inventory',
+      'inventoryTransactions'
     ]
 
     // Test each table and create if necessary
@@ -268,6 +270,43 @@ export async function initializeDatabaseSchema(): Promise<void> {
             }
             await db.standaloneSales.create(initRecord)
             await db.standaloneSales.delete(initRecord.id)
+            console.log(`[DatabaseSchema] ✅ Created '${tableName}' table`)
+          } catch (createError: any) {
+            console.warn(`[DatabaseSchema] ⚠️ Could not auto-create '${tableName}':`, createError.message)
+          }
+        } else if (tableName === 'inventory') {
+          try {
+            const initRecord = {
+              id: `inv_init_${Date.now()}`,
+              name: 'Schema initialization',
+              category: 'other',
+              stockQuantity: 0,
+              minThreshold: 0,
+              unitPrice: 0,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            }
+            await db.inventory.create(initRecord)
+            await db.inventory.delete(initRecord.id)
+            console.log(`[DatabaseSchema] ✅ Created '${tableName}' table`)
+          } catch (createError: any) {
+            console.warn(`[DatabaseSchema] ⚠️ Could not auto-create '${tableName}':`, createError.message)
+          }
+        } else if (tableName === 'inventoryTransactions') {
+          try {
+            const initRecord = {
+              id: `inv_tx_init_${Date.now()}`,
+              inventoryId: 'system',
+              type: 'adjustment',
+              quantity: 0,
+              remainingStock: 0,
+              staffId: 'system',
+              staffName: 'System',
+              notes: 'Schema initialization',
+              createdAt: new Date().toISOString()
+            }
+            await db.inventoryTransactions.create(initRecord)
+            await db.inventoryTransactions.delete(initRecord.id)
             console.log(`[DatabaseSchema] ✅ Created '${tableName}' table`)
           } catch (createError: any) {
             console.warn(`[DatabaseSchema] ⚠️ Could not auto-create '${tableName}':`, createError.message)

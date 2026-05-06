@@ -15,12 +15,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Trash2, Edit2, DollarSign, X, Check, Loader2 } from 'lucide-react'
+import { Plus, Trash2, Edit2, DollarSign, X, Check, Loader2, Package } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { BookingCharge, ChargeCategory } from '@/types'
 import { bookingChargesService, CHARGE_CATEGORIES, CreateChargeData } from '@/services/booking-charges-service'
+import { inventoryService, type InventoryItem } from '@/services/inventory-service'
 
 interface GuestChargesDialogProps {
     open: boolean
@@ -41,6 +42,7 @@ export function GuestChargesDialog({
 }: GuestChargesDialogProps) {
     const { currency } = useCurrency()
     const [charges, setCharges] = useState<BookingCharge[]>([])
+    const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
     const [loading, setLoading] = useState(false)
     const [showAddForm, setShowAddForm] = useState(false)
     const [editingChargeId, setEditingChargeId] = useState<string | null>(null)
@@ -53,11 +55,13 @@ export function GuestChargesDialog({
     const [unitPrice, setUnitPrice] = useState(0)
     const [paymentMethod, setPaymentMethod] = useState<'cash' | 'mobile_money' | 'card'>('cash')
     const [notes, setNotes] = useState('')
+    const [inventoryId, setInventoryId] = useState<string>('')
 
     // Fetch charges when dialog opens
     useEffect(() => {
         if (open && booking) {
             fetchCharges()
+            inventoryService.getItems().then(setInventoryItems).catch(console.error)
         }
     }, [open, booking])
 
@@ -83,8 +87,22 @@ export function GuestChargesDialog({
         setUnitPrice(0)
         setPaymentMethod('cash')
         setNotes('')
+        setInventoryId('')
         setEditingChargeId(null)
         setShowAddForm(false)
+    }
+
+    const handleInventoryChange = (id: string) => {
+        if (id === 'none') {
+            setInventoryId('')
+            return
+        }
+        const item = inventoryItems.find(i => i.id === id)
+        if (item) {
+            setInventoryId(id)
+            setDescription(item.name)
+            setUnitPrice(item.unitPrice)
+        }
     }
 
     const handleAddCharge = async () => {
@@ -92,7 +110,7 @@ export function GuestChargesDialog({
             toast.error('Please enter a description')
             return
         }
-        if (unitPrice <= 0) {
+        if (unitPrice < 0) {
             toast.error('Please enter a valid price')
             return
         }
@@ -107,7 +125,8 @@ export function GuestChargesDialog({
                 quantity,
                 unitPrice,
                 paymentMethod,
-                notes: notes.trim() || undefined
+                notes: notes.trim() || undefined,
+                inventoryId: inventoryId || undefined
             }
 
             await bookingChargesService.addCharge(chargeData)
@@ -167,6 +186,7 @@ export function GuestChargesDialog({
         setUnitPrice(charge.unitPrice)
         setPaymentMethod((charge.paymentMethod as 'cash' | 'mobile_money' | 'card') || 'cash')
         setNotes(charge.notes || '')
+        setInventoryId((charge as any).inventoryId || '')
         setEditingChargeId(charge.id)
         setShowAddForm(true)
     }
@@ -224,10 +244,11 @@ export function GuestChargesDialog({
                                 Add Charge
                             </Button>
                         ) : (
-                            <Card>
+                            <Card className="border-primary/20 shadow-sm">
                                 <CardContent className="pt-4 space-y-4">
                                     <div className="flex justify-between items-center">
-                                        <h4 className="font-medium">
+                                        <h4 className="font-medium flex items-center gap-2">
+                                            {editingChargeId ? <Edit2 className="w-4 h-4 text-primary" /> : <Plus className="w-4 h-4 text-primary" />}
                                             {editingChargeId ? 'Edit Charge' : 'Add New Charge'}
                                         </h4>
                                         <Button variant="ghost" size="sm" onClick={resetForm}>
@@ -236,6 +257,27 @@ export function GuestChargesDialog({
                                     </div>
 
                                     <div className="space-y-3">
+                                        {/* Inventory Selection */}
+                                        {!editingChargeId && (
+                                            <div>
+                                                <Label className="text-xs text-muted-foreground mb-1 block">Link to Inventory Item (Optional)</Label>
+                                                <Select value={inventoryId || 'none'} onValueChange={handleInventoryChange}>
+                                                    <SelectTrigger className="bg-primary/5 border-primary/10">
+                                                        <Package className="w-4 h-4 mr-2 text-primary/60" />
+                                                        <SelectValue placeholder="Search inventory..." />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="none">-- Not an inventory item --</SelectItem>
+                                                        {inventoryItems.map(item => (
+                                                            <SelectItem key={item.id} value={item.id}>
+                                                                {item.name} ({item.stockQuantity} in stock)
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        )}
+
                                         <div>
                                             <Label htmlFor="description">Description</Label>
                                             <Input
@@ -290,7 +332,7 @@ export function GuestChargesDialog({
 
                                             <div>
                                                 <Label>Total Amount</Label>
-                                                <p className="text-lg font-semibold mt-2">
+                                                <p className="text-lg font-semibold mt-2 text-emerald-700">
                                                     {formatCurrencySync(quantity * unitPrice, currency)}
                                                 </p>
                                             </div>
@@ -322,7 +364,7 @@ export function GuestChargesDialog({
                                         </div>
                                     </div>
 
-                                    <div className="flex gap-2 justify-end">
+                                    <div className="flex gap-2 justify-end pt-2">
                                         <Button variant="outline" onClick={resetForm}>
                                             Cancel
                                         </Button>
@@ -332,6 +374,7 @@ export function GuestChargesDialog({
                                                 : handleAddCharge()
                                             }
                                             disabled={submitting}
+                                            className="min-w-[100px]"
                                         >
                                             {submitting ? (
                                                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -358,7 +401,7 @@ export function GuestChargesDialog({
                             <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                         </div>
                     ) : charges.length === 0 ? (
-                        <p className="text-center py-4 text-muted-foreground">
+                        <p className="text-center py-4 text-muted-foreground italic">
                             No additional charges recorded
                         </p>
                     ) : (
@@ -366,49 +409,56 @@ export function GuestChargesDialog({
                             {charges.map((charge) => (
                                 <div
                                     key={charge.id}
-                                    className="flex items-center justify-between p-3 border rounded-lg"
+                                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 transition-colors group"
                                 >
                                     <div className="flex-1">
                                         <div className="flex items-center gap-2 flex-wrap">
                                             <span className="font-medium">{charge.description}</span>
-                                            <Badge variant="outline" className="text-xs">
+                                            <Badge variant="outline" className="text-[10px] h-5 px-1.5 uppercase font-bold tracking-tight">
                                                 {CHARGE_CATEGORIES[charge.category]}
                                             </Badge>
                                             {charge.paymentMethod && (
-                                                <Badge variant="secondary" className="text-xs">
+                                                <Badge variant="secondary" className="text-[10px] h-5 px-1.5 uppercase font-bold tracking-tight">
                                                     {charge.paymentMethod === 'cash' ? '💵 Cash'
                                                         : charge.paymentMethod === 'mobile_money' ? '📱 MoMo'
                                                         : '💳 Card'}
                                                 </Badge>
                                             )}
+                                            {(charge as any).inventoryId && (
+                                                <Badge variant="outline" className="text-[10px] h-5 px-1.5 uppercase font-bold tracking-tight border-primary/30 text-primary bg-primary/5">
+                                                    <Package className="w-2.5 h-2.5 mr-1" />
+                                                    Inventory
+                                                </Badge>
+                                            )}
                                         </div>
-                                        <p className="text-sm text-muted-foreground">
+                                        <p className="text-sm text-muted-foreground mt-0.5">
                                             {charge.quantity} × {formatCurrencySync(charge.unitPrice, currency)}
                                             {charge.notes && ` • ${charge.notes}`}
                                         </p>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <span className="font-semibold">
+                                    <div className="flex items-center gap-3">
+                                        <span className="font-bold text-base">
                                             {formatCurrencySync(charge.amount, currency)}
                                         </span>
                                         {canEdit && (
-                                            <>
+                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
+                                                    className="h-8 w-8"
                                                     onClick={() => startEditCharge(charge)}
                                                 >
-                                                    <Edit2 className="w-4 h-4" />
+                                                    <Edit2 className="w-3.5 h-3.5" />
                                                 </Button>
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
+                                                    className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                                                     onClick={() => handleDeleteCharge(charge.id)}
-                                                    className="text-destructive hover:text-destructive"
                                                 >
-                                                    <Trash2 className="w-4 h-4" />
+                                                    <Trash2 className="w-3.5 h-3.5" />
                                                 </Button>
-                                            </>
+                                            </div>
                                         )}
                                     </div>
                                 </div>
@@ -417,7 +467,7 @@ export function GuestChargesDialog({
                     )}
                 </div>
 
-                <DialogFooter>
+                <DialogFooter className="border-t pt-4">
                     <Button variant="outline" onClick={() => onOpenChange(false)}>
                         Close
                     </Button>

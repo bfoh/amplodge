@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Calendar, LayoutDashboard, List, History, Settings, MessageSquare, Tag, BarChart3, ReceiptText, ChevronDown, Sparkles, Users, LogOut, TrendingUp, FileText } from 'lucide-react'
+import { Calendar, LayoutDashboard, List, History, Settings, MessageSquare, Tag, BarChart3, ReceiptText, ChevronDown, Sparkles, Users, LogOut, TrendingUp, FileText, Package } from 'lucide-react'
 import { useStaffRole } from '@/hooks/use-staff-role'
 import { canAccessRoute } from '@/lib/rbac'
 import { blink } from '@/blink/client'
@@ -45,6 +45,7 @@ const adminItems: Array<{
   icon: React.ComponentType<{ className?: string }>
   minRole: StaffRole[]
 }> = [
+    { label: 'Inventory', to: '/staff/inventory', icon: Package, minRole: ['owner', 'admin', 'manager'] },
     { label: 'Employees', to: '/staff/employees', icon: Users, minRole: ['owner', 'admin', 'manager'] },
     { label: 'Price list', to: '/staff/set-prices', icon: Tag, minRole: ['owner', 'admin', 'manager'] },
     { label: 'Invoices', to: '/staff/invoices', icon: ReceiptText, minRole: ['owner', 'admin', 'manager'] },
