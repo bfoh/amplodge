@@ -785,6 +785,8 @@ export const db = {
   hr_job_applications: createTableWrapper('hr_job_applications'),
   hr_weekly_revenue: createTableWrapper('hr_weekly_revenue'),
   standaloneSales: createTableWrapper('standalone_sales'),
+  inventory: createTableWrapper('inventory'),
+  inventoryTransactions: createTableWrapper('inventory_transactions'),
 }
 
 // ---------------------------------------------------------------------------

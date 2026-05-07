@@ -38,6 +38,8 @@ export const CACHED_TABLES = [
   'booking_charges',
   'notifications',
   'reviews',
+  'inventory',
+  'inventory_transactions',
 ] as const
 
 export type CachedTable = (typeof CACHED_TABLES)[number]
