@@ -40,23 +40,12 @@ export default defineConfig(({ mode }) => ({
     },
     rollupOptions: {
       output: {
-        // Split big vendors into separate long-cacheable chunks so a single
-        // app-code change doesn't bust the heavy framework/UI bundles.
-        // Especially valuable in Ghana where each MB over the wire = ~1s.
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return undefined
-          if (id.includes('react-router-dom')) return 'router'
-          if (id.includes('react-dom') || id.includes('/react/')) return 'react'
-          if (id.includes('@supabase')) return 'supabase'
-          if (id.includes('recharts') || id.includes('d3-')) return 'charts'
-          if (id.includes('@radix-ui')) return 'radix'
-          if (id.includes('pouchdb')) return 'pouch'
-          if (id.includes('date-fns')) return 'dates'
-          if (id.includes('lucide-react')) return 'icons'
-          if (id.includes('@google/generative-ai')) return 'gemini'
-          if (id.includes('jspdf') || id.includes('pdf-lib') || id.includes('html2canvas')) return 'pdf'
-          if (id.includes('@dnd-kit')) return 'dnd'
-          return 'vendor'
+        manualChunks: {
+          'vendor': ['react', 'react-dom', 'react-router-dom'],
+          'charts': ['recharts'],
+          'pouch': ['pouchdb-browser', 'pouchdb-find'],
+          'supabase': ['@supabase/supabase-js'],
+          'dates': ['date-fns'],
         },
       },
     },
