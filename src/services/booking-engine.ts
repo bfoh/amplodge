@@ -1108,20 +1108,65 @@ class BookingEngine {
         console.warn('[BookingEngine] Could not fetch booking details for logging:', err)
       }
 
+      // Defensively clear out rows that FK to this booking BEFORE we issue
+      // the booking DELETE. Some referencing tables (notably invoices and
+      // housekeeping_tasks) were created without ON DELETE CASCADE on their
+      // FK, so the bookings.delete() call would fail with Postgres 23503
+      // (foreign_key_violation) and bubble up as the unhelpful generic
+      // "Failed to delete booking" toast. Doing it in code keeps things
+      // working today even if the migration in 20260507_cascade_booking_fks
+      // hasn't been applied yet.
+      const cleanupChildren = async () => {
+        const child = async (table: string, where: Record<string, any>) => {
+          try {
+            const rows = await (db[table]?.list?.({ where, limit: 500 }) ?? Promise.resolve([]))
+            for (const row of rows || []) {
+              if (row?.id) {
+                await db[table].delete(row.id).catch((e: any) => {
+                  console.warn(`[BookingEngine] Failed to delete ${table}/${row.id}:`, e?.message || e)
+                })
+              }
+            }
+            if (rows?.length) {
+              console.log(`[BookingEngine] Removed ${rows.length} ${table} row(s) referencing booking ${remoteId}`)
+            }
+          } catch (e: any) {
+            console.warn(`[BookingEngine] Could not enumerate ${table} for cleanup:`, e?.message || e)
+          }
+        }
+        // booking_charges already cascades but we defend in case it doesn't.
+        await child('bookingCharges', { bookingId: remoteId })
+        await child('invoices', { bookingId: remoteId })
+        await child('housekeepingTasks', { bookingId: remoteId })
+      }
+      await cleanupChildren()
+
       // Perform the actual deletion
       console.log('[BookingEngine] Attempting to delete booking:', remoteId)
       try {
         await db.bookings.delete(remoteId)
         console.log('[BookingEngine] Booking deleted successfully:', remoteId)
       } catch (deleteError: any) {
+        const code = deleteError?.code
+        const status = deleteError?.status
+        const details = deleteError?.details
+        const hint = deleteError?.hint
+        const baseMsg = deleteError?.message || ''
         console.error('[BookingEngine] Delete operation failed:', deleteError)
-        console.error('[BookingEngine] Delete error details:', {
-          message: deleteError?.message,
-          status: deleteError?.status,
-          code: deleteError?.code,
-          stack: deleteError?.stack
-        })
-        throw deleteError
+        console.error('[BookingEngine] Delete error details:', { message: baseMsg, status, code, details, hint })
+
+        // Build a user-readable message — Supabase errors often have an empty
+        // .message but useful .details/.code/.hint, which is why the toast
+        // was showing the generic "Failed to delete booking" before.
+        let friendly = baseMsg
+        if (code === '23503' || /foreign key/i.test(baseMsg) || /foreign key/i.test(details || '')) {
+          friendly = 'Cannot delete this booking because related records still reference it (e.g. an invoice or housekeeping task). Please remove those first or contact an admin.'
+        } else if (code === '42501' || status === 403) {
+          friendly = 'You do not have permission to delete this booking. Please contact an admin.'
+        } else if (!friendly) {
+          friendly = `Delete failed${code ? ` (code ${code})` : ''}${details ? `: ${details}` : ''}`
+        }
+        throw new Error(friendly)
       }
 
       // Also delete any duplicate bookings with the same guest, room, and dates
