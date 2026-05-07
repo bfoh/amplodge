@@ -29,7 +29,8 @@ import {
   Star,
   Megaphone,
   Users2,
-  Wallet
+  Wallet,
+  Package
 } from 'lucide-react'
 import { blink } from '../../blink/client'
 import { cn } from '../../lib/utils'
@@ -363,6 +364,19 @@ export function AppLayout() {
           {isAdmin && (
             <div className="mt-6 pt-6 border-t border-border/50">
               <p className="px-3 py-2 text-xs uppercase tracking-widest text-muted-foreground font-semibold opacity-70 mb-1">Admin</p>
+              <Link
+                to="/staff/inventory"
+                onClick={() => setMobileMenuOpen(false)}
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ease-in-out',
+                  location.pathname === '/staff/inventory'
+                    ? 'bg-primary text-primary-foreground shadow-md ring-1 ring-black/5 translate-x-1'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:translate-x-1'
+                )}
+              >
+                <Package className="w-5 h-5 flex-shrink-0" />
+                <span>Inventory</span>
+              </Link>
               <Link
                 to="/staff/employees"
                 onClick={() => setMobileMenuOpen(false)}
