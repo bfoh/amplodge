@@ -120,39 +120,19 @@ class BookingEngine {
   async createBooking(bookingData: Omit<LocalBooking, '_id' | 'createdAt' | 'updatedAt' | 'synced'>): Promise<LocalBooking> {
     const db = blink.db as any
 
-    console.log('[BookingEngine] Starting booking creation with data:', bookingData)
+    console.log('[BookingEngine] Starting booking creation')
 
-    // Check for duplicate bookings before creating
     const normalizedEmail = (bookingData.guest.email || '').trim().toLowerCase()
 
-    // Fetch all data needed for duplicate check + guest resolution in parallel
-    const [allExistingBookings, allGuests, allRoomsForDupCheck] = await Promise.all([
-      db.bookings.list(),
-      db.guests.list(),
-      db.rooms.list()
-    ])
-
-    // Create a map of guest IDs to guest data for quick lookup
-    const guestMap = new Map(allGuests.map((g: any) => [g.id, g]))
-    const roomIdToNumberMap = new Map((allRoomsForDupCheck as any[]).map((r: any) => [r.id, r.roomNumber]))
-    const normDateForDup = (d: string) => (d || '').split('T')[0]
-    const isDuplicate = allExistingBookings.some((existing: any) => {
-      const guest = existing.guestId ? guestMap.get(existing.guestId) as any : null
-      if (!guest) return false
-      if (guest.email?.toLowerCase() !== normalizedEmail) return false
-      // Resolve room number from roomId (bookings don't store roomNumber directly)
-      const existingRoomNumber = roomIdToNumberMap.get(existing.roomId) || ''
-      if (existingRoomNumber !== bookingData.roomNumber) return false
-      // Normalize dates to handle "2024-01-15" vs "2024-01-15T00:00:00.000Z"
-      if (normDateForDup(existing.checkIn) !== normDateForDup(bookingData.dates.checkIn)) return false
-      if (normDateForDup(existing.checkOut) !== normDateForDup(bookingData.dates.checkOut)) return false
-      return true
-    })
-
-    if (isDuplicate) {
-      console.log('[BookingEngine] Duplicate booking detected, skipping creation')
-      throw new Error('A booking with the same guest, room, and dates already exists')
-    }
+    // NOTE: We previously fetched all bookings + all guests + all rooms here to
+    // detect duplicates client-side. That cost 800-2000ms in Ghana on every
+    // submit and was redundant — migration 20260504070000_booking_dedup.sql
+    // installs a unique index on (guest_id, room_id, check_in, check_out)
+    // for ACTIVE bookings AND on client_request_id for idempotent retries.
+    // The 23505/409 catch path below (around the bookings.create call) reads
+    // back the existing row and returns it as if the create succeeded, so
+    // double-clicks/idempotent retries still resolve cleanly without making
+    // the user wait for three full-table scans up front.
 
     // Normalize/ensure guest (always resolve to an existing record).
     // Refuse to create with an empty/literal-"Guest" name — this used to silently
@@ -167,18 +147,37 @@ class BookingEngine {
 
     let guestId: string | undefined
 
+    // -------------------------------------------------------------------------
+    // Phase-1 parallel fan-out. These three reads have no dependency on each
+    // other; firing them sequentially was costing ~3 RTTs (~750-1200ms) in
+    // Ghana. We kick them off together and await once.
+    //   - guest by email
+    //   - room by roomNumber
+    //   - current authenticated user
+    // The room result is reused below; the auth result is reused at insert
+    // time (saving another RTT later in the function).
+    // -------------------------------------------------------------------------
+    const phase1 = Promise.all([
+      normalizedEmail
+        ? db.guests.list({ where: { email: normalizedEmail }, limit: 1 }).catch(() => null)
+        : Promise.resolve(null),
+      db.rooms.list({ where: { roomNumber: bookingData.roomNumber }, limit: 1 }).catch(() => null),
+      blink.auth.me().catch(() => null),
+    ])
+
     try {
       console.log('[BookingEngine] Resolving guest with email:', normalizedEmail, 'computed ID:', computedGuestId)
 
+      const [byEmailResult] = await phase1
       // Try to find existing guest by email first
-      let existing = null
+      let existing: any = null
       if (normalizedEmail) {
-        const byEmail = await db.guests.list({ where: { email: normalizedEmail }, limit: 1 })
-        existing = (byEmail as any[])?.[0]
+        existing = (byEmailResult as any[])?.[0] ?? null
         console.log('[BookingEngine] Found by email:', existing?.id)
       }
 
-      // If not found by email, try by computed ID
+      // If not found by email, try by computed ID. We deliberately keep this
+      // sequential — most submits hit the email match and never need it.
       if (!existing) {
         const byId = await db.guests.list({ where: { id: computedGuestId }, limit: 1 })
         existing = (byId as any[])?.[0]
@@ -270,10 +269,14 @@ class BookingEngine {
 
     console.log('[BookingEngine] Final guest ID:', guestId)
 
-    // Find room by roomNumber (fallback to Properties if missing, then auto-create Room)
+    // Find room by roomNumber. The lookup was started in the Phase-1 fan-out
+    // (parallel with the guest resolution) so this await is essentially free —
+    // the network round-trip already happened while we were resolving the guest.
+    // Falls back to Properties → auto-create-Room when no row exists, exactly
+    // like before.
     console.log('[BookingEngine] Looking for room number:', bookingData.roomNumber)
-    const roomRes = await db.rooms.list({ where: { roomNumber: bookingData.roomNumber }, limit: 1 })
-    let room = roomRes?.[0]
+    const [, roomResFromPhase1] = await phase1
+    let room = (roomResFromPhase1 as any[] | null)?.[0]
 
     if (!room) {
       console.warn('[BookingEngine] Room not found in rooms table for number:', bookingData.roomNumber, '— attempting to resolve from properties...')
@@ -389,8 +392,10 @@ class BookingEngine {
     let localId = `booking_${suffix}`
     let remoteId = `booking-${suffix}`
 
-    // Create booking remotely
-    const currentUser = await blink.auth.me().catch(() => null)
+    // Create booking remotely. currentUser was fetched in the Phase-1 fan-out;
+    // reusing it here saves one more RTT vs the previous sequential await.
+    const [, , currentUserFromPhase1] = await phase1
+    const currentUser = currentUserFromPhase1 as { id: string; email?: string } | null
     console.log('[BookingEngine] Current user:', currentUser?.id || 'No user authenticated')
 
     // ROBUST METADATA EXTRACTION
@@ -483,11 +488,21 @@ class BookingEngine {
       bookingPayload.clientRequestId = bookingData.idempotencyKey
     }
 
-    console.log('[BookingEngine] Creating booking with payload:', JSON.stringify(bookingPayload, null, 2))
+    // Avoid pretty-printing the whole payload — it was costing real ms on
+    // mobile devices because the object is ~5-10 KB and JSON.stringify is
+    // synchronous. Log just the identifying bits; the full payload is still
+    // available in the network panel.
+    console.log('[BookingEngine] Creating booking', {
+      guestId,
+      roomId: bookingPayload.roomId,
+      checkIn: bookingPayload.checkIn,
+      checkOut: bookingPayload.checkOut,
+      status: bookingPayload.status,
+    })
 
     try {
       const created = await db.bookings.create(bookingPayload)
-      console.log('[BookingEngine] Booking created successfully:', JSON.stringify(created, null, 2))
+      console.log('[BookingEngine] Booking created successfully:', created?.id || '(no id returned)')
     } catch (bookingErr: any) {
       const msg = bookingErr?.message || ''
       const code = bookingErr?.code
@@ -551,45 +566,54 @@ class BookingEngine {
     // Ensure room is marked available for the new booking, UNLESS it is currently occupied.
     // The user explicitly requested: "once the booking is created, the room status should always be available".
     // We safeguard this by NOT resetting 'occupied' or 'maintenance' rooms (which would be a bug for future bookings).
+    //
+    // PERFORMANCE: This block runs as fire-and-forget so it never gates the
+    // success toast. Up to four sequential RTTs (rooms.get, rooms.update,
+    // properties.list, properties.update) — was costing 600-1200ms in Ghana.
+    // The booking row is already committed by this point; eventual consistency
+    // on room/property status is acceptable (reads pick up the new state on
+    // next refresh, and the calling page reloads its data after the toast).
     if (bookingData.status !== 'checked-in') {
-      try {
-        const currentRoom = await db.rooms.get(room.id).catch(() => room)
+      const roomForBackground = room
+      Promise.resolve().then(async () => {
+        try {
+          const currentRoom = await db.rooms.get(roomForBackground.id).catch(() => roomForBackground)
 
-        // Only reset status if it's 'cleaning' or already 'available' (to ensure consistency)
-        // CRITICAL: Do NOT reset 'occupied' or 'maintenance' status.
-        if (currentRoom?.status === 'cleaning' || currentRoom?.status === 'available') {
-          if (currentRoom?.status !== 'available') {
-            await db.rooms.update(room.id, { status: 'available' })
-            console.log('[BookingEngine] Reset room status from', currentRoom.status, 'to available for new booking')
-          }
-
-          // Also align related property status
-          try {
-            const propMatch = await db.properties.list({
-              where: { roomNumber: room.roomNumber },
-              limit: 1
-            })
-            const relatedProperty = propMatch?.[0]
-            if (relatedProperty && (relatedProperty.status === 'cleaning' || relatedProperty.status === 'active')) {
-              if (relatedProperty.status !== 'active') {
-                await db.properties.update(relatedProperty.id, { status: 'active' })
-                console.log('[BookingEngine] Reset property status to active')
-              }
+          // Only reset status if it's 'cleaning' or already 'available' (to ensure consistency)
+          // CRITICAL: Do NOT reset 'occupied' or 'maintenance' status.
+          if (currentRoom?.status === 'cleaning' || currentRoom?.status === 'available') {
+            if (currentRoom?.status !== 'available') {
+              await db.rooms.update(roomForBackground.id, { status: 'available' })
+              console.log('[BookingEngine] Reset room status from', currentRoom.status, 'to available for new booking')
             }
-          } catch (propStatusError) {
-            console.warn('[BookingEngine] Failed to sync property status:', propStatusError)
+
+            // Also align related property status
+            try {
+              const propMatch = await db.properties.list({
+                where: { roomNumber: roomForBackground.roomNumber },
+                limit: 1
+              })
+              const relatedProperty = propMatch?.[0]
+              if (relatedProperty && (relatedProperty.status === 'cleaning' || relatedProperty.status === 'active')) {
+                if (relatedProperty.status !== 'active') {
+                  await db.properties.update(relatedProperty.id, { status: 'active' })
+                  console.log('[BookingEngine] Reset property status to active')
+                }
+              }
+            } catch (propStatusError) {
+              console.warn('[BookingEngine] Failed to sync property status:', propStatusError)
+            }
+          } else {
+            console.log(`[BookingEngine] Skipping room status reset because currently: ${currentRoom?.status}`)
           }
-        } else {
-          console.log(`[BookingEngine] Skipping room status reset because currently: ${currentRoom?.status}`)
+        } catch (roomStatusError) {
+          console.warn('[BookingEngine] Failed to reset room status:', roomStatusError)
         }
-      } catch (roomStatusError) {
-        console.warn('[BookingEngine] Failed to reset room status:', roomStatusError)
-      }
+      })
     }
 
     const now = new Date().toISOString()
-    console.log('[BookingEngine] Creating booking with createdBy:', bookingData.createdBy)
-    console.log('[BookingEngine] Full bookingData received:', JSON.stringify(bookingData, null, 2))
+    console.log('[BookingEngine] Building local booking object — createdBy:', bookingData.createdBy)
 
     const local: LocalBooking = {
       _id: localId,
@@ -616,8 +640,7 @@ class BookingEngine {
       discount: bookingData.discount,
       subtotal: bookingData.subtotal
     }
-    console.log('[BookingEngine] Local booking created with createdBy:', local.createdBy)
-    console.log('[BookingEngine] Full local booking object:', JSON.stringify(local, null, 2))
+    console.log('[BookingEngine] Local booking created — id:', local._id, 'createdBy:', local.createdBy)
 
     // Log activity (fire-and-forget — non-blocking; never let it gate the toast).
     activityLogService.logBookingCreated(remoteId, {
@@ -659,12 +682,19 @@ class BookingEngine {
       })
     }
 
-    // Send Booking Confirmation Email
-    // Only send if it's a confirmed/reserved booking (not a draft or cancelled one)
+    // Send Booking Confirmation Email + generate the Pre-Invoice PDF attachment.
+    // Only fires for confirmed/reserved bookings (not drafts/cancellations).
+    //
+    // PERFORMANCE: This entire block runs as fire-and-forget. The PDF
+    // generation alone (createPreInvoiceData → generateInvoicePDF →
+    // blobToBase64) used to be awaited inline and took 2-5 seconds on Ghana
+    // mobile because jsPDF + html2canvas are CPU-heavy. The booking row is
+    // already committed at this point, so deferring the email/attachment
+    // work has no effect on data integrity — the email simply lands a few
+    // seconds later. UI gets the success toast immediately.
     if (['confirmed', 'reserved'].includes(local.status)) {
-      // Construct booking object compatible with the notification service
       const bookingForEmail = {
-        id: local._id, // Use local ID for reference
+        id: local._id,
         checkIn: local.dates.checkIn,
         checkOut: local.dates.checkOut
       }
@@ -681,71 +711,82 @@ class BookingEngine {
         roomNumber: local.roomNumber
       }
 
-      console.log(`[BookingEngine] Attempting to send confirmation email for booking ${local._id}...`)
-
-      // Generate Pre-Invoice PDF
-      let attachments: any[] | undefined = undefined
-      try {
-        console.log('[BookingEngine] Generating pre-invoice PDF for attachment...')
-        const bookingWithDetails = {
-          id: local._id,
-          guestId: guestId!,
-          roomId: room.id,
-          checkIn: local.dates.checkIn,
-          checkOut: local.dates.checkOut,
-          status: local.status,
-          totalPrice: local.amount,
-          numGuests: local.numGuests,
-          amountPaid: local.amountPaid || 0,
-          paymentStatus: local.paymentStatus || 'pending',
-          specialRequests: bookingPayload.specialRequests,
-          guest: {
-            name: local.guest.fullName,
-            email: local.guest.email,
-            phone: local.guest.phone,
-            address: local.guest.address
-          },
-          room: {
-            roomNumber: local.roomNumber,
-            roomType: local.roomType
-          },
-          createdAt: local.createdAt
-        }
-
-        // Ensure we have minimal room details even if room object is partial
-        const roomDetails = {
-          roomNumber: local.roomNumber,
-          roomType: local.roomType
-        }
-
-        const invoiceData = await createPreInvoiceData(bookingWithDetails, roomDetails)
-        const pdfBlob = await generateInvoicePDF(invoiceData)
-        const base64Pdf = await blobToBase64(pdfBlob)
-
-        // Extract base64 part (remove data:application/pdf;base64, prefix if present)
-        const content = base64Pdf.includes(',') ? base64Pdf.split(',')[1] : base64Pdf
-
-        attachments = [{
-          filename: `Pre-Invoice-${invoiceData.invoiceNumber}.pdf`,
-          content: content,
-          contentType: 'application/pdf'
-        }]
-        console.log('[BookingEngine] Pre-invoice PDF generated and attached')
-      } catch (pdfError) {
-        console.error('[BookingEngine] Failed to generate pre-invoice PDF:', pdfError)
-        // Proceed without attachment
-      }
-
-      // Fire and forget - don't await the result to block UI
       const paymentInfo = (local.amountPaid || local.paymentStatus) ? {
         amountPaid: local.amountPaid || 0,
         paymentStatus: (local.paymentStatus || 'pending') as 'full' | 'part' | 'pending',
         totalPrice: local.amount || 0
       } : undefined
 
-      sendBookingConfirmation(guestForEmail, roomForEmail, bookingForEmail, attachments, paymentInfo)
-        .then(() => console.log(`[BookingEngine] Confirmation email request sent for ${local._id}`))
-        .catch(err => console.error('[BookingEngine] Failed to send confirmation email:', err))
+      // Snapshot every value the background task needs so it doesn't reach
+      // back into the local closure after we've returned (closure is fine,
+      // but explicit is clearer when reading).
+      const bgGuestId = guestId
+      const bgRoomId = room.id
+      const bgRoomNumber = local.roomNumber
+      const bgRoomType = local.roomType
+      const bgLocalId = local._id
+      const bgSpecialRequests = bookingPayload.specialRequests
+
+      Promise.resolve().then(async () => {
+        console.log(`[BookingEngine] Attempting to send confirmation email for booking ${bgLocalId}…`)
+
+        // Generate Pre-Invoice PDF
+        let attachments: any[] | undefined = undefined
+        try {
+          console.log('[BookingEngine] Generating pre-invoice PDF for attachment…')
+          const bookingWithDetails = {
+            id: bgLocalId,
+            guestId: bgGuestId!,
+            roomId: bgRoomId,
+            checkIn: local.dates.checkIn,
+            checkOut: local.dates.checkOut,
+            status: local.status,
+            totalPrice: local.amount,
+            numGuests: local.numGuests,
+            amountPaid: local.amountPaid || 0,
+            paymentStatus: local.paymentStatus || 'pending',
+            specialRequests: bgSpecialRequests,
+            guest: {
+              name: local.guest.fullName,
+              email: local.guest.email,
+              phone: local.guest.phone,
+              address: local.guest.address
+            },
+            room: {
+              roomNumber: bgRoomNumber,
+              roomType: bgRoomType
+            },
+            createdAt: local.createdAt
+          }
+
+          const roomDetails = {
+            roomNumber: bgRoomNumber,
+            roomType: bgRoomType
+          }
+
+          const invoiceData = await createPreInvoiceData(bookingWithDetails, roomDetails)
+          const pdfBlob = await generateInvoicePDF(invoiceData)
+          const base64Pdf = await blobToBase64(pdfBlob)
+          const content = base64Pdf.includes(',') ? base64Pdf.split(',')[1] : base64Pdf
+
+          attachments = [{
+            filename: `Pre-Invoice-${invoiceData.invoiceNumber}.pdf`,
+            content: content,
+            contentType: 'application/pdf'
+          }]
+          console.log('[BookingEngine] Pre-invoice PDF generated and attached')
+        } catch (pdfError) {
+          console.error('[BookingEngine] Failed to generate pre-invoice PDF:', pdfError)
+          // Proceed without attachment — email still sends.
+        }
+
+        try {
+          await sendBookingConfirmation(guestForEmail, roomForEmail, bookingForEmail, attachments, paymentInfo)
+          console.log(`[BookingEngine] Confirmation email request sent for ${bgLocalId}`)
+        } catch (err) {
+          console.error('[BookingEngine] Failed to send confirmation email:', err)
+        }
+      })
     }
 
     console.log('[BookingEngine] Booking completed successfully:', localId)
