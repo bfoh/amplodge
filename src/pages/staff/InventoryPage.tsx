@@ -44,6 +44,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 export function InventoryPage() {
   const { currency } = useCurrency()
@@ -162,12 +169,23 @@ export function InventoryPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="category">Category</Label>
-                    <Input 
-                      id="category" 
-                      placeholder="drinks, snacks, etc." 
-                      value={form.category}
-                      onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-                    />
+                    <Select 
+                      value={form.category} 
+                      onValueChange={val => setForm(f => ({ ...f, category: val }))}
+                    >
+                      <SelectTrigger id="category">
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="drinks">Drinks</SelectItem>
+                        <SelectItem value="water">Water</SelectItem>
+                        <SelectItem value="wine">Wine</SelectItem>
+                        <SelectItem value="biscuits">Biscuits</SelectItem>
+                        <SelectItem value="snacks">Snacks</SelectItem>
+                        <SelectItem value="toiletries">Toiletries</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="price">Unit Price ({currency})</Label>
