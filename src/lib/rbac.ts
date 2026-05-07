@@ -43,7 +43,11 @@ export const ROLE_PERMISSIONS: Record<StaffRole, Permission[]> = {
   staff: [
     { resource: 'bookings', actions: ['create', 'read', 'update'] },
     { resource: 'guests', actions: ['read', 'update'] },
-    { resource: 'housekeeping', actions: ['read', 'update'] }
+    { resource: 'housekeeping', actions: ['read', 'update'] },
+    // Read-only access to the Rooms (properties) page so reception staff
+    // can check room status while taking bookings. Mutations stay gated by
+    // the per-action permission checks inside PropertiesPage.
+    { resource: 'properties', actions: ['read'] }
   ]
 }
 
@@ -53,7 +57,7 @@ export const ROUTE_ACCESS: Record<string, StaffRole[]> = {
   '/staff/bookings': ['owner', 'admin', 'manager', 'staff'],
   '/staff/onsite': ['owner', 'admin', 'manager', 'staff'],
   '/staff/guests': ['owner', 'admin', 'manager', 'staff'],
-  '/staff/properties': ['owner', 'admin', 'manager'],
+  '/staff/properties': ['owner', 'admin', 'manager', 'staff'],
   '/staff/housekeeping': ['owner', 'admin', 'manager', 'staff'],
   '/staff/calendar': ['owner', 'admin', 'manager', 'staff'],
   '/staff/analytics': ['owner', 'admin', 'manager'],
@@ -98,7 +102,7 @@ export const NAV_ITEMS: NavItem[] = [
   { path: '/staff/reviews', label: 'Reviews', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/housekeeping', label: 'Housekeeping', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/invoices', label: 'Invoices', minRole: ['owner', 'admin'] },
-  { path: '/staff/properties', label: 'Properties', minRole: ['owner', 'admin', 'manager'] },
+  { path: '/staff/properties', label: 'Properties', minRole: ['owner', 'admin', 'manager', 'staff'] },
   { path: '/staff/employees', label: 'Employees', minRole: ['owner', 'admin'] },
   { path: '/staff/activity-logs', label: 'Activity Logs', minRole: ['owner', 'admin'] },
   { path: '/staff/settings', label: 'Settings', minRole: ['owner', 'admin'] },

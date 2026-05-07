@@ -212,10 +212,13 @@ export function CalendarPage() {
     })
   }
 
+  // Show every room with an id; the dropdown disables booked ones rather than
+  // hiding them so staff can see the full inventory at a glance. Server-side
+  // overlap check still rejects on submit if a booked room is somehow picked.
   const availableProperties = useMemo(() => {
-    return properties.filter((p: any) => p.id && !isPropertyBooked(p.id))
+    return properties.filter((p: any) => !!p.id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [properties, bookings, formData.checkIn, formData.checkOut])
+  }, [properties])
 
   // Auto-calc price when selection/dates change
   useEffect(() => {
@@ -497,9 +500,10 @@ export function CalendarPage() {
                     {availableProperties.map((property: any) => {
                       const roomType = roomTypes.find((rt: any) => rt.id === property.propertyTypeId)
                       const pricePerNight = Number(roomType?.basePrice) || 0
+                      const booked = isPropertyBooked(property.id)
                       return (
-                        <option key={property.id} value={property.id}>
-                          {property.name} (Room {property.roomNumber}) - {roomType?.name || ''} - {formatCurrencySync(pricePerNight, currency)}/night
+                        <option key={property.id} value={property.id} disabled={booked}>
+                          {property.name} (Room {property.roomNumber}) - {roomType?.name || ''} - {formatCurrencySync(pricePerNight, currency)}/night{booked ? ' • Booked' : ''}
                         </option>
                       )
                     })}

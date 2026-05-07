@@ -112,11 +112,14 @@ export function BookingsPage() {
     )
   }
 
-  // Get available properties (rooms from Rooms page) that are not booked
-  const availableProperties = properties.filter((prop: any) => {
-    if (!prop.roomNumber) return false
-    return !isRoomBooked(prop.roomNumber)
-  })
+  // Build the list of rooms to show in the dropdown.
+  // We previously filtered out every room with an overlapping active booking,
+  // which made several rooms vanish from the form even though they exist —
+  // confusing for staff who expect to see the full inventory. Now we return
+  // ALL rooms with a roomNumber, and the render layer marks booked ones as
+  // disabled so they can't be selected. The booking-engine still enforces
+  // a server-side overlap check, so this is purely a UX improvement.
+  const availableProperties = properties.filter((prop: any) => !!prop.roomNumber)
 
   // Auto-calculate price when property or dates change
   useEffect(() => {
@@ -609,9 +612,14 @@ export function BookingsPage() {
                     {availableProperties.map((property: any) => {
                       const roomType = roomTypes.find((rt: any) => rt.id === property.roomTypeId)
                       const pricePerNight = Number(roomType?.basePrice) || 0
+                      // Disable rooms that already have an overlapping active
+                      // booking for the chosen dates. The server still enforces
+                      // this on submit; the disabled flag is just to prevent
+                      // staff from picking a clearly unavailable room.
+                      const booked = isRoomBooked(property.roomNumber)
                       return (
-                        <option key={property.id} value={property.id}>
-                          Room {property.roomNumber} • {roomType?.name || 'Room'} • {formatCurrencySync(pricePerNight, currency)}/night
+                        <option key={property.id} value={property.id} disabled={booked}>
+                          Room {property.roomNumber} • {roomType?.name || 'Room'} • {formatCurrencySync(pricePerNight, currency)}/night{booked ? ' • Booked' : ''}
                         </option>
                       )
                     })}
