@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { blink } from '@/blink/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -60,6 +61,13 @@ export function InventoryPage() {
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null)
   
+  // Restock state
+  const [isRestockOpen, setIsRestockOpen] = useState(false)
+  const [restockItem, setRestockItem] = useState<InventoryItem | null>(null)
+  const [restockAmount, setRestockAmount] = useState(0)
+  const [restockNotes, setRestockNotes] = useState('')
+  const [currentUser, setCurrentUser] = useState<{ id: string, email: string } | null>(null)
+  
   // Form state
   const [form, setForm] = useState({
     name: '',
@@ -71,7 +79,13 @@ export function InventoryPage() {
 
   useEffect(() => {
     loadInventory()
+    fetchUser()
   }, [])
+
+  const fetchUser = async () => {
+    const user = await blink.auth.me()
+    if (user) setCurrentUser(user as any)
+  }
 
   const loadInventory = async () => {
     setLoading(true)
@@ -113,6 +127,30 @@ export function InventoryPage() {
       loadInventory()
     } catch (e) {
       toast.error('Failed to delete item')
+    }
+  }
+
+  const handleRestock = async () => {
+    if (!restockItem) return
+    if (restockAmount <= 0) return toast.error('Please enter a valid amount')
+
+    try {
+      await inventoryService.restockStock(
+        restockItem.id, 
+        restockAmount, 
+        { 
+          id: currentUser?.id || 'system', 
+          name: currentUser?.email?.split('@')[0] || 'Admin' 
+        },
+        restockNotes
+      )
+      toast.success(`Successfully restocked ${restockItem.name}`)
+      setIsRestockOpen(false)
+      setRestockAmount(0)
+      setRestockNotes('')
+      loadInventory()
+    } catch (e) {
+      toast.error('Failed to restock item')
     }
   }
 
@@ -341,6 +379,13 @@ export function InventoryPage() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={() => {
+                                setRestockItem(item)
+                                setIsRestockOpen(true)
+                              }}>
+                                <Plus className="w-4 h-4 mr-2" />
+                                Restock
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => {
                                 setEditingItem(item)
                                 setForm({
                                   name: item.name,
@@ -403,6 +448,40 @@ export function InventoryPage() {
           </div>
         </div>
       )}
+
+      {/* Restock Dialog */}
+      <Dialog open={isRestockOpen} onOpenChange={setIsRestockOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Restock Item: {restockItem?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="restock-amount">Amount to Add</Label>
+              <Input 
+                id="restock-amount" 
+                type="number" 
+                placeholder="Enter quantity..."
+                value={restockAmount || ''}
+                onChange={e => setRestockAmount(parseInt(e.target.value) || 0)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="restock-notes">Notes (Optional)</Label>
+              <Input 
+                id="restock-notes" 
+                placeholder="e.g. New delivery from supplier" 
+                value={restockNotes}
+                onChange={e => setRestockNotes(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsRestockOpen(false)}>Cancel</Button>
+            <Button onClick={handleRestock} className="bg-emerald-600 hover:bg-emerald-700 text-white">Confirm Restock</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

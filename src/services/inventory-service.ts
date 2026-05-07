@@ -110,5 +110,27 @@ export const inventoryService = {
       staffName: staffInfo.name,
       notes
     })
+  },
+
+  async restockStock(inventoryId: string, quantity: number, staffInfo: { id: string, name: string }, notes: string = ''): Promise<void> {
+    const items = await this.getItems()
+    const item = items.find(i => i.id === inventoryId)
+    if (!item) throw new Error('Inventory item not found')
+
+    const newStock = (item.stockQuantity || 0) + quantity
+
+    // Update item stock
+    await this.updateItem(inventoryId, { stockQuantity: newStock })
+
+    // Log transaction
+    await this.logTransaction({
+      inventoryId,
+      type: 'restock',
+      quantity,
+      remainingStock: newStock,
+      staffId: staffInfo.id,
+      staffName: staffInfo.name,
+      notes
+    })
   }
 }
