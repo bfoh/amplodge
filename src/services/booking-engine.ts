@@ -1137,7 +1137,11 @@ class BookingEngine {
         // booking_charges already cascades but we defend in case it doesn't.
         await child('bookingCharges', { bookingId: remoteId })
         await child('invoices', { bookingId: remoteId })
-        await child('housekeepingTasks', { bookingId: remoteId })
+        // NOTE: housekeeping_tasks does not have a booking_id column in this
+        // schema (it links via property_id + room_number), so we deliberately
+        // do not enumerate it here. Querying a non-existent column would
+        // return a 42703 from PostgREST that, while caught, just produces
+        // log noise.
       }
       await cleanupChildren()
 
