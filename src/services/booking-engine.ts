@@ -1050,11 +1050,15 @@ class BookingEngine {
       const db = blink.db as any
       console.log('[BookingEngine] Delete booking requested for:', id)
 
-      // Convert local-style ID to remote ID format if needed
-      let remoteId = id
-      if (id.startsWith('booking_')) {
-        remoteId = id.replace(/^booking_/, 'booking-')
-      }
+      // The bookings.id column is a Postgres `uuid` — Supabase rejects values
+      // that aren't a bare UUID with `invalid input syntax for type uuid`.
+      // Locally the UI carries IDs as either `booking_<uuid>` (LocalBooking._id),
+      // `booking-<uuid>` (legacy remoteId scheme), or just `<uuid>`. Strip
+      // either prefix so we always send the raw UUID to the database.
+      const stripPrefix = (raw: string): string =>
+        raw.replace(/^booking_/, '').replace(/^booking-/, '')
+
+      let remoteId = stripPrefix(id)
 
       // Try to get the booking first to gather details for logging
       let booking = null
