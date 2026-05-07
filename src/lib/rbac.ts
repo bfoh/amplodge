@@ -25,7 +25,8 @@ export const ROLE_PERMISSIONS: Record<StaffRole, Permission[]> = {
     { resource: 'settings', actions: ['read', 'update'] },
     { resource: 'pricing', actions: ['create', 'read', 'update', 'delete'] },
     { resource: 'reviews', actions: ['read', 'update', 'delete'] },
-    { resource: 'hr', actions: ['create', 'read', 'update', 'delete'] }
+    { resource: 'hr', actions: ['create', 'read', 'update', 'delete'] },
+    { resource: 'inventory', actions: ['create', 'read', 'update', 'delete'] }
   ],
   manager: [
     { resource: 'bookings', actions: ['create', 'read', 'update', 'delete'] },
@@ -36,7 +37,8 @@ export const ROLE_PERMISSIONS: Record<StaffRole, Permission[]> = {
     { resource: 'activity-logs', actions: ['read'] },
     { resource: 'invoices', actions: ['read'] },
     { resource: 'employees', actions: ['read'] },
-    { resource: 'housekeeping', actions: ['read', 'update'] }
+    { resource: 'housekeeping', actions: ['read', 'update'] },
+    { resource: 'inventory', actions: ['read', 'update'] }
   ],
   staff: [
     { resource: 'bookings', actions: ['create', 'read', 'update'] },
@@ -73,7 +75,9 @@ export const ROUTE_ACCESS: Record<string, StaffRole[]> = {
   '/staff/requests': ['owner', 'admin', 'manager', 'staff'],
   '/staff/hr': ['owner', 'admin'],
   '/staff/my-revenue': ['owner', 'admin', 'manager', 'staff'],
-  '/staff/clock': ['owner', 'admin', 'manager', 'staff']
+  '/staff/clock': ['owner', 'admin', 'manager', 'staff'],
+  '/staff/inventory': ['owner', 'admin', 'manager'],
+  '/staff/inventory/transactions': ['owner', 'admin', 'manager']
 }
 
 // Navigation items visibility by role
