@@ -9,8 +9,10 @@
  * - API calls: Network-only (let the offline cache layer handle data)
  */
 
-const CACHE_NAME = 'amplodge-v1'
-const SHELL_CACHE = 'amplodge-shell-v1'
+// Bump these on every meaningful SW change so stale clients pick up the
+// new fetch strategy and existing caches drop on activate.
+const CACHE_NAME = 'amplodge-v2'
+const SHELL_CACHE = 'amplodge-shell-v2'
 
 // Assets to pre-cache on install
 const PRECACHE_URLS = [
@@ -72,25 +74,42 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Navigation requests (HTML pages): Network-first
+  // Navigation requests (HTML pages): Stale-while-revalidate with a 2.5s
+  // network race. In Ghana the cold network often takes 3–5s for the HTML —
+  // serving the cached shell instantly while we refresh in the background
+  // makes the app feel native-fast. The cached shell is bytes-identical to
+  // a network fetch (Vite emits the same index.html), so this is safe even
+  // for new deploys: hashed asset URLs in the shell pull the new chunks the
+  // moment the next reload happens.
   if (event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request)
+    event.respondWith((async () => {
+      const cached = await caches.match(event.request) || await caches.match('/index.html')
+
+      const networkFetch = fetch(event.request)
         .then((response) => {
-          // Cache the latest version
-          const clone = response.clone()
-          caches.open(SHELL_CACHE).then((cache) => {
-            cache.put(event.request, clone)
-          })
+          if (response && response.ok) {
+            const clone = response.clone()
+            caches.open(SHELL_CACHE).then((cache) => cache.put(event.request, clone))
+          }
           return response
         })
-        .catch(() => {
-          // Offline — serve cached shell or fallback to index.html
-          return caches.match(event.request).then((cached) => {
-            return cached || caches.match('/index.html')
-          })
-        })
-    )
+        .catch(() => null)
+
+      if (cached) {
+        // Refresh in background, return cached now
+        networkFetch.catch(() => {})
+        return cached
+      }
+
+      // No cache — race the network with a hard timeout so a stalled
+      // connection doesn't hang the page indefinitely. If the timeout wins
+      // we still wait briefly for whatever cached fallback we have.
+      const timeoutFallback = new Promise((resolve) =>
+        setTimeout(() => caches.match('/index.html').then(resolve), 2500)
+      )
+      return (await Promise.race([networkFetch, timeoutFallback])) ||
+        (await caches.match('/index.html'))
+    })())
     return
   }
 

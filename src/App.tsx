@@ -43,12 +43,15 @@ const MyRevenuePage = lazy(() => import('./pages/staff/MyRevenuePage').then(m =>
 const ClockPage = lazy(() => import('./pages/staff/ClockPage').then(m => ({ default: m.ClockPage })))
 const InventoryPage = lazy(() => import('./pages/staff/InventoryPage').then(m => ({ default: m.InventoryPage })))
 const InventoryTransactionsPage = lazy(() => import('./pages/staff/InventoryTransactionsPage').then(m => ({ default: m.InventoryTransactionsPage })))
-import GuestLayout from './layouts/GuestLayout'
-import GuestDashboard from './pages/guest/GuestDashboard'
-import { ConciergePage } from './pages/guest/ConciergePage'
-import { ServicesPage } from './pages/guest/ServicesPage'
-import { GuestLoginPage } from './pages/guest/GuestLoginPage'
-import VoiceWidget from './components/voice-agent/VoiceWidget'
+// Guest portal + voice widget are lazy-loaded too — most visits to /staff/*
+// never touch them, so shipping them up-front wastes bandwidth (especially
+// painful on Ghanaian mobile networks).
+const GuestLayout = lazy(() => import('./layouts/GuestLayout'))
+const GuestDashboard = lazy(() => import('./pages/guest/GuestDashboard'))
+const ConciergePage = lazy(() => import('./pages/guest/ConciergePage').then(m => ({ default: m.ConciergePage })))
+const ServicesPage = lazy(() => import('./pages/guest/ServicesPage').then(m => ({ default: m.ServicesPage })))
+const GuestLoginPage = lazy(() => import('./pages/guest/GuestLoginPage').then(m => ({ default: m.GuestLoginPage })))
+const VoiceWidget = lazy(() => import('./components/voice-agent/VoiceWidget'))
 
 const HomePage = lazy(() => import('./pages/HomePage').then(m => ({ default: m.HomePage })))
 const RoomsPage = lazy(() => import('./pages/RoomsPage').then(m => ({ default: m.RoomsPage })))

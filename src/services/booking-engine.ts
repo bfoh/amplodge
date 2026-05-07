@@ -154,9 +154,15 @@ class BookingEngine {
       throw new Error('A booking with the same guest, room, and dates already exists')
     }
 
-    // Normalize/ensure guest (always resolve to an existing record)
-    const guestName = (bookingData.guest.fullName || 'Guest').trim()
-    const baseSlug = (normalizedEmail || guestName || 'guest').toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+    // Normalize/ensure guest (always resolve to an existing record).
+    // Refuse to create with an empty/literal-"Guest" name — this used to silently
+    // store a fallback that produced rows displaying as "Guest" forever.
+    const rawGuestName = (bookingData.guest.fullName || '').trim()
+    if (!rawGuestName || rawGuestName.toLowerCase() === 'guest') {
+      throw new Error('Guest full name is required and cannot be the literal "Guest".')
+    }
+    const guestName = rawGuestName
+    const baseSlug = (normalizedEmail || guestName).toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
     const computedGuestId = `guest-${baseSlug}`
 
     let guestId: string | undefined
@@ -425,8 +431,10 @@ class BookingEngine {
     // This is the single source of truth for "who was this booking for" and is immune
     // to changes in the shared guests table (which would otherwise retroactively rename
     // every booking that shares the same guestId).
+    // Use the validated guestName here — never the raw form value, which can
+    // be empty and produce a snapshot that perpetuates the "Guest" bug.
     const guestSnapshot = {
-      name: bookingData.guest.fullName,
+      name: guestName,
       email: bookingData.guest.email,
       phone: bookingData.guest.phone || '',
     }

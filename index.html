@@ -10,6 +10,18 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="apple-touch-icon" href="/amp-logo.png" />
+
+  <!--
+    Latency hints for Ghana (and anywhere far from Supabase eu-west).
+    preconnect opens TCP+TLS in parallel with the HTML download so the first
+    Supabase fetch doesn't pay the ~200ms RTT handshake serially.
+    dns-prefetch is the cheap fallback for browsers that cap preconnects.
+  -->
+  <link rel="preconnect" href="https://kfjncxphokthkuwypiea.supabase.co" crossorigin />
+  <link rel="dns-prefetch" href="//kfjncxphokthkuwypiea.supabase.co" />
+  <link rel="preconnect" href="https://generativelanguage.googleapis.com" crossorigin />
+  <link rel="dns-prefetch" href="//generativelanguage.googleapis.com" />
+
   <title>AmpLodge</title>
 </head>
 

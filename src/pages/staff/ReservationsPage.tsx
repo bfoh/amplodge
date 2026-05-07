@@ -44,6 +44,44 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
+/**
+ * Resolve a guest's display name with a tiered fallback chain. Older bookings
+ * were created with empty fullName values, which caused both the GUEST_SNAPSHOT
+ * and the linked guests row to land on the literal string "Guest". This helper
+ * recovers something readable from whatever is actually present.
+ */
+function resolveGuestDisplayName(b: Booking, guest: Guest | undefined): string {
+  const isUseful = (s: string | undefined | null) =>
+    !!s && s.trim().length > 0 && s.trim().toLowerCase() !== 'guest'
+
+  // 1. Captured-at-booking-time snapshot
+  const snapshotName = (b as any).guestNameSnapshot as string | undefined
+  if (isUseful(snapshotName)) return snapshotName!.trim()
+
+  // 2. Live guests-table record
+  if (isUseful(guest?.name)) return guest!.name.trim()
+
+  // 3. Derive from email local-part — skip placeholder/fallback emails
+  const email = (b as any).guestEmailSnapshot || guest?.email || ''
+  if (
+    email &&
+    !email.endsWith('@guest.local') &&
+    !email.startsWith('fallback-') &&
+    email.includes('@')
+  ) {
+    const local = email.split('@')[0]
+    const pretty = local
+      .replace(/[._-]+/g, ' ')
+      .replace(/\b\w/g, (c: string) => c.toUpperCase())
+      .trim()
+    if (pretty) return pretty
+  }
+
+  // 4. Last-resort tag so staff can still distinguish rows
+  const tail = (b.id || '').slice(-4).toUpperCase()
+  return tail ? `Guest #${tail}` : 'Guest'
+}
+
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     confirmed: 'bg-emerald-50 text-emerald-700 border-emerald-200 ring-emerald-600/20',
@@ -131,10 +169,69 @@ export function ReservationsPage() {
     if (!user) return
     let inFlight = false
     let pending: ReturnType<typeof setTimeout> | null = null
+    // Hydrate a raw booking row: parse GUEST_SNAPSHOT and GROUP_DATA from
+    // special_requests so the rest of the page can rely on derived fields.
+    // Extracted so the fast first-paint and the full load both use the same logic.
+    const hydrateBooking = (booking: Booking) => {
+      const rawSpecialRequests = (booking as any).special_requests || booking.specialRequests || ''
+      let guestNameSnapshot: string | undefined
+      let guestEmailSnapshot: string | undefined
+      const snapshotMatch = rawSpecialRequests.match(/<!-- GUEST_SNAPSHOT:(.*?) -->/)
+      if (snapshotMatch) {
+        try {
+          const snap = JSON.parse(snapshotMatch[1])
+          if (snap.name) guestNameSnapshot = snap.name
+          if (snap.email) guestEmailSnapshot = snap.email
+        } catch { /* ignore */ }
+      }
+      if (!rawSpecialRequests) return { ...booking, _rawSpecialRequests: '', guestNameSnapshot, guestEmailSnapshot }
+      const groupMatch = rawSpecialRequests.match(/<!-- GROUP_DATA:(.*?) -->/)
+      if (groupMatch && groupMatch[1]) {
+        try {
+          const groupData = JSON.parse(groupMatch[1])
+          return {
+            ...booking,
+            ...groupData,
+            guestNameSnapshot,
+            guestEmailSnapshot,
+            _rawSpecialRequests: rawSpecialRequests,
+            special_requests: rawSpecialRequests,
+            specialRequests: rawSpecialRequests.replace(/<!-- GROUP_DATA:.*? -->/g, '').trim(),
+          }
+        } catch (e) {
+          console.warn('Failed to parse group data for booking', booking.id, e)
+        }
+      }
+      return { ...booking, guestNameSnapshot, guestEmailSnapshot, _rawSpecialRequests: rawSpecialRequests, special_requests: rawSpecialRequests }
+    }
+
     const load = async () => {
       if (inFlight) return
       inFlight = true
       try {
+        // --- Phase 1 (Ghana latency win): paint the newest 50 bookings + first
+        // page of rooms/guests immediately so staff see *something* while the
+        // full listAll() pages stream in over a slower transatlantic link.
+        // Skipped on subsequent SWR-triggered re-runs (we already have data).
+        const isFirstLoad = bookings.length === 0
+        if (isFirstLoad) {
+          try {
+            const [fastB, fastR, fastG, fastRt] = await Promise.all([
+              db.bookings.list({ limit: 50, orderBy: { createdAt: 'desc' } }),
+              db.rooms.list({ limit: 200 }),
+              db.guests.list({ limit: 500 }),
+              db.roomTypes.list({ limit: 100 }),
+            ])
+            setBookings((fastB as Booking[]).map(hydrateBooking))
+            setRooms(fastR)
+            setGuests(fastG)
+            setRoomTypes(fastRt)
+            setLoading(false)
+          } catch (fastErr) {
+            console.warn('[ReservationsPage] Fast first-paint failed, falling through to listAll:', fastErr)
+          }
+        }
+
         const [b, r, g, rt, charges] = await Promise.all([
           db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
           db.rooms.listAll(),
@@ -146,9 +243,11 @@ export function ReservationsPage() {
         // Store charges for calculating totals
         setAllCharges(charges || [])
 
-        // Create temporary maps for lookup during deduplication
-        const tempRoomMap = new Map(r.map((rm: Room) => [rm.id, rm]))
-        const tempGuestMap = new Map(g.map((gm: Guest) => [gm.id, gm]))
+        // Create temporary maps for lookup during deduplication.
+        // Explicit generics — listAll() is typed as Record<string,any>[], which
+        // collapses Map inference to <unknown,unknown> without these.
+        const tempRoomMap = new Map<string, Room>((r as Room[]).map(rm => [rm.id, rm]))
+        const tempGuestMap = new Map<string, Guest>((g as Guest[]).map(gm => [gm.id, gm]))
 
         // Deduplicate bookings based on guest details, room, and normalized dates
         // When duplicates with different statuses exist, keep the one with more advanced status
@@ -161,48 +260,7 @@ export function ReservationsPage() {
         }
 
 
-        const hydratedBookings = (b as Booking[]).map(booking => {
-          // Preserve the raw special_requests field for invoice generation
-          // Note: Supabase returns snake_case, our interface uses camelCase
-          const rawSpecialRequests = (booking as any).special_requests || booking.specialRequests || ''
-
-          // Parse GUEST_SNAPSHOT — the name captured at booking time.
-          // This is the authoritative source for who the booking belongs to and is
-          // immune to changes in the shared guests table record.
-          let guestNameSnapshot: string | undefined
-          let guestEmailSnapshot: string | undefined
-          const snapshotMatch = rawSpecialRequests.match(/<!-- GUEST_SNAPSHOT:(.*?) -->/)
-          if (snapshotMatch) {
-            try {
-              const snap = JSON.parse(snapshotMatch[1])
-              if (snap.name) guestNameSnapshot = snap.name
-              if (snap.email) guestEmailSnapshot = snap.email
-            } catch { /* ignore */ }
-          }
-
-          if (!rawSpecialRequests) return { ...booking, _rawSpecialRequests: '', guestNameSnapshot, guestEmailSnapshot };
-
-          const match = rawSpecialRequests.match(/<!-- GROUP_DATA:(.*?) -->/)
-          if (match && match[1]) {
-            try {
-              const groupData = JSON.parse(match[1]);
-              return {
-                ...booking,
-                ...groupData,
-                guestNameSnapshot,
-                guestEmailSnapshot,
-                // Preserve raw special requests for invoice generation
-                _rawSpecialRequests: rawSpecialRequests,
-                special_requests: rawSpecialRequests, // Keep snake_case for DB compatibility
-                // Clean the specialRequests for UI display (so user doesn't see technical data)
-                specialRequests: rawSpecialRequests.replace(/<!-- GROUP_DATA:.*? -->/g, '').trim()
-              };
-            } catch (e) {
-              console.warn('Failed to parse group data for booking', booking.id, e);
-            }
-          }
-          return { ...booking, guestNameSnapshot, guestEmailSnapshot, _rawSpecialRequests: rawSpecialRequests, special_requests: rawSpecialRequests };
-        });
+        const hydratedBookings = (b as Booking[]).map(hydrateBooking)
 
         const uniqueBookings = hydratedBookings.reduce((acc: Booking[], current) => {
           // Helper to normalize date (strip time)
@@ -1235,7 +1293,8 @@ export function ReservationsPage() {
 
                         // Prefer GUEST_SNAPSHOT over live guest table for name/email display.
                         // This prevents guest table changes from retroactively renaming group members.
-                        const displayName = (b as any).guestNameSnapshot || guest?.name || 'Guest'
+                        // Falls through to email-derived name when both sources are empty/"Guest".
+                        const displayName = resolveGuestDisplayName(b, guest)
                         const displayEmail = (b as any).guestEmailSnapshot || guest?.email
 
                         // Determine Valid Actions
