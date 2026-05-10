@@ -211,6 +211,13 @@ export function PropertiesPage() {
           updatedAt: new Date().toISOString()
         }
         await db.properties.update(editingId, payload)
+        // Sync with rooms table (canonical for bookings)
+        await (db as any).rooms.update(editingId, {
+          roomNumber: payload.roomNumber,
+          status: (formData as any).status || 'active',
+          updatedAt: payload.updatedAt
+        }).catch((e: any) => console.warn('[PropertiesPage] Room sync failed:', e))
+        
         toast.success('Room updated')
 
         // Log room update
@@ -253,6 +260,16 @@ export function PropertiesPage() {
         }
         console.log('[PropertiesPage] Creating property with payload:', createPayload)
         await db.properties.create(createPayload)
+        
+        // Sync with rooms table (canonical for bookings)
+        await (db as any).rooms.create({
+          id: createPayload.id,
+          roomNumber: createPayload.roomNumber,
+          status: createPayload.status,
+          createdAt: createPayload.createdAt,
+          updatedAt: createPayload.updatedAt
+        }).catch((e: any) => console.warn('[PropertiesPage] Room sync failed:', e))
+
         toast.success('Room added successfully')
 
         // Log room creation
@@ -313,7 +330,10 @@ export function PropertiesPage() {
     }
 
     try {
+      const propToDelete = properties.find(p => p.id === deleteId)
       await db.properties.delete(deleteId)
+      await (db as any).rooms.delete(deleteId).catch(() => null)
+      
       toast.success('Room deleted')
 
       // Log room deletion
@@ -324,8 +344,8 @@ export function PropertiesPage() {
           entityType: 'room',
           entityId: deleteId,
           details: {
-            roomNumber: prop?.roomNumber || 'unknown',
-            roomName: prop?.name || '',
+            roomNumber: propToDelete?.roomNumber || 'unknown',
+            roomName: propToDelete?.name || '',
             deletedAt: new Date().toISOString()
           },
           userId: user?.id || 'system'

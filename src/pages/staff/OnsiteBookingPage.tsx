@@ -89,9 +89,9 @@ export function OnsiteBookingPage() {
 
   const loadData = async () => {
     try {
-      const [typesData, propertiesData, bookingsData] = await Promise.all([
+      const [typesData, roomsData, bookingsData] = await Promise.all([
         db.roomTypes.list(),
-        db.properties.list({ orderBy: { createdAt: 'desc' } }),
+        (db as any).rooms.list({ orderBy: { createdAt: 'desc' } }),
         bookingEngine.getAllBookings()
       ])
       const normalize = (s: string) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
@@ -100,14 +100,14 @@ export function OnsiteBookingPage() {
         return n && n.length > 0
       })
 
-      // Process properties data to match room types
-      const propertiesWithPrices = propertiesData.map((prop: any) => {
+      // Process rooms data to match room types
+      const roomsWithPrices = roomsData.map((room: any) => {
         const matchingType =
-          filteredTypes.find((rt) => rt.id === prop.propertyTypeId) ||
-          filteredTypes.find((rt) => rt.name.toLowerCase() === (prop.propertyType || '').toLowerCase())
+          filteredTypes.find((rt) => rt.id === room.propertyTypeId) ||
+          filteredTypes.find((rt) => rt.name.toLowerCase() === (room.propertyType || '').toLowerCase())
         return {
-          ...prop,
-          roomTypeName: matchingType?.name || prop.propertyType || '',
+          ...room,
+          roomTypeName: matchingType?.name || room.propertyType || '',
           displayPrice: matchingType?.basePrice ?? 0
         }
       })
@@ -118,15 +118,15 @@ export function OnsiteBookingPage() {
         if (booking.roomNumber) {
           return booking // Already has roomNumber from bookingEngine
         }
-        const property = propertiesData.find((p: any) => p.id === booking.roomId)
+        const room = roomsData.find((p: any) => p.id === booking.roomId)
         return {
           ...booking,
-          roomNumber: property?.roomNumber || 'Unknown'
+          roomNumber: room?.roomNumber || 'Unknown'
         }
       })
 
       setRoomTypes(filteredTypes)
-      setProperties(propertiesWithPrices)
+      setProperties(roomsWithPrices)
       setBookings(processedBookings)
     } catch (error) {
       console.error('Failed to load data:', error)

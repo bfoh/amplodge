@@ -167,7 +167,7 @@ class BookingEngine {
       normalizedEmail
         ? db.guests.list({ where: { email: normalizedEmail }, limit: 1 }).catch(() => null)
         : Promise.resolve(null),
-      db.properties.list({ where: { roomNumber: bookingData.roomNumber }, limit: 1 }).catch(() => null),
+      (db as any).rooms.list({ where: { roomNumber: bookingData.roomNumber }, limit: 1 }).catch(() => null),
       auth.me().catch(() => null),
     ])
 
@@ -275,10 +275,10 @@ class BookingEngine {
 
     console.log('[BookingEngine] Final guest ID:', guestId)
 
-    // Find property by roomNumber. Replaces legacy db.rooms lookup.
-    console.log('[BookingEngine] Resolving property for room number:', bookingData.roomNumber)
-    const [, propResFromPhase1] = await phase1
-    const room = (propResFromPhase1 as any[] | null)?.[0]
+    // Find room by roomNumber. Aligned with rooms table (FK source).
+    console.log('[BookingEngine] Resolving room for number:', bookingData.roomNumber)
+    const [, roomResFromPhase1] = await phase1
+    const room = (roomResFromPhase1 as any[] | null)?.[0]
 
     if (!room) {
       const error = new Error(`Property/Room not found for number: ${bookingData.roomNumber}`)
@@ -530,13 +530,14 @@ class BookingEngine {
       const roomForBackground = room
       Promise.resolve().then(async () => {
         try {
-          // Sync with properties table (canonical)
-          const currentProp = await db.properties.get(roomForBackground.id).catch(() => roomForBackground)
+          // Sync with both tables to be safe, preferring rooms as canonical for status
+          const currentRoom = await (db as any).rooms.get(roomForBackground.id).catch(() => roomForBackground)
 
-          if (currentProp?.status === 'cleaning' || currentProp?.status === 'active' || currentProp?.status === 'available') {
-            if (currentProp?.status !== 'active' && currentProp?.status !== 'available') {
-              await db.properties.update(roomForBackground.id, { status: 'active' })
-              console.log('[BookingEngine] Reset property status to active')
+          if (currentRoom?.status === 'cleaning' || currentRoom?.status === 'active' || currentRoom?.status === 'available') {
+            if (currentRoom?.status !== 'active' && currentRoom?.status !== 'available') {
+              await (db as any).rooms.update(roomForBackground.id, { status: 'active' })
+              await db.properties.update(roomForBackground.id, { status: 'active' }).catch(() => null)
+              console.log('[BookingEngine] Reset room status to active')
             }
           }
         } catch (statusError) {
@@ -1295,7 +1296,7 @@ class BookingEngine {
   private async _fetchAllBookings(): Promise<LocalBooking[]> {
     const [bookings, rooms, guests] = await Promise.all([
       db.bookings.list(),
-      db.properties.list(),
+      (db as any).rooms.list(),
       db.guests.list(),
     ])
 
@@ -1581,7 +1582,7 @@ class BookingEngine {
       console.log('[BookingEngine] Found booking:', { id: booking.id, status: booking.status, guestId: booking.guestId })
 
       const guest = booking.guestId ? await db.guests.get(booking.guestId).catch(() => null) : null
-      const room = booking.roomId ? await db.properties.get(booking.roomId).catch(() => null) : null
+      const room = booking.roomId ? await (db as any).rooms.get(booking.roomId).catch(() => null) : null
       const currentUser = await auth.me().catch(() => null)
 
       // Update status
@@ -1635,12 +1636,13 @@ class BookingEngine {
         }
         updates.actualCheckIn = new Date().toISOString()
 
-        // Auto-update property status
+        // Auto-update room status
         if (room) {
           try {
-            await db.properties.update(room.id, { status: 'occupied' })
+            await (db as any).rooms.update(room.id, { status: 'occupied' })
+            await db.properties.update(room.id, { status: 'occupied' }).catch(() => null)
           } catch (e) {
-            console.warn('[BookingEngine] Failed to auto-update property status on check-in:', e)
+            console.warn('[BookingEngine] Failed to auto-update room status on check-in:', e)
           }
         }
       } else if (status === 'checked-out') {
@@ -1651,13 +1653,14 @@ class BookingEngine {
         }
         updates.actualCheckOut = new Date().toISOString()
 
-        // Auto-update property status and create cleanup task
+        // Auto-update room status and create cleanup task
         if (room) {
           try {
-            await db.properties.update(room.id, { status: 'cleaning' })
+            await (db as any).rooms.update(room.id, { status: 'cleaning' })
+            await db.properties.update(room.id, { status: 'cleaning' }).catch(() => null)
 
             // Create housekeeping task
-            const roomNumber = prop?.roomNumber || room?.roomNumber || prop?.name || 'N/A'
+            const roomNumber = (room as any)?.roomNumber || (room as any)?.name || 'N/A'
             const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(7)}`
             await db.housekeepingTasks.create({
               id: taskId,
