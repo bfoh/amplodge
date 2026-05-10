@@ -1,6 +1,28 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Calendar, LayoutDashboard, List, History, Settings, MessageSquare, Tag, BarChart3, ReceiptText, ChevronDown, Sparkles, Users, LogOut, TrendingUp, FileText, Package } from 'lucide-react'
+import { 
+  Calendar, 
+  LayoutDashboard, 
+  List, 
+  History, 
+  Settings, 
+  MessageSquare, 
+  Tag, 
+  BarChart3, 
+  ReceiptText, 
+  ChevronDown, 
+  Sparkles, 
+  Users, 
+  LogOut, 
+  TrendingUp, 
+  FileText, 
+  Package,
+  PlusCircle,
+  Star,
+  Megaphone,
+  Briefcase,
+  Home
+} from 'lucide-react'
 import { useStaffRole } from '@/hooks/use-staff-role'
 import { useIsAdmin } from '@/hooks/use-is-admin'
 import { canAccessRoute } from '@/lib/rbac'
@@ -27,9 +49,12 @@ interface NavItem {
 
 // Main navigation items with role-based access
 const navItems: NavItem[] = [
+  { label: 'Dashboard', to: '/staff/dashboard', icon: LayoutDashboard, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Calendar', to: '/staff/calendar', icon: Calendar, minRole: ['owner', 'admin', 'manager', 'staff'] },
-  { label: 'Rooms', to: '/staff/properties', icon: LayoutDashboard, minRole: ['owner', 'admin', 'manager'] },
+  { label: 'Rooms', to: '/staff/properties', icon: Home, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Bookings', to: '/staff/bookings', icon: List, minRole: ['owner', 'admin', 'manager', 'staff'] },
+  { label: 'Reservations', to: '/staff/reservations', icon: History, minRole: ['owner', 'admin', 'manager', 'staff'] },
+  { label: 'Onsite Booking', to: '/staff/onsite', icon: PlusCircle, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Guests', to: '/staff/guests', icon: Users, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Housekeeping', to: '/staff/housekeeping', icon: Sparkles, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Channels', to: '/staff/channels', icon: MessageSquare, minRole: ['owner', 'admin', 'manager'] },
@@ -52,9 +77,12 @@ const adminItems: Array<{
 }> = [
     { label: 'Inventory', to: '/staff/inventory', icon: Package, minRole: ['owner', 'admin', 'manager'] },
     { label: 'Employees', to: '/staff/employees', icon: Users, minRole: ['owner', 'admin', 'manager'] },
-    { label: 'Price list', to: '/staff/set-prices', icon: Tag, minRole: ['owner', 'admin', 'manager'] },
+    { label: 'HR', to: '/staff/hr', icon: Briefcase, minRole: ['owner', 'admin'] },
     { label: 'Invoices', to: '/staff/invoices', icon: ReceiptText, minRole: ['owner', 'admin', 'manager'] },
     { label: 'Analytics', to: '/staff/analytics', icon: TrendingUp, minRole: ['owner', 'admin', 'manager'] },
+    { label: 'Marketing', to: '/staff/marketing', icon: Megaphone, minRole: ['owner', 'admin', 'manager', 'staff'] },
+    { label: 'Guest Reviews', to: '/staff/reviews', icon: Star, minRole: ['owner', 'admin', 'manager', 'staff'] },
+    { label: 'Service Requests', to: '/staff/requests', icon: MessageSquare, minRole: ['owner', 'admin', 'manager', 'staff'] },
     { label: 'Activity Logs', to: '/staff/activity-logs', icon: FileText, minRole: ['owner', 'admin', 'manager'] },
     { label: 'Settings', to: '/staff/settings', icon: Settings, minRole: ['owner', 'admin', 'manager'] },
   ]
@@ -141,9 +169,21 @@ export function StaffSidebar({ email, className, onNavigate }: StaffSidebarProps
   return (
     <aside className={className || "hidden md:flex w-64 h-screen flex-col bg-[#0B1220] text-white/90"}>
 
-      <div className="px-4 py-5 border-b border-white/10">
-        <p className="text-xs uppercase tracking-widest text-white/60">Application</p>
-        <p className="mt-2 text-sm text-white/80 truncate" title={email || ''}>{email || 'Staff'}</p>
+      <div className="px-6 py-8 border-b border-white/10 flex flex-col items-center">
+        <div className="w-16 h-16 mb-4 rounded-full bg-white/10 flex items-center justify-center overflow-hidden border border-white/20 shadow-inner group">
+           <img 
+            src="/amp.png" 
+            alt="AMP Lodge" 
+            className="w-12 h-12 object-contain transition-transform group-hover:scale-110 duration-500" 
+          />
+        </div>
+        <h2 className="text-lg font-serif font-bold text-white tracking-tight">AMP Lodge</h2>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-white/40 mt-1">Management Portal</p>
+        {email && (
+          <p className="mt-4 text-[11px] text-white/50 truncate w-full text-center px-2" title={email}>
+            {email}
+          </p>
+        )}
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">

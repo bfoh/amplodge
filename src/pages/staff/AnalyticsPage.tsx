@@ -225,7 +225,7 @@ export function AnalyticsPage() {
   const breakdownBookings = [
     ...allRevenueBookings
       .filter(b => { const d = new Date(b.dates.checkIn); return d >= activePeriod.start && d <= activePeriod.end })
-      .map(b => ({ ...b, _isDeposit: false, _displayAmount: Number(b.amount || 0) })),
+      .map(b => ({ ...b, _isDeposit: false, _displayAmount: Number(b.amount || b.totalPrice || 0) })),
     ...allDepositBookings
       .filter(b => { const d = new Date(b.createdAt || ''); return !isNaN(d.getTime()) && d >= activePeriod.start && d <= activePeriod.end })
       .map(b => ({ ...b, _isDeposit: true, _displayAmount: Number(b.amountPaid || 0) })),
@@ -296,7 +296,7 @@ export function AnalyticsPage() {
   const computeRevForPeriod = (period: { start: Date; end: Date }) => {
     const roomRev = allRevenueBookings
       .filter(b => { const d = new Date(b.dates.checkIn); return d >= period.start && d <= period.end })
-      .reduce((s: number, b: any) => s + Number(b.amount || 0), 0)
+      .reduce((s: number, b: any) => s + Number(b.amount || b.totalPrice || 0), 0)
     const depositRev = allDepositBookings
       .filter(b => { const d = new Date(b.createdAt || ''); return !isNaN(d.getTime()) && d >= period.start && d <= period.end })
       .reduce((s: number, b: any) => s + Number(b.amountPaid || 0), 0)
@@ -1014,7 +1014,7 @@ export function AnalyticsPage() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                          {formatCurrencySync((b as any)._displayAmount ?? Number(b.amount || 0), currency)}
+                          {formatCurrencySync((b as any)._displayAmount ?? Number(b.amount || b.totalPrice || 0), currency)}
                         </td>
                       </tr>
                     )

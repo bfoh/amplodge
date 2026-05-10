@@ -139,7 +139,7 @@ class AnalyticsService {
       }
 
       const roomRevenueTotal = revenueBookings.reduce(
-        (sum, b) => sum + Number(b.amount || 0),
+        (sum, b) => sum + Number(b.amount || b.totalPrice || 0),
         0
       )
 
