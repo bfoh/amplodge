@@ -72,7 +72,7 @@ export class HotelSettingsService {
       // Try to get existing settings (with error handling for missing table)
       let existingSettings = []
       try {
-        existingSettings = await this.db.hotelSettings?.list({ limit: 1 }) || []
+        existingSettings = await this.db.hotelSettings.list({ limit: 1 }) || []
         this.tableExists = true
       } catch (tableError: any) {
         this.tableCheckDone = true
@@ -93,7 +93,7 @@ export class HotelSettingsService {
 
       // No settings in table, try to create default
       try {
-        await this.db.hotelSettings?.create(DEFAULT_SETTINGS)
+        await this.db.hotelSettings.create(DEFAULT_SETTINGS)
         console.log('✅ [HotelSettings] Created default settings')
       } catch (createError: any) {
         // Silently use defaults if create fails
@@ -130,20 +130,20 @@ export class HotelSettingsService {
 
       try {
         // Try update first
-        await this.db.hotelSettings?.update(settingsId, updatedSettings)
+        await this.db.hotelSettings.update(settingsId, updatedSettings)
       } catch (updateError: any) {
         console.warn('⚠️ [HotelSettings] Update failed, trying create/upsert...', updateError.message)
 
         // If update fails (e.g. 404 Not Found), try create
         try {
-          await this.db.hotelSettings?.create(updatedSettings)
+          await this.db.hotelSettings.create(updatedSettings)
           console.log('✅ [HotelSettings] Created new settings record')
         } catch (createError: any) {
           // If create fails because it already exists (race condition or 409), 
           // try update one last time or throw
           if (createError.status === 409 || createError.message?.includes('Constraint violation')) {
             console.log('ℹ️ [HotelSettings] Record exists (409), retrying update...')
-            await this.db.hotelSettings?.update(settingsId, updatedSettings)
+            await this.db.hotelSettings.update(settingsId, updatedSettings)
           } else {
             throw createError
           }
