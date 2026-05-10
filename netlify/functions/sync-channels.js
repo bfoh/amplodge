@@ -1,21 +1,22 @@
 import { createClient } from '@supabase/supabase-js';
 import ical from 'node-ical';
 import { parseISO, isValid, format } from 'date-fns';
+import { requireCron, jsonResponse, handleCors } from './_lib/auth.js';
 
-export const handler = async (event, context) => {
-    // This function might take time, so we set a longer timeout in Netlify config if possible
-    // For now, we just try to be efficient.
+export const handler = async (event) => {
+    const corsResp = handleCors(event); if (corsResp) return corsResp
+
+    // Accept either Netlify cron header (scheduled) or admin token (manual trigger)
+    try {
+        await requireCron(event);
+    } catch (e) {
+        return jsonResponse(e.status, e.body);
+    }
 
     const headers = {
         'Access-Control-Allow-Origin': '*',
         'Content-Type': 'application/json'
     };
-
-    // Allow POST (manual trigger) or scheduled event
-    // note: scheduled events usually don't have httpMethod 'POST' but we can check usage
-    if (event.httpMethod !== 'POST' && !event.body) {
-        // allow GET for testing if needed, but prefer POST
-    }
 
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
