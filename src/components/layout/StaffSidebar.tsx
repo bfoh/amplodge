@@ -1,14 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import { Calendar, LayoutDashboard, List, History, Settings, MessageSquare, Tag, BarChart3, ReceiptText, ChevronDown, Sparkles, Users, LogOut, TrendingUp, FileText, Package } from 'lucide-react'
 import { useStaffRole } from '@/hooks/use-staff-role'
 import { useIsAdmin } from '@/hooks/use-is-admin'
 import { canAccessRoute } from '@/lib/rbac'
 import { db, auth } from '@/lib/db'
 import type { StaffRole } from '@/lib/rbac'
+import { SyncStatusBadge } from '@/components/SyncStatusBadge'
+import { activityLogService } from '@/services/activity-log-service'
 
 type StaffSidebarProps = {
   email?: string | null
+  className?: string
+  onNavigate?: () => void
 }
 
 interface NavItem {
@@ -55,9 +59,10 @@ const adminItems: Array<{
     { label: 'Settings', to: '/staff/settings', icon: Settings, minRole: ['owner', 'admin', 'manager'] },
   ]
 
-export function StaffSidebar({ email }: StaffSidebarProps) {
-  const { role, canManageEmployees, loading: isLoadingStaff } = useStaffRole()
+export function StaffSidebar({ email, className, onNavigate }: StaffSidebarProps) {
+  const { role, canManageEmployees, isLoading: isLoadingStaff } = useStaffRole()
   const { isAdmin } = useIsAdmin()
+  const navigate = useNavigate()
 
   const [priceOpen, setPriceOpen] = useState(false)
   const submenuRef = useRef<HTMLDivElement>(null)
@@ -118,8 +123,23 @@ export function StaffSidebar({ email }: StaffSidebarProps) {
     }
   }
 
+  const handleLogout = async () => {
+    try {
+      const user = await auth.me()
+      if (user) {
+        await activityLogService.logUserLogout(user.id, { email: user.email }).catch(err =>
+          console.error('Failed to log logout activity:', err)
+        )
+      }
+    } catch (error) {
+      console.error('Failed to get current user for logout logging:', error)
+    }
+    await auth.logout()
+    navigate('/staff/login')
+  }
+
   return (
-    <aside className="hidden md:flex w-64 h-screen flex-col bg-[#0B1220] text-white/90">
+    <aside className={className || "hidden md:flex w-64 h-screen flex-col bg-[#0B1220] text-white/90"}>
 
       <div className="px-4 py-5 border-b border-white/10">
         <p className="text-xs uppercase tracking-widest text-white/60">Application</p>
@@ -133,6 +153,7 @@ export function StaffSidebar({ email }: StaffSidebarProps) {
             key={item.to}
             to={item.disabled ? '#' : item.to}
             aria-disabled={item.disabled}
+            onClick={onNavigate}
             className={({ isActive }) => [
               'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
               item.indent ? 'ml-7' : '',
@@ -183,6 +204,7 @@ export function StaffSidebar({ email }: StaffSidebarProps) {
                   <NavLink
                     key={item.to}
                     to={item.to}
+                    onClick={onNavigate}
                     className={({ isActive }) => [
                       'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ml-7',
                       'hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20',
@@ -209,6 +231,7 @@ export function StaffSidebar({ email }: StaffSidebarProps) {
               <NavLink
                 key={item.to}
                 to={item.to}
+                onClick={onNavigate}
                 className={({ isActive }) => [
                   'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
                   'hover:bg-white/10',
@@ -223,8 +246,20 @@ export function StaffSidebar({ email }: StaffSidebarProps) {
         )}
       </nav>
 
-      <div className="p-4 border-t border-white/10 text-[11px] text-white/60">
-        © AMP Lodge
+      <div className="p-4 border-t border-white/10 space-y-3">
+        <div className="bg-white/5 rounded-lg p-2">
+          <SyncStatusBadge />
+        </div>
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors text-rose-400 hover:bg-rose-500/10 hover:text-rose-300"
+        >
+          <LogOut className="w-4 h-4" />
+          <span>Logout</span>
+        </button>
+        <div className="text-center text-[10px] text-white/40 pt-2">
+          © AMP Lodge
+        </div>
       </div>
     </aside>
   )

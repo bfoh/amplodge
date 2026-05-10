@@ -1,3 +1,5 @@
+export type StaffRole = 'staff' | 'manager' | 'admin' | 'owner'
+
 export interface RoomType {
   id: string
   name: string
@@ -7,26 +9,27 @@ export interface RoomType {
   amenities: string
   imageUrl: string
   createdAt: string
+  updatedAt?: string
 }
 
-export interface Room {
-  id: string
-  roomNumber: string
-  roomTypeId: string
-  status: string
-  price: number
-  imageUrls: string
-  createdAt: string
-}
 
 export interface Guest {
   id: string
   userId?: string
+  user_id?: string // Legacy
   name: string
   email: string
   phone?: string
   address?: string
+  last_booking_date?: string // Legacy
+  last_room_number?: string // Legacy
+  last_check_in?: string // Legacy
+  last_check_out?: string // Legacy
+  last_source?: string // Legacy
+  total_revenue?: number // Legacy
+  total_stays?: number // Legacy
   createdAt: string
+  updatedAt?: string
 }
 
 export interface PaymentSplit {
@@ -64,6 +67,9 @@ export interface Booking {
   groupId?: string             // Shared ID for all bookings in a group
   groupReference?: string      // Human readable reference (e.g. GRP-2024-ABCD)
   isPrimaryBooking?: boolean   // True if this is the main booking record for the group
+  checkOutBy?: string          // Staff ID who performed check-out
+  checkOutByName?: string      // Name of staff who performed check-out
+  special_requests?: string    // Legacy field for JSON snapshots
 
   billingContact?: {
     fullName: string
@@ -97,10 +103,11 @@ export interface CartItem {
 export interface Staff {
   id: string
   userId: string
+  user_id?: string // Legacy
   name: string
   email: string
   phone?: string
-  role: string
+  role: StaffRole
   createdAt: string
 }
 
@@ -139,6 +146,14 @@ export interface Invoice {
   status: string
   pdfUrl?: string
   sentAt?: string
+  invoiceType?: string
+  symbol?: string
+  manualNumber?: string
+  dateOfIssue?: string
+  dateOfSale?: string
+  placeOfIssue?: string
+  currency?: string
+  totalAmount?: string
   createdAt: string
 }
 
@@ -203,6 +218,7 @@ export interface BookingCharge {
   unitPrice: number
   amount: number // quantity × unitPrice
   notes?: string
+  inventoryId?: string
   paymentMethod?: string  // 'cash' | 'mobile_money' | 'card'
   createdAt: string
   createdBy?: string
@@ -243,3 +259,94 @@ export interface ExternalBooking {
   createdAt: string
   updatedAt: string
 }
+
+export interface Property {
+  id: string
+  name: string
+  type: string
+  status: string
+  price: number
+  displayPrice?: number    // Used by stay-extension-service
+  pricePerNight?: number   // Used by stay-extension-service
+  roomNumber?: string
+  roomTypeId?: string
+  imageUrls: string
+  basePrice?: number // Added for SetPricesPage
+  propertyTypeId?: string
+  property_type_id?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface HotelSettings {
+  id: string
+  hotelName: string
+  address: string
+  phone: string
+  email: string
+  website: string
+  currency: string
+  taxRate: number
+  checkInTime: string
+  checkOutTime: string
+  updatedAt: string
+}
+
+export type ActivityAction = 'created' | 'updated' | 'deleted' | 'cancelled' | 'restored' | 'confirmed' | 'checked-in' | 'checked-out' | 'checked_in' | 'checked_out' | 'payment_recorded' | 'payment_received' | 'payment_refunded' | 'status_changed' | 'assigned' | 'completed' | 'exported' | 'imported' | 'login' | 'logout' | 'sync_completed' | 'notified' | 'diagnostic' | 'table_init' | 'verify_write'
+export type EntityType = 'booking' | 'room' | 'room_type' | 'guest' | 'invoice' | 'employee' | 'staff' | 'property' | 'settings' | 'inventory' | 'payment' | 'task' | 'contact_message' | 'report' | 'user' | 'housekeeping_task' | 'system' | 'test' | 'diagnostic'
+
+export interface ActivityLog {
+  id: string
+  action: ActivityAction
+  entityType: EntityType
+  entityId: string
+  details: any
+  userId: string
+  metadata?: any
+  createdAt: string
+}
+
+export interface InventoryItem {
+  id: string
+  name: string
+  description?: string
+  category: string
+  unit?: string
+  stockQuantity: number
+  minThreshold: number
+  unitPrice: number
+  costPrice?: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface InventoryTransaction {
+  id: string
+  inventoryId: string
+  type: 'sale' | 'restock' | 'adjustment' | 'in' | 'out'
+  quantity: number
+  remainingStock?: number
+  staffId?: string
+  staffName?: string
+  userId?: string
+  notes?: string
+  reason?: string
+  createdAt: string
+}
+
+export interface StandaloneSale {
+  id: string
+  description: string
+  category: 'food_beverage' | 'room_service' | 'minibar' | 'other'
+  quantity: number
+  unitPrice: number
+  amount: number
+  notes: string
+  staffId: string
+  staffName: string
+  saleDate: string          // YYYY-MM-DD
+  paymentMethod: 'cash' | 'mobile_money' | 'card'
+  createdAt: string
+  inventoryId?: string
+}
+

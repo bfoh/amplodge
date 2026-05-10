@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useSubscription } from '../../hooks/use-subscription'
 import { AlertCircle, RefreshCw, CheckCircle2 } from 'lucide-react'
 import * as syncQueue from '../../lib/sync-queue'
 import { Card, CardContent } from '../../components/ui/card'
@@ -17,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../../components/ui/alert-dialog"
-import { Plus, Calendar, User, Home, Search, Trash2, Users, QrCode, ExternalLink, Smartphone, Printer, BookOpen, X as XIcon } from 'lucide-react'
+import { Plus, Calendar, User, Home, Search, Trash2, Users, QrCode, ExternalLink, Smartphone, Printer, BookOpen, X } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { QRCodeSVG } from 'qrcode.react'
 import { db, auth } from '@/lib/db'
@@ -64,8 +65,10 @@ interface BookingWithDetails {
 
 export function BookingsPage() {
   const navigate = useNavigate()
-  const { staffRecord: staffData, role, loading: staffLoading } = useStaffRole()
+  const { staffRecord: staffData, role, isLoading: staffLoading } = useStaffRole()
   const { currency } = useCurrency()
+  const bookingsUpdate = useSubscription('bookings')
+  const roomsUpdate = useSubscription('rooms')
 
   console.log('[BookingsPage] useStaffRole result:', { staffData, role, staffLoading })
   const [bookings, setBookings] = useState<BookingWithDetails[]>([])
@@ -144,6 +147,9 @@ export function BookingsPage() {
 
   useEffect(() => {
     loadData()
+  }, [bookingsUpdate, roomsUpdate])
+
+  useEffect(() => {
     // Subscribe to sync state changes
     const unsubscribe = syncQueue.onSyncStateChange((state) => {
       setSyncState(state)
@@ -299,7 +305,7 @@ export function BookingsPage() {
           phone: formData.guestPhone,
           address: formData.guestAddress
         },
-        roomType: roomTypeName,
+        roomTypeId: roomTypeName,
         roomNumber: selectedProperty.roomNumber,
         dates: {
           checkIn: formData.checkIn,
@@ -319,21 +325,12 @@ export function BookingsPage() {
         createdByName: staffData?.name || (staffData as any)?.user?.name || 'Staff'
       }
 
-      // Comprehensive fallback: Get current user ID directly if staffData is not available
       let createdBy = staffData?.userId || staffData?.id
       console.log('[BookingsPage] Initial createdBy from staffData:', createdBy)
 
       if (!createdBy) {
-        try {
-          const currentUser = await auth.me()
-          createdBy = currentUser?.id
-          console.log('[BookingsPage] Fallback: Using current user ID:', createdBy)
-        } catch (error) {
-          console.error('[BookingsPage] Failed to get current user:', error)
-          // Last resort: generate a temporary ID
-          createdBy = `temp-user-${Date.now()}`
-          console.log('[BookingsPage] Last resort: Using temporary ID:', createdBy)
-        }
+        toast.error('Staff profile not fully loaded. Please wait a moment and try again.')
+        return
       }
 
       // Update the payload with the resolved createdBy
@@ -355,7 +352,7 @@ export function BookingsPage() {
         await activityLogService.log({
           action: 'created',
           entityType: 'booking',
-          entityId: result?.id || result?._id || 'unknown',
+          entityId: result?._id || 'unknown',
           details: {
             guestName: formData.guestName,
             guestEmail: formData.guestEmail,
@@ -806,7 +803,7 @@ export function BookingsPage() {
                             onClick={() => setFormData(prev => ({ ...prev, paymentSplits: prev.paymentSplits.filter((_, j) => j !== i) }))}
                             className="text-destructive hover:text-destructive/80 p-1 rounded hover:bg-destructive/10 transition-colors shrink-0"
                           >
-                            <XIcon className="w-4 h-4" />
+                            <X className="w-4 h-4" />
                           </button>
                         )}
                       </div>

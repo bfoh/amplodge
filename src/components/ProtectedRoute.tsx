@@ -12,142 +12,108 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { role, loading, userId } = useStaffRole()
+  const { role, isLoading, userId } = useStaffRole()
   const { isOnline } = useNetworkStatus()
   const navigate = useNavigate()
   const location = useLocation()
-  const [hasChecked, setHasChecked] = useState(false)
-  const [retryCount, setRetryCount] = useState(0)
-  const previousPathRef = useRef<string>('')
+  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null)
   const isCheckingRef = useRef(false)
 
   useEffect(() => {
-    // Reset hasChecked when location changes to a different path
-    if (previousPathRef.current !== location.pathname) {
-      previousPathRef.current = location.pathname
-      setHasChecked(false)
-      setRetryCount(0)
-      isCheckingRef.current = false
-    }
-  }, [location.pathname])
+    // Skip checking if still loading auth state
+    if (isLoading) return
 
-  useEffect(() => {
-    // Prevent multiple simultaneous checks
-    if (isCheckingRef.current) {
-      return
-    }
+    // Prevent re-checking if we already have a result for this location
+    if (isCheckingRef.current) return
 
-    // Don't do anything while still loading
-    if (loading) {
-      console.log('⏳ [ProtectedRoute] Still loading auth state...')
-      return
-    }
+    async function checkAccess() {
+      isCheckingRef.current = true
 
-    isCheckingRef.current = true
+      // 1. If no userId, redirect to login
+      if (!userId) {
+        if (!isOnline) {
+          toast.error('Offline', {
+            description: 'No cached session. Please connect to the internet and log in.',
+          })
+          setIsAuthorized(false)
+          isCheckingRef.current = false
+          return
+        }
 
-    // If no userId at all — check if we have a cached session (offline mode)
-    if (!userId) {
-      if (!isOnline) {
-        // We're offline — the cached auth session might still be valid
-        // The useStaffRole hook should have loaded from cache already
-        // If there's truly no cached session, show offline error instead of redirecting
-        console.log('📴 [ProtectedRoute] Offline with no userId — checking cached session...')
-        toast.error('Offline', {
-          description: 'No cached session. Please connect to the internet and log in.',
-          duration: 5000,
-        })
-        setHasChecked(true)
+        console.log('❌ [ProtectedRoute] No userId found, redirecting to login')
+        const returnTo = encodeURIComponent(location.pathname + location.search)
+        navigate(`/staff/login?returnTo=${returnTo}`, { replace: true })
+        setIsAuthorized(false)
         isCheckingRef.current = false
         return
       }
 
-      console.log('❌ [ProtectedRoute] No userId found, redirecting to login')
-      const returnTo = encodeURIComponent(location.pathname + location.search)
-      navigate(`/staff/login?returnTo=${returnTo}`, { replace: true })
-      setHasChecked(true)
-      isCheckingRef.current = false
-      return
-    }
-
-    // If we have a userId but no role yet, wait a bit more (role might be loading)
-    if (userId && !role && retryCount < 3) {
-      console.log(`🔄 [ProtectedRoute] User exists but role not loaded yet. Retry ${retryCount + 1}/3`)
-      const timer = setTimeout(() => {
-        isCheckingRef.current = false
-        setRetryCount(prev => prev + 1)
-      }, 500)
-      return () => clearTimeout(timer)
-    }
-
-    // If we have userId but still no role after retries, check if it's the admin user
-    if (userId && !role && retryCount >= 3) {
-      console.log('⚠️ [ProtectedRoute] No role found after retries, checking if admin user')
-      // For admin users, allow access even if role detection fails
-      auth.me().then(user => {
-        if (user?.email === import.meta.env.VITE_ADMIN_EMAIL) {
-          console.log('✅ [ProtectedRoute] Admin user detected, allowing access without role')
-          setHasChecked(true)
-          isCheckingRef.current = false
-        } else {
-          console.log('❌ [ProtectedRoute] Non-admin user without role, redirecting to login')
-          toast.error('Access denied', {
-            description: 'No staff role found for your account. Please contact your administrator.'
-          })
-          navigate('/staff/login', { replace: true })
-          setHasChecked(true)
-          isCheckingRef.current = false
+      // 2. If we have a userId but no role, check if it's the admin fallback
+      if (!role) {
+        try {
+          const user = await auth.me()
+          if (user?.email === import.meta.env.VITE_ADMIN_EMAIL) {
+            console.log('✅ [ProtectedRoute] Admin user detected (fallback)')
+            setIsAuthorized(true)
+            isCheckingRef.current = false
+            return
+          }
+        } catch (e) {
+          console.error('❌ [ProtectedRoute] Auth verify failed:', e)
         }
-      }).catch(() => {
-        console.error('❌ [ProtectedRoute] Failed to verify user')
-        navigate('/staff/login', { replace: true })
-        setHasChecked(true)
-        isCheckingRef.current = false
-      })
-      return
-    }
 
-    // If we have a role, check route access
-    if (role) {
-      const currentPath = location.pathname
-
-      // Debug logging for History route specifically
-      if (currentPath.includes('reservations/history')) {
-        console.log('🔍 [ProtectedRoute] Checking History route access:', {
-          currentPath,
-          userRole: role,
-          allowedRoles: ROUTE_ACCESS[currentPath],
-          canAccess: canAccessRoute(currentPath, role)
+        console.log('❌ [ProtectedRoute] User without role, redirecting')
+        toast.error('Access denied', {
+          description: 'No staff role found for your account.'
         })
+        navigate('/staff/login', { replace: true })
+        setIsAuthorized(false)
+        isCheckingRef.current = false
+        return
       }
 
-      // Check if route access is defined for this path
-      if (!canAccessRoute(currentPath, role)) {
-        console.log(`❌ [ProtectedRoute] Access denied for ${role} to ${currentPath}`)
+      // 3. If we have a role, check route access
+      if (!canAccessRoute(location.pathname, role)) {
+        console.log(`❌ [ProtectedRoute] Access denied for ${role} to ${location.pathname}`)
         toast.error('Access denied', {
           description: 'You do not have permission to access this page.'
         })
         navigate('/staff/dashboard', { replace: true })
-        setHasChecked(true)
+        setIsAuthorized(false)
         isCheckingRef.current = false
         return
       }
 
-      console.log(`✅ [ProtectedRoute] Access granted for ${role} to ${currentPath}`)
-      setHasChecked(true)
+      // 4. Access granted
+      console.log(`✅ [ProtectedRoute] Access granted for ${role} to ${location.pathname}`)
+      setIsAuthorized(true)
       isCheckingRef.current = false
     }
-  }, [role, loading, userId, navigate, retryCount, location.pathname])
+
+    checkAccess()
+  }, [role, isLoading, userId, isOnline, navigate, location.pathname, location.search])
+
+  // Reset authorization state when path changes significantly
+  useEffect(() => {
+    setIsAuthorized(null)
+    isCheckingRef.current = false
+  }, [location.pathname])
 
   // Show loading while checking auth
-  if (loading || !hasChecked) {
+  if (isLoading || isAuthorized === null) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-secondary/30">
         <div className="text-center">
           <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-primary" />
-          <p className="text-muted-foreground">Checking permissions...</p>
+          <p className="text-muted-foreground">Verifying access...</p>
         </div>
       </div>
     )
+  }
+
+  // If not authorized (and haven't redirected yet), show nothing or an error
+  if (!isAuthorized) {
+    return null
   }
 
   return <>{children}</>

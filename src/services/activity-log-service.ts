@@ -1,58 +1,11 @@
 import { db, auth } from '@/lib/db'
+import type { ActivityLog, ActivityAction, EntityType } from '@/types'
+
+export type ActivityLogData = Omit<ActivityLog, 'id' | 'createdAt' | 'userId'> & { userId?: string }
 
 /**
  * Activity types that can be logged
  */
-export type ActivityAction =
-  | 'created'
-  | 'updated'
-  | 'deleted'
-  | 'checked_in'
-  | 'checked_out'
-  | 'payment_received'
-  | 'payment_refunded'
-  | 'status_changed'
-  | 'assigned'
-  | 'completed'
-  | 'cancelled'
-  | 'exported'
-  | 'imported'
-  | 'login'
-  | 'logout'
-
-export type EntityType =
-  | 'booking'
-  | 'guest'
-  | 'invoice'
-  | 'staff'
-  | 'room'
-  | 'room_type'
-  | 'property'
-  | 'task'
-  | 'contact_message'
-  | 'payment'
-  | 'report'
-  | 'settings'
-  | 'user'
-
-export interface ActivityLogData {
-  action: ActivityAction
-  entityType: EntityType
-  entityId: string
-  details: Record<string, any>
-  userId?: string
-  metadata?: {
-    ipAddress?: string
-    userAgent?: string
-    source?: string
-    [key: string]: any
-  }
-}
-
-export interface ActivityLog extends ActivityLogData {
-  id: string
-  createdAt: string
-}
 
 /**
  * Generate unique, descriptive heading for activity logs
@@ -189,22 +142,8 @@ class ActivityLogService {
    * to the caller so that main operations (like booking deletion) are not affected
    */
   public async log(data: ActivityLogData): Promise<void> {
-    // Wrap entire function in try-catch to ensure logging never blocks operations
     try {
-      // Use provided userId or fall back to current user
       const userId = data.userId || this.currentUserId || 'system'
-
-      // Get the actual user's email for display purposes
-      let userEmail = userId
-      if (userId !== 'system' && userId !== 'guest') {
-        try {
-          const user = await auth.me()
-          userEmail = user?.email || userId
-        } catch (error) {
-          console.warn('[ActivityLog] Failed to get user email, using userId:', error)
-          userEmail = userId
-        }
-      }
 
       const logEntry = {
         id: crypto.randomUUID(),
@@ -219,63 +158,16 @@ class ActivityLogService {
 
       console.log('[ActivityLog] Logging activity:', logEntry)
 
-      // If offline, queue the log
       if (!this.isOnline) {
         this.pendingLogs.push(data)
         console.log('[ActivityLog] Offline - queued for later sync')
         return
       }
 
-      // Try to use activityLogs table first
-      try {
-        const activityLogEntry = {
-          id: logEntry.id,
-          action: logEntry.action,
-          entityType: logEntry.entityType,
-          entityId: logEntry.entityId,
-          details: logEntry.details,
-          userId,
-          metadata: logEntry.metadata,
-          createdAt: logEntry.createdAt,
-        }
-
-        await db.activityLogs.create(activityLogEntry)
-        console.log('[ActivityLog] Activity logged successfully to activityLogs table')
-        return
-      } catch (activityLogsError: any) {
-        console.warn('[ActivityLog] activityLogs table failed, trying fallback:', activityLogsError.message)
-
-        // Fallback: Try contactMessages table with activity_log status
-        try {
-          const fallbackEntry = {
-            id: logEntry.id,
-            name: `${data.action} ${data.entityType} - ${data.entityId}`,
-            email: userEmail,
-            message: JSON.stringify({
-              action: logEntry.action,
-              entityType: logEntry.entityType,
-              entityId: logEntry.entityId,
-              details: JSON.parse(logEntry.details),
-              userId: userEmail,
-              metadata: JSON.parse(logEntry.metadata)
-            }),
-            status: 'activity_log',
-            createdAt: logEntry.createdAt,
-          }
-
-          await db.contactMessages.create(fallbackEntry)
-          console.log('[ActivityLog] Activity logged successfully to contactMessages table (fallback)')
-        } catch (fallbackError: any) {
-          // Both methods failed - log to console only, don't propagate
-          console.warn('[ActivityLog] Fallback also failed, activity not persisted:', fallbackError.message)
-          // Store locally for potential future retry
-          this.pendingLogs.push(data)
-        }
-      }
+      await db.activityLogs.create(logEntry)
+      console.log('[ActivityLog] Activity logged successfully to activityLogs table')
     } catch (error) {
-      // Catch-all to ensure we never throw from this method
-      console.error('[ActivityLog] Failed to log activity (non-blocking):', error)
-      // Silently queue for potential future retry - don't throw
+      console.error('[ActivityLog] Failed to log activity:', error)
       try {
         this.pendingLogs.push(data)
       } catch (queueError) {
@@ -663,136 +555,55 @@ class ActivityLogService {
     offset?: number
   }): Promise<ActivityLog[]> {
     try {
-      // Try to get logs from activityLogs table first
-      try {
-        const logs = await db.activityLogs.list({
-          orderBy: { createdAt: 'desc' },
-          limit: options?.limit || 100,
-          offset: options?.offset || 0,
-        })
+      const logs = await db.activityLogs.list({
+        orderBy: { createdAt: 'desc' },
+        limit: options?.limit || 100,
+        offset: options?.offset || 0,
+      })
 
-        // Apply filters
-        let filteredLogs = logs
+      // Apply filters
+      let filteredLogs = logs
 
-        if (options?.userId) {
-          filteredLogs = filteredLogs.filter((log: any) => log.userId === options.userId)
-        }
-
-        if (options?.entityType) {
-          filteredLogs = filteredLogs.filter((log: any) => log.entityType === options.entityType)
-        }
-
-        if (options?.entityId) {
-          filteredLogs = filteredLogs.filter((log: any) => log.entityId === options.entityId)
-        }
-
-        if (options?.action) {
-          filteredLogs = filteredLogs.filter((log: any) => log.action === options.action)
-        }
-
-        // Filter by date range if provided
-        if (options?.startDate || options?.endDate) {
-          filteredLogs = filteredLogs.filter((log: any) => {
-            const logDate = new Date(log.createdAt)
-            if (options.startDate && logDate < options.startDate) return false
-            if (options.endDate && logDate > options.endDate) return false
-            return true
-          })
-        }
-
-        // Parse details and metadata if they're strings
-        const parsedLogs = filteredLogs.map((log: any) => ({
-          id: log.id,
-          action: log.action,
-          entityType: log.entityType,
-          entityId: log.entityId,
-          details: typeof log.details === 'string' ? JSON.parse(log.details) : log.details,
-          userId: log.userId,
-          metadata: typeof log.metadata === 'string' ? JSON.parse(log.metadata) : log.metadata,
-          createdAt: log.createdAt,
-        }))
-
-        console.log('[ActivityLog] Retrieved logs from activityLogs table:', parsedLogs.length)
-        return parsedLogs
-      } catch (activityLogsError: any) {
-        console.warn('[ActivityLog] activityLogs table failed, using fallback:', activityLogsError.message)
-
-        // Fallback: Get logs from contactMessages table
-        const messages = await db.contactMessages.list({
-          orderBy: { createdAt: 'desc' },
-          limit: (options?.limit || 100) * 2, // Get more to filter
-          offset: options?.offset || 0,
-        })
-
-        // Filter for activity logs (status = 'activity_log')
-        let activityLogs = messages.filter((msg: any) => msg.status === 'activity_log')
-
-        // Apply filters
-        if (options?.userId) {
-          activityLogs = activityLogs.filter((msg: any) => msg.email === options.userId)
-        }
-
-        // Filter by date range if provided
-        if (options?.startDate || options?.endDate) {
-          activityLogs = activityLogs.filter((msg: any) => {
-            const logDate = new Date(msg.createdAt)
-            if (options.startDate && logDate < options.startDate) return false
-            if (options.endDate && logDate > options.endDate) return false
-            return true
-          })
-        }
-
-        // Parse message data and apply additional filters
-        const parsedLogs = activityLogs.map((msg: any) => {
-          try {
-            const messageData = JSON.parse(msg.message)
-            return {
-              id: msg.id,
-              action: messageData.action,
-              entityType: messageData.entityType,
-              entityId: messageData.entityId,
-              details: messageData.details,
-              userId: messageData.userId || msg.email, // Use userId from message data, fallback to email
-              metadata: messageData.metadata || {},
-              createdAt: msg.createdAt,
-              messageData // Keep for filtering
-            }
-          } catch (error) {
-            console.error('[ActivityLog] Failed to parse message data:', error)
-            return null
-          }
-        }).filter(Boolean)
-
-        // Apply remaining filters
-        let filteredLogs = parsedLogs
-        if (options?.entityType) {
-          filteredLogs = filteredLogs.filter((log: any) => log.entityType === options.entityType)
-        }
-        if (options?.entityId) {
-          filteredLogs = filteredLogs.filter((log: any) => log.entityId === options.entityId)
-        }
-        if (options?.action) {
-          filteredLogs = filteredLogs.filter((log: any) => log.action === options.action)
-        }
-
-        // Limit the final results
-        filteredLogs = filteredLogs.slice(0, options?.limit || 100)
-
-        // Remove the temporary messageData field
-        const finalLogs = filteredLogs.map((log: any) => ({
-          id: log.id,
-          action: log.action,
-          entityType: log.entityType,
-          entityId: log.entityId,
-          details: log.details,
-          userId: log.userId,
-          metadata: log.metadata,
-          createdAt: log.createdAt,
-        }))
-
-        console.log('[ActivityLog] Retrieved logs from contactMessages table (fallback):', finalLogs.length)
-        return finalLogs
+      if (options?.userId) {
+        filteredLogs = filteredLogs.filter((log: any) => log.userId === options.userId)
       }
+
+      if (options?.entityType) {
+        filteredLogs = filteredLogs.filter((log: any) => log.entityType === options.entityType)
+      }
+
+      if (options?.entityId) {
+        filteredLogs = filteredLogs.filter((log: any) => log.entityId === options.entityId)
+      }
+
+      if (options?.action) {
+        filteredLogs = filteredLogs.filter((log: any) => log.action === options.action)
+      }
+
+      // Filter by date range if provided
+      if (options?.startDate || options?.endDate) {
+        filteredLogs = filteredLogs.filter((log: any) => {
+          const logDate = new Date(log.createdAt)
+          if (options.startDate && logDate < options.startDate) return false
+          if (options.endDate && logDate > options.endDate) return false
+          return true
+        })
+      }
+
+      // Parse details and metadata if they're strings
+      const parsedLogs: ActivityLog[] = filteredLogs.map((log: any) => ({
+        id: log.id,
+        action: log.action as ActivityAction,
+        entityType: log.entityType as EntityType,
+        entityId: log.entityId,
+        details: typeof log.details === 'string' ? JSON.parse(log.details) : log.details,
+        userId: log.userId,
+        metadata: typeof log.metadata === 'string' ? JSON.parse(log.metadata) : log.metadata,
+        createdAt: log.createdAt,
+      }))
+
+      console.log('[ActivityLog] Retrieved logs:', parsedLogs.length)
+      return parsedLogs
     } catch (error) {
       console.error('[ActivityLog] Failed to fetch activity logs:', error)
       return []

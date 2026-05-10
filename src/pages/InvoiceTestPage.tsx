@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
-import { createInvoiceData, generateInvoiceHTML, sendInvoiceEmail } from '@/services/invoice-service'
+import { createInvoiceData, generateInvoiceHTML, generateInvoicePDF, sendInvoiceEmail } from '@/services/invoice-service'
 
 export function InvoiceTestPage() {
   const [testEmail, setTestEmail] = useState('test@example.com')
@@ -45,15 +45,15 @@ export function InvoiceTestPage() {
       }
 
       console.log('📊 [InvoiceTest] Creating invoice data...')
-      const invoiceData = createInvoiceData(testBooking, testRoom)
+      const invoiceData = await createInvoiceData(testBooking, testRoom)
       console.log('✅ [InvoiceTest] Invoice data created:', invoiceData.invoiceNumber)
 
-      console.log('📄 [InvoiceTest] Generating invoice HTML...')
-      const invoiceHtml = await generateInvoiceHTML(invoiceData)
-      console.log('✅ [InvoiceTest] Invoice HTML generated, length:', invoiceHtml.length)
+      console.log('📄 [InvoiceTest] Generating invoice PDF...')
+      const invoiceBlob = await generateInvoicePDF(invoiceData)
+      console.log('✅ [InvoiceTest] Invoice PDF generated, size:', invoiceBlob.size)
 
       console.log('📧 [InvoiceTest] Sending test email...')
-      const emailResult = await sendInvoiceEmail(invoiceData, invoiceHtml)
+      const emailResult = await sendInvoiceEmail(invoiceData, invoiceBlob)
       console.log('📧 [InvoiceTest] Email result:', emailResult)
 
       if (emailResult.success) {

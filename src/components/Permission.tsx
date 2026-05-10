@@ -81,7 +81,7 @@ export function Permission({
   const permissions = usePermissions()
 
   // Don't render while loading
-  if (permissions.loading) {
+  if (permissions.isLoading) {
     return <>{fallback}</>
   }
 
@@ -138,7 +138,7 @@ export function PermissionAny({
 }) {
   const permissions = usePermissions()
 
-  if (permissions.loading) {
+  if (permissions.isLoading) {
     return <>{fallback}</>
   }
 
@@ -162,7 +162,7 @@ export function PermissionAll({
 }) {
   const permissions = usePermissions()
 
-  if (permissions.loading) {
+  if (permissions.isLoading) {
     return <>{fallback}</>
   }
 

@@ -85,7 +85,7 @@ export class AnalyticsExportService {
         yPosition += 6
         pdf.text(`Total Rooms: ${occupancy.totalRooms || 0}`, 20, yPosition)
         yPosition += 6
-        pdf.text(`Average Occupancy Rate: ${occupancy.averageOccupancyRate || 0}%`, 20, yPosition)
+        pdf.text(`Average Length of Stay: ${occupancy.averageLengthOfStay || 0} nights`, 20, yPosition)
         yPosition += 10
       }
       
@@ -101,9 +101,9 @@ export class AnalyticsExportService {
         
         pdf.text(`Total Guests: ${guests.totalGuests || 0}`, 20, yPosition)
         yPosition += 6
-        pdf.text(`New Guests: ${guests.newGuests || 0}`, 20, yPosition)
+        pdf.text(`New Guests (Month): ${guests.newGuestsThisMonth || 0}`, 20, yPosition)
         yPosition += 6
-        pdf.text(`Repeat Guests: ${guests.repeatGuests || 0}`, 20, yPosition)
+        pdf.text(`New Guests (Year): ${guests.newGuestsThisYear || 0}`, 20, yPosition)
         yPosition += 6
         pdf.text(`Repeat Rate: ${guests.repeatGuestRate || 0}%`, 20, yPosition)
         yPosition += 6
@@ -121,15 +121,13 @@ export class AnalyticsExportService {
         pdf.setFontSize(10)
         pdf.setFont('helvetica', 'normal')
         
-        pdf.text(`Average Daily Rate: $${performance.averageDailyRate || 0}`, 20, yPosition)
+        pdf.text(`Average Daily Rate: $${performance.adr || 0}`, 20, yPosition)
         yPosition += 6
-        pdf.text(`RevPAR: $${performance.revpar || 0}`, 20, yPosition)
+        pdf.text(`RevPAR: $${performance.revPAR || 0}`, 20, yPosition)
         yPosition += 6
         pdf.text(`Total Bookings: ${performance.totalBookings || 0}`, 20, yPosition)
         yPosition += 6
-        pdf.text(`Average Length of Stay: ${performance.averageLengthOfStay || 0} nights`, 20, yPosition)
-        yPosition += 6
-        pdf.text(`Cancellation Rate: ${performance.cancellationRate || 0}%`, 20, yPosition)
+        pdf.text(`Cancellation Rate: ${performance.conversionMetrics.cancellationRate || 0}%`, 20, yPosition)
         yPosition += 10
       }
       
@@ -178,25 +176,24 @@ export class AnalyticsExportService {
         csvData.push(['Current Occupancy Rate', `${occupancy.currentOccupancyRate || 0}%`, 'Occupancy'])
         csvData.push(['Occupied Rooms', `${occupancy.occupiedRooms || 0}`, 'Occupancy'])
         csvData.push(['Total Rooms', `${occupancy.totalRooms || 0}`, 'Occupancy'])
-        csvData.push(['Average Occupancy Rate', `${occupancy.averageOccupancyRate || 0}%`, 'Occupancy'])
+        csvData.push(['Average Length of Stay', `${occupancy.averageLengthOfStay || 0} nights`, 'Occupancy'])
       }
       
       // Guest data
       if (guests) {
         csvData.push(['Total Guests', `${guests.totalGuests || 0}`, 'Guests'])
-        csvData.push(['New Guests', `${guests.newGuests || 0}`, 'Guests'])
-        csvData.push(['Repeat Guests', `${guests.repeatGuests || 0}`, 'Guests'])
+        csvData.push(['New Guests (Month)', `${guests.newGuestsThisMonth || 0}`, 'Guests'])
+        csvData.push(['New Guests (Year)', `${guests.newGuestsThisYear || 0}`, 'Guests'])
         csvData.push(['Repeat Rate', `${guests.repeatGuestRate || 0}%`, 'Guests'])
         csvData.push(['Average Lifetime Value', `$${(guests.guestLifetimeValue.average || 0).toLocaleString()}`, 'Guests'])
       }
       
       // Performance data
       if (performance) {
-        csvData.push(['Average Daily Rate', `$${performance.averageDailyRate || 0}`, 'Performance'])
-        csvData.push(['RevPAR', `$${performance.revpar || 0}`, 'Performance'])
+        csvData.push(['Average Daily Rate', `$${performance.adr || 0}`, 'Performance'])
+        csvData.push(['RevPAR', `$${performance.revPAR || 0}`, 'Performance'])
         csvData.push(['Total Bookings', `${performance.totalBookings || 0}`, 'Performance'])
-        csvData.push(['Average Length of Stay', `${performance.averageLengthOfStay || 0} nights`, 'Performance'])
-        csvData.push(['Cancellation Rate', `${performance.cancellationRate || 0}%`, 'Performance'])
+        csvData.push(['Cancellation Rate', `${performance.conversionMetrics.cancellationRate || 0}%`, 'Performance'])
       }
       
       // Convert to CSV string

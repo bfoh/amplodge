@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useSubscription } from '@/hooks/use-subscription'
 import { toast } from 'sonner'
 import { db, auth } from '@/lib/db'
 import { useStaffRole } from '@/hooks/use-staff-role'
@@ -59,7 +60,8 @@ import {
   type BookingSummary,
   type StaffWeekResult,
 } from '@/services/revenue-service'
-import { standaloneSalesService, SALE_CATEGORIES, type StandaloneSale } from '@/services/standalone-sales-service'
+import { standaloneSalesService, SALE_CATEGORIES } from '@/services/standalone-sales-service'
+import { type StandaloneSale } from '@/types'
 import {
   getLiveAttendance,
   generateClockUrl,
@@ -87,7 +89,7 @@ interface AttendanceRecord {
   clockIn: string
   clockOut: string
   hoursWorked: number
-  status: string
+  status: 'late' | 'init' | 'present' | 'absent'
   notes: string
   createdAt: string
 }
@@ -214,7 +216,7 @@ function StatCard({ icon: Icon, label, value, color }: { icon: any; label: strin
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function HRPage() {
-  const { role, loading: roleLoading, staffRecord } = useStaffRole()
+  const { role, isLoading: roleLoading, staffRecord } = useStaffRole()
 
   // Guard: admin / owner only
   if (!roleLoading && role !== 'admin' && role !== 'owner') {
@@ -371,11 +373,11 @@ function LiveNowPanel() {
     }
   }, [])
 
+  const updatedAt = useSubscription('hr_attendance')
+
   useEffect(() => {
     refresh()
-    const id = setInterval(refresh, 30_000)
-    return () => clearInterval(id)
-  }, [refresh])
+  }, [refresh, updatedAt])
 
   const present = live.filter(r => !r.clockOut)
   const completed = live.filter(r => r.clockOut)
@@ -446,7 +448,10 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  const updatedAtAtt = useSubscription('hr_attendance')
+  const updatedAtStaff = useSubscription('staff')
+
+  useEffect(() => { load() }, [load, updatedAtAtt, updatedAtStaff])
 
   const today = new Date().toISOString().split('T')[0]
   const todayRecords = records.filter(r => r.date === today)
@@ -725,7 +730,10 @@ function LeaveTab({ currentStaff }: { currentStaff: any }) {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  const updatedAtLeave = useSubscription('hr_leave_requests')
+  const updatedAtStaff = useSubscription('staff')
+
+  useEffect(() => { load() }, [load, updatedAtLeave, updatedAtStaff])
 
   const pending = records.filter(r => r.status === 'pending').length
   const approvedThisMonth = records.filter(r => {
@@ -920,7 +928,10 @@ function PayrollTab() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  const updatedAtPayroll = useSubscription('hr_payroll')
+  const updatedAtStaff = useSubscription('staff')
+
+  useEffect(() => { load() }, [load, updatedAtPayroll, updatedAtStaff])
 
   const thisMonth = new Date().toISOString().substring(0, 7)
   const monthRecords = records.filter(r => r.period === thisMonth)
@@ -1112,7 +1123,10 @@ function PerformanceTab({ currentStaff }: { currentStaff: any }) {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  const updatedAtPerf = useSubscription('hr_performance_reviews')
+  const updatedAtStaff = useSubscription('staff')
+
+  useEffect(() => { load() }, [load, updatedAtPerf, updatedAtStaff])
 
   const handleStaffChange = (staffId: string) => {
     const member = staffList.find(s => s.id === staffId)
@@ -1316,7 +1330,9 @@ function ApplicationsTab() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  const updatedAtApps = useSubscription('hr_job_applications')
+
+  useEffect(() => { load() }, [load, updatedAtApps])
 
   const total = records.length
   const pendingCount = records.filter(r => r.status === 'pending').length
@@ -1952,10 +1968,12 @@ function RevenueReportTab() {
     }
   }, [selectedWeek.weekStart])
 
+  const updatedAtRev = useSubscription('hr_weekly_revenue')
+
   useEffect(() => {
     setLiveData({})
     loadReports()
-  }, [loadReports])
+  }, [loadReports, updatedAtRev])
 
   const handleReview = async () => {
     if (!reviewTarget) return

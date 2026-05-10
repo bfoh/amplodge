@@ -12,7 +12,6 @@ import { bookingEngine } from '@/services/booking-engine'
 export function RoomsPage() {
   const { currency } = useCurrency()
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
-  const [rooms, setRooms] = useState<Room[]>([])
   const [properties, setProperties] = useState<any[]>([])
   const [bookings, setBookings] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -41,9 +40,8 @@ export function RoomsPage() {
     setLoading(true)
     try {
       // Force fresh fetch - use bookingEngine.getAllBookings() for consistent data structure
-      const [typesData, roomsData, propertiesData, bookingsData] = await Promise.all([
+      const [typesData, propertiesData, bookingsData] = await Promise.all([
         db.roomTypes.list({ orderBy: { createdAt: 'asc' } }),
-        db.rooms.list({ orderBy: { createdAt: 'asc' } }),
         db.properties.list({ orderBy: { createdAt: 'desc' } }),
         bookingEngine.getAllBookings()
       ])
@@ -71,7 +69,6 @@ export function RoomsPage() {
       })
 
       setRoomTypes(typesWithImages)
-      setRooms(roomsData as Room[])
       setProperties(propertiesWithPrices)
       setBookings(bookingsData)
     } catch (error) {

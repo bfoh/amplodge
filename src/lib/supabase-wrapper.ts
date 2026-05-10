@@ -52,6 +52,48 @@ function emitTableUpdated(table: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Realtime Subscriptions
+// ---------------------------------------------------------------------------
+// Listen for server-side changes and signal local subscribers.
+
+let realtimeChannel: any = null
+
+function initRealtimeSubscriptions() {
+  if (realtimeChannel) return
+  
+  console.log('📡 [SupabaseDB] Initializing Realtime Subscriptions...')
+  
+  realtimeChannel = supabase
+    .channel('db-changes')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public' },
+      (payload) => {
+        const table = payload.table
+        // Handle snake_case to camelCase table name mapping if needed.
+        // Most tables match, but some (activity_logs) use snake_case in DB
+        // and camelCase in TypedDB. We emit both for safety.
+        const camelTable = table.replace(/_([a-z])/g, (g) => g[1].toUpperCase())
+        
+        console.log(`🔔 [SupabaseDB] Realtime update for ${table}:`, payload.eventType)
+        
+        emitTableUpdated(table)
+        if (camelTable !== table) {
+          emitTableUpdated(camelTable)
+        }
+      }
+    )
+    .subscribe((status) => {
+      console.log(`📡 [SupabaseDB] Realtime status: ${status}`)
+    })
+}
+
+// Start subscriptions on load
+if (typeof window !== 'undefined') {
+  initRealtimeSubscriptions()
+}
+
+// ---------------------------------------------------------------------------
 // Cache warm-up management
 // ---------------------------------------------------------------------------
 

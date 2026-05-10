@@ -20,8 +20,8 @@ export async function createActivityLogsTable(): Promise<boolean> {
     // Create a test record to initialize the table
     const testRecord = {
       id: `init_${Date.now()}`,
-      action: 'table_init',
-      entityType: 'system',
+      action: 'table_init' as const,
+      entityType: 'system' as const,
       entityId: 'table_creation',
       details: JSON.stringify({
         message: 'Activity logs table initialization',
@@ -95,8 +95,8 @@ export async function verifyActivityLogsTable(): Promise<{
     // Test 2: Can write (create)
     const testRecord = {
       id: `verify_${Date.now()}`,
-      action: 'verify_write',
-      entityType: 'test',
+      action: 'verify_write' as const,
+      entityType: 'test' as const,
       entityId: 'verify_test',
       details: JSON.stringify({ test: true }),
       userId: 'system',
@@ -146,8 +146,8 @@ export async function createSampleActivityLogs(): Promise<void> {
     const sampleLogs = [
       {
         id: `sample_1_${Date.now()}`,
-        action: 'created',
-        entityType: 'booking',
+        action: 'created' as const,
+        entityType: 'booking' as const,
         entityId: `booking_${Date.now()}`,
         details: JSON.stringify({
           guestName: 'John Doe',
@@ -162,8 +162,8 @@ export async function createSampleActivityLogs(): Promise<void> {
       },
       {
         id: `sample_2_${Date.now()}`,
-        action: 'updated',
-        entityType: 'guest',
+        action: 'updated' as const,
+        entityType: 'guest' as const,
         entityId: `guest_${Date.now()}`,
         details: JSON.stringify({
           name: 'Jane Smith',
@@ -176,8 +176,8 @@ export async function createSampleActivityLogs(): Promise<void> {
       },
       {
         id: `sample_3_${Date.now()}`,
-        action: 'deleted',
-        entityType: 'invoice',
+        action: 'deleted' as const,
+        entityType: 'invoice' as const,
         entityId: `invoice_${Date.now()}`,
         details: JSON.stringify({
           invoiceNumber: 'INV-SAMPLE-001',

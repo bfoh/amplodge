@@ -9,77 +9,70 @@ type Action = 'create' | 'read' | 'update' | 'delete'
  * Provides convenient methods to check various permissions based on current user role
  */
 export function usePermissions() {
-  const { role, loading, isOwner, isAdmin, isManager, isStaff, canManageEmployees } = useStaffRole()
+  const { role, isLoading, isOwner, isAdmin, isManager, isStaff, canManageEmployees } = useStaffRole()
 
   /**
    * Check if current user has permission for a specific action on a resource
-   * Returns false if still loading or no role
+   * Returns false if no role, but provides isLoading to the consumer
    */
   function can(resource: string, action: Action): boolean {
-    if (loading || !role) return false
+    if (isLoading || !role) return false
     return hasPermission(role, resource, action)
   }
 
   /**
    * Check if current user can access a specific route
-   * Returns false if still loading or no role
    */
   function canAccess(route: string): boolean {
-    if (loading || !role) return false
+    if (isLoading || !role) return false
     return canAccessRoute(route, role)
   }
 
   /**
    * Check if current user can manage a specific staff member
-   * Returns false if still loading or no role
    */
   function canManage(targetRole: string): boolean {
-    if (loading || !role) return false
+    if (isLoading || !role) return false
     return canManageStaff(role, targetRole as StaffRole)
   }
 
   /**
    * Check if current user can assign a specific role
-   * Returns false if still loading or no role
    */
   function canAssign(targetRole: string): boolean {
-    if (loading || !role) return false
+    if (isLoading || !role) return false
     return canAssignRole(role, targetRole as StaffRole)
   }
 
   /**
    * Check if current user has a higher or equal role level than target
-   * Returns false if still loading or no role
    */
   function hasHigherOrEqualRole(targetRole: string): boolean {
-    if (loading || !role) return false
+    if (isLoading || !role) return false
     return getRoleLevel(role) >= getRoleLevel(targetRole as StaffRole)
   }
 
   /**
    * Check if current user has a higher role level than target
-   * Returns false if still loading or no role
    */
   function hasHigherRole(targetRole: string): boolean {
-    if (loading || !role) return false
+    if (isLoading || !role) return false
     return getRoleLevel(role) > getRoleLevel(targetRole as StaffRole)
   }
 
   /**
    * Check multiple permissions at once (all must be true)
-   * Returns false if still loading or no role
    */
   function canAll(checks: Array<{ resource: string; action: Action }>): boolean {
-    if (loading || !role) return false
+    if (isLoading || !role) return false
     return checks.every(check => hasPermission(role, check.resource, check.action))
   }
 
   /**
    * Check multiple permissions at once (at least one must be true)
-   * Returns false if still loading or no role
    */
   function canAny(checks: Array<{ resource: string; action: Action }>): boolean {
-    if (loading || !role) return false
+    if (isLoading || !role) return false
     return checks.some(check => hasPermission(role, check.resource, check.action))
   }
 
@@ -88,15 +81,13 @@ export function usePermissions() {
    */
   function getResourcesForAction(action: Action): string[] {
     if (!role) return []
-    // This would need the full permission list
-    // For now, return based on role
     return []
   }
 
   return {
     // Current role info
     role,
-    loading,
+    isLoading,
     
     // Role helpers
     isOwner,

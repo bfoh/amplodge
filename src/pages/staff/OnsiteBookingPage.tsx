@@ -26,7 +26,6 @@ export function OnsiteBookingPage() {
   const [user, setUser] = useState<any>(null)
   const [step, setStep] = useState(1)
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
-  const [rooms, setRooms] = useState<Room[]>([])
   const [bookings, setBookings] = useState<any[]>([])
   const [properties, setProperties] = useState<any[]>([])
 
@@ -90,9 +89,8 @@ export function OnsiteBookingPage() {
 
   const loadData = async () => {
     try {
-      const [typesData, roomsData, propertiesData, bookingsData] = await Promise.all([
+      const [typesData, propertiesData, bookingsData] = await Promise.all([
         db.roomTypes.list(),
-        db.rooms.list(),
         db.properties.list({ orderBy: { createdAt: 'desc' } }),
         bookingEngine.getAllBookings()
       ])
@@ -120,15 +118,14 @@ export function OnsiteBookingPage() {
         if (booking.roomNumber) {
           return booking // Already has roomNumber from bookingEngine
         }
-        const room = roomsData.find((r: any) => r.id === booking.roomId)
+        const property = propertiesData.find((p: any) => p.id === booking.roomId)
         return {
           ...booking,
-          roomNumber: room?.roomNumber || 'Unknown'
+          roomNumber: property?.roomNumber || 'Unknown'
         }
       })
 
       setRoomTypes(filteredTypes)
-      setRooms(roomsData)
       setProperties(propertiesWithPrices)
       setBookings(processedBookings)
     } catch (error) {
@@ -276,23 +273,11 @@ export function OnsiteBookingPage() {
 
     // Resolve to a Room object (or best effort)
     // We prefer finding a matching Room entity, but if not found we might need to rely on Property
-    const roomObj = rooms.find(r => r.roomNumber === availableProperty.roomNumber)
-
-    if (!roomObj) {
-      console.warn(`[OnsiteBooking] Found available property ${availableProperty.roomNumber} but no matching Room entity found.`)
-      // Fallback or error? For now, we need an ID. 
-      // If rooms are auto-created, maybe we can't add it yet? 
-      // Let's iterate: if we can't find a room object, we can't get a roomId safely unless we use property.id
-      // But the system seems to parallel properties and rooms.
-      toast.error(`System error: Room ${availableProperty.roomNumber} configuration incomplete.`)
-      return
-    }
-
     setCart([...cart, {
       id: Math.random().toString(36).substr(2, 9),
       roomTypeId: roomType.id,
       roomTypeName: roomType.name,
-      roomId: roomObj.id,
+      roomId: availableProperty.id,
       roomNumber: availableProperty.roomNumber,
       price: roomType.basePrice,
       checkIn: checkIn as Date,
@@ -395,8 +380,8 @@ export function OnsiteBookingPage() {
           status: 'confirmed' as const,
           source: 'reception' as const,
           payment: {
-            method: primaryPaymentMethod,
-            status: paymentType === 'full' ? 'completed' : 'pending',
+            method: primaryPaymentMethod as 'cash' | 'mobile_money' | 'card' | 'not_paid',
+            status: (paymentType === 'full' ? 'completed' : 'pending') as 'completed' | 'pending',
             amount: paymentType === 'full' ? itemTotal : (paymentType === 'part' ? splitsPaidTotal : 0),
             reference: `PAY-${Date.now()}-${index}`,
             paidAt: paymentType !== 'pending' ? new Date().toISOString() : undefined

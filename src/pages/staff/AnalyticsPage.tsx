@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useSubscription } from '@/hooks/use-subscription'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -105,34 +106,15 @@ export function AnalyticsPage() {
   const [chargeMonthIdx, setChargeMonthIdx] = useState(0)
   const [chargeYearIdx, setChargeYearIdx] = useState(0)
 
+  const updatedAtBks = useSubscription('bookings')
+  const updatedAtChg = useSubscription('booking_charges')
+  const updatedAtSales = useSubscription('standalone_sales')
+  const updatedAtProp = useSubscription('properties')
+
   const loadingRef = useRef(false)
   useEffect(() => {
     loadAnalytics()
-    const interval = setInterval(() => { loadAnalytics() }, 5 * 60 * 1000)
-    // SWR: re-run loader when background refresh writes new rows. Guarded so
-    // a refresh fired while one is already in flight doesn't pile up — the
-    // analytics fan-out is heavy (7 list calls + 3 reductions) and a tight
-    // emit loop here briefly broke the page.
-    let pending: ReturnType<typeof setTimeout> | null = null
-    const queueRefresh = () => {
-      if (pending || loadingRef.current) return
-      pending = setTimeout(() => {
-        pending = null
-        if (loadingRef.current) return
-        loadAnalytics()
-      }, 1500)
-    }
-    const unsubs = [
-      onTableUpdated('bookings', queueRefresh),
-      onTableUpdated('booking_charges', queueRefresh),
-      onTableUpdated('standalone_sales', queueRefresh),
-    ]
-    return () => {
-      clearInterval(interval)
-      unsubs.forEach(u => u())
-      if (pending) clearTimeout(pending)
-    }
-  }, [])
+  }, [updatedAtBks, updatedAtChg, updatedAtSales, updatedAtProp])
 
   const loadAnalytics = async () => {
     if (loadingRef.current) return

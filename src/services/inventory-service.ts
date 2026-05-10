@@ -1,28 +1,7 @@
 import { db, auth } from '@/lib/db'
+import type { InventoryItem, InventoryTransaction } from '@/types'
 
-export interface InventoryItem {
-  id: string
-  name: string
-  category: string
-  stockQuantity: number
-  minThreshold: number
-  unitPrice: number
-  createdAt: string
-  updatedAt: string
-}
-
-export interface InventoryTransaction {
-  id: string
-  inventoryId: string
-  type: 'sale' | 'restock' | 'adjustment'
-  quantity: number
-  remainingStock: number
-  staffId?: string
-  staffName?: string
-  notes?: string
-  createdAt: string
-}
-
+// ─── Service ──────────────────────────────────────────────────────────────────
 export const inventoryService = {
   async getItems(): Promise<InventoryItem[]> {
     try {
@@ -68,7 +47,7 @@ export const inventoryService = {
 
   async getTransactions(inventoryId?: string): Promise<InventoryTransaction[]> {
     try {
-      const rows = await db.inventoryTransactions.list({ limit: 2000, order: { createdAt: 'desc' } })
+      const rows = await db.inventoryTransactions.list({ limit: 2000, orderBy: { createdAt: 'desc' } })
       const transactions = (rows || []) as InventoryTransaction[]
       if (inventoryId) {
         return transactions.filter(t => t.inventoryId === inventoryId)

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db, auth, onTableUpdated } from '@/lib/db'
-import type { Booking, Room, Guest } from '@/types'
+import { useSubscription } from '@/hooks/use-subscription'
+import type { Booking, Room, Guest, RoomType, Property } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -104,11 +105,19 @@ function StatusBadge({ status }: { status: string }) {
 export function ReservationsPage() {
   const navigate = useNavigate()
   const { currency } = useCurrency()
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<{ id: string; email: string | undefined } | null>(null)
   const [bookings, setBookings] = useState<Booking[]>([])
   const [rooms, setRooms] = useState<Room[]>([])
-  const [roomTypes, setRoomTypes] = useState<any[]>([])
+  const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
   const [guests, setGuests] = useState<Guest[]>([])
+
+  // Subscriptions
+  const updatedAtBks = useSubscription('bookings')
+  const updatedAtProp = useSubscription('properties')
+  const updatedAtGuests = useSubscription('guests')
+  const updatedAtChg = useSubscription('booking_charges')
+
+  const [isPending, startTransition] = useTransition()
 
   // Filters
   const [query, setQuery] = useState('')
@@ -217,7 +226,7 @@ export function ReservationsPage() {
           try {
             const [fastB, fastR, fastG, fastRt] = await Promise.all([
               db.bookings.list({ limit: 50, orderBy: { createdAt: 'desc' } }),
-              db.rooms.list({ limit: 200 }),
+              db.properties.list({ limit: 200 }),
               db.guests.list({ limit: 500 }),
               db.roomTypes.list({ limit: 100 }),
             ])
@@ -233,7 +242,7 @@ export function ReservationsPage() {
 
         const [b, r, g, rt, charges] = await Promise.all([
           db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
-          db.rooms.listAll(),
+          db.properties.listAll(),
           db.guests.listAll(),
           db.roomTypes.list({ limit: 100 }),
           db.bookingCharges.listAll() || Promise.resolve([])
@@ -333,26 +342,7 @@ export function ReservationsPage() {
       }
     }
     load()
-    // SWR: re-run loader when background refresh writes new rows. Debounced
-    // and gated by inFlight to prevent emit-cascades from looping.
-    const queueLoad = () => {
-      if (pending || inFlight) return
-      pending = setTimeout(() => {
-        pending = null
-        if (!inFlight) load()
-      }, 800)
-    }
-    const unsubs = [
-      onTableUpdated('bookings', queueLoad),
-      onTableUpdated('rooms', queueLoad),
-      onTableUpdated('guests', queueLoad),
-      onTableUpdated('booking_charges', queueLoad),
-    ]
-    return () => {
-      unsubs.forEach(u => u())
-      if (pending) clearTimeout(pending)
-    }
-  }, [user])
+  }, [user, updatedAtBks, updatedAtProp, updatedAtGuests, updatedAtChg])
 
   const roomMap = useMemo(() => new Map(rooms.map(r => [r.id, r])), [rooms])
   const guestMap = useMemo(() => new Map(guests.map(g => [g.id, g])), [guests])
@@ -643,7 +633,7 @@ export function ReservationsPage() {
       let housekeepingTaskCreated = false
 
       // Update booking status to checked-out
-      const staffName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Staff'
+      const staffName = (user as any)?.user_metadata?.full_name || (user as any)?.user_metadata?.name || user?.email || 'Staff'
       await db.bookings.update(booking.id, {
         status: 'checked-out',
         actualCheckOut: new Date().toISOString(),
@@ -651,18 +641,18 @@ export function ReservationsPage() {
         checkOutByName: staffName,
       })
 
-      // Update room status to cleaning
+      // Update property status to cleaning (canonical)
       const room = roomMap.get(booking.roomId)
       if (room) {
-        await db.rooms.update(room.id, { status: 'cleaning' })
+        await db.properties.update(room.id, { status: 'cleaning' })
         // Optimistically reflect in UI immediately
         setRooms(prev => prev.map(r => (r.id === room.id ? { ...r, status: 'cleaning' } : r)))
 
-        // Log room status change
+        // Log property status change
         try {
           await activityLogService.log({
             action: 'updated',
-            entityType: 'room',
+            entityType: 'property',
             entityId: room.id,
             details: {
               roomNumber: room.roomNumber,
@@ -676,17 +666,6 @@ export function ReservationsPage() {
           })
         } catch (logError) {
           console.error('Failed to log room status change:', logError)
-        }
-
-        // Update properties table if a matching property exists (best-effort)
-        try {
-          const props = await db.properties.list({ limit: 500 })
-          const prop = props.find((p: any) => p.id === room.id)
-          if (prop) {
-            await db.properties.update(prop.id, { status: 'cleaning' })
-          }
-        } catch (e) {
-          console.warn('Properties update skipped:', e)
         }
 
         // Create housekeeping task using the new service
@@ -888,15 +867,8 @@ export function ReservationsPage() {
         guest={checkInDialog ? guestMap.get(checkInDialog.guestId) : null}
         user={user}
         onSuccess={async () => {
-          // Optimistic UI update or reload
-          if (checkInDialog) {
-            // Reload data to ensure everything is synced
-            const [b] = await Promise.all([db.bookings.listAll({ orderBy: { createdAt: 'desc' } })])
-            setBookings(b)
-            // Also reload rooms to update status
-            const [r] = await Promise.all([db.rooms.listAll()])
-            setRooms(r)
-          }
+          // Subscriptions will handle the data refresh automatically
+          setCheckInDialog(null)
         }}
       />
 

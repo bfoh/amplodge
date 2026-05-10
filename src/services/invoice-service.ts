@@ -1,8 +1,6 @@
 import { hotelSettingsService } from './hotel-settings'
 import { bookingChargesService } from './booking-charges-service'
 import { BookingCharge } from '@/types'
-import jsPDF from 'jspdf'
-import html2canvas from 'html2canvas'
 import { sendTransactionalEmail } from '@/services/email-service'
 import { formatCurrencySync } from '@/lib/utils'
 
@@ -386,6 +384,12 @@ export async function generateInvoicePDF(invoiceData: InvoiceData): Promise<Blob
 
     // Generate HTML content
     const htmlContent = await generateInvoiceHTML(invoiceData)
+
+    // Dynamic imports to keep these large libs out of the initial bundle
+    const [jsPDF, html2canvas] = await Promise.all([
+      import('jspdf').then(m => m.default),
+      import('html2canvas').then(m => m.default)
+    ])
 
     // Create a temporary element to render the HTML
     const element = document.createElement('div')

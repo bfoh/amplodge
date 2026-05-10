@@ -17,7 +17,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from '@/hooks/use-toast'
 import { useStaffRole } from '@/hooks/use-staff-role'
 import { canManageStaff, canAssignRole, getRoleDisplay, getRoleDescription } from '@/lib/rbac'
-import type { StaffRole } from '@/lib/rbac'
+import { type StaffRole } from '@/types'
 import { sendStaffWelcomeEmail } from '@/services/email-service'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -28,8 +28,7 @@ const employeeSchema = z.object({
   email: z.string().email('Enter a valid email'),
   phone: z.string().optional(),
   role: z
-    .enum(['staff', 'manager', 'admin', 'owner'])
-    .default('staff'),
+    .enum(['staff', 'manager', 'admin', 'owner']),
 })
 
 type EmployeeFormValues = z.infer<typeof employeeSchema>
@@ -40,7 +39,7 @@ interface StaffMember {
   name: string
   email: string
   phone?: string
-  role: string
+  role: StaffRole
   createdAt: string
 }
 

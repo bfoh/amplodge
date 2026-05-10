@@ -10,9 +10,9 @@ import { useStaffRole } from './use-staff-role'
  *   if (!isAdmin) return <NotAuthorized />
  */
 export function useIsAdmin(): { isAdmin: boolean; isLoading: boolean } {
-  const { role, loading } = useStaffRole()
+  const { role, isLoading } = useStaffRole()
   return {
     isAdmin: role === 'admin' || role === 'owner',
-    isLoading: loading,
+    isLoading: isLoading,
   }
 }

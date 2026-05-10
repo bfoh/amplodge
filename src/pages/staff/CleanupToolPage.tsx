@@ -65,21 +65,11 @@ export function CleanupToolPage() {
   }
 
   const resetRoomStatuses = async () => {
-    if (!confirm('Reset ALL rooms to available (and properties to active)?')) return
+    if (!confirm('Reset ALL properties to active?')) return
 
     setResettingRooms(true)
     try {
-      console.log('🛏️ Resetting room statuses...')
-
-      const rooms = await db.rooms.list({ limit: 1000 })
-      let roomsUpdated = 0
-      for (const room of rooms) {
-        if (room.status !== 'available') {
-          await db.rooms.update(room.id, { status: 'available' })
-          roomsUpdated++
-        }
-      }
-
+      console.log('🛏️ Resetting property statuses...')
       let propertiesUpdated = 0
       try {
         const properties = await db.properties.list({ limit: 1000 })
@@ -90,12 +80,12 @@ export function CleanupToolPage() {
           }
         }
       } catch (propErr) {
-        console.warn('Failed to reset property statuses (non-critical):', propErr)
+        console.warn('Failed to reset property statuses:', propErr)
       }
 
       toast({
-        title: 'Room statuses reset',
-        description: `Rooms set to available: ${roomsUpdated}${propertiesUpdated ? ` • Properties reactivated: ${propertiesUpdated}` : ''}`
+        title: 'Property statuses reset',
+        description: `Properties reactivated: ${propertiesUpdated}`
       })
     } catch (error: any) {
       console.error('Failed to reset room statuses:', error)
@@ -182,15 +172,15 @@ export function CleanupToolPage() {
         await deleteCollection('invoices', 'invoices')
       } catch (e) { console.log('No invoices table or empty') }
 
-      // 4. Reset Room Status (Update, not delete)
-      console.log('Resetting room statuses...')
-      let roomsUpdated = 0
-      const rooms = await (db as any).rooms.list({ limit: 1000 })
-      for (const r of rooms) {
-        await (db as any).rooms.update(r.id, { status: 'available' })
-        roomsUpdated++
+      // 4. Reset Property Status (Update, not delete)
+      console.log('Resetting property statuses...')
+      let propertiesUpdated = 0
+      const properties = await (db as any).properties.list({ limit: 1000 })
+      for (const p of properties) {
+        await (db as any).properties.update(p.id, { status: 'active' })
+        propertiesUpdated++
       }
-      console.log(`Reset ${roomsUpdated} rooms to available`)
+      console.log(`Reset ${propertiesUpdated} properties to active`)
 
       // 5. Clear Activity Logs
       await deleteCollection('activityLogs', 'logs')
@@ -438,7 +428,7 @@ export function CleanupToolPage() {
             </Button>
           </div>
           <p className="text-xs text-amber-800 mt-2">
-            "Clear All Mock Data" will delete all bookings, guests, invoices, logs, and reset all rooms to "Available".
+            "Clear All Mock Data" will delete all bookings, guests, invoices, logs, and reset all properties to "Active".
           </p>
         </CardContent>
       </Card>

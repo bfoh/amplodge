@@ -290,7 +290,7 @@ export function useStaffRole() {
   return {
     role,
     staffRecord,
-    loading,
+    isLoading: loading,
     userId,
     isOwner,
     isAdmin,

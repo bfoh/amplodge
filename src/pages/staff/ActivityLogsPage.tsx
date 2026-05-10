@@ -5,16 +5,18 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Loader2, Download, Filter, Search, Calendar, User, FileText, RefreshCw } from 'lucide-react'
-import { activityLogService, type ActivityLog, type ActivityAction, type EntityType } from '@/services/activity-log-service'
+import { activityLogService } from '@/services/activity-log-service'
+import type { ActivityLog, ActivityAction, EntityType } from '@/types'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { db, auth } from '@/lib/db'
-// Removed test utility imports - no longer needed
+import { useSubscription } from '@/hooks/use-subscription'
 
 export function ActivityLogsPage() {
   const [logs, setLogs] = useState<ActivityLog[]>([])
   const [filteredLogs, setFilteredLogs] = useState<ActivityLog[]>([])
   const [loading, setLoading] = useState(true)
+  const logsUpdate = useSubscription('activity_logs')
   const [searchQuery, setSearchQuery] = useState('')
   const [actionFilter, setActionFilter] = useState<ActivityAction | 'all'>('all')
   const [entityTypeFilter, setEntityTypeFilter] = useState<EntityType | 'all'>('all')
@@ -22,51 +24,18 @@ export function ActivityLogsPage() {
   const [endDate, setEndDate] = useState('')
   const [userFilter, setUserFilter] = useState<string>('all')
   const [users, setUsers] = useState<Array<{ id: string; name: string }>>([])
-  const [autoRefresh, setAutoRefresh] = useState(false)
-  const autoRefreshInterval = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
-    initializePageDatabase()
+    loadUsers()
   }, [])
 
-  async function initializePageDatabase() {
-    try {
-      console.log('[ActivityLogsPage] Loading activity logs...')
-
-      // Load existing logs and users
-      await loadLogs()
-      await loadUsers()
-
-      console.log('[ActivityLogsPage] ✅ Activity logs loaded successfully')
-
-    } catch (error) {
-      console.error('[ActivityLogsPage] Failed to load activity logs:', error)
-      toast.error('Failed to load activity logs')
-    }
-  }
+  useEffect(() => {
+    loadLogs()
+  }, [logsUpdate, actionFilter, entityTypeFilter, startDate, endDate, userFilter])
 
   useEffect(() => {
     applyFilters()
-  }, [logs, searchQuery, actionFilter, entityTypeFilter, startDate, endDate, userFilter])
-
-  // Auto-refresh effect
-  useEffect(() => {
-    if (autoRefresh) {
-      autoRefreshInterval.current = setInterval(() => {
-        loadLogs()
-      }, 30000) // 30 seconds
-    } else {
-      if (autoRefreshInterval.current) {
-        clearInterval(autoRefreshInterval.current)
-        autoRefreshInterval.current = null
-      }
-    }
-    return () => {
-      if (autoRefreshInterval.current) {
-        clearInterval(autoRefreshInterval.current)
-      }
-    }
-  }, [autoRefresh])
+  }, [logs, searchQuery])
 
   async function loadLogs() {
     try {
@@ -177,6 +146,12 @@ export function ActivityLogsPage() {
       report: 'bg-gray-100 text-gray-800',
       settings: 'bg-slate-100 text-slate-800',
       user: 'bg-violet-100 text-violet-800',
+      inventory: 'bg-amber-100 text-amber-800',
+      housekeeping_task: 'bg-lime-100 text-lime-800',
+      employee: 'bg-orange-100 text-orange-800',
+      system: 'bg-slate-100 text-slate-800',
+      test: 'bg-gray-100 text-gray-800',
+      diagnostic: 'bg-rose-100 text-rose-800',
     }
     return colors[entityType] || 'bg-gray-100 text-gray-800'
   }

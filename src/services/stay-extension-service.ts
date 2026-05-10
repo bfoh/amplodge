@@ -100,8 +100,8 @@ class StayExtensionService {
         try {
             console.log('[StayExtension] Finding available rooms for:', { startDate, endDate })
 
-            // Get all rooms
-            const allRooms = await db.rooms.list({ limit: 100 })
+            // Get all properties
+            const allRooms = await db.properties.list({ limit: 100 })
 
             // Get all bookings that overlap with requested dates
             const allBookings = await db.bookings.list({ limit: 500 })
@@ -163,13 +163,14 @@ class StayExtensionService {
         try {
             console.log('[StayExtension] Getting room rate for roomId:', roomId)
 
-            // First try to get from rooms table
-            const room = await db.rooms.get(roomId)
-            console.log('[StayExtension] Room data:', room)
+            // First try to get from properties table
+            const property = await db.properties.get(roomId)
+            console.log('[StayExtension] Property data:', property)
 
             // Priority 1: look up roomType by roomTypeId and use basePrice (Source of Truth)
-            if (room?.roomTypeId) {
-                const roomType = await db.roomTypes.get(room.roomTypeId)
+            if (property?.propertyTypeId || property?.roomTypeId) {
+                const rtId = (property.propertyTypeId || property.roomTypeId) as string
+                const roomType = await db.roomTypes.get(rtId)
                 console.log('[StayExtension] RoomType data:', roomType)
                 if (roomType?.basePrice && roomType.basePrice > 0) {
                     console.log('[StayExtension] Using roomType.basePrice:', roomType.basePrice)
@@ -177,30 +178,13 @@ class StayExtensionService {
                 }
             }
 
-            // Priority 2: If room has a direct price override and it's > 0, use it
-            if (room?.price && room.price > 0) {
-                console.log('[StayExtension] Using room.price:', room.price)
-                return room.price
+            // Priority 2: If property has a direct price override and it's > 0, use it
+            const price = property?.basePrice || property?.displayPrice || property?.pricePerNight || property?.price || 0
+            if (price > 0) {
+                console.log('[StayExtension] Using property price:', price)
+                return price
             }
 
-            // Alternative: try to find in properties table (some setups use this)
-            try {
-                const properties = await db.properties.list({ limit: 100 })
-                const property = properties.find((p: any) =>
-                    p.id === roomId ||
-                    p.roomNumber === room?.roomNumber
-                )
-                if (property?.displayPrice && property.displayPrice > 0) {
-                    console.log('[StayExtension] Using property.displayPrice:', property.displayPrice)
-                    return property.displayPrice
-                }
-                if (property?.pricePerNight && property.pricePerNight > 0) {
-                    console.log('[StayExtension] Using property.pricePerNight:', property.pricePerNight)
-                    return property.pricePerNight
-                }
-            } catch (propError) {
-                console.log('[StayExtension] Properties lookup failed:', propError)
-            }
 
             console.warn('[StayExtension] Could not find valid price, returning 0')
             return 0

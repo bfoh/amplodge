@@ -8,7 +8,7 @@ interface Guest {
   id: string
   name: string
   email: string
-  phone: string | null
+  phone?: string | null
 }
 
 interface Room {
@@ -174,20 +174,15 @@ The AMP LODGE Team
     // SMS notification (if phone number provided)
     if (guest.phone) {
       console.log('📱 [BookingConfirmation] Sending SMS to:', guest.phone)
-      sendBookingConfirmationSMS({
+      await sendBookingConfirmationSMS({
         phone: guest.phone,
         guestName: guest.name,
         roomNumber: room.roomNumber,
         checkIn: booking.checkIn,
         checkOut: booking.checkOut,
         bookingId: booking.id
-      }).then(smsResult => {
-        if (smsResult.success) {
-          console.log('✅ [BookingConfirmation] SMS sent successfully')
-        } else {
-          console.error('❌ [BookingConfirmation] SMS failed:', smsResult.error)
-        }
-      }).catch(err => console.error('❌ [BookingConfirmation] SMS notification error:', err))
+      })
+      console.log('✅ [BookingConfirmation] SMS sent successfully')
     } else {
       console.log('ℹ️ [BookingConfirmation] No phone number provided, skipping SMS')
     }
@@ -331,14 +326,15 @@ The AMP LODGE Team
 
     // SMS/WhatsApp notification (if phone number provided)
     if (guest.phone) {
-      sendCheckInSMS({
+      await sendCheckInSMS({
         phone: guest.phone,
         guestName: guest.name,
         roomNumber: room.roomNumber,
         checkOutDate: checkOutDate.toISOString(),
         paymentMethod: paymentDetails?.method,
         totalAmount: paymentDetails?.amount ? (typeof paymentDetails.amount === 'number' ? formatCurrencySync(paymentDetails.amount, currency) : paymentDetails.amount) : undefined
-      }).catch(err => console.error('SMS notification failed:', err))
+      })
+      console.log('✅ [CheckInNotification] SMS sent successfully')
     }
   } catch (error) {
     console.error('❌ [CheckInNotification] Failed to send check-in notification:', error)
@@ -473,13 +469,14 @@ The AMP LODGE Team
 
     // SMS/WhatsApp notification (if phone number provided)
     if (guest.phone) {
-      sendCheckOutSMS({
+      await sendCheckOutSMS({
         phone: guest.phone,
         guestName: guest.name,
         invoiceNumber: invoiceData?.invoiceNumber,
         totalAmount: invoiceData ? formatCurrencySync(invoiceData.totalAmount, currency) : undefined,
         bookingId: booking.id
-      }).catch(err => console.error('SMS notification failed:', err))
+      })
+      console.log('✅ [CheckOutNotification] SMS sent successfully')
     }
   } catch (error) {
     console.error('❌ [CheckOutNotification] Failed to send check-out notification:', error)

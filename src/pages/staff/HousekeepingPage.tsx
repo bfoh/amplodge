@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useTransition } from 'react'
+import { useSubscription } from '@/hooks/use-subscription'
 import { motion } from 'framer-motion'
-import { Calendar, CheckCircle2, Clock, Search, User, AlertCircle, Trash2 } from 'lucide-react'
+import { Calendar, CheckCircle2, Clock, Search, User, AlertCircle, Trash2, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -28,11 +29,6 @@ import { sendTaskAssignmentEmail } from '@/services/task-notification-service'
 import { housekeepingService } from '@/services/housekeeping-service'
 import type { HousekeepingTask, Staff, Room } from '@/types'
 
-// Removed local HousekeepingTask interface in favor of shared type
-
-
-// Local interfaces removed in favor of shared types
-
 export default function HousekeepingPage() {
   const [tasks, setTasks] = useState<HousekeepingTask[]>([])
   const [staff, setStaff] = useState<Staff[]>([])
@@ -43,11 +39,15 @@ export default function HousekeepingPage() {
   const [selectedTask, setSelectedTask] = useState<HousekeepingTask | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [completionNotes, setCompletionNotes] = useState('')
-  const [isCompleting, setIsCompleting] = useState(false)
+  const [isPending, startTransition] = useTransition()
+
+  const tasksUpdate = useSubscription('housekeeping_tasks')
+  const propertiesUpdate = useSubscription('properties')
+  const staffUpdate = useSubscription('staff')
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [tasksUpdate, propertiesUpdate, staffUpdate])
 
   const loadData = async () => {
     try {
@@ -59,8 +59,8 @@ export default function HousekeepingPage() {
           console.warn('Failed to load staff:', e)
           return []
         }),
-        db.rooms.list().catch((e) => {
-          console.warn('Failed to load rooms:', e)
+        db.properties.list().catch((e) => {
+          console.warn('Failed to load properties:', e)
           return []
         })
       ])
@@ -102,43 +102,40 @@ export default function HousekeepingPage() {
   const handleCompleteTask = async () => {
     if (!selectedTask) return
 
-    try {
-      setIsCompleting(true)
+    startTransition(async () => {
+      try {
+        console.log(`[HousekeepingPage] Completing task ${selectedTask.id} for room ${selectedTask.roomNumber}`)
 
-      console.log(`[HousekeepingPage] Completing task ${selectedTask.id} for room ${selectedTask.roomNumber}`)
+        const result = await housekeepingService.completeTask(
+          selectedTask.id,
+          selectedTask.roomNumber,
+          completionNotes || selectedTask.notes || ''
+        )
 
-      const result = await housekeepingService.completeTask(
-        selectedTask.id,
-        selectedTask.roomNumber,
-        completionNotes || selectedTask.notes || ''
-      )
+        if (result.success) {
+          // Log the task completion
+          await activityLogService.logTaskCompleted(selectedTask.id, {
+            title: `Room ${selectedTask.roomNumber} Cleaning`,
+            roomNumber: selectedTask.roomNumber,
+            completedBy: getStaffName(selectedTask.assignedTo),
+            completedAt: new Date().toISOString(),
+            notes: completionNotes
+          }).catch(err => console.error('Failed to log task completion:', err))
 
-      if (result.success) {
-        // Log the task completion
-        await activityLogService.logTaskCompleted(selectedTask.id, {
-          title: `Room ${selectedTask.roomNumber} Cleaning`,
-          roomNumber: selectedTask.roomNumber,
-          completedBy: getStaffName(selectedTask.assignedTo),
-          completedAt: new Date().toISOString(),
-          notes: completionNotes
-        }).catch(err => console.error('Failed to log task completion:', err))
+          toast.success(`Task completed! Room ${selectedTask.roomNumber} is likely available now.`)
 
-        toast.success(`Task completed! Room ${selectedTask.roomNumber} is likely available now.`)
-
-        // Refresh data
-        await loadData()
-        setSelectedTask(null)
-        setCompletionNotes('')
-      } else {
-        console.error('Failed to complete task via service:', result.error)
-        toast.error('Failed to complete task: ' + result.error)
+          // Subscriptions will trigger loadData automatically
+          setSelectedTask(null)
+          setCompletionNotes('')
+        } else {
+          console.error('Failed to complete task via service:', result.error)
+          toast.error('Failed to complete task: ' + result.error)
+        }
+      } catch (error: any) {
+        console.error('Failed to complete task:', error)
+        toast.error('Failed to complete task')
       }
-    } catch (error: any) {
-      console.error('Failed to complete task:', error)
-      toast.error('Failed to complete task')
-    } finally {
-      setIsCompleting(false)
-    }
+    })
   }
 
   const handleAssignTask = async (taskId: string, staffId: string) => {
@@ -184,9 +181,11 @@ export default function HousekeepingPage() {
         toast.success('Task assigned successfully')
       }
 
+      const user = await auth.me()
       // Log the task assignment
       await activityLogService.log({
         action: 'assigned',
+        userId: user?.id || 'system',
         entityType: 'task',
         entityId: taskId,
         details: {
@@ -219,8 +218,10 @@ export default function HousekeepingPage() {
 
       // Log the task deletion
       if (task) {
+        const user = await auth.me()
         await activityLogService.log({
           action: 'deleted',
+          userId: user?.id || 'system',
           entityType: 'task',
           entityId: deleteId,
           details: {
@@ -517,15 +518,20 @@ export default function HousekeepingPage() {
             <Button
               variant="outline"
               onClick={() => setSelectedTask(null)}
-              disabled={isCompleting}
+              disabled={isPending}
             >
               Cancel
             </Button>
             <Button
               onClick={handleCompleteTask}
-              disabled={isCompleting}
+              disabled={isPending}
             >
-              {isCompleting ? 'Completing...' : 'Complete Task'}
+              {isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Completing...
+                </>
+              ) : 'Complete Task'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -25,7 +25,6 @@ export interface AnalyticsSharedData {
   chargesRaw: any[]
   standaloneSales: any[]
   guests: any[]
-  rooms: any[]
 }
 
 class AnalyticsService {
@@ -34,7 +33,7 @@ class AnalyticsService {
    * to eliminate redundant DB calls across a single page load.
    */
   async prefetchSharedData(): Promise<AnalyticsSharedData> {
-    const [bookings, roomTypes, properties, chargesRaw, standaloneSales, guests, rooms] =
+    const [bookings, roomTypes, properties, chargesRaw, standaloneSales, guests] =
       await Promise.all([
         bookingEngine.getAllBookings().catch(() => [] as any[]),
         db.roomTypes.list().catch(() => [] as any[]),
@@ -42,9 +41,8 @@ class AnalyticsService {
         (db.bookingCharges.list({ limit: 5000 }) as Promise<any[]>).catch(() => [] as any[]),
         standaloneSalesService.getAllSales().catch(() => [] as any[]),
         db.guests.list().catch(() => [] as any[]),
-        db.rooms.list().catch(() => [] as any[]),
       ])
-    return { bookings, roomTypes, properties, chargesRaw, standaloneSales, guests, rooms }
+    return { bookings, roomTypes, properties, chargesRaw, standaloneSales, guests }
   }
 
   /**
@@ -951,7 +949,7 @@ class AnalyticsService {
         : 0
 
       // Room status distribution
-      const rooms = shared?.rooms ?? await db.rooms.list()
+      const rooms = shared?.properties ?? await db.properties.list()
 
       const roomStatusDistribution = {
         available: rooms.filter((r: any) => r.status === 'available').length,

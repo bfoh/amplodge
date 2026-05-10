@@ -7,24 +7,9 @@
 import { db, auth } from '@/lib/db'
 import { format } from 'date-fns'
 import { inventoryService } from './inventory-service'
+import type { StandaloneSale } from '@/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-export interface StandaloneSale {
-  id: string
-  description: string
-  category: 'food_beverage' | 'room_service' | 'minibar' | 'other'
-  quantity: number
-  unitPrice: number
-  amount: number
-  notes: string
-  staffId: string
-  staffName: string
-  saleDate: string          // YYYY-MM-DD — used for week-range filter
-  paymentMethod: 'cash' | 'mobile_money' | 'card'
-  createdAt: string
-  inventoryId?: string     // Added for accountability
-}
 
 export const SALE_CATEGORIES: Record<StandaloneSale['category'], string> = {
   food_beverage: 'Food & Beverage',

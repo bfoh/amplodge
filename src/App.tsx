@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState, useRef } from 'react'
 import { Toaster } from 'sonner'
 import { Navbar } from './components/Navbar'
 import { Footer } from './components/Footer'
@@ -100,48 +100,26 @@ function App() {
     }
     initializeApp()
   }, [adminSeeded])
-
-  useEffect(() => {
-    const checkAuthStatus = async () => {
-      try {
-        const currentUser = await auth.me()
-        if (currentUser) {
-          activityLogService.setCurrentUser(currentUser.id)
-          console.log('📝 [App] Activity log service updated with user:', currentUser.email)
-        } else {
-          activityLogService.setCurrentUser('system')
-          console.log('📝 [App] Activity log service updated with system user')
-        }
-      } catch (error) {
-        console.warn('⚠️ [App] Failed to check auth status for activity log service:', error)
-        activityLogService.setCurrentUser('system')
-      }
-    }
-
-    checkAuthStatus()
-    const interval = setInterval(checkAuthStatus, 30000)
-    return () => clearInterval(interval)
-  }, [])
+  const hasCheckedAdminRef = useRef(false)
 
   useEffect(() => {
     let isCreating = false
 
     const ensureAdminStaffRecord = async (userId: string, email: string) => {
-      if (isCreating) return
+      if (hasCheckedAdminRef.current || isCreating) return
       try {
         isCreating = true
-        const existingStaff = await (db as any).staff.list({ where: { userId } })
+        const existingStaff = await db.staff.list({ where: { user_id: userId } })
 
         if (!existingStaff || existingStaff.length === 0) {
-          await (db as any).staff.create({
-            id: `staff_admin_${Date.now()}`,
-            userId,
+          await db.staff.create({
+            user_id: userId,
             name: 'Admin User',
             email,
             role: 'admin',
-            createdAt: new Date().toISOString()
           })
         }
+        hasCheckedAdminRef.current = true
       } catch (error) {
         console.log('ℹ️ [App] Admin staff record error:', error)
       } finally {
@@ -150,8 +128,18 @@ function App() {
     }
 
     const unsubscribe = auth.onAuthStateChanged(async (state) => {
-      if (!state.isLoading && state.user?.email === import.meta.env.VITE_ADMIN_EMAIL && state.user?.id) {
-        await ensureAdminStaffRecord(state.user.id, state.user.email)
+      if (!state.isLoading) {
+        if (state.user?.id) {
+          activityLogService.setCurrentUser(state.user.id)
+          console.log('📝 [App] Activity log service updated with user:', state.user.email)
+          
+          if (state.user?.email === import.meta.env.VITE_ADMIN_EMAIL) {
+            await ensureAdminStaffRecord(state.user.id, state.user.email)
+          }
+        } else {
+          activityLogService.setCurrentUser('system')
+          console.log('📝 [App] Activity log service updated with system user')
+        }
       }
     })
 

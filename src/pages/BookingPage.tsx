@@ -28,7 +28,6 @@ export function BookingPage() {
 
   const [step, setStep] = useState(1) // 1: Search, 2: Cart/Room Selection, 3: Billing, 4: Guest Assignment, 5: Pay
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
-  const [rooms, setRooms] = useState<Room[]>([])
   const [properties, setProperties] = useState<any[]>([])
 
   // Search State (for adding new rooms)
@@ -81,9 +80,8 @@ export function BookingPage() {
 
   const loadData = async () => {
     try {
-      const [typesData, roomsData, propertiesData, bookingsData] = await Promise.all([
+      const [typesData, propertiesData, bookingsData] = await Promise.all([
         db.roomTypes.list(),
-        db.rooms.list(),
         db.properties.list({ orderBy: { createdAt: 'desc' } }),
         bookingEngine.getAllBookings()
       ])
@@ -111,15 +109,14 @@ export function BookingPage() {
         if (booking.roomNumber) {
           return booking // Already has roomNumber from bookingEngine
         }
-        const room = roomsData.find((r: any) => r.id === booking.roomId)
+        const property = propertiesData.find((p: any) => p.id === booking.roomId)
         return {
           ...booking,
-          roomNumber: room?.roomNumber || 'Unknown'
+          roomNumber: property?.roomNumber || 'Unknown'
         }
       })
 
       setRoomTypes(filteredTypes)
-      setRooms(roomsData)
       setProperties(propertiesWithPrices)
       setBookings(processedBookings)
     } catch (error) {
