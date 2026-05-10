@@ -1,21 +1,25 @@
 import fetch from 'node-fetch';
+import { requireStaff, jsonResponse, handleCors } from './_lib/auth.js';
 
 export const handler = async (event) => {
+    const corsResp = handleCors(event); if (corsResp) return corsResp
+
+    if (event.httpMethod !== 'POST') {
+        return jsonResponse(405, { error: 'Method Not Allowed' });
+    }
+
+    try {
+        await requireStaff(event);
+    } catch (e) {
+        return jsonResponse(e.status, e.body);
+    }
+
     const headers = {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Content-Type': 'application/json'
     };
-
-    // Handle CORS preflight
-    if (event.httpMethod === 'OPTIONS') {
-        return { statusCode: 204, headers, body: '' };
-    }
-
-    if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method Not Allowed' }) };
-    }
 
     try {
         const { text } = JSON.parse(event.body);
