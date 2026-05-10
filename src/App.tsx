@@ -79,9 +79,6 @@ function App() {
     const initializeApp = async () => {
       try {
         console.log('🚀 App running with Supabase backend')
-        console.log('🔧 Initializing database schema...')
-        await initializeDatabaseSchema()
-        console.log('✅ Database schema initialized')
 
         console.log('📝 Initializing activity log service...')
         try {
