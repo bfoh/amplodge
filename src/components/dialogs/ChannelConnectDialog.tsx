@@ -47,7 +47,7 @@ export function ChannelConnectDialog({ open, onOpenChange, channelId, channelNam
         setLoading(true)
         try {
             // Load connection details
-            let conn = await channelService.getConnection(channelId)
+            const conn = await channelService.getConnection(channelId)
 
             // If no connection exists yet, we don't create it until they save, 
             // but we initialize state as if it's inactive

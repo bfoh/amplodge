@@ -70,7 +70,7 @@ export function SetPricesPage() {
       const existingNames = new Set(existingTypes.map((t: RoomType) => t.name?.toLowerCase()))
 
       let created = 0
-      let errors: string[] = []
+      const errors: string[] = []
 
       for (const type of defaultRoomTypes) {
         const existingType = existingTypes.find((t: RoomType) => t.name?.toLowerCase() === type.name.toLowerCase())

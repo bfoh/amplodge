@@ -869,7 +869,7 @@ class BookingEngine {
     }
 
     // Find the primary booking to get group reference and billing contact
-    let primaryBooking = groupBookings.find((b: any) => {
+    const primaryBooking = groupBookings.find((b: any) => {
       const specialReq = b.special_requests || b.specialRequests || ''
       const match = specialReq.match(/<!-- GROUP_DATA:(.*?) -->/)
       if (match) {

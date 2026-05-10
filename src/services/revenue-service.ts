@@ -176,7 +176,7 @@ export async function fetchBookingsForStaffWeek(
   // Build a set of all IDs that identify this staff member across bookings.
   // Some older bookings store the staff TABLE row ID instead of the auth user UUID.
   // We resolve both so no bookings are missed.
-  let staffIdSet = new Set<string>([staffId])
+  const staffIdSet = new Set<string>([staffId])
   // staffNameSet: emails and display names for this staff member — used as a fallback
   // when a booking has the staff member's name in checkInByName but an empty checkInBy ID.
   const staffNameSet = new Set<string>()
