@@ -1,5 +1,25 @@
 import { createClient } from '@supabase/supabase-js'
 
+// -----------------------------------------------------------------------------
+// Verified against legacy functions/create-employee/index.ts on 2026-05-10
+// (Phase 1 strip-blink — see docs/superpowers/specs/2026-05-10-phase1-strip-blink-design.md):
+//
+//   Auth user creation (admin API + email_confirm):       covered (lines 59-63)
+//   "Already exists" recovery + password reset:           covered (lines 65-143)
+//   public.users row + first_login flag:                  covered (lines 113-120, 165-172)
+//   Staff table record creation:                          done client-side in
+//                                                         src/pages/staff/EmployeesPage.tsx
+//   Activity log write:                                   done client-side, same file
+//
+// PRE-EXISTING SECURITY GAP (pre-dates this refactor, NOT introduced by it):
+//   - No Authorization-header check on this endpoint (legacy version did
+//     blink.auth.me() + staff.role gate). Any client can hit it. Tracked for
+//     Phase 2 security pass.
+//
+// Legacy Deno+Blink file at functions/create-employee/index.ts removed in
+// commit `chore: delete orphaned top-level functions/`.
+// -----------------------------------------------------------------------------
+
 export const handler = async function (event, context) {
     // Only allow POST requests
     if (event.httpMethod !== 'POST') {
