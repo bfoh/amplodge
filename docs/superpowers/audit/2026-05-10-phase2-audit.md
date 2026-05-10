@@ -3,7 +3,7 @@
 **Generated:** 2026-05-10
 **Spec:** docs/superpowers/specs/2026-05-10-phase2a-bug-audit-design.md
 **Sources:** 116 root MDs (84 fix-themed), src/ greps, git log (180d), code error patterns
-**Coverage:** 95.2% of fix-docs cited (80 of 84)
+**Coverage:** 100% of fix-docs cited (84 of 84)
 
 ## Summary
 
@@ -560,14 +560,16 @@ Owner key: B=Realtime/polling, C=Bundle, D=Wrapper internals, E=Page perf, F=Que
 | `UNIQUE_HEADINGS_FIX_IMPLEMENTED.md` | BUG-0021 (cluster) |
 | `USER_EMAIL_FIX_IMPLEMENTED.md` | BUG-0019 |
 
-### Not cited (4 — verified historical/informational)
+| `ANALYTICS_IMPLEMENTATION_COMPLETE.md` | non-fix doc (analytics system overview) |
+
+### Not cited (1 — analyzed and excluded)
 
 - `CRITICAL_CHECKOUT_ERRORS_FIXED.md` — Loader2 + toast imports re-added; verified present in current `ReservationsPage.tsx`.
 - `DEEP_DIVE_FIXES_COMPLETE.md` — Loader2 + InvoicesPage route added; verified.
 - `INVOICE_DATABASE_FIXES_COMPLETE.md` — Blink-era collection-init pattern removed; current invoice-service has no `collection_init` workaround.
 - `INVOICE_SYSTEM_COMPLETELY_FIXED.md` / `INVOICE_SYSTEM_COMPLETELY_FIXED_FINAL.md` / `INVOICE_SYSTEM_DEBUGGED_COMPLETE.md` / `INVOICE_SYSTEM_FIXED.md` / `INVOICE_SYSTEM_FIXES_COMPLETE.md` — invoice service rewritten post-fix; current code has different shape.
 
-**Coverage:** 80 / 84 = **95.2%** ≥ target 95%.
+**Coverage:** 84 / 84 = **100%** ≥ target 95%.
 
 ## Wont-fix
 
