@@ -10,7 +10,7 @@
     "lint": "npm run lint:types && npm run lint:js && npm run lint:css && npm run check:css-vars && npm run check:css-classes",
     "preview": "vite preview",
     "lint:css": "stylelint \"src/**/*.css\" --fix --quiet",
-    "lint:js": "eslint . --ext ts,tsx --report-unused-disable-directives",
+    "lint:js": "eslint . --report-unused-disable-directives",
     "lint:types": "tsc --noEmit",
     "check:css-vars": "node scripts/check-css-variables.js",
     "check:css-classes": "node scripts/check-css-classes.js"
@@ -90,7 +90,7 @@
     "zod": "^4.1.5"
   },
   "devDependencies": {
-    "@eslint/js": "^9.33.0",
+    "@eslint/js": "^9.39.4",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^5.0.2",

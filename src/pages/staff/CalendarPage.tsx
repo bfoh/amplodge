@@ -217,7 +217,7 @@ export function CalendarPage() {
   // overlap check still rejects on submit if a booked room is somehow picked.
   const availableProperties = useMemo(() => {
     return properties.filter((p: any) => !!p.id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [properties])
 
   // Auto-calc price when selection/dates change

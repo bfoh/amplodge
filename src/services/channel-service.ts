@@ -17,7 +17,7 @@ export class ChannelService {
     async getConnections(): Promise<ChannelConnection[]> {
         try {
             // Ensure we get all connections
-            const result = await this.db.channelConnections?.list({ limit: 50 }) || []
+            const result = await this.db.channelConnections.list({ limit: 50 }) || []
             return result
         } catch (error) {
             console.error('Failed to fetch channel connections:', error)
@@ -90,7 +90,7 @@ export class ChannelService {
 
     async getMappings(connectionId?: string): Promise<ChannelRoomMapping[]> {
         try {
-            const result = await this.db.channelRoomMappings?.list({ limit: 100 }) || []
+            const result = await this.db.channelRoomMappings.list({ limit: 100 }) || []
 
             if (connectionId) {
                 return result.filter((m: ChannelRoomMapping) => m.channelConnectionId === connectionId)
@@ -147,7 +147,7 @@ export class ChannelService {
 
     async getExternalBookings(mappingId: string): Promise<ExternalBooking[]> {
         try {
-            const result = await this.db.externalBookings?.list({ limit: 500 }) || []
+            const result = await this.db.externalBookings.list({ limit: 500 }) || []
             return result.filter((b: ExternalBooking) => b.mappingId === mappingId)
         } catch (error) {
             console.error(`Failed to fetch external bookings for mapping ${mappingId}:`, error)

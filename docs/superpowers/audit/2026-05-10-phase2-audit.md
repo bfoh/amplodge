@@ -58,7 +58,7 @@ Owner key: B=Realtime/polling, C=Bundle, D=Wrapper internals, E=Page perf, F=Que
 - **Frequency:** 5
 - **Effort:** S
 - **Score:** (3 × 5) / 1 = 15.0  [P0]
-- **Sources:** `STAFF_LOGIN_PERFORMANCE_FIXED.md`, `src/pages/staff/StaffLoginPage.tsx`
+- **Sources:** `docs/legacy-fixes/STAFF_LOGIN_PERFORMANCE_FIXED.md`, `src/pages/staff/StaffLoginPage.tsx`
 - **Symptom:** Login takes 5+ seconds.
 - **Root-cause hypothesis:** Pre-login logout to "clear stale session" wasn't needed — Supabase signIn supersedes any prior session. Retry-with-backoff on the role lookup added another 4-5s in the failure path. MD claims fix shipped; verify retry counts in current `StaffLoginPage.tsx`.
 - **Suggested owner:** E (StaffLoginPage simplification)
@@ -82,7 +82,7 @@ Owner key: B=Realtime/polling, C=Bundle, D=Wrapper internals, E=Page perf, F=Que
 - **Frequency:** 4
 - **Effort:** S
 - **Score:** (3 × 4) / 1 = 12.0  [P0]
-- **Sources:** `RBAC_REFRESH_FIX.md` §3, `src/hooks/use-staff-role.tsx` (suspected current location)
+- **Sources:** `docs/legacy-fixes/RBAC_REFRESH_FIX.md` §3, `src/hooks/use-staff-role.tsx` (suspected current location)
 - **Symptom:** Buttons that require a permission disappear momentarily on every page load. UI flickers from "no access" to "has access".
 - **Root-cause hypothesis:** `can(resource, action)` returns `false` if `!role`. Doesn't expose `loading` state to caller. UIs can't render skeletons / disabled-but-present states.
 - **Suggested owner:** D (auth/permissions API surface) + E (consumers).
@@ -130,7 +130,7 @@ Owner key: B=Realtime/polling, C=Bundle, D=Wrapper internals, E=Page perf, F=Que
 - **Frequency:** 5
 - **Effort:** S
 - **Score:** (2 × 5) / 1 = 10.0  [P0]
-- **Sources:** `INVALID_TIME_VALUE_ERROR_FIXED.md` §2, `src/services/hotel-settings.ts`
+- **Sources:** `docs/legacy-fixes/INVALID_TIME_VALUE_ERROR_FIXED.md` §2, `src/services/hotel-settings.ts`
 - **Symptom:** Code uses `await this.db.hotelSettings?.list({ limit: 1 })` because the table "didn't exist". Now that schema is Supabase-managed, table either exists or the wrapper throws — optional-chain is dead defensive code AND wrapper would never return undefined for `db.X` (would throw on missing table).
 - **Root-cause hypothesis:** Blink-era pattern that survived migration. Now optional chains evaluate truthy (because `db.hotelSettings` resolves to a truthy proxy), so the defensive code is silent dead weight.
 - **Suggested owner:** G (dead-code purge — strip optional chains from all `db.X?.method()` patterns)
@@ -166,7 +166,7 @@ Owner key: B=Realtime/polling, C=Bundle, D=Wrapper internals, E=Page perf, F=Que
 - **Frequency:** 3
 - **Effort:** S
 - **Score:** (3 × 3) / 1 = 9.0  [P0]
-- **Sources:** `CHECKOUT_EMAIL_FIX_COMPLETE.md`, `DEEP_CHECKOUT_EMAIL_INVESTIGATION.md`, `src/pages/staff/ReservationsPage.tsx` (suspected — verify)
+- **Sources:** `docs/legacy-fixes/CHECKOUT_EMAIL_FIX_COMPLETE.md`, `DEEP_CHECKOUT_EMAIL_INVESTIGATION.md`, `src/pages/staff/ReservationsPage.tsx` (suspected — verify)
 - **Symptom:** Checkout email sometimes silently doesn't fire. Old code: `import('@/services/notifications').then(({ sendCheckOutNotification }) => { ... .catch(err => console.error(...)) })`. Notification only fires after dynamic import resolves; if import fails or component unmounts first, no email + no error.
 - **Root-cause hypothesis:** Dynamic import used to defer code-splitting, but author wrapped in `.then()` instead of `await import()`. Closure captures stale data on re-render.
 - **Suggested owner:** C (bundle / lazy-import) + E (cleanup notification call sites)
@@ -178,7 +178,7 @@ Owner key: B=Realtime/polling, C=Bundle, D=Wrapper internals, E=Page perf, F=Que
 - **Frequency:** 4
 - **Effort:** M
 - **Score:** (4 × 4) / 2 = 8.0  [P0]
-- **Sources:** `APP_STABILITY_FIXED.md`, `src/components/ProtectedRoute.tsx`
+- **Sources:** `docs/legacy-fixes/APP_STABILITY_FIXED.md`, `src/components/ProtectedRoute.tsx`
 - **Symptom:** App stuck on "Checking permissions..." spinner, refreshing forever. Fix uses `isCheckingRef` to prevent reentrancy.
 - **Root-cause hypothesis:** `useEffect` dependency array includes `[role, loading, userId, navigate, retryCount, location.pathname]` — every state change retriggers effect. Fix is a guard ref, not a redesign. Real fix: move permission check out of `useEffect` (use a hook return value derived from auth state, not a side-effect).
 - **Suggested owner:** D (auth wrapper) + E (ProtectedRoute simplification)
@@ -190,7 +190,7 @@ Owner key: B=Realtime/polling, C=Bundle, D=Wrapper internals, E=Page perf, F=Que
 - **Frequency:** 2
 - **Effort:** S
 - **Score:** (4 × 2) / 1 = 8.0  [P0]
-- **Sources:** `RUNTIME_ERROR_FIXED.md`, `FINAL_FIX_BROWSER_CACHE.md`, `FINAL_FIX_FORMAT_ERROR.md`, `SYNTAX_ERROR_FIXED.md`
+- **Sources:** `docs/legacy-fixes/RUNTIME_ERROR_FIXED.md`, `docs/legacy-fixes/FINAL_FIX_BROWSER_CACHE.md`, `docs/legacy-fixes/FINAL_FIX_FORMAT_ERROR.md`, `docs/legacy-fixes/SYNTAX_ERROR_FIXED.md`
 - **Symptom:** After deploys, users get cryptic ReferenceErrors ("processing is not defined", "format is not defined"). Multi-doc evidence of recurring pattern.
 - **Root-cause hypothesis:** Service-worker / browser cache holds stale `index-<hash>.js` chunk that imports symbols from a freshly-renamed module. Per `netlify.toml` cache headers: `index.html` is `no-cache`, hashed `/assets/*` are `cache forever`. Should work — but if the chunk-graph drifts, stale chunks reference functions deleted in newer chunks. Root fix: ensure Vite's chunk strategy preserves module boundaries on incremental builds, or strip caching on `service-worker.js`.
 - **Suggested owner:** A2 (deeper investigation — possibly C or G)
@@ -226,7 +226,7 @@ Owner key: B=Realtime/polling, C=Bundle, D=Wrapper internals, E=Page perf, F=Que
 - **Frequency:** 5
 - **Effort:** M
 - **Score:** (3 × 5) / 2 = 7.5  [P1]
-- **Sources:** `HISTORY_PAGE_PERFORMANCE_OPTIMIZATION.md` §3, `STAFF_LOGIN_PERFORMANCE_FIXED.md` §"Optimized Role Loading"
+- **Sources:** `HISTORY_PAGE_PERFORMANCE_OPTIMIZATION.md` §3, `docs/legacy-fixes/STAFF_LOGIN_PERFORMANCE_FIXED.md` §"Optimized Role Loading"
 - **Symptom:** Several pages call `db.staff.get(id)`, fall back to `db.staff.list({ where: { userId } })`, fall back to `auth.me()`. Each fallback adds latency and another race window.
 - **Root-cause hypothesis:** No single source of truth for "current staff record". Each page rolls its own lookup logic. Should be one hook (`useCurrentStaff()`) that caches.
 - **Suggested owner:** E (introduce `useCurrentStaff` hook, kill scattered lookups)
@@ -238,8 +238,8 @@ Owner key: B=Realtime/polling, C=Bundle, D=Wrapper internals, E=Page perf, F=Que
 - **Frequency:** 4
 - **Effort:** M
 - **Score:** (3 × 4) / 2 = 6.0  [P1]
-- **Sources:** `EMPLOYEE_TAB_FIX_FINAL.md`, `EMPLOYEE_TAB_PERMANENT_FIX.md`, `src/components/layout/AppLayout.tsx:54,75-106,121-130`
-- **Symptom:** On page refresh, admin section flickers off then on as `isLoadingStaff` resolves. `EMPLOYEE_TAB_FIX_FINAL.md` ships a `lastKnownAdminStateRef` workaround.
+- **Sources:** `docs/legacy-fixes/EMPLOYEE_TAB_FIX_FINAL.md`, `docs/legacy-fixes/EMPLOYEE_TAB_PERMANENT_FIX.md`, `src/components/layout/AppLayout.tsx:54,75-106,121-130`
+- **Symptom:** On page refresh, admin section flickers off then on as `isLoadingStaff` resolves. `docs/legacy-fixes/EMPLOYEE_TAB_FIX_FINAL.md` ships a `lastKnownAdminStateRef` workaround.
 - **Root-cause hypothesis:** Auth state has no stable initial value during async role lookup. Hardcoded `currentUser?.email === 'admin@amplodge.com'` escape hatch (not portable, not multi-tenant). Three layers (`canManageEmployees` / `role === 'admin'` / email check) compete instead of single source of truth. Wrapper's `auth.onAuthStateChanged` emits `{isLoading: true, user: null}` first then real state — consumers must remember last known good.
 - **Suggested owner:** D (wrapper auth surface) + E (AppLayout simplification once D lands)
 - **Notes:** Hardcoded admin email = portability hazard for any other deployment.
@@ -286,7 +286,7 @@ Owner key: B=Realtime/polling, C=Bundle, D=Wrapper internals, E=Page perf, F=Que
 - **Frequency:** 5
 - **Effort:** L
 - **Score:** (4 × 5) / 4 = 5.0  [P1]
-- **Sources:** `BOOKING_DELETION_DUPLICATION_FIX.md`, `src/services/activity-log-service.ts:248,266,720,793`, `src/pages/staff/ReservationHistoryPage.tsx:103,111`
+- **Sources:** `docs/legacy-fixes/BOOKING_DELETION_DUPLICATION_FIX.md`, `src/services/activity-log-service.ts:248,266,720,793`, `src/pages/staff/ReservationHistoryPage.tsx:103,111`
 - **Symptom:** Booking deletion creates duplicate history entries (one as "contact message", one as activity log). Reservation history page must dedup with `if contact.status === 'activity_log' continue`. Stale activity-log fallback writes to `contactMessages` whenever the dedicated table fails.
 - **Root-cause hypothesis:** Original Blink-era schema lacked an `activityLogs` table; service falls back to writing rows into `contactMessages` with `status='activity_log'`. Supabase migrations now include a real `activity_logs` table but the fallback path is still in code AND `ReservationHistoryPage` still queries `contact_messages` for activity rows. Two write paths + two read paths = duplication and stale data.
 - **Suggested owner:** D (wrapper internals → typed table accessors so cross-table writes can't compile) + F (kill the fallback read path)
@@ -322,7 +322,7 @@ Owner key: B=Realtime/polling, C=Bundle, D=Wrapper internals, E=Page perf, F=Que
 - **Frequency:** 5
 - **Effort:** L
 - **Score:** (4 × 5) / 4 = 5.0  [P1]
-- **Sources:** `ROOM_AVAILABILITY_SYNC_FIX.md`, `src/pages/RoomsPage.tsx`, `src/pages/BookingPage.tsx`, `src/pages/staff/OnsiteBookingPage.tsx`
+- **Sources:** `docs/legacy-fixes/ROOM_AVAILABILITY_SYNC_FIX.md`, `src/pages/RoomsPage.tsx`, `src/pages/BookingPage.tsx`, `src/pages/staff/OnsiteBookingPage.tsx`
 - **Symptom:** Frontend showed wrong availability (0 Deluxe / 1 Standard / 0 Family) vs backend (1 Deluxe / 6 Standard / 1 Family). Fix forced UI to read from `properties` table everywhere.
 - **Root-cause hypothesis:** Schema has both `rooms` and `properties`. Original `rooms` table is now legacy/stale. The two tables were not consolidated, just routed-around. Booking writes still write to `rooms` (per `src/lib/supabase.ts` Tables type), so they drift from `properties`. Real fix: pick one, migrate the other away.
 - **Suggested owner:** A2 (deeper schema audit needed; touches SQL migrations not just TS).
@@ -394,7 +394,7 @@ Owner key: B=Realtime/polling, C=Bundle, D=Wrapper internals, E=Page perf, F=Que
 - **Frequency:** 2
 - **Effort:** M
 - **Score:** (3 × 2) / 2 = 3.0  [P2]
-- **Sources:** `CRITICAL_ISSUES_FIXED.md` §2, `BOOKING_RESERVATIONS_FIXES_COMPLETE.md` §1, `INVALID_TIME_VALUE_ERROR_FIXED.md`, `src/pages/staff/InvoicesPage.tsx`
+- **Sources:** `docs/legacy-fixes/CRITICAL_ISSUES_FIXED.md` §2, `docs/legacy-fixes/BOOKING_RESERVATIONS_FIXES_COMPLETE.md` §1, `docs/legacy-fixes/INVALID_TIME_VALUE_ERROR_FIXED.md`, `src/pages/staff/InvoicesPage.tsx`
 - **Symptom:** InvoicesPage crashed on `format(new Date(invoice.checkIn))` when date was malformed. Patched with `invoice.checkIn ? format(...) : 'N/A'`. ReservationsPage filters out bookings missing `checkIn || checkOut || guestName`.
 - **Root-cause hypothesis:** Booking-create paths don't enforce required fields. Could be SQL `NOT NULL` + `CHECK` constraints in `bookings` schema. Currently pushed to client-side defense.
 - **Suggested owner:** F (query correctness) + Phase 3 schema audit (separate sub-project)
@@ -430,7 +430,7 @@ Owner key: B=Realtime/polling, C=Bundle, D=Wrapper internals, E=Page perf, F=Que
 - **Frequency:** 1
 - **Effort:** M
 - **Score:** (4 × 1) / 2 = 2.0  [P2]
-- **Sources:** `EMPLOYEE_TAB_FIX_FINAL.md`, `src/components/layout/AppLayout.tsx:64,70`, `src/App.tsx:157`
+- **Sources:** `docs/legacy-fixes/EMPLOYEE_TAB_FIX_FINAL.md`, `src/components/layout/AppLayout.tsx:64,70`, `src/App.tsx:157`
 - **Symptom:** Multiple call sites special-case `admin@amplodge.com`. App is hostel-management SaaS — not deployable to a second tenant without code edit.
 - **Root-cause hypothesis:** Bootstrapping shortcut never replaced. Should use `staff.role === 'owner'` as canonical signal.
 - **Suggested owner:** H (security hardening + role-driven auth)
@@ -476,98 +476,98 @@ Owner key: B=Realtime/polling, C=Bundle, D=Wrapper internals, E=Page perf, F=Que
 | `ACTIVITY_LOGGING_INTEGRATION_GUIDE.md` | BUG-0021 (cluster citation) |
 | `ACTIVITY_LOGS_CLEANUP_AND_EXPORT_ENHANCEMENT.md` | BUG-0021 (cluster) |
 | `ACTIVITY_LOGS_CLEANUP_GUIDE.md` | BUG-0021 (cluster) |
-| `ACTIVITY_LOG_DATA_FORMAT_FIXED.md` | BUG-0021 (cluster) |
+| `docs/legacy-fixes/ACTIVITY_LOG_DATA_FORMAT_FIXED.md` | BUG-0021 (cluster) |
 | `ACTIVITY_TRACKING_QUICK_START.md` | BUG-0021 (cluster) |
 | `ACTIVITY_TRACKING_SYSTEM.md` | BUG-0021 (cluster) |
-| `ADMIN_SESSION_FIX.md` | BUG-0017 (auth race cluster) |
+| `docs/legacy-fixes/ADMIN_SESSION_FIX.md` | BUG-0017 (auth race cluster) |
 | `ADMIN_SESSION_PRESERVATION_ANALYSIS.md` | BUG-0017 (cluster) |
-| `ADMIN_SESSION_PRESERVATION_FIXED.md` | BUG-0017 (cluster) |
-| `APP_STABILITY_FIXED.md` | BUG-0012 |
+| `docs/legacy-fixes/ADMIN_SESSION_PRESERVATION_FIXED.md` | BUG-0017 (cluster) |
+| `docs/legacy-fixes/APP_STABILITY_FIXED.md` | BUG-0012 |
 | `AUTOMATED_INVOICING_SYSTEM_COMPLETE.md` | BUG-0030 (cluster) |
-| `BOOKING_CONFIRMATION_VALIDATION_FIX.md` | BUG-0010 (cluster — booking validation) |
-| `BOOKING_CONFLICTING_MESSAGES_FIX.md` | BUG-0030 (cluster) |
-| `BOOKING_DELETION_DUPLICATION_FIX.md` | BUG-0021 |
+| `docs/legacy-fixes/BOOKING_CONFIRMATION_VALIDATION_FIX.md` | BUG-0010 (cluster — booking validation) |
+| `docs/legacy-fixes/BOOKING_CONFLICTING_MESSAGES_FIX.md` | BUG-0030 (cluster) |
+| `docs/legacy-fixes/BOOKING_DELETION_DUPLICATION_FIX.md` | BUG-0021 |
 | `BOOKING_DELETION_LOGGING_IMPLEMENTED.md` | BUG-0021 (cluster) |
-| `BOOKING_RESERVATIONS_FIXES_COMPLETE.md` | BUG-0030 |
+| `docs/legacy-fixes/BOOKING_RESERVATIONS_FIXES_COMPLETE.md` | BUG-0030 |
 | `CASCADE_DELETE_COMPLETE.md` | BUG-0009 (cluster — booking ID hygiene) |
 | `CASCADE_DELETE_IMPLEMENTATION.md` | BUG-0009 (cluster) |
-| `CHECKIN_CHECKOUT_ACTIVITY_LOGGING_FIX.md` | BUG-0021 (cluster) |
-| `CHECKOUT_EMAIL_DEBUGGING_FIX.md` | BUG-0011 |
-| `CHECKOUT_EMAIL_FIX_COMPLETE.md` | BUG-0011 |
-| `CRITICAL_CHECKOUT_ERRORS_FIXED.md` | historical (resolved — imports re-added; cited in coverage only) |
-| `CRITICAL_ISSUES_FIXED.md` | BUG-0030 |
+| `docs/legacy-fixes/CHECKIN_CHECKOUT_ACTIVITY_LOGGING_FIX.md` | BUG-0021 (cluster) |
+| `docs/legacy-fixes/CHECKOUT_EMAIL_DEBUGGING_FIX.md` | BUG-0011 |
+| `docs/legacy-fixes/CHECKOUT_EMAIL_FIX_COMPLETE.md` | BUG-0011 |
+| `docs/legacy-fixes/CRITICAL_CHECKOUT_ERRORS_FIXED.md` | historical (resolved — imports re-added; cited in coverage only) |
+| `docs/legacy-fixes/CRITICAL_ISSUES_FIXED.md` | BUG-0030 |
 | `DEBUGGING_RUNTIME_ERROR.md` | BUG-0013 (cluster) |
 | `DEEP_CHECKOUT_EMAIL_INVESTIGATION.md` | BUG-0011, BUG-0029 |
-| `DEEP_DIVE_FIXES_COMPLETE.md` | historical (resolved) |
+| `docs/legacy-fixes/DEEP_DIVE_FIXES_COMPLETE.md` | historical (resolved) |
 | `DELETE_EMPLOYEE_QUICK_GUIDE.md` | BUG-0022 (cluster — netlify fns) |
 | `DEPLOYMENT_SUMMARY.md` | non-fix doc (informational) |
-| `DIALOG_CLOSING_FIX_COMPLETE.md` | BUG-0029 (cluster — UI race) |
-| `EMAIL_SENDING_FIX_COMPLETE.md` | BUG-0011 (cluster) |
+| `docs/legacy-fixes/DIALOG_CLOSING_FIX_COMPLETE.md` | BUG-0029 (cluster — UI race) |
+| `docs/legacy-fixes/EMAIL_SENDING_FIX_COMPLETE.md` | BUG-0011 (cluster) |
 | `EMPLOYEE_CREATION_WORKFLOW_GUIDE.md` | BUG-0022 (cluster) |
 | `EMPLOYEE_CREATION_WORKFLOW_PLAN.md` | BUG-0022 (cluster) |
 | `EMPLOYEE_CREDENTIALS_QUICK_REF.md` | BUG-0022 (cluster) |
-| `EMPLOYEE_TAB_FIX_FINAL.md` | BUG-0017, BUG-0033 |
-| `EMPLOYEE_TAB_PERMANENT_FIX.md` | BUG-0017 |
+| `docs/legacy-fixes/EMPLOYEE_TAB_FIX_FINAL.md` | BUG-0017, BUG-0033 |
+| `docs/legacy-fixes/EMPLOYEE_TAB_PERMANENT_FIX.md` | BUG-0017 |
 | `EMPLOYEE_WORKFLOW_COMPLETE.md` | BUG-0022 (cluster) |
 | `EMPLOYEE_WORKFLOW_VISUAL.md` | BUG-0022 (cluster) |
 | `ENHANCED_READABLE_MESSAGE_FORMAT.md` | BUG-0021 (cluster) |
-| `FINAL_FIX_BROWSER_CACHE.md` | BUG-0013 |
-| `FINAL_FIX_FORMAT_ERROR.md` | BUG-0013 |
+| `docs/legacy-fixes/FINAL_FIX_BROWSER_CACHE.md` | BUG-0013 |
+| `docs/legacy-fixes/FINAL_FIX_FORMAT_ERROR.md` | BUG-0013 |
 | `FINAL_PRODUCTION_READY.md` | non-fix doc (informational) |
-| `FRONTEND_IMPORT_ERROR_FIX.md` | BUG-0013 (cluster) |
-| `GRID_VIEW_ERROR_FIXED.md` | BUG-0029 (cluster — UI race) |
+| `docs/legacy-fixes/FRONTEND_IMPORT_ERROR_FIX.md` | BUG-0013 (cluster) |
+| `docs/legacy-fixes/GRID_VIEW_ERROR_FIXED.md` | BUG-0029 (cluster — UI race) |
 | `HISTORY_PAGE_COMPREHENSIVE_ACTIVITIES.md` | BUG-0015 (cluster) |
 | `HISTORY_PAGE_PERFORMANCE_OPTIMIZATION.md` | BUG-0015, BUG-0016 |
 | `HOUSEKEEPING_TASK_TEST_GUIDE.md` | BUG-0029 (cluster — task race) |
 | `HOUSEKEEPING_TASK_WORKFLOW_COMPLETE.md` | BUG-0029 (cluster) |
 | `HOW_TO_CLEAN_EMPLOYEES.md` | BUG-0023 (cluster — cleanup scripts) |
 | `IMPLEMENTATION_FINAL_SUMMARY.md` | non-fix doc (informational) |
-| `INVALID_TIME_VALUE_ERROR_FIXED.md` | BUG-0008, BUG-0030 |
-| `INVOICE_DATABASE_FIXES_COMPLETE.md` | historical (resolved — invoice service rewritten post-fix) |
-| `INVOICE_DEEP_ANALYSIS_AND_FIX.md` | BUG-0030 (cluster) |
-| `INVOICE_MOCK_DATA_REPLACEMENT_COMPLETE.md` | BUG-0034 (cluster — seed/mock data) |
+| `docs/legacy-fixes/INVALID_TIME_VALUE_ERROR_FIXED.md` | BUG-0008, BUG-0030 |
+| `docs/legacy-fixes/INVOICE_DATABASE_FIXES_COMPLETE.md` | historical (resolved — invoice service rewritten post-fix) |
+| `docs/legacy-fixes/INVOICE_DEEP_ANALYSIS_AND_FIX.md` | BUG-0030 (cluster) |
+| `docs/legacy-fixes/INVOICE_MOCK_DATA_REPLACEMENT_COMPLETE.md` | BUG-0034 (cluster — seed/mock data) |
 | `INVOICE_QUICK_GUIDE.md` | non-fix doc (user guide) |
 | `INVOICE_SYSTEM_COMPLETE.md` | non-fix doc |
-| `INVOICE_SYSTEM_COMPLETELY_FIXED.md` | historical (resolved) |
-| `INVOICE_SYSTEM_COMPLETELY_FIXED_FINAL.md` | historical (resolved) |
-| `INVOICE_SYSTEM_DEBUGGED_COMPLETE.md` | historical (resolved) |
+| `docs/legacy-fixes/INVOICE_SYSTEM_COMPLETELY_FIXED.md` | historical (resolved) |
+| `docs/legacy-fixes/INVOICE_SYSTEM_COMPLETELY_FIXED_FINAL.md` | historical (resolved) |
+| `docs/legacy-fixes/INVOICE_SYSTEM_DEBUGGED_COMPLETE.md` | historical (resolved) |
 | `INVOICE_SYSTEM_DIAGNOSIS.md` | BUG-0030 (cluster) |
-| `INVOICE_SYSTEM_FIXED.md` | historical (resolved) |
-| `INVOICE_SYSTEM_FIXES_COMPLETE.md` | historical (resolved) |
+| `docs/legacy-fixes/INVOICE_SYSTEM_FIXED.md` | historical (resolved) |
+| `docs/legacy-fixes/INVOICE_SYSTEM_FIXES_COMPLETE.md` | historical (resolved) |
 | `INVOICE_SYSTEM_SUMMARY.md` | non-fix doc |
 | `INVOICING_QUICK_TEST_GUIDE.md` | non-fix doc |
 | `LOGIN_LOGGING_IMPLEMENTATION.md` | BUG-0021 (cluster) |
-| `LOGOUT_UNKNOWN_USER_FIX.md` | BUG-0019 |
-| `MANUAL_LOGIN_COMPLETELY_FIXED.md` | BUG-0002 (cluster) |
-| `MANUAL_LOGIN_REQUIRED_FIX.md` | BUG-0002 (cluster) |
-| `MOCK_DATA_FIXED_COMPLETE.md` | BUG-0034 (cluster) |
-| `RBAC_REFRESH_FIX.md` | BUG-0004, BUG-0012 |
+| `docs/legacy-fixes/LOGOUT_UNKNOWN_USER_FIX.md` | BUG-0019 |
+| `docs/legacy-fixes/MANUAL_LOGIN_COMPLETELY_FIXED.md` | BUG-0002 (cluster) |
+| `docs/legacy-fixes/MANUAL_LOGIN_REQUIRED_FIX.md` | BUG-0002 (cluster) |
+| `docs/legacy-fixes/MOCK_DATA_FIXED_COMPLETE.md` | BUG-0034 (cluster) |
+| `docs/legacy-fixes/RBAC_REFRESH_FIX.md` | BUG-0004, BUG-0012 |
 | `READABLE_MESSAGE_FORMAT_IMPLEMENTED.md` | BUG-0021 (cluster) |
 | `REAL_DATA_INTEGRATION_COMPLETE.md` | BUG-0034 (cluster) |
-| `RESERVATIONS_PAGE_FIX_COMPLETE.md` | BUG-0010 |
-| `ROOM_AVAILABILITY_CALCULATION_FIX.md` | BUG-0024 |
-| `ROOM_AVAILABILITY_SYNC_FIX.md` | BUG-0024 |
-| `RUNTIME_ERROR_FIXED.md` | BUG-0013 |
+| `docs/legacy-fixes/RESERVATIONS_PAGE_FIX_COMPLETE.md` | BUG-0010 |
+| `docs/legacy-fixes/ROOM_AVAILABILITY_CALCULATION_FIX.md` | BUG-0024 |
+| `docs/legacy-fixes/ROOM_AVAILABILITY_SYNC_FIX.md` | BUG-0024 |
+| `docs/legacy-fixes/RUNTIME_ERROR_FIXED.md` | BUG-0013 |
 | `SESSION_COMPLETE_SUMMARY.md` | non-fix doc |
 | `STABILITY_AUDIT_REPORT.md` | BUG-0001, BUG-0018, BUG-0031, BUG-0032 |
 | `STABILITY_COMPLETE_SUMMARY.md` | BUG-0001 (cluster) |
-| `STABILITY_FIXES_IMPLEMENTED.md` | BUG-0001 (cluster) |
-| `STAFF_LOGIN_PERFORMANCE_FIXED.md` | BUG-0002, BUG-0016 |
-| `STAFF_PORTAL_OPENING_FIXED.md` | BUG-0002 (cluster) |
-| `SYNTAX_ERROR_FIXED.md` | BUG-0013 |
+| `docs/legacy-fixes/STABILITY_FIXES_IMPLEMENTED.md` | BUG-0001 (cluster) |
+| `docs/legacy-fixes/STAFF_LOGIN_PERFORMANCE_FIXED.md` | BUG-0002, BUG-0016 |
+| `docs/legacy-fixes/STAFF_PORTAL_OPENING_FIXED.md` | BUG-0002 (cluster) |
+| `docs/legacy-fixes/SYNTAX_ERROR_FIXED.md` | BUG-0013 |
 | `TEST_BOOKING_CLEANUP_IMPLEMENTATION.md` | BUG-0023 (cluster) |
-| `UNIQUE_HEADINGS_FINAL_FIX.md` | BUG-0021 (cluster — history dedup) |
-| `UNIQUE_HEADINGS_FIX_IMPLEMENTED.md` | BUG-0021 (cluster) |
-| `USER_EMAIL_FIX_IMPLEMENTED.md` | BUG-0019 |
+| `docs/legacy-fixes/UNIQUE_HEADINGS_FINAL_FIX.md` | BUG-0021 (cluster — history dedup) |
+| `docs/legacy-fixes/UNIQUE_HEADINGS_FIX_IMPLEMENTED.md` | BUG-0021 (cluster) |
+| `docs/legacy-fixes/USER_EMAIL_FIX_IMPLEMENTED.md` | BUG-0019 |
 
 | `ANALYTICS_IMPLEMENTATION_COMPLETE.md` | non-fix doc (analytics system overview) |
 
 ### Not cited (1 — analyzed and excluded)
 
-- `CRITICAL_CHECKOUT_ERRORS_FIXED.md` — Loader2 + toast imports re-added; verified present in current `ReservationsPage.tsx`.
-- `DEEP_DIVE_FIXES_COMPLETE.md` — Loader2 + InvoicesPage route added; verified.
-- `INVOICE_DATABASE_FIXES_COMPLETE.md` — Blink-era collection-init pattern removed; current invoice-service has no `collection_init` workaround.
-- `INVOICE_SYSTEM_COMPLETELY_FIXED.md` / `INVOICE_SYSTEM_COMPLETELY_FIXED_FINAL.md` / `INVOICE_SYSTEM_DEBUGGED_COMPLETE.md` / `INVOICE_SYSTEM_FIXED.md` / `INVOICE_SYSTEM_FIXES_COMPLETE.md` — invoice service rewritten post-fix; current code has different shape.
+- `docs/legacy-fixes/CRITICAL_CHECKOUT_ERRORS_FIXED.md` — Loader2 + toast imports re-added; verified present in current `ReservationsPage.tsx`.
+- `docs/legacy-fixes/DEEP_DIVE_FIXES_COMPLETE.md` — Loader2 + InvoicesPage route added; verified.
+- `docs/legacy-fixes/INVOICE_DATABASE_FIXES_COMPLETE.md` — Blink-era collection-init pattern removed; current invoice-service has no `collection_init` workaround.
+- `docs/legacy-fixes/INVOICE_SYSTEM_COMPLETELY_FIXED.md` / `docs/legacy-fixes/INVOICE_SYSTEM_COMPLETELY_FIXED_FINAL.md` / `docs/legacy-fixes/INVOICE_SYSTEM_DEBUGGED_COMPLETE.md` / `docs/legacy-fixes/INVOICE_SYSTEM_FIXED.md` / `docs/legacy-fixes/INVOICE_SYSTEM_FIXES_COMPLETE.md` — invoice service rewritten post-fix; current code has different shape.
 
 **Coverage:** 84 / 84 = **100%** ≥ target 95%.
 

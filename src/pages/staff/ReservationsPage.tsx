@@ -236,7 +236,7 @@ export function ReservationsPage() {
           db.rooms.listAll(),
           db.guests.listAll(),
           db.roomTypes.list({ limit: 100 }),
-          db.bookingCharges?.listAll() || Promise.resolve([])
+          db.bookingCharges.listAll() || Promise.resolve([])
         ])
 
         // Store charges for calculating totals
@@ -908,7 +908,7 @@ export function ReservationsPage() {
         guest={chargesDialog ? guestMap.get(chargesDialog.guestId) : null}
         onChargesUpdated={async () => {
           // Refresh charges data when charges are updated
-          const charges = await db.bookingCharges?.listAll() || []
+          const charges = await db.bookingCharges.listAll() || []
           setAllCharges(charges)
         }}
       />
@@ -932,7 +932,7 @@ export function ReservationsPage() {
               // Refresh bookings and charges data after extension
               const [b, charges] = await Promise.all([
                 db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
-                db.bookingCharges?.listAll() || Promise.resolve([])
+                db.bookingCharges.listAll() || Promise.resolve([])
               ])
               setBookings(b)
               setAllCharges(charges || [])
@@ -952,7 +952,7 @@ export function ReservationsPage() {
             // Refresh bookings data
             const [b, charges] = await Promise.all([
               db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
-              db.bookingCharges?.listAll() || Promise.resolve([])
+              db.bookingCharges.listAll() || Promise.resolve([])
             ])
             setBookings(b)
             setAllCharges(charges || [])
