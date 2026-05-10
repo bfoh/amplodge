@@ -975,6 +975,8 @@ export const auth = {
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
-
-export const blink = { db, auth }
-export default blink
+//
+// `db` and `auth` are exported individually above (lines 760, 829).
+// The legacy `blink` shim was removed in the phase-1 strip-blink refactor —
+// see docs/superpowers/specs/2026-05-10-phase1-strip-blink-design.md.
+// Consumers import from `@/lib/db` (the public surface).

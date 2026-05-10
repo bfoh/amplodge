@@ -769,7 +769,7 @@ export async function getOrCreateWeekReport(
   staffName: string,
   week: WeekBounds
 ): Promise<WeeklyRevenueReport> {
-  // Fetch all and filter client-side — blink SDK where-filter is unreliable for custom tables
+  // Fetch all and filter client-side — wrapper's where-filter is unreliable for custom tables
   let allRows: WeeklyRevenueReport[] = []
   try {
     const rows = await db.hr_weekly_revenue.list({ limit: 500 })

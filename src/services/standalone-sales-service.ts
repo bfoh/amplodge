@@ -1,7 +1,7 @@
 /**
  * Standalone Sales Service
  * Tracks walk-in / non-booking sales (bar, restaurant, etc.)
- * Table: standaloneSales — auto-created by blink on first insert.
+ * Table: standaloneSales — created by SQL migration in supabase/migrations/.
  */
 
 import { db, auth } from '@/lib/db'
@@ -59,7 +59,7 @@ export const standaloneSalesService = {
       }
     } catch (e) {
       console.warn('[standaloneSalesService] create failed (table may not exist yet):', e)
-      // Try again — blink sometimes needs two attempts after auto-creating
+      // Retry once — wrapper occasionally races on first insert into a freshly cached table
       await db.standaloneSales.create(record)
       
       if (data.inventoryId) {
