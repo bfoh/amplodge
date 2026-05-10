@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 import { Printer, Mail, MessageSquare, Download, Share2 } from "lucide-react"
 import html2canvas from "html2canvas"
+import { callFunction } from "@/lib/api"
 
 export function QRCodeGenerator() {
     const [url, setUrl] = useState("https://www.amplodge.org")
@@ -73,7 +74,7 @@ export function QRCodeGenerator() {
             // Remove header
             // const base64Content = dataUrl.split(',')[1];
 
-            const response = await fetch('/.netlify/functions/send-email', {
+            const response = await callFunction('send-email', {
                 method: 'POST',
                 body: JSON.stringify({
                     to: emailTo,
@@ -113,7 +114,7 @@ export function QRCodeGenerator() {
 
         setSmsSending(true);
         try {
-            const response = await fetch('/.netlify/functions/send-sms', {
+            const response = await callFunction('send-sms', {
                 method: 'POST',
                 body: JSON.stringify({
                     to: smsTo,

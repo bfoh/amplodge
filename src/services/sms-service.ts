@@ -1,6 +1,8 @@
 // SMS Service - Uses Netlify serverless function for Arkesel calls
 // This keeps API keys secure on the server side
 
+import { callFunction } from '@/lib/api'
+
 interface SMSResult {
     success: boolean
     messageId?: string
@@ -60,7 +62,7 @@ async function sendViaNetlifyFunction(
             messageLength: message.length
         })
 
-        const response = await fetch('/.netlify/functions/send-sms', {
+        const response = await callFunction('send-sms', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 // import { useAuth } from "@/context/AuthContext"
 import { supabase } from "@/lib/supabase"
+import { callFunction } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -75,7 +76,7 @@ export default function MarketingPage() {
         setSending(true)
         try {
             // Call Backend with dryRun=true
-            const response = await fetch('/.netlify/functions/trigger-campaign', {
+            const response = await callFunction('trigger-campaign', {
                 method: 'POST',
                 body: JSON.stringify({
                     channel: selectedTemplate.channel,
@@ -101,7 +102,7 @@ export default function MarketingPage() {
         if (!selectedTemplate) return
         setSending(true)
         try {
-            const response = await fetch('/.netlify/functions/trigger-campaign', {
+            const response = await callFunction('trigger-campaign', {
                 method: 'POST',
                 body: JSON.stringify({
                     channel: selectedTemplate.channel,
@@ -152,7 +153,7 @@ export default function MarketingPage() {
 
         setGenerating(true)
         try {
-            const response = await fetch('/.netlify/functions/generate-marketing-copy', {
+            const response = await callFunction('generate-marketing-copy', {
                 method: 'POST',
                 body: JSON.stringify({
                     currentContent: editContent,
