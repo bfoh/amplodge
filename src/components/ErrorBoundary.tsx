@@ -1,4 +1,5 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react'
+import * as Sentry from '@sentry/react'
 import { Button } from './ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/card'
 import { AlertTriangle } from 'lucide-react'
@@ -33,15 +34,21 @@ export class ErrorBoundary extends Component<Props, State> {
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     // Log error to console in development
     console.error('🔥 [ErrorBoundary] Uncaught error:', error, errorInfo)
-    
+
     // Update state with error details
     this.setState({
       error,
       errorInfo
     })
 
-    // TODO: Log to error reporting service (e.g., Sentry)
-    // logErrorToService(error, errorInfo)
+    // Send to Sentry (no-op if VITE_SENTRY_DSN not configured)
+    Sentry.captureException(error, {
+      contexts: {
+        react: {
+          componentStack: errorInfo.componentStack,
+        },
+      },
+    })
   }
 
   private handleReset = () => {
