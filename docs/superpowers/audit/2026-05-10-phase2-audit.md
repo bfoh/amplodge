@@ -233,6 +233,114 @@ Owner key: B=Realtime/polling, C=Bundle, D=Wrapper internals, E=Page perf, F=Que
 - **Suggested owner:** G (dead-code purge)
 - **Notes:** Verify zero imports before delete; Phase 1 grep showed zero. Probably safe to delete entirely.
 
+### BUG-0019 — `ProtectedRoute` permission-check loop ("Checking Permissions..." flash)
+- **Category:** auth
+- **Impact:** 4
+- **Frequency:** 4
+- **Effort:** M
+- **Score:** (4 × 4) / 2 = 8.0
+- **Sources:** `APP_STABILITY_FIXED.md`, `src/components/ProtectedRoute.tsx`
+- **Symptom:** App stuck on "Checking permissions..." spinner, refreshing forever. Fix uses `isCheckingRef` to prevent reentrancy.
+- **Root-cause hypothesis:** `useEffect` dependency array includes `[role, loading, userId, navigate, retryCount, location.pathname]` — every state change retriggers effect. Fix is a guard ref, not a redesign. Real fix: move permission check out of `useEffect` (use a hook return value derived from auth state, not a side-effect).
+- **Suggested owner:** D (auth wrapper) + E (ProtectedRoute simplification)
+- **Notes:** Pairs with BUG-0002 + BUG-0005. All three are symptoms of the same auth-state-as-side-effect anti-pattern.
+
+### BUG-0020 — Two parallel "room" tables: `rooms` + `properties` — UI must read from properties to match backend
+- **Category:** booking
+- **Impact:** 4
+- **Frequency:** 5
+- **Effort:** L
+- **Score:** (4 × 5) / 4 = 5.0
+- **Sources:** `ROOM_AVAILABILITY_SYNC_FIX.md`, `src/pages/RoomsPage.tsx`, `src/pages/BookingPage.tsx`, `src/pages/staff/OnsiteBookingPage.tsx`
+- **Symptom:** Frontend showed wrong availability (0 Deluxe / 1 Standard / 0 Family) vs backend (1 Deluxe / 6 Standard / 1 Family). Fix forced UI to read from `properties` table everywhere.
+- **Root-cause hypothesis:** Schema has both `rooms` and `properties`. Original `rooms` table is now legacy/stale. The two tables were not consolidated, just routed-around. Booking writes still write to `rooms` (per `src/lib/supabase.ts` Tables type), so they drift from `properties`. Real fix: pick one, migrate the other away.
+- **Suggested owner:** A2 (deeper schema audit needed; touches SQL migrations not just TS).
+- **Notes:** Highest-leverage data-layer cleanup. Until resolved, every "rooms" read in legacy code is wrong.
+
+### BUG-0021 — History page does N+1 staff lookups per row, 5×50 fan-out fetches on load
+- **Category:** booking
+- **Impact:** 3
+- **Frequency:** 5
+- **Effort:** M
+- **Score:** (3 × 5) / 2 = 7.5
+- **Sources:** `HISTORY_PAGE_PERFORMANCE_OPTIMIZATION.md`, `src/pages/staff/ReservationHistoryPage.tsx`
+- **Symptom:** History page spins for seconds. Initial render reads 5 tables × 50 rows + per-row `getStaffInfo` w/ three fallback queries each.
+- **Root-cause hypothesis:** No joined query in wrapper API, so consumers fetch tables separately and join client-side. `getStaffInfo` fallback chain (`get` → `list by userId` → `auth.me()`) shows the API is too generic.
+- **Suggested owner:** F (kill N+1 — use Postgres `select(*, staff(*))` joined query) + D (typed accessors that surface relations).
+- **Notes:** Same N+1 pattern likely in Bookings, Guests, Reservations pages. Investigate sibling pages.
+
+### BUG-0022 — Login flow: pre-login logout adds 1-2s delay, 5 retries × 800ms backoff
+- **Category:** auth
+- **Impact:** 3
+- **Frequency:** 5
+- **Effort:** S
+- **Score:** (3 × 5) / 1 = 15.0
+- **Sources:** `STAFF_LOGIN_PERFORMANCE_FIXED.md`, `src/pages/staff/StaffLoginPage.tsx`
+- **Symptom:** Login takes 5+ seconds.
+- **Root-cause hypothesis:** Pre-login logout to "clear stale session" wasn't needed — Supabase signIn supersedes any prior session. Retry-with-backoff on the role lookup added another 4-5s in the failure path. MD claims fix shipped; verify retry counts in current `StaffLoginPage.tsx`.
+- **Suggested owner:** E (StaffLoginPage simplification)
+- **Notes:** P0 — directly affects staff every login. Verify fix actually applied — see git log for "login performance" commits.
+
+### BUG-0023 — `roleloading` race: 3-fallback `getStaffInfo` patternused everywhere
+- **Category:** auth
+- **Impact:** 3
+- **Frequency:** 5
+- **Effort:** M
+- **Score:** (3 × 5) / 2 = 7.5
+- **Sources:** `HISTORY_PAGE_PERFORMANCE_OPTIMIZATION.md` §3, `STAFF_LOGIN_PERFORMANCE_FIXED.md` §"Optimized Role Loading"
+- **Symptom:** Several pages call `db.staff.get(id)`, fall back to `db.staff.list({ where: { userId } })`, fall back to `auth.me()`. Each fallback adds latency and another race window.
+- **Root-cause hypothesis:** No single source of truth for "current staff record". Each page rolls its own lookup logic. Should be one hook (`useCurrentStaff()`) that caches.
+- **Suggested owner:** E (introduce `useCurrentStaff` hook, kill scattered lookups)
+- **Notes:** Pairs with BUG-0007 (temp ID workaround). Same root cause: no canonical staff context.
+
+### BUG-0024 — `usePermissions` hook returns `false` during loading instead of distinguishing "loading" vs "no role"
+- **Category:** auth
+- **Impact:** 3
+- **Frequency:** 4
+- **Effort:** S
+- **Score:** (3 × 4) / 1 = 12.0
+- **Sources:** `RBAC_REFRESH_FIX.md` §3, `src/hooks/use-staff-role.tsx` (suspected current location)
+- **Symptom:** Buttons that require a permission disappear momentarily on every page load. UI flickers from "no access" to "has access".
+- **Root-cause hypothesis:** `can(resource, action)` returns `false` if `!role`. Doesn't expose `loading` state to caller. UIs can't render skeletons / disabled-but-present states.
+- **Suggested owner:** D (auth/permissions API surface) + E (consumers).
+- **Notes:** Easy fix: hook returns `{ canX, isLoading }` instead of plain `false`.
+
+### BUG-0025 — Notification service called via dynamic `import().then()` chain (race + silent failure)
+- **Category:** infra
+- **Impact:** 3
+- **Frequency:** 3
+- **Effort:** S
+- **Score:** (3 × 3) / 1 = 9.0
+- **Sources:** `CHECKOUT_EMAIL_FIX_COMPLETE.md`, `DEEP_CHECKOUT_EMAIL_INVESTIGATION.md`, `src/pages/staff/ReservationsPage.tsx` (suspected — verify)
+- **Symptom:** Checkout email sometimes silently doesn't fire. Old code: `import('@/services/notifications').then(({ sendCheckOutNotification }) => { ... .catch(err => console.error(...)) })`. Notification only fires after dynamic import resolves; if import fails or component unmounts first, no email + no error.
+- **Root-cause hypothesis:** Dynamic import used to defer code-splitting, but author wrapped in `.then()` instead of `await import()`. Closure captures stale data on re-render.
+- **Suggested owner:** C (bundle / lazy-import) + E (cleanup notification call sites)
+- **Notes:** MD says fixed; verify pattern is gone in current code (`grep -rn "import.*notifications.*\.then" src/`).
+
+### BUG-0026 — `hotelSettings` table optional-chained access (`db.hotelSettings?.list`) — table existence assumed unreliable
+- **Category:** data-layer
+- **Impact:** 2
+- **Frequency:** 5
+- **Effort:** S
+- **Score:** (2 × 5) / 1 = 10.0
+- **Sources:** `INVALID_TIME_VALUE_ERROR_FIXED.md` §2, `src/services/hotel-settings.ts`
+- **Symptom:** Code uses `await this.db.hotelSettings?.list({ limit: 1 })` because the table "didn't exist". Now that schema is Supabase-managed, table either exists or the wrapper throws — optional-chain is dead defensive code AND wrapper would never return undefined for `db.X` (would throw on missing table).
+- **Root-cause hypothesis:** Blink-era pattern that survived migration. Now optional chains evaluate truthy (because `db.hotelSettings` resolves to a truthy proxy), so the defensive code is silent dead weight.
+- **Suggested owner:** G (dead-code purge — strip optional chains from all `db.X?.method()` patterns)
+- **Notes:** Same pattern likely in other services. `grep -rn "db\.[a-zA-Z]*\?\.\(list\|get\|create\|update\|delete\)" src/`.
+
+### BUG-0027 — Browser-cache stale-build issue surfaces as "X is not defined" runtime errors
+- **Category:** infra
+- **Impact:** 4
+- **Frequency:** 2
+- **Effort:** S
+- **Score:** (4 × 2) / 1 = 8.0
+- **Sources:** `RUNTIME_ERROR_FIXED.md`, `FINAL_FIX_BROWSER_CACHE.md`, `FINAL_FIX_FORMAT_ERROR.md`, `SYNTAX_ERROR_FIXED.md`
+- **Symptom:** After deploys, users get cryptic ReferenceErrors ("processing is not defined", "format is not defined"). Multi-doc evidence of recurring pattern.
+- **Root-cause hypothesis:** Service-worker / browser cache holds stale `index-<hash>.js` chunk that imports symbols from a freshly-renamed module. Per `netlify.toml` cache headers: `index.html` is `no-cache`, hashed `/assets/*` are `cache forever`. Should work — but if the chunk-graph drifts, stale chunks reference functions deleted in newer chunks. Root fix: ensure Vite's chunk strategy preserves module boundaries on incremental builds, or strip caching on `service-worker.js`.
+- **Suggested owner:** A2 (deeper investigation — possibly C or G)
+- **Notes:** Investigate: does the app register a service worker? Check `src/main.tsx` for SW registration. If yes, verify SW invalidation on deploy.
+
 ### BUG-0018 — `src/utils/test-*` and `src/utils/database-init.ts` etc.: scratch utility files w/ pre-existing TS errors
 - **Category:** infra
 - **Impact:** 1
