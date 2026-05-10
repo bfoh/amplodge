@@ -1,45 +1,32 @@
 import { createClient } from '@supabase/supabase-js'
+import { requireAdmin, jsonResponse, handleCors } from './_lib/auth.js'
 
 // -----------------------------------------------------------------------------
-// Verified against legacy functions/create-employee/index.ts on 2026-05-10
-// (Phase 1 strip-blink — see docs/superpowers/specs/2026-05-10-phase1-strip-blink-design.md):
-//
-//   Auth user creation (admin API + email_confirm):       covered (lines 59-63)
-//   "Already exists" recovery + password reset:           covered (lines 65-143)
-//   public.users row + first_login flag:                  covered (lines 113-120, 165-172)
-//   Staff table record creation:                          done client-side in
-//                                                         src/pages/staff/EmployeesPage.tsx
-//   Activity log write:                                   done client-side, same file
-//
-// PRE-EXISTING SECURITY GAP (pre-dates this refactor, NOT introduced by it):
-//   - No Authorization-header check on this endpoint (legacy version did
-//     blink.auth.me() + staff.role gate). Any client can hit it. Tracked for
-//     Phase 2 security pass.
-//
-// Legacy Deno+Blink file at functions/create-employee/index.ts removed in
-// commit `chore: delete orphaned top-level functions/`.
+// Phase 2H (2026-05-10): admin-token gate added via requireAdmin().
+// Phase 1 (2026-05-10): verified parity against legacy functions/create-employee
+// — auth-user creation, "already exists" recovery, public.users row + first_login
+// flag all covered here. Staff table record + activity log are still done
+// client-side in src/pages/staff/EmployeesPage.tsx.
 // -----------------------------------------------------------------------------
 
-export const handler = async function (event, context) {
-    // Only allow POST requests
+export const handler = async function (event) {
+    const corsResp = handleCors(event); if (corsResp) return corsResp
+
     if (event.httpMethod !== 'POST') {
-        return {
-            statusCode: 405,
-            body: JSON.stringify({ error: 'Method not allowed' })
-        }
+        return jsonResponse(405, { error: 'Method not allowed' })
     }
 
-    // CORS headers
+    try {
+        await requireAdmin(event)
+    } catch (e) {
+        return jsonResponse(e.status, e.body)
+    }
+
     const headers = {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Content-Type': 'application/json'
-    }
-
-    // Handle preflight
-    if (event.httpMethod === 'OPTIONS') {
-        return { statusCode: 200, headers, body: '' }
     }
 
     try {

@@ -1,13 +1,19 @@
 // Arkesel SMS Integration
 // Documentation: https://arkesel.com/developers
 
+import { requireAdmin, jsonResponse, handleCors } from './_lib/auth.js'
+
 export const handler = async (event) => {
-    // Only allow POST requests
+    const corsResp = handleCors(event); if (corsResp) return corsResp
+
     if (event.httpMethod !== 'POST') {
-        return {
-            statusCode: 405,
-            body: JSON.stringify({ error: 'Method not allowed' })
-        };
+        return jsonResponse(405, { error: 'Method not allowed' });
+    }
+
+    try {
+        await requireAdmin(event);
+    } catch (e) {
+        return jsonResponse(e.status, e.body);
     }
 
     try {

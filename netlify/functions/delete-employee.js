@@ -1,25 +1,24 @@
 import { createClient } from '@supabase/supabase-js'
+import { requireAdmin, jsonResponse, handleCors } from './_lib/auth.js'
 
-export const handler = async function (event, context) {
-    // Only allow POST/DELETE requests
+export const handler = async function (event) {
+    const corsResp = handleCors(event); if (corsResp) return corsResp
+
     if (event.httpMethod !== 'POST' && event.httpMethod !== 'DELETE') {
-        return {
-            statusCode: 405,
-            body: JSON.stringify({ error: 'Method not allowed' })
-        }
+        return jsonResponse(405, { error: 'Method not allowed' })
     }
 
-    // CORS headers
+    try {
+        await requireAdmin(event)
+    } catch (e) {
+        return jsonResponse(e.status, e.body)
+    }
+
     const headers = {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         'Access-Control-Allow-Methods': 'POST, DELETE, OPTIONS, GET',
         'Content-Type': 'application/json'
-    }
-
-    // Handle preflight
-    if (event.httpMethod === 'OPTIONS') {
-        return { statusCode: 200, headers, body: '' }
     }
 
     try {
