@@ -292,9 +292,7 @@ export function ReservationsPage() {
 
           // Check for logical duplicate (same guest, room, dates)
           const duplicateByDetailsIndex = acc.findIndex(item => {
-            const itemGuest = tempGuestMap.get(item.guestId)
             const itemRoom = tempRoomMap.get(item.roomId)
-
             const itemRoomNumber = (itemRoom?.roomNumber || '').trim()
             const itemCheckIn = normalizeDate(item.checkIn)
             const itemCheckOut = normalizeDate(item.checkOut)
@@ -304,11 +302,14 @@ export function ReservationsPage() {
             if (itemCheckIn !== currentCheckIn) return false
             if (itemCheckOut !== currentCheckOut) return false
 
-            // Guest match: prefer guestId (most reliable), fall back to resolved name
-            if (item.guestId && current.guestId) return item.guestId === current.guestId
-            // Fallback: name comparison — don't treat empty names as matching
-            const itemGuestName = (itemGuest?.name || '').trim().toLowerCase()
-            return currentGuestName !== '' && itemGuestName === currentGuestName
+            // Guest match: prefer guestId (most reliable), fall back to name comparison
+            if (item.guestId && current.guestId && item.guestId === current.guestId) return true
+            
+            // Fallback: name comparison for cases where the same guest has multiple IDs
+            const itemGuest = tempGuestMap.get(item.guestId)
+            const itemGuestName = (itemGuest?.name || item.guestNameSnapshot || '').trim().toLowerCase()
+            const matchName = currentGuestName !== '' && itemGuestName === currentGuestName
+            return matchName
           })
 
           if (duplicateByDetailsIndex >= 0) {
@@ -373,8 +374,13 @@ export function ReservationsPage() {
   // Helper to get total amount (room cost + additional charges)
   // Uses finalAmount if a discount was applied, otherwise totalPrice
   const getBookingTotal = (booking: Booking): number => {
-    // Use finalAmount if discount was applied, otherwise use totalPrice
-    const roomCost = booking.finalAmount ?? booking.totalPrice ?? 0
+    // Robust price resolution:
+    // 1. finalAmount (discounted price) takes absolute priority if present
+    // 2. totalPrice (standard DB field)
+    // 3. amount (UI/LocalBooking field)
+    // 4. amountPaid (last resort for historical/partially corrupted records)
+    const roomCost = (booking.finalAmount != null && booking.finalAmount > 0) ? booking.finalAmount :
+                     (booking.totalPrice || (booking as any).amount || booking.amountPaid || 0)
     const additionalCharges = chargesMap.get(booking.id) || 0
     return roomCost + additionalCharges
   }
@@ -715,7 +721,7 @@ export function ReservationsPage() {
           const invoiceData = await createInvoiceData(bookingWithDetails, room)
           console.log('✅ [ReservationsPage] Invoice data created:', {
             invoiceNumber: invoiceData.invoiceNumber,
-            roomTotal: booking.totalPrice,
+            roomTotal: (booking as any).totalPrice || (booking as any).amount || 0,
             additionalChargesTotal: invoiceData.charges.additionalChargesTotal,
             grandTotal: invoiceData.charges.total
           })
@@ -754,7 +760,7 @@ export function ReservationsPage() {
             }
 
             console.log('📧 [ReservationsPage] Sending check-out notification with total (room + charges):', {
-              roomCost: booking.totalPrice,
+              roomCost: (booking as any).totalPrice || (booking as any).amount || 0,
               additionalCharges: invoiceData.charges.additionalChargesTotal,
               grandTotal: invoiceData.charges.total
             })
@@ -965,7 +971,7 @@ export function ReservationsPage() {
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Room Cost (Paid)</p>
                   <p className="text-base font-semibold">
-                    {formatCurrencySync(checkOutDialog.finalAmount ?? checkOutDialog.totalPrice, currency)}
+                    {formatCurrencySync((checkOutDialog as any).finalAmount || (checkOutDialog as any).totalPrice || (checkOutDialog as any).amount || 0, currency)}
                   </p>
                   {checkOutDialog.discountAmount && checkOutDialog.discountAmount > 0 && (
                     <p className="text-xs text-green-600">
@@ -1008,14 +1014,14 @@ export function ReservationsPage() {
                     <span className="font-medium">Grand Total</span>
                     <span className="text-xl font-bold text-primary">
                       {formatCurrencySync(
-                        (checkOutDialog.finalAmount ?? checkOutDialog.totalPrice) + checkoutCharges.reduce((sum, c) => sum + c.amount, 0),
+                        ((checkOutDialog as any).finalAmount || (checkOutDialog as any).totalPrice || (checkOutDialog as any).amount || 0) + checkoutCharges.reduce((sum, c) => sum + c.amount, 0),
                         currency
                       )}
                     </span>
                   </div>
                   {checkoutCharges.length > 0 && (
                     <p className="text-xs text-muted-foreground mt-1">
-                      Room: {formatCurrencySync(checkOutDialog.finalAmount ?? checkOutDialog.totalPrice, currency)} +
+                      Room: {formatCurrencySync((checkOutDialog as any).finalAmount || (checkOutDialog as any).totalPrice || (checkOutDialog as any).amount || 0, currency)} +
                       Charges: {formatCurrencySync(checkoutCharges.reduce((sum, c) => sum + c.amount, 0), currency)}
                     </p>
                   )}
