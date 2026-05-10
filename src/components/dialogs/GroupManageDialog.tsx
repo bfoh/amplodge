@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { bookingEngine } from '@/services/booking-engine'
 import { formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
@@ -63,12 +63,10 @@ export function GroupManageDialog({
     onUpdate
 }: GroupManageDialogProps) {
     const { currency } = useCurrency()
-    const db = blink.db as any
-
     // Current user for payment attribution
     const [currentUser, setCurrentUser] = useState<any>(null)
     useEffect(() => {
-        const unsub = blink.auth.onAuthStateChanged((state: any) => setCurrentUser(state.user))
+        const unsub = auth.onAuthStateChanged((state: any) => setCurrentUser(state.user))
         return unsub
     }, [])
 

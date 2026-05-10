@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { RoomType, Room } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
@@ -10,7 +10,6 @@ import { useCurrency } from '@/hooks/use-currency'
 import { bookingEngine } from '@/services/booking-engine'
 
 export function RoomsPage() {
-  const db = (blink.db as any)
   const { currency } = useCurrency()
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
   const [rooms, setRooms] = useState<Room[]>([])

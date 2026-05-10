@@ -1,4 +1,4 @@
-import { blink } from '../blink/client'
+import { db, auth } from '@/lib/db'
 import { activityLogService } from './activity-log-service'
 
 /**
@@ -20,7 +20,6 @@ export async function diagnoseActivityLogging() {
     // Test 1: Database connection
     console.log('📡 [DiagnoseActivityLogging] Testing database connection...')
     try {
-      const db = blink.db as any
       await db.bookings.list({ limit: 1 })
       results.databaseConnection = true
       console.log('✅ [DiagnoseActivityLogging] Database connection working')
@@ -32,7 +31,6 @@ export async function diagnoseActivityLogging() {
     // Test 2: Check if activityLogs table exists
     console.log('📋 [DiagnoseActivityLogging] Checking activityLogs table...')
     try {
-      const db = blink.db as any
       await db.activityLogs.list({ limit: 1 })
       results.activityLogsTableExists = true
       console.log('✅ [DiagnoseActivityLogging] activityLogs table exists')
@@ -72,7 +70,6 @@ export async function diagnoseActivityLogging() {
     if (results.activityLogsTableExists) {
       console.log('✍️ [DiagnoseActivityLogging] Testing activityLogs table write access...')
       try {
-        const db = blink.db as any
         const testRecord = {
           id: `write_test_${Date.now()}`,
           action: 'write_test',
@@ -124,7 +121,7 @@ export async function diagnoseActivityLogging() {
     // Test 5: Check current user
     console.log('👤 [DiagnoseActivityLogging] Checking current user...')
     try {
-      const currentUser = await blink.auth.me()
+      const currentUser = await auth.me()
       if (currentUser) {
         activityLogService.setCurrentUser(currentUser.id)
         results.currentUserSet = true
@@ -184,8 +181,6 @@ export async function fixActivityLoggingIssues() {
   console.log('🔧 [FixActivityLoggingIssues] Starting fixes...')
   
   try {
-    const db = blink.db as any
-    
     // Fix 1: Ensure activityLogs table exists and is properly initialized
     console.log('🔧 [FixActivityLoggingIssues] Ensuring activityLogs table exists...')
     try {
@@ -214,7 +209,7 @@ export async function fixActivityLoggingIssues() {
     // Fix 2: Set current user if available
     console.log('🔧 [FixActivityLoggingIssues] Setting current user...')
     try {
-      const currentUser = await blink.auth.me()
+      const currentUser = await auth.me()
       if (currentUser) {
         activityLogService.setCurrentUser(currentUser.id)
         console.log('✅ [FixActivityLoggingIssues] Current user set:', currentUser.email)

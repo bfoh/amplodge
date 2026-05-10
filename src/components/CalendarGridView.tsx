@@ -25,7 +25,7 @@ import { toast } from 'sonner'
 import { CheckInDialog } from '@/components/dialogs/CheckInDialog'
 import { CheckOutDialog } from '@/components/dialogs/CheckOutDialog'
 import { ExtendStayDialog } from '@/components/dialogs/ExtendStayDialog'
-import { blink } from '../blink/client'
+import { db, auth } from '@/lib/db'
 
 interface CalendarGridViewProps {
   currentDate: Date
@@ -117,7 +117,6 @@ export function CalendarGridView({
   const handleCheckOut = async (booking: any) => {
     setProcessing(true)
     try {
-      const db = blink.db as any
       const remoteId = booking.remoteId || booking.id
 
       // Use booking engine to handle status update, timestamps, room status, logs, and cleanup tasks
@@ -173,7 +172,6 @@ export function CalendarGridView({
 
         // IMPORTANT: Save the invoice number to the booking record for consistency
         try {
-          const db = blink.db as any
           await db.bookings.update(bookingWithDetails.id, { invoiceNumber: invoiceData.invoiceNumber })
           console.log('✅ [CalendarGridView] Invoice number saved to booking:', invoiceData.invoiceNumber)
         } catch (saveError) {

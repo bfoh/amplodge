@@ -1,5 +1,5 @@
 import { activityLogService } from './activity-log-service'
-import { blink } from '../blink/client'
+import { db, auth } from '@/lib/db'
 
 /**
  * Test activity logging functionality
@@ -10,8 +10,6 @@ export async function testActivityLogging() {
   try {
     // Test 1: Check if activityLogs table exists
     console.log('📋 [TestActivityLogging] Testing activityLogs table access...')
-    const db = blink.db as any
-    
     try {
       const testList = await db.activityLogs.list({ limit: 1 })
       console.log('✅ [TestActivityLogging] activityLogs table is accessible')

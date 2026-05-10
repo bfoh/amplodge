@@ -1,11 +1,10 @@
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 
 export async function forceResetRooms(): Promise<void> {
   if (typeof window === 'undefined') return
   if (sessionStorage.getItem('rooms_reset') === '1') return
 
   try {
-    const db = blink.db as any
     console.log('🧹 [ForceResetRooms] Resetting room and property statuses...')
 
     const rooms = await db.rooms.list({ limit: 1000 })

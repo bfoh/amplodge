@@ -6,7 +6,7 @@
  * Grand revenue = room prices + booking charges + standalone sales.
  */
 
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { startOfWeek, endOfWeek, format, subWeeks, addDays, parseISO } from 'date-fns'
 import { standaloneSalesService, type StandaloneSale } from './standalone-sales-service'
 import { CHARGE_CATEGORIES } from './booking-charges-service'
@@ -172,8 +172,6 @@ export async function fetchBookingsForStaffWeek(
   weekStart: string,
   weekEnd: string
 ): Promise<StaffWeekResult> {
-  const db = blink.db as any
-
   let allBookings: any = null, allRooms: any = null, allGuests: any = null, allChargesRaw: any = null
   // Build a set of all IDs that identify this staff member across bookings.
   // Some older bookings store the staff TABLE row ID instead of the auth user UUID.
@@ -771,8 +769,6 @@ export async function getOrCreateWeekReport(
   staffName: string,
   week: WeekBounds
 ): Promise<WeeklyRevenueReport> {
-  const db = blink.db as any
-
   // Fetch all and filter client-side — blink SDK where-filter is unreliable for custom tables
   let allRows: WeeklyRevenueReport[] = []
   try {
@@ -861,7 +857,6 @@ export async function getOrCreateWeekReport(
  * Staff submits their weekly report (locks it from further auto-recalculation).
  */
 export async function submitWeekReport(reportId: string, notes: string): Promise<void> {
-  const db = blink.db as any
   await db.hr_weekly_revenue.update(reportId, {
     status: 'submitted',
     notes,
@@ -878,7 +873,6 @@ export async function reviewWeekReport(
   adminNotes: string,
   reviewedByName: string
 ): Promise<void> {
-  const db = blink.db as any
   await db.hr_weekly_revenue.update(reportId, {
     status: 'reviewed',
     adminNotes,
@@ -890,8 +884,6 @@ export async function reviewWeekReport(
 
 /** Get all staff reports for a specific week (admin view). */
 export async function getAllStaffReportsForWeek(weekStart: string): Promise<WeeklyRevenueReport[]> {
-  const db = blink.db as any
-
   // weekEnd = Sunday of that ISO week (weekStart is Monday).
   // Use date-fns addDays + parseISO to avoid timezone-driven off-by-one from toISOString().
   const weekEnd = format(addDays(parseISO(weekStart), 6), 'yyyy-MM-dd')
@@ -1026,7 +1018,6 @@ export async function getAllStaffReportsForWeek(weekStart: string): Promise<Week
 
 /** Get a staff member's own report history, newest first. */
 export async function getStaffAllReports(staffId: string): Promise<WeeklyRevenueReport[]> {
-  const db = blink.db as any
   try {
     const rows = await db.hr_weekly_revenue.list({ limit: 500 })
     return ((rows || []) as WeeklyRevenueReport[])

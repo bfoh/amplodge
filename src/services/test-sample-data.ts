@@ -1,4 +1,4 @@
-import { blink } from '../blink/client'
+import { db, auth } from '@/lib/db'
 
 /**
  * Test if sample data exists and create it if missing
@@ -13,8 +13,6 @@ export async function testAndCreateSampleData() {
 
   try {
     console.log('🧪 Testing sample data...')
-
-    const db = (blink.db as any)
 
     // Check if we have room types
     const roomTypes = await db.roomTypes.list()

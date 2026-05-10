@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { activityLogService } from '@/services/activity-log-service'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -19,7 +19,6 @@ interface Booking { id: string; }
 
 export function NewInvoicePage() {
   const navigate = useNavigate()
-  const db = (blink.db as any)
   const { currency } = useCurrency()
 
   const [user, setUser] = useState<any>(null)
@@ -38,7 +37,7 @@ export function NewInvoicePage() {
   const [dateOfSale, setDateOfSale] = useState<Date>(new Date())
 
   useEffect(() => {
-    const unsub = blink.auth.onAuthStateChanged((state) => {
+    const unsub = auth.onAuthStateChanged((state) => {
       setUser(state.user)
       if (!state.user && !state.isLoading) navigate('/staff')
     })

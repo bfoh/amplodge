@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { blink, onTableUpdated } from '@/blink/client'
+import { db, auth, onTableUpdated } from '@/lib/db'
 import type { Booking, Room, Guest } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -102,7 +102,6 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export function ReservationsPage() {
-  const db = (blink.db as any)
   const navigate = useNavigate()
   const { currency } = useCurrency()
   const [user, setUser] = useState<any>(null)
@@ -142,7 +141,7 @@ export function ReservationsPage() {
   const [allCharges, setAllCharges] = useState<BookingCharge[]>([])
 
   useEffect(() => {
-    const unsub = blink.auth.onAuthStateChanged((state) => {
+    const unsub = auth.onAuthStateChanged((state) => {
       setUser(state.user)
       if (!state.user && !state.isLoading) navigate('/staff')
     })

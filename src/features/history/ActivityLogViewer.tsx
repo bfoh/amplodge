@@ -4,7 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { Loader2, Search, FileEdit, Trash2, UserPlus, Shield, Clock } from 'lucide-react'
 import { format } from 'date-fns'
 
@@ -60,7 +60,7 @@ export function ActivityLogViewer({
       if (entityType) where.entityType = entityType
       if (entityId) where.entityId = entityId
 
-      const activityLogs = await blink.db.activityLogs.list({
+      const activityLogs = await db.activityLogs.list({
         where,
         orderBy: { createdAt: 'desc' },
         limit

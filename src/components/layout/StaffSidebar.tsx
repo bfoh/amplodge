@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom'
 import { Calendar, LayoutDashboard, List, History, Settings, MessageSquare, Tag, BarChart3, ReceiptText, ChevronDown, Sparkles, Users, LogOut, TrendingUp, FileText, Package } from 'lucide-react'
 import { useStaffRole } from '@/hooks/use-staff-role'
 import { canAccessRoute } from '@/lib/rbac'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import type { StaffRole } from '@/lib/rbac'
 
 type StaffSidebarProps = {

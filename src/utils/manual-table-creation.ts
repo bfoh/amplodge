@@ -3,7 +3,7 @@
  * This provides direct methods to create the activityLogs table manually
  */
 
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 
 /**
  * Manually create the activityLogs table by forcing a record creation
@@ -11,8 +11,6 @@ import { blink } from '@/blink/client'
 export async function manuallyCreateActivityLogsTable(): Promise<boolean> {
   try {
     console.log('[ManualTableCreation] Starting manual table creation...')
-    
-    const db = blink.db as any
     
     // Create a simple record to force table creation
     const forceCreateRecord = {
@@ -61,8 +59,6 @@ export async function testTableAccess(): Promise<boolean> {
   try {
     console.log('[ManualTableCreation] Testing table access...')
     
-    const db = blink.db as any
-    
     // Try to list records
     const records = await db.activityLogs.list({ limit: 1 })
     console.log('[ManualTableCreation] ✅ Table access successful, found', records.length, 'records')
@@ -80,8 +76,6 @@ export async function testTableAccess(): Promise<boolean> {
 export async function createTestActivityLog(): Promise<boolean> {
   try {
     console.log('[ManualTableCreation] Creating test activity log...')
-    
-    const db = blink.db as any
     
     const testLog = {
       id: `test_${Date.now()}`,

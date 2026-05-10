@@ -1,4 +1,4 @@
-import { blink, isOnline, syncQueue } from '../blink/client'
+import { db, auth, isOnline, syncQueue } from '@/lib/db'
 import { v4 as uuidv4 } from 'uuid'
 import { activityLogService } from './activity-log-service'
 import { sendBookingConfirmation } from './notifications'
@@ -118,8 +118,6 @@ class BookingEngine {
 
   // Create a booking directly in Blink DB and return LocalBooking-shaped object for UI compatibility
   async createBooking(bookingData: Omit<LocalBooking, '_id' | 'createdAt' | 'updatedAt' | 'synced'>): Promise<LocalBooking> {
-    const db = blink.db as any
-
     console.log('[BookingEngine] Starting booking creation')
 
     const normalizedEmail = (bookingData.guest.email || '').trim().toLowerCase()
@@ -162,7 +160,7 @@ class BookingEngine {
         ? db.guests.list({ where: { email: normalizedEmail }, limit: 1 }).catch(() => null)
         : Promise.resolve(null),
       db.rooms.list({ where: { roomNumber: bookingData.roomNumber }, limit: 1 }).catch(() => null),
-      blink.auth.me().catch(() => null),
+      auth.me().catch(() => null),
     ])
 
     try {
@@ -847,7 +845,6 @@ class BookingEngine {
     groupId: string,
     bookingData: Omit<LocalBooking, '_id' | 'createdAt' | 'updatedAt' | 'synced'>
   ): Promise<LocalBooking> {
-    const db = blink.db as any
     console.log(`[BookingEngine] Adding new member to group: ${groupId}`)
 
     // Find existing bookings in this group to get group metadata
@@ -922,7 +919,6 @@ class BookingEngine {
    * If removing the primary booking, transfers primary status to another member
    */
   async removeFromGroup(bookingId: string): Promise<{ remainingCount: number; newPrimaryId?: string }> {
-    const db = blink.db as any
     console.log(`[BookingEngine] Removing booking from group: ${bookingId}`)
 
     // Find the booking
@@ -1047,7 +1043,6 @@ class BookingEngine {
   // Delete a booking from the database
   async deleteBooking(id: string): Promise<void> {
     try {
-      const db = blink.db as any
       console.log('[BookingEngine] Delete booking requested for:', id)
 
       // The bookings.id column is a Postgres `uuid` — Supabase rejects values
@@ -1254,7 +1249,7 @@ class BookingEngine {
       }
 
       // Log the deletion activity (fire-and-forget - never block deletion)
-      const currentUser = await blink.auth.me().catch(() => null)
+      const currentUser = await auth.me().catch(() => null)
       activityLogService.log({
         action: 'deleted',
         entityType: 'booking',
@@ -1363,7 +1358,6 @@ class BookingEngine {
   }
 
   private async _fetchAllBookings(): Promise<LocalBooking[]> {
-    const db = blink.db as any
     const [bookings, rooms, guests] = await Promise.all([
       db.bookings.list(),
       db.rooms.list(),
@@ -1622,8 +1616,6 @@ class BookingEngine {
   }
 
   async updateBookingStatus(remoteId: string, status: LocalBooking['status']) {
-    const db = blink.db as any
-
     console.log('[BookingEngine] updateBookingStatus called with:', { remoteId, status })
 
     // Get booking details for logging
@@ -1655,7 +1647,7 @@ class BookingEngine {
 
       const guest = booking.guestId ? await db.guests.get(booking.guestId).catch(() => null) : null
       const room = booking.roomId ? await db.rooms.get(booking.roomId).catch(() => null) : null
-      const currentUser = await blink.auth.me().catch(() => null)
+      const currentUser = await auth.me().catch(() => null)
 
       // Update status
       // Prepare updates object
@@ -1855,7 +1847,6 @@ class BookingEngine {
   async clearAllData(): Promise<void> { return }
 
   async getEndOfDayReport(dateIso: string) {
-    const db = blink.db as any
     const target = new Date(dateIso)
     const startOfDay = new Date(target)
     startOfDay.setHours(0, 0, 0, 0)

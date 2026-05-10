@@ -1,4 +1,4 @@
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 
 /**
  * Create the activityLogs table in the Blink database
@@ -7,8 +7,6 @@ import { blink } from '@/blink/client'
 export async function createActivityLogsTable(): Promise<boolean> {
   try {
     console.log('[CreateTable] Attempting to create activityLogs table...')
-    
-    const db = blink.db as any
     
     // First, try to access the table to see if it exists
     try {
@@ -82,8 +80,6 @@ export async function verifyActivityLogsTable(): Promise<{
   
   try {
     console.log('[VerifyTable] Verifying activityLogs table functionality...')
-    
-    const db = blink.db as any
     
     // Test 1: Can read (list)
     try {
@@ -193,8 +189,6 @@ export async function createSampleActivityLogs(): Promise<void> {
         createdAt: new Date().toISOString(),
       }
     ]
-    
-    const db = blink.db as any
     
     for (const log of sampleLogs) {
       try {

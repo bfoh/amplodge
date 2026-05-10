@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { toast } from 'sonner'
 import { activityLogService } from '@/services/activity-log-service'
 import { Booking, Room, Guest, PaymentSplit } from '@/types'
@@ -23,8 +23,6 @@ export function useCheckIn() {
 
     const checkIn = async ({ booking, room, guest, paymentMethod, paymentSplits, checkInAmount, discountAmount, discountReason, user }: CheckInOptions) => {
         setIsProcessing(true)
-        const db = (blink.db as any)
-
         try {
             // 1. Validation — fetch fresh room status from DB to avoid stale state
             if (room && booking.status !== 'checked-in') {

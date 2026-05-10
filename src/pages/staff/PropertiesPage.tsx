@@ -5,7 +5,7 @@ import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog'
 import { Plus, Building2, Bed, Users, DollarSign, MoreVertical, Pencil, Trash2, ShieldAlert } from 'lucide-react'
-import { blink } from '../../blink/client'
+import { db, auth } from '@/lib/db'
 import { bookingEngine } from '@/services/booking-engine'
 import type { RoomType } from '@/types'
 import { toast } from 'sonner'
@@ -64,11 +64,11 @@ export function PropertiesPage() {
   const loadProperties = async () => {
     try {
       // Wait for authentication to be fully initialized
-      const user = await blink.auth.me()
+      const user = await auth.me()
 
       // Load properties AND bookings
       const [data, allBookings] = await Promise.all([
-        blink.db.properties.list({
+        db.properties.list({
           orderBy: { column: 'createdAt', ascending: false }
         }),
         bookingEngine.getAllBookings()
@@ -129,7 +129,7 @@ export function PropertiesPage() {
 
   const loadRoomTypes = async () => {
     try {
-      const types = await (blink.db as any).roomTypes.list<RoomType>({ orderBy: { column: 'createdAt', ascending: true } })
+      const types = await (db as any).roomTypes.list<RoomType>({ orderBy: { column: 'createdAt', ascending: true } })
 
       // Ensure default types exist (robust check)
       const defaults = [
@@ -145,7 +145,7 @@ export function PropertiesPage() {
         // Check if this specific type exists (case-insensitive)
         const exists = types.some(t => t.name?.toLowerCase() === def.name.toLowerCase())
         if (!exists) {
-          await (blink.db as any).roomTypes.create({
+          await (db as any).roomTypes.create({
             id: crypto.randomUUID(),
             ...def,
             createdAt: new Date().toISOString(),
@@ -158,7 +158,7 @@ export function PropertiesPage() {
       if (seeded) {
         toast.info('Initializing missing room types...')
         // Reload if we added anything
-        const allTypes = await (blink.db as any).roomTypes.list<RoomType>({ orderBy: { column: 'createdAt', ascending: true } })
+        const allTypes = await (db as any).roomTypes.list<RoomType>({ orderBy: { column: 'createdAt', ascending: true } })
         setRoomTypes(allTypes)
         if (!formData.propertyTypeId && allTypes.length > 0) {
           setFormData((prev) => ({ ...prev, propertyTypeId: allTypes[0].id }))
@@ -177,7 +177,6 @@ export function PropertiesPage() {
 
   // Sync corresponding entry in rooms table so booking dropdown shows only created rooms
   const syncRoomWithProperty = async (payload: { roomNumber: string; propertyTypeId: string; basePrice: number }) => {
-    const db = blink.db as any
     const rn = (payload.roomNumber || '').toString().trim()
     if (!rn) return
     const rtId = payload.propertyTypeId
@@ -219,7 +218,7 @@ export function PropertiesPage() {
 
     try {
       // Get current user but don't require it - properties are project-scoped
-      const user = await blink.auth.me().catch(() => null)
+      const user = await auth.me().catch(() => null)
 
       if (!formData.propertyTypeId) {
         toast.error('Please select a room type')
@@ -239,7 +238,7 @@ export function PropertiesPage() {
           description: formData.description || '',
           updatedAt: new Date().toISOString()
         }
-        await blink.db.properties.update(editingId, payload)
+        await db.properties.update(editingId, payload)
         await syncRoomWithProperty({ roomNumber: payload.roomNumber, propertyTypeId: payload.propertyTypeId, basePrice: payload.basePrice })
         toast.success('Room updated')
 
@@ -282,7 +281,7 @@ export function PropertiesPage() {
           updatedAt: new Date().toISOString()
         }
         console.log('[PropertiesPage] Creating property with payload:', createPayload)
-        await blink.db.properties.create(createPayload)
+        await db.properties.create(createPayload)
         await syncRoomWithProperty({ roomNumber: createPayload.roomNumber, propertyTypeId: createPayload.propertyTypeId, basePrice: createPayload.basePrice })
         toast.success('Room added successfully')
 
@@ -345,13 +344,13 @@ export function PropertiesPage() {
 
     try {
       // Find property to know its roomNumber for room sync delete
-      const prop = (await blink.db.properties.list({ where: { id: deleteId }, limit: 1 }))?.[0]
-      await blink.db.properties.delete(deleteId)
+      const prop = (await db.properties.list({ where: { id: deleteId }, limit: 1 }))?.[0]
+      await db.properties.delete(deleteId)
       if (prop?.roomNumber) {
         try {
-          const existing = (await (blink.db as any).rooms.list({ where: { roomNumber: String(prop.roomNumber).trim() }, limit: 1 }))?.[0]
+          const existing = (await (db as any).rooms.list({ where: { roomNumber: String(prop.roomNumber).trim() }, limit: 1 }))?.[0]
           if (existing) {
-            await (blink.db as any).rooms.delete(existing.id)
+            await (db as any).rooms.delete(existing.id)
           }
         } catch (e) {
           console.warn('Failed to delete synced room record:', e)
@@ -361,7 +360,7 @@ export function PropertiesPage() {
 
       // Log room deletion
       try {
-        const user = await blink.auth.me().catch(() => null)
+        const user = await auth.me().catch(() => null)
         await activityLogService.log({
           action: 'deleted',
           entityType: 'room',

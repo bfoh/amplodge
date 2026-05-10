@@ -1,4 +1,4 @@
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 
 export interface HotelSettings {
   id: string
@@ -40,7 +40,7 @@ const DEFAULT_SETTINGS: HotelSettings = {
 export class HotelSettingsService {
   private static instance: HotelSettingsService
   private settings: HotelSettings | null = null
-  private db = blink.db as any
+  private db = db as any
   private tableCheckDone = false
   private tableExists = false
 

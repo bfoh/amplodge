@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { RoomType, Room } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,7 +21,6 @@ import { activityLogService } from '@/services/activity-log-service'
 import { buildBookingPaymentEvent, appendPaymentEvent } from '@/lib/payment-events'
 
 export function OnsiteBookingPage() {
-  const db = (blink.db as any)
   const { currency } = useCurrency()
   const navigate = useNavigate()
   const [user, setUser] = useState<any>(null)
@@ -74,7 +73,7 @@ export function OnsiteBookingPage() {
   const [discountValue, setDiscountValue] = useState<number>(0)
 
   useEffect(() => {
-    const unsubscribe = blink.auth.onAuthStateChanged((state) => {
+    const unsubscribe = auth.onAuthStateChanged((state) => {
       setUser(state.user)
       if (!state.user && !state.isLoading) {
         navigate('/staff')

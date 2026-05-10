@@ -51,6 +51,21 @@ const symbolRules = [
   { pattern: /\bblinkManaged\b/g, replace: () => 'db' },
 ]
 
+// Cleanup pass — runs AFTER the renames above. Removes self-referential
+// declarations that the rename introduced. Many files had:
+//
+//   const db = blink.db as any
+//
+// to silence the wrapper's loose typing. After the symbol rewrite that becomes
+// `const db = db as any` — a self-reference that TS reports as
+// "Block-scoped variable 'db' used before its declaration". The imported `db`
+// already plays the same role, so the local can simply be deleted.
+const cleanupRules = [
+  // Drop `const db = db as any` and `const db = (db as any)` and the trailing newline.
+  { pattern: /^[ \t]*const\s+db\s*=\s*\(?\s*db\s+as\s+any\s*\)?\s*;?[ \t]*\r?\n/gm, replace: () => '' },
+  { pattern: /^[ \t]*const\s+auth\s*=\s*\(?\s*auth\s+as\s+any\s*\)?\s*;?[ \t]*\r?\n/gm, replace: () => '' },
+]
+
 async function main() {
   const files = await glob('src/**/*.{ts,tsx}', { cwd: ROOT, absolute: true })
   const changed = []
@@ -62,6 +77,7 @@ async function main() {
 
     for (const rule of importRules) after = after.replace(rule.pattern, rule.replace)
     for (const rule of symbolRules) after = after.replace(rule.pattern, rule.replace)
+    for (const rule of cleanupRules) after = after.replace(rule.pattern, rule.replace)
 
     if (after !== before) {
       changed.push(path.relative(ROOT, file))

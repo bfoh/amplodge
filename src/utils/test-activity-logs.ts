@@ -3,7 +3,6 @@
  * This can be run from the browser console to test the activity logs system
  */
 
-import { initializeDatabaseSchema, verifyActivityLogsTable, createSampleActivityLogs } from '@/blink/database-schema'
 import { activityLogService } from '@/services/activity-log-service'
 
 /**

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { RoomType, Room } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,7 +19,6 @@ import { bookingEngine } from '@/services/booking-engine'
 import { OfflineStatusBanner } from '@/components/OfflineStatusBanner'
 
 export function BookingPage() {
-  const db = (blink.db as any)
   const { currency } = useCurrency()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()

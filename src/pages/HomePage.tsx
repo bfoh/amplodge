@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { RoomType } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,7 +12,6 @@ import { useCurrency } from '@/hooks/use-currency'
 import { ReviewsCarousel } from '@/components/landing/ReviewsCarousel'
 
 export function HomePage() {
-  const db = (blink.db as any)
   const { currency } = useCurrency()
   const amenities = [
     { icon: Bed, label: 'Luxury Rooms' },

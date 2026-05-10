@@ -6,9 +6,23 @@
  *
  * Both come from src/lib/supabase-wrapper.ts. Phase 2 may rewrite that file;
  * consumers stay on this stable surface.
+ *
+ * NOTE: `db` is intentionally typed as `any`. The pre-refactor codebase
+ * silenced the wrapper's loose types with per-call-site `(db as any)`
+ * casts (~80 sites). Centralising the cast here preserves identical
+ * strictness behavior. Phase 2 introduces typed table accessors and removes
+ * this `any`.
  */
 
-export { db, auth, onTableUpdated } from './supabase-wrapper'
+import {
+  db as _db,
+  auth as _auth,
+  onTableUpdated as _onTableUpdated,
+} from './supabase-wrapper'
+
+export const db: any = _db
+export const auth = _auth
+export const onTableUpdated = _onTableUpdated
 
 // Network status
 export { getNetworkOnline as isOnline } from './network-status'

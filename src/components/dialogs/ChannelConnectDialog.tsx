@@ -11,7 +11,7 @@ import { Loader2, Copy, Check, RefreshCw, AlertCircle, Link as LinkIcon, Externa
 import { toast } from 'sonner'
 import { channelService } from '@/services/channel-service'
 import { ChannelConnection, ChannelRoomMapping, RoomType } from '@/types'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 
 interface ChannelConnectDialogProps {
     open: boolean
@@ -59,7 +59,6 @@ export function ChannelConnectDialog({ open, onOpenChange, channelId, channelNam
             }
 
             // Load room types
-            const db = blink.db as any
             const rt = await db.roomTypes.list()
             setRoomTypes(rt)
 

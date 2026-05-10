@@ -1,4 +1,4 @@
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { bookingEngine } from './booking-engine'
 import { startOfWeek, endOfWeek, endOfMonth, endOfYear } from 'date-fns'
 import { standaloneSalesService } from './standalone-sales-service'
@@ -34,7 +34,6 @@ class AnalyticsService {
    * to eliminate redundant DB calls across a single page load.
    */
   async prefetchSharedData(): Promise<AnalyticsSharedData> {
-    const db = blink.db as any
     const [bookings, roomTypes, properties, chargesRaw, standaloneSales, guests, rooms] =
       await Promise.all([
         bookingEngine.getAllBookings().catch(() => [] as any[]),
@@ -58,7 +57,6 @@ class AnalyticsService {
   ): Promise<RevenueAnalytics> {
     try {
       const bookings = shared?.bookings ?? await bookingEngine.getAllBookings()
-      const db = blink.db as any
       const [roomTypes, properties, allChargesRaw, allStandaloneSales] = shared
         ? [shared.roomTypes, shared.properties, shared.chargesRaw, shared.standaloneSales]
         : await Promise.all([
@@ -559,7 +557,6 @@ class AnalyticsService {
   async getOccupancyAnalytics(shared?: AnalyticsSharedData): Promise<OccupancyAnalytics> {
     try {
       const bookings = shared?.bookings ?? await bookingEngine.getAllBookings()
-      const db = blink.db as any
       const [properties, roomTypes] = shared
         ? [shared.properties, shared.roomTypes]
         : await Promise.all([
@@ -743,7 +740,6 @@ class AnalyticsService {
    */
   async getGuestAnalytics(shared?: AnalyticsSharedData): Promise<GuestAnalytics> {
     try {
-      const db = blink.db as any
       const guests = shared?.guests ?? await db.guests.list()
       const bookings = shared?.bookings ?? await bookingEngine.getAllBookings()
 
@@ -955,7 +951,6 @@ class AnalyticsService {
         : 0
 
       // Room status distribution
-      const db = blink.db as any
       const rooms = shared?.rooms ?? await db.rooms.list()
 
       const roomStatusDistribution = {
@@ -993,7 +988,6 @@ class AnalyticsService {
    */
   async getFinancialAnalytics(shared?: AnalyticsSharedData): Promise<FinancialAnalytics> {
     try {
-      const db = blink.db as any
       const [invoices, revenueAnalytics] = await Promise.all([
         db.invoices.list(),
         this.getRevenueAnalytics(undefined, undefined, shared)

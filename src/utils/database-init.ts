@@ -1,5 +1,4 @@
-import { blink } from '@/blink/client'
-import { initializeDatabaseSchema, createSampleActivityLog } from '@/blink/schema'
+import { db, auth } from '@/lib/db'
 
 /**
  * Database initialization utility
@@ -49,7 +48,6 @@ export async function testDatabaseConnectivity(): Promise<{
   
   for (const tableName of tables) {
     try {
-      const db = blink.db as any
       await db[tableName].list({ limit: 1 })
       results.tables[tableName] = true
       console.log(`[DatabaseInit] ✅ Table '${tableName}' is accessible`)
@@ -118,8 +116,6 @@ export async function createTestData(): Promise<void> {
         createdAt: new Date().toISOString(),
       }
     ]
-    
-    const db = blink.db as any
     
     for (const log of testLogs) {
       try {

@@ -1,4 +1,4 @@
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 
 export interface InventoryItem {
   id: string
@@ -25,7 +25,6 @@ export interface InventoryTransaction {
 
 export const inventoryService = {
   async getItems(): Promise<InventoryItem[]> {
-    const db = blink.db as any
     try {
       const rows = await db.inventory.list({ limit: 1000 })
       return (rows || []) as InventoryItem[]
@@ -36,7 +35,6 @@ export const inventoryService = {
   },
 
   async addItem(data: Omit<InventoryItem, 'id' | 'createdAt' | 'updatedAt'>): Promise<InventoryItem> {
-    const db = blink.db as any
     const record: any = {
       ...data,
       createdAt: new Date().toISOString(),
@@ -47,7 +45,6 @@ export const inventoryService = {
   },
 
   async updateItem(id: string, data: Partial<InventoryItem>): Promise<InventoryItem> {
-    const db = blink.db as any
     const record = {
       ...data,
       updatedAt: new Date().toISOString(),
@@ -57,12 +54,10 @@ export const inventoryService = {
   },
 
   async deleteItem(id: string): Promise<void> {
-    const db = blink.db as any
     await db.inventory.delete(id)
   },
 
   async logTransaction(data: Omit<InventoryTransaction, 'id' | 'createdAt'>): Promise<InventoryTransaction> {
-    const db = blink.db as any
     const record: any = {
       ...data,
       createdAt: new Date().toISOString(),
@@ -72,7 +67,6 @@ export const inventoryService = {
   },
 
   async getTransactions(inventoryId?: string): Promise<InventoryTransaction[]> {
-    const db = blink.db as any
     try {
       const rows = await db.inventoryTransactions.list({ limit: 2000, order: { createdAt: 'desc' } })
       const transactions = (rows || []) as InventoryTransaction[]

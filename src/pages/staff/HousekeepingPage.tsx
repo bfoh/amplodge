@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { toast } from 'sonner'
 import { activityLogService } from '@/services/activity-log-service'
 import { format } from 'date-fns'
@@ -55,11 +55,11 @@ export default function HousekeepingPage() {
 
       // Load staff and rooms first (these should always exist)
       const [staffData, roomsData] = await Promise.all([
-        blink.db.staff.list().catch((e) => {
+        db.staff.list().catch((e) => {
           console.warn('Failed to load staff:', e)
           return []
         }),
-        blink.db.rooms.list().catch((e) => {
+        db.rooms.list().catch((e) => {
           console.warn('Failed to load rooms:', e)
           return []
         })
@@ -71,7 +71,7 @@ export default function HousekeepingPage() {
       // Try to load housekeeping tasks (table may not exist)
       try {
         console.log('🧹 [HousekeepingPage] Loading housekeeping tasks...')
-        const tasksData = await blink.db.housekeepingTasks.list({ orderBy: { createdAt: 'desc' } })
+        const tasksData = await db.housekeepingTasks.list({ orderBy: { createdAt: 'desc' } })
         console.log('✅ [HousekeepingPage] Loaded tasks:', tasksData.length)
         setTasks(tasksData as unknown as HousekeepingTask[])
       } catch (taskError) {
@@ -144,7 +144,7 @@ export default function HousekeepingPage() {
   const handleAssignTask = async (taskId: string, staffId: string) => {
     try {
       // Update task assignment
-      await blink.db.housekeepingTasks.update(taskId, {
+      await db.housekeepingTasks.update(taskId, {
         assignedTo: staffId,
         status: 'in_progress'
       })
@@ -215,7 +215,7 @@ export default function HousekeepingPage() {
     const task = tasks.find(t => t.id === deleteId)
 
     try {
-      await blink.db.housekeepingTasks.delete(deleteId)
+      await db.housekeepingTasks.delete(deleteId)
 
       // Log the task deletion
       if (task) {

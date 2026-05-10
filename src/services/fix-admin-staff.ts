@@ -1,4 +1,4 @@
-import { blink } from '../blink/client'
+import { db, auth } from '@/lib/db'
 
 /**
  * Fix admin staff record - creates the missing staff record for the authenticated admin user
@@ -9,7 +9,7 @@ export async function fixAdminStaffRecord() {
     console.log('🔧 [fixAdminStaffRecord] Starting admin staff record fix...')
     
     // Get current authenticated user
-    const currentUser = await blink.auth.me()
+    const currentUser = await auth.me()
     
     if (!currentUser) {
       throw new Error('No authenticated user found. Please log in first.')
@@ -25,7 +25,7 @@ export async function fixAdminStaffRecord() {
     
     // Method 1: Search by email
     try {
-      const staffByEmail = await blink.db.staff.list({
+      const staffByEmail = await db.staff.list({
         where: { email: currentUser.email }
       })
       if (staffByEmail && staffByEmail.length > 0) {
@@ -39,7 +39,7 @@ export async function fixAdminStaffRecord() {
     // Method 2: Search by userId (camelCase)
     if (!existingStaff) {
       try {
-        const staffByUserId = await blink.db.staff.list({
+        const staffByUserId = await db.staff.list({
           where: { userId: currentUser.id }
         })
         if (staffByUserId && staffByUserId.length > 0) {
@@ -54,7 +54,7 @@ export async function fixAdminStaffRecord() {
     // Method 3: Search by user_id (snake_case)
     if (!existingStaff) {
       try {
-        const staffByUserIdSnake = await blink.db.staff.list({
+        const staffByUserIdSnake = await db.staff.list({
           where: { user_id: currentUser.id } as any
         })
         if (staffByUserIdSnake && staffByUserIdSnake.length > 0) {
@@ -70,7 +70,7 @@ export async function fixAdminStaffRecord() {
     if (!existingStaff) {
       try {
         console.log('🔄 [fixAdminStaffRecord] Listing all staff records...')
-        const allStaff = await blink.db.staff.list({})
+        const allStaff = await db.staff.list({})
         console.log('📋 [fixAdminStaffRecord] All staff records:', allStaff)
         
         existingStaff = allStaff.find((s: any) => 
@@ -99,7 +99,7 @@ export async function fixAdminStaffRecord() {
     
     // Create the staff record
     console.log('📝 [fixAdminStaffRecord] Creating staff record...')
-    const newStaff = await blink.db.staff.create({
+    const newStaff = await db.staff.create({
       id: `staff_admin_${Date.now()}`,
       userId: currentUser.id,
       name: 'Admin User',
@@ -139,7 +139,7 @@ export async function fixAdminStaffRecord() {
 if (typeof window !== 'undefined') {
   // Run after a short delay to ensure auth is ready
   setTimeout(async () => {
-    const currentUser = await blink.auth.me()
+    const currentUser = await auth.me()
     if (currentUser?.email === 'admin@amplodge.com') {
       console.log('🚀 [fixAdminStaffRecord] Auto-fixing admin staff record...')
       await fixAdminStaffRecord()

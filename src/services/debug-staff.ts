@@ -1,4 +1,4 @@
-import { blink } from '../blink/client'
+import { db, auth } from '@/lib/db'
 
 /**
  * Debug function to check what's in the staff database
@@ -8,12 +8,12 @@ export async function debugStaffDatabase() {
     console.log('🔍 [debugStaffDatabase] Starting debug...')
     
     // Get current user
-    const currentUser = await blink.auth.me()
+    const currentUser = await auth.me()
     console.log('👤 [debugStaffDatabase] Current user:', currentUser)
     
     // List all staff records
     console.log('📋 [debugStaffDatabase] Fetching all staff records...')
-    const allStaff = await blink.db.staff.list({})
+    const allStaff = await db.staff.list({})
     console.log('📋 [debugStaffDatabase] All staff records:', allStaff)
     
     // Check if any match current user

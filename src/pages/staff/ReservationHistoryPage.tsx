@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { CalendarPlus, UserPlus, Loader2, FileText, Users, Mail, CreditCard, CheckCircle, XCircle } from 'lucide-react'
 import { format, parseISO, isToday } from 'date-fns'
 import { toast } from 'sonner'
@@ -91,7 +91,6 @@ export function ReservationHistoryPage() {
         setLoading(true)
         
         // Fetch all relevant data from database with reduced limits for better performance
-        const db = blink.db as any
         // Fetch full guests + rooms once (cache-instant via SWR wrapper) so the
         // activity loop below can resolve names by Map lookup instead of doing
         // 2 sequential round trips per booking (50 bookings = 100 round trips

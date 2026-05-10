@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { useStaffRole } from '@/hooks/use-staff-role'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -160,8 +160,6 @@ interface StaffMember {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-const db = blink.db as any
 
 function StatusBadge({ status }: { status: string }) {
   const variants: Record<string, string> = {

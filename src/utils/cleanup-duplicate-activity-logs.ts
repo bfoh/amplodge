@@ -2,14 +2,13 @@
  * Cleanup utility for duplicate activity log entries
  */
 
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 
 /**
  * Clean up duplicate activity log entries that were created due to the previous bug
  */
 export async function cleanupDuplicateActivityLogs(): Promise<number> {
   console.log('[CleanupDuplicates] Starting cleanup of duplicate activity log entries...')
-  const db = blink.db as any
   let deletedCount = 0
 
   try {
@@ -72,7 +71,6 @@ export async function cleanupDuplicateActivityLogs(): Promise<number> {
  */
 export async function cleanupTestActivityLogs(): Promise<number> {
   console.log('[CleanupTestLogs] Starting cleanup of test activity logs...')
-  const db = blink.db as any
   let deletedCount = 0
 
   try {

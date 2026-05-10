@@ -8,7 +8,7 @@ import { Loader2, Download, Filter, Search, Calendar, User, FileText, RefreshCw 
 import { activityLogService, type ActivityLog, type ActivityAction, type EntityType } from '@/services/activity-log-service'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 // Removed test utility imports - no longer needed
 
 export function ActivityLogsPage() {
@@ -99,7 +99,6 @@ export function ActivityLogsPage() {
 
   async function loadUsers() {
     try {
-      const db = blink.db as any
       const staffList = await db.staff.list({ limit: 100 })
       setUsers(staffList.map((s: any) => ({
         id: s.userId || s.id,

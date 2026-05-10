@@ -2,7 +2,7 @@
  * Test utility for unique headings fix
  */
 
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 
 /**
  * Test the unique headings fix by creating sample data
@@ -11,8 +11,6 @@ export async function testUniqueHeadingsFix(): Promise<void> {
   console.log('[UniqueHeadingsFix] Testing unique headings fix...')
   
   try {
-    const db = blink.db as any
-    
     // Create sample contact messages with different names to test unique headings
     const sampleContacts = [
       {
@@ -77,8 +75,6 @@ export async function cleanupTestContactMessages(): Promise<void> {
   console.log('[UniqueHeadingsFix] Cleaning up test contact messages...')
   
   try {
-    const db = blink.db as any
-    
     // Get all contact messages
     const contacts = await db.contactMessages.list()
     

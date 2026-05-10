@@ -2,7 +2,7 @@
  * Fix utility for logout logs showing "Unknown User"
  */
 
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { activityLogService } from '@/services/activity-log-service'
 
 /**
@@ -10,7 +10,6 @@ import { activityLogService } from '@/services/activity-log-service'
  */
 export async function fixLogoutUnknownUserLogs(): Promise<number> {
   console.log('[FixLogoutUnknownUser] Starting fix for logout logs showing "Unknown User"...')
-  const db = blink.db as any
   let fixedCount = 0
 
   try {
@@ -136,8 +135,6 @@ export async function cleanupTestLogoutLogs(): Promise<void> {
   console.log('[CleanupTestLogout] Cleaning up test logout logs...')
   
   try {
-    const db = blink.db as any
-    
     // Get all activity logs
     const activityLogs = await db.contact_messages.list({
       where: { status: 'activity_log' }

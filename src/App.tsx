@@ -3,8 +3,7 @@ import { Suspense, lazy, useEffect, useState } from 'react'
 import { Toaster } from 'sonner'
 import { Navbar } from './components/Navbar'
 import { Footer } from './components/Footer'
-import { blink } from './blink/client'
-import { initializeDatabaseSchema } from './blink/database-schema'
+import { db, auth } from '@/lib/db'
 import { activityLogService } from './services/activity-log-service'
 import { StaffLoginPage } from './pages/staff/StaffLoginPage'
 import { ProtectedRoute } from './components/ProtectedRoute'
@@ -86,7 +85,7 @@ function App() {
 
         console.log('📝 Initializing activity log service...')
         try {
-          const currentUser = await blink.auth.me()
+          const currentUser = await auth.me()
           if (currentUser) {
             activityLogService.setCurrentUser(currentUser.id)
             console.log('✅ Activity log service initialized with user:', currentUser.email)
@@ -108,7 +107,7 @@ function App() {
   useEffect(() => {
     const checkAuthStatus = async () => {
       try {
-        const currentUser = await blink.auth.me()
+        const currentUser = await auth.me()
         if (currentUser) {
           activityLogService.setCurrentUser(currentUser.id)
           console.log('📝 [App] Activity log service updated with user:', currentUser.email)
@@ -134,10 +133,10 @@ function App() {
       if (isCreating) return
       try {
         isCreating = true
-        const existingStaff = await (blink.db as any).staff.list({ where: { userId } })
+        const existingStaff = await (db as any).staff.list({ where: { userId } })
 
         if (!existingStaff || existingStaff.length === 0) {
-          await (blink.db as any).staff.create({
+          await (db as any).staff.create({
             id: `staff_admin_${Date.now()}`,
             userId,
             name: 'Admin User',
@@ -153,7 +152,7 @@ function App() {
       }
     }
 
-    const unsubscribe = blink.auth.onAuthStateChanged(async (state) => {
+    const unsubscribe = auth.onAuthStateChanged(async (state) => {
       if (!state.isLoading && state.user?.email === import.meta.env.VITE_ADMIN_EMAIL && state.user?.id) {
         await ensureAdminStaffRecord(state.user.id, state.user.email)
       }

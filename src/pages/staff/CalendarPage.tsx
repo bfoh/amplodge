@@ -4,7 +4,7 @@ import { Card, CardContent } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, List, LayoutGrid, Filter, Users, X as XIcon } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { blink } from '../../blink/client'
+import { db, auth } from '@/lib/db'
 import { cn } from '../../lib/utils'
 import { getRoomDisplayName, calculateNights } from '../../lib/display'
 import { useStaffRole } from '../../hooks/use-staff-role'
@@ -68,13 +68,13 @@ export function CalendarPage() {
 
   const loadData = async () => {
     try {
-      const user = await blink.auth.me()
+      const user = await auth.me()
 
       const [roomsData, propertiesData, roomTypesData, localBookings] = await Promise.all([
-        (blink.db as any).rooms.list({ limit: 500 }),
+        (db as any).rooms.list({ limit: 500 }),
         // Load ALL properties without userId filter to prevent data loss (properties are project-scoped)
-        (blink.db as any).properties.list({ orderBy: { createdAt: 'desc' }, limit: 500 }),
-        (blink.db as any).roomTypes.list({ limit: 500 }),
+        (db as any).properties.list({ orderBy: { createdAt: 'desc' }, limit: 500 }),
+        (db as any).roomTypes.list({ limit: 500 }),
         bookingEngine.getAllBookings()
       ])
 
@@ -290,7 +290,7 @@ export function CalendarPage() {
 
       if (!createdBy) {
         try {
-          const currentUser = await blink.auth.me()
+          const currentUser = await auth.me()
           createdBy = currentUser?.id
           console.log('[CalendarPage] Fallback: Using current user ID:', createdBy)
         } catch (error) {

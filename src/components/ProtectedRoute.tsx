@@ -4,7 +4,7 @@ import { useStaffRole } from '@/hooks/use-staff-role'
 import { canAccessRoute, ROUTE_ACCESS } from '@/lib/rbac'
 import { toast } from 'sonner'
 import { Loader2, WifiOff } from 'lucide-react'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { useNetworkStatus } from '@/lib/network-status'
 
 interface ProtectedRouteProps {
@@ -83,7 +83,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     if (userId && !role && retryCount >= 3) {
       console.log('⚠️ [ProtectedRoute] No role found after retries, checking if admin user')
       // For admin users, allow access even if role detection fails
-      blink.auth.me().then(user => {
+      auth.me().then(user => {
         if (user?.email === import.meta.env.VITE_ADMIN_EMAIL) {
           console.log('✅ [ProtectedRoute] Admin user detected, allowing access without role')
           setHasChecked(true)

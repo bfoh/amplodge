@@ -1,11 +1,10 @@
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 
 export async function forceResetGuests() {
   if (sessionStorage.getItem('guests_cleared')) return
 
   try {
     console.log('🚨 FORCE RESET: Clearing guest database...')
-    const db = blink.db as any
     let deletedCount = 0
     let hasMore = true
 

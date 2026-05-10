@@ -4,7 +4,7 @@ import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog'
 import { Plus, Users, Mail, Phone, Search, MoreVertical, Pencil, Trash2 } from 'lucide-react'
-import { blink } from '../../blink/client'
+import { db, auth } from '@/lib/db'
 import { activityLogService } from '@/services/activity-log-service'
 import { bookingEngine } from '../../services/booking-engine'
 import { toast } from 'sonner'
@@ -64,10 +64,10 @@ export function GuestsPage() {
     try {
       // Fetch guests, bookings, rooms, and staff in parallel
       const [guestsData, bookingsData, roomsData, staffData] = await Promise.all([
-        (blink.db as any).guests.list({ orderBy: { createdAt: 'desc' } }),
-        (blink.db as any).bookings.list(),
-        (blink.db as any).rooms.list(),
-        (blink.db as any).staff.list({ include: ['user'] })
+        (db as any).guests.list({ orderBy: { createdAt: 'desc' } }),
+        (db as any).bookings.list(),
+        (db as any).rooms.list(),
+        (db as any).staff.list({ include: ['user'] })
       ])
 
       // Map rooms for quick lookup
@@ -215,10 +215,10 @@ export function GuestsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      const user = await blink.auth.me()
+      const user = await auth.me()
       if (editingId) {
         const oldGuest = guests.find(g => g.id === editingId)
-        await blink.db.guests.update(editingId, {
+        await db.guests.update(editingId, {
           ...formData,
           userId: user.id,
           updatedAt: new Date().toISOString()
@@ -232,7 +232,7 @@ export function GuestsPage() {
         toast.success('Guest updated')
       } else {
         const newGuestId = `guest_${Date.now()}`
-        await blink.db.guests.create({
+        await db.guests.create({
           id: newGuestId,
           userId: user.id,
           ...formData,
@@ -262,11 +262,11 @@ export function GuestsPage() {
     if (!deleteId) return
 
     try {
-      const user = await blink.auth.me()
+      const user = await auth.me()
       const guest = guests.find(g => g.id === deleteId)
 
       // 1. Delete associated bookings first (Cascade Delete)
-      const guestBookings = await blink.db.bookings.list({ where: { guestId: deleteId } })
+      const guestBookings = await db.bookings.list({ where: { guestId: deleteId } })
 
       if (guestBookings.length > 0) {
         toast.message(`Deleting ${guestBookings.length} associated booking(s)...`)
@@ -281,7 +281,7 @@ export function GuestsPage() {
       }
 
       // 2. Delete the guest
-      await blink.db.guests.delete(deleteId)
+      await db.guests.delete(deleteId)
 
       // Log activity
       await activityLogService.logGuestDeleted(deleteId, guest?.name || 'Unknown Guest', user.id)

@@ -16,7 +16,7 @@ import {
 import { toast } from 'sonner'
 import { format } from 'date-fns'
 import { createInvoiceData, downloadInvoicePDF, printInvoice, createPreInvoiceData, downloadPreInvoicePDF, printPreInvoice, PreInvoiceData, createGroupInvoiceData, downloadGroupInvoicePDF } from '@/services/invoice-service'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 
 interface InvoiceRecord {
   id: string
@@ -67,8 +67,6 @@ export function StaffInvoiceManager() {
   const loadInvoices = async () => {
     try {
       console.log('🔍 [StaffInvoiceManager] Loading invoice data...')
-
-      const db = blink.db as any
 
       // Fetch BOTH confirmed bookings (pre-invoices) AND checked-out bookings (paid invoices)
       const [confirmedBookings, checkedOutBookings] = await Promise.all([
@@ -196,7 +194,6 @@ export function StaffInvoiceManager() {
     if (!invoice.groupId) return;
     setDownloading(invoice.id);
     try {
-      const db = blink.db as any;
       console.log('📥 [StaffInvoiceManager] Downloading GROUP invoice for group:', invoice.groupId);
 
       // Fetch enough bookings to find the group members
@@ -271,8 +268,6 @@ export function StaffInvoiceManager() {
     try {
       console.log('📥 [StaffInvoiceManager] Downloading invoice for booking:', invoice.id, 'isPreInvoice:', invoice.isPreInvoice)
 
-      const db = blink.db as any
-
       // Fetch the actual booking data
       const booking = await db.bookings.get(invoice.id)
       if (!booking) {
@@ -325,8 +320,6 @@ export function StaffInvoiceManager() {
     setPrinting(invoice.id)
     try {
       console.log('🖨️ [StaffInvoiceManager] Printing invoice for booking:', invoice.id, 'isPreInvoice:', invoice.isPreInvoice)
-
-      const db = blink.db as any
 
       // Fetch the actual booking data
       const booking = await db.bookings.get(invoice.id)

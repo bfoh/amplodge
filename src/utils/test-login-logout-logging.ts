@@ -2,7 +2,7 @@
  * Test utility for login and logout logging
  */
 
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { activityLogService } from '@/services/activity-log-service'
 
 /**
@@ -103,8 +103,6 @@ export async function cleanupTestLoginLogoutLogs(): Promise<void> {
   console.log('[CleanupLoginLogoutTest] Cleaning up test login/logout logs...')
   
   try {
-    const db = blink.db as any
-    
     // Get all activity logs
     const activityLogs = await db.contact_messages.list({
       where: { status: 'activity_log' }

@@ -28,7 +28,7 @@ import { usePermissions } from '@/hooks/use-permissions'
 import { analyticsService } from '@/services/analytics-service'
 import { AnalyticsExportService } from '@/services/analytics-export-service'
 import { bookingEngine } from '@/services/booking-engine'
-import { blink, onTableUpdated } from '@/blink/client'
+import { db, auth, onTableUpdated } from '@/lib/db'
 import { standaloneSalesService } from '@/services/standalone-sales-service'
 import {
   startOfWeek, endOfWeek, format,

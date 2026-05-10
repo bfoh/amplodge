@@ -1,4 +1,4 @@
-import { blink } from '../blink/client'
+import { db, auth } from '@/lib/db'
 
 /**
  * @deprecated This file is LEGACY code from the Blink era.
@@ -25,14 +25,14 @@ export async function seedAdminAccount() {
 
   try {
     // Check if we need to log out first (in case seed ran while another user was logged in)
-    const currentAuthUser = await blink.auth.me()
+    const currentAuthUser = await auth.me()
     const wasAlreadyLoggedIn = !!currentAuthUser
 
     // Defer staff existence check until after authentication to ensure proper DB access
 
     // Sign up the admin user
     try {
-      await blink.auth.signUp({
+      await auth.signUp({
         email: adminEmail,
         password: adminPassword,
       })
@@ -41,14 +41,14 @@ export async function seedAdminAccount() {
       // If user already exists, sign in to get the user ID
       if (error.message?.includes('already exists') || error.message?.includes('User already registered')) {
         console.log('ℹ️ Admin user already exists, signing in temporarily to check staff record...')
-        await blink.auth.signInWithEmail(adminEmail, adminPassword)
+        await auth.signInWithEmail(adminEmail, adminPassword)
       } else {
         throw error
       }
     }
 
     // Get current user to obtain userId
-    const currentUser = await blink.auth.me()
+    const currentUser = await auth.me()
 
     if (!currentUser) {
       throw new Error('Failed to get admin user after signup/signin')
@@ -57,7 +57,6 @@ export async function seedAdminAccount() {
     console.log('🔍 Checking for existing admin staff record...')
 
     // Check again (with auth) if staff already exists
-    const db = (blink.db as any)
     const existingStaff = await db.staff.list({
       where: { email: adminEmail },
       limit: 1
@@ -72,7 +71,7 @@ export async function seedAdminAccount() {
 
       // Log out if we logged in just for seeding
       if (!wasAlreadyLoggedIn) {
-        await blink.auth.logout()
+        await auth.logout()
         console.log('🔓 Logged out after seed check')
       }
 
@@ -105,7 +104,7 @@ export async function seedAdminAccount() {
 
         // Log out if we logged in just for seeding
         if (!wasAlreadyLoggedIn) {
-          await blink.auth.logout()
+          await auth.logout()
           console.log('🔓 Logged out after seed check')
         }
 
@@ -116,7 +115,7 @@ export async function seedAdminAccount() {
 
     // Log out if we logged in just for seeding
     if (!wasAlreadyLoggedIn) {
-      await blink.auth.logout()
+      await auth.logout()
       console.log('🔓 Logged out after seed completion')
     }
 
@@ -146,7 +145,7 @@ export async function seedTestStaffAccount() {
 
     // Sign up the test staff user
     try {
-      await blink.auth.signUp({
+      await auth.signUp({
         email: staffEmail,
         password: staffPassword,
       })
@@ -155,28 +154,27 @@ export async function seedTestStaffAccount() {
       // If user already exists, sign in to get the user ID
       if (error.message?.includes('already exists') || error.message?.includes('User already registered')) {
         console.log('Test staff user already exists, signing in...')
-        await blink.auth.signInWithEmail(staffEmail, staffPassword)
+        await auth.signInWithEmail(staffEmail, staffPassword)
       } else {
         throw error
       }
     }
 
     // Get current user to obtain userId
-    const currentUser = await blink.auth.me()
+    const currentUser = await auth.me()
 
     if (!currentUser) {
       throw new Error('Failed to get test staff user after signup/signin')
     }
 
     // Check if staff entry already exists
-    const db = (blink.db as any)
     const existingStaff = await db.staff.list({
       where: { email: staffEmail },
       limit: 1
     })
     if (existingStaff.length > 0) {
       console.log('Test staff entry already exists, skipping creation')
-      await blink.auth.logout()
+      await auth.logout()
       return { success: true, alreadyExists: true }
     }
 
@@ -196,14 +194,14 @@ export async function seedTestStaffAccount() {
       const details = e?.details?.message || e?.details?.details?.error_details || ''
       if (status === 409 || message.includes('Constraint violation') || String(details).includes('UNIQUE')) {
         console.log('Test staff entry already exists (caught 409). Skipping.')
-        await blink.auth.logout()
+        await auth.logout()
         return { success: true, alreadyExists: true }
       }
       throw e
     }
 
     console.log('Test staff entry created successfully')
-    await blink.auth.logout()
+    await auth.logout()
 
     return {
       success: true,
@@ -216,7 +214,7 @@ export async function seedTestStaffAccount() {
   } catch (error) {
     console.error('Error seeding test staff account:', error)
     try {
-      await blink.auth.logout()
+      await auth.logout()
     } catch (e) { /* ignore logout error */ }
     return { success: false, error }
   }

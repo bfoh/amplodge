@@ -1,8 +1,6 @@
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { BookingCharge, ChargeCategory } from '@/types'
 import { inventoryService } from './inventory-service'
-
-const db = blink.db as any
 
 // Category display names for UI
 export const CHARGE_CATEGORIES: Record<ChargeCategory, string> = {

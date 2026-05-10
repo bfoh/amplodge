@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Building2, Calendar, Users, DollarSign, TrendingUp, Clock, BarChart2 } from 'lucide-react'
-import { blink } from '../../blink/client'
+import { db, auth } from '@/lib/db'
 import { bookingEngine } from '../../services/booking-engine'
 import { formatCurrencySync } from '../../lib/utils'
 import { useCurrency } from '../../hooks/use-currency'
@@ -53,9 +53,9 @@ export function DashboardPage() {
       // Fetch data - load ALL properties (project-scoped, no user filtering needed)
       const [allBookings, properties, guests, roomTypes] = await Promise.all([
         bookingEngine.getAllBookings(),
-        blink.db.properties.list(),
-        blink.db.guests.list(),
-        (blink.db as any).roomTypes.list()
+        db.properties.list(),
+        db.guests.list(),
+        (db as any).roomTypes.list()
       ])
 
       const todayIso = new Date().toISOString().split('T')[0]

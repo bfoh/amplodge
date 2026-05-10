@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { CheckCircle2, Clock, Home, AlertCircle } from 'lucide-react'
@@ -45,7 +45,7 @@ export function TaskCompletionPage() {
       setError(null)
 
       // Load task data
-      const taskData = await blink.db.housekeepingTasks.list({
+      const taskData = await db.housekeepingTasks.list({
         where: { id: taskId }
       })
 
@@ -59,7 +59,7 @@ export function TaskCompletionPage() {
 
       // Load staff data if task is assigned
       if (taskInfo.assignedTo) {
-        const staffData = await blink.db.staff.list({
+        const staffData = await db.staff.list({
           where: { id: taskInfo.assignedTo }
         })
         if (staffData && staffData.length > 0) {
@@ -86,28 +86,28 @@ export function TaskCompletionPage() {
       setCompleting(true)
 
       // Update task status to completed
-      await blink.db.housekeepingTasks.update(task.id, {
+      await db.housekeepingTasks.update(task.id, {
         status: 'completed',
         completedAt: new Date().toISOString()
       })
 
       // Find and update room status
       try {
-        const rooms = await blink.db.rooms.list()
+        const rooms = await db.rooms.list()
         const room = rooms.find((r: any) => r.roomNumber === task.roomNumber)
 
         if (room && room.status?.toLowerCase() === 'cleaning') {
           console.log(`[TaskCompletion] Updating room ${room.roomNumber} to available`)
-          await blink.db.rooms.update(room.id, {
+          await db.rooms.update(room.id, {
             status: 'available'
           })
 
           try {
-            const properties = await blink.db.properties.list({ limit: 500 })
+            const properties = await db.properties.list({ limit: 500 })
             const property = properties.find((p: any) => p.id === room.id || p.roomNumber === room.roomNumber)
             if (property && property.status !== 'active') {
               console.log(`[TaskCompletion] Syncing property ${property.id} status to active`)
-              await blink.db.properties.update(property.id, { status: 'active' })
+              await db.properties.update(property.id, { status: 'active' })
             }
           } catch (propUpdateError) {
             console.warn('Could not update property status:', propUpdateError)
@@ -121,9 +121,9 @@ export function TaskCompletionPage() {
 
       // Log activity
       try {
-        const currentUser = await blink.auth.me()
+        const currentUser = await auth.me()
         if (currentUser) {
-          await blink.db.activityLogs.create({
+          await db.activityLogs.create({
             id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
             userId: currentUser.id,
             action: 'completed',

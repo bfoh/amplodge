@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import type { StaffRole } from '@/lib/rbac'
 import { getNetworkOnline } from '@/lib/network-status'
 
@@ -88,13 +88,13 @@ export function useStaffRole() {
   // Background refresh from network (non-blocking, no loading state changes)
   const loadStaffRoleFromNetwork = useCallback(async (uid: string) => {
     try {
-      let staff = await (blink.db as any).staff.list({
+      let staff = await (db as any).staff.list({
         where: { userId: uid },
         limit: 1,
       })
 
       if (staff.length === 0) {
-        staff = await (blink.db as any).staff.list({
+        staff = await (db as any).staff.list({
           where: { user_id: uid } as any,
           limit: 1,
         })
@@ -161,7 +161,7 @@ export function useStaffRole() {
       }
 
       // Optimized single query with better error handling
-      let staff = await (blink.db as any).staff.list({
+      let staff = await (db as any).staff.list({
         where: { userId: uid },
         limit: 1,
         include: ['user'] // Try to include user data in single query
@@ -169,7 +169,7 @@ export function useStaffRole() {
 
       if (staff.length === 0) {
         // Try snake_case version as fallback
-        staff = await (blink.db as any).staff.list({
+        staff = await (db as any).staff.list({
           where: { user_id: uid } as any,
           limit: 1,
           include: ['user']
@@ -180,9 +180,9 @@ export function useStaffRole() {
       if (staff.length === 0) {
         console.log('🔍 [useStaffRole] userId lookup failed, trying email lookup...')
         try {
-          const currentUser = await blink.auth.me()
+          const currentUser = await auth.me()
           if (currentUser?.email) {
-            staff = await (blink.db as any).staff.list({
+            staff = await (db as any).staff.list({
               where: { email: currentUser.email },
               limit: 1
             })
@@ -191,7 +191,7 @@ export function useStaffRole() {
             if (staff.length > 0 && staff[0].userId !== uid) {
               console.log('🔧 [useStaffRole] Updating staff record with correct userId...')
               try {
-                await (blink.db as any).staff.update(staff[0].id, { userId: uid })
+                await (db as any).staff.update(staff[0].id, { userId: uid })
                 staff[0].userId = uid
                 console.log('✅ [useStaffRole] Staff record userId updated successfully')
               } catch (updateError) {
@@ -242,7 +242,7 @@ export function useStaffRole() {
     const UNSET = '__unset__'
     let currentUserId: string | null = UNSET as any
 
-    const unsubscribe = blink.auth.onAuthStateChanged((state) => {
+    const unsubscribe = auth.onAuthStateChanged((state) => {
       // Wait until auth has fully resolved before acting
       if (state.isLoading) return
 

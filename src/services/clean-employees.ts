@@ -1,4 +1,4 @@
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 
 /**
  * Clean employees database - Remove all staff except admin
@@ -15,7 +15,7 @@ export async function cleanEmployeesDatabase() {
   
   try {
     // Get current user to ensure we're admin
-    const currentUser = await blink.auth.me()
+    const currentUser = await auth.me()
     if (!currentUser) {
       console.error('❌ [CleanEmployees] Not authenticated')
       return {
@@ -28,7 +28,7 @@ export async function cleanEmployeesDatabase() {
     console.log('👤 [CleanEmployees] Running as:', currentUser.email)
     
     // Get all staff records
-    const allStaff = await (blink.db as any).staff.list({})
+    const allStaff = await (db as any).staff.list({})
     console.log(`📋 [CleanEmployees] Found ${allStaff.length} total staff records`)
     
     if (!allStaff || allStaff.length === 0) {
@@ -82,7 +82,7 @@ export async function cleanEmployeesDatabase() {
     for (const staff of staffToDelete) {
       try {
         console.log(`🗑️  [CleanEmployees] Deleting: ${staff.name} (${staff.email})...`)
-        await (blink.db as any).staff.delete(staff.id)
+        await (db as any).staff.delete(staff.id)
         deletedRecords.push(staff)
         console.log(`   ✅ Deleted: ${staff.name}`)
       } catch (error: any) {
@@ -93,7 +93,7 @@ export async function cleanEmployeesDatabase() {
     
     // Log activity
     try {
-      await (blink.db as any).activityLogs.create({
+      await (db as any).activityLogs.create({
         id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
         userId: currentUser.id,
         action: 'bulk_delete',
@@ -156,7 +156,7 @@ export async function cleanEmployeesDatabaseInteractive() {
   console.log('┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n')
   
   // Preview what will be deleted
-  const allStaff = await (blink.db as any).staff.list({})
+  const allStaff = await (db as any).staff.list({})
   const staffToKeep = allStaff.filter((staff: any) => {
     return staff.email === 'admin@amplodge.com' || 
            staff.role === 'owner' ||

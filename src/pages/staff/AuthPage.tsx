@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { blink } from '../../blink/client'
+import { db, auth } from '@/lib/db'
 import { activityLogService } from '@/services/activity-log-service'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
@@ -18,7 +18,7 @@ export function AuthPage() {
 
   // Check auth state but don't auto-redirect - require manual login
   useEffect(() => {
-    const unsubscribe = blink.auth.onAuthStateChanged((state) => {
+    const unsubscribe = auth.onAuthStateChanged((state) => {
       // Don't auto-redirect - let user manually authenticate
       // This ensures explicit login process
     })
@@ -33,11 +33,11 @@ export function AuthPage() {
       console.log('🚀 [AuthPage] Starting optimized authentication...')
       
       if (mode === 'signin') {
-        await blink.auth.signInWithEmail(email, password)
+        await auth.signInWithEmail(email, password)
         console.log('✅ [AuthPage] Sign in successful')
         
         // Initialize activity logging with current user
-        const user = await blink.auth.me()
+        const user = await auth.me()
         if (user) {
           activityLogService.setCurrentUser(user.id)
           // Log the login activity
@@ -50,7 +50,7 @@ export function AuthPage() {
         toast.success('Welcome back!')
         navigate('/staff/dashboard', { replace: true })
       } else {
-        await blink.auth.signUp({ email, password })
+        await auth.signUp({ email, password })
         console.log('✅ [AuthPage] Sign up successful')
         toast.success('Account created successfully!')
         navigate('/staff/dashboard', { replace: true })

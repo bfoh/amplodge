@@ -1,4 +1,4 @@
-import { blink } from '../blink/client'
+import { db, auth } from '@/lib/db'
 
 /**
  * @deprecated This file is LEGACY code from the Blink era.
@@ -20,10 +20,8 @@ export async function seedSampleData() {
     console.log('🌱 Seeding sample data...')
     console.warn('⚠️ DEPRECATED: seed-sample-data.ts is legacy code from Blink era.')
 
-    const db = (blink.db as any)
-
     // Check if we need to log out first (in case seed ran while another user was logged in)
-    const currentAuthUser = await blink.auth.me()
+    const currentAuthUser = await auth.me()
     const wasAlreadyLoggedIn = !!currentAuthUser
 
     // DEPRECATED: Admin login for seeding removed - use Supabase Auth
@@ -245,7 +243,7 @@ export async function seedSampleData() {
     // Log out if we signed in just for seeding
     if (!wasAlreadyLoggedIn && currentAuthUser) {
       try {
-        await blink.auth.logout()
+        await auth.logout()
         console.log('🔓 Logged out after seeding')
       } catch (error) {
         console.warn('⚠️ Could not log out after seeding')

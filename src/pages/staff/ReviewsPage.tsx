@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Loader2, Check, X, Star, Trash2, MessageSquare } from 'lucide-react'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { toast } from '@/hooks/use-toast'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -43,7 +43,7 @@ export function ReviewsPage() {
             setIsLoading(true)
             console.log('🔄 [ReviewsPage] Loading reviews...')
 
-            const reviewsList = await blink.db.reviews.list({
+            const reviewsList = await db.reviews.list({
                 orderBy: { createdAt: 'desc' }
             })
 
@@ -61,7 +61,7 @@ export function ReviewsPage() {
                     // The wrapper supports 'in' operator: query.in(snakeKey, value.in)
                     try {
                         // @ts-ignore
-                        const guestsList = await blink.db.guests.list({
+                        const guestsList = await db.guests.list({
                             where: { id: { in: guestIds } }
                         })
 
@@ -86,7 +86,7 @@ export function ReviewsPage() {
 
     const handleStatusChange = async (reviewId: string, newStatus: 'approved' | 'rejected') => {
         try {
-            await blink.db.reviews.update(reviewId, { status: newStatus })
+            await db.reviews.update(reviewId, { status: newStatus })
 
             setReviews(prev => prev.map(r =>
                 r.id === reviewId ? { ...r, status: newStatus } : r
@@ -108,7 +108,7 @@ export function ReviewsPage() {
     const handleToggleFeature = async (review: Review) => {
         try {
             const newFeatured = !review.isFeatured
-            await blink.db.reviews.update(review.id, { isFeatured: newFeatured })
+            await db.reviews.update(review.id, { isFeatured: newFeatured })
 
             setReviews(prev => prev.map(r =>
                 r.id === review.id ? { ...r, isFeatured: newFeatured } : r

@@ -1,4 +1,4 @@
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 
 /**
  * Activity types that can be logged
@@ -191,8 +191,6 @@ class ActivityLogService {
   public async log(data: ActivityLogData): Promise<void> {
     // Wrap entire function in try-catch to ensure logging never blocks operations
     try {
-      const db = blink.db as any
-
       // Use provided userId or fall back to current user
       const userId = data.userId || this.currentUserId || 'system'
 
@@ -200,7 +198,7 @@ class ActivityLogService {
       let userEmail = userId
       if (userId !== 'system' && userId !== 'guest') {
         try {
-          const user = await blink.auth.me()
+          const user = await auth.me()
           userEmail = user?.email || userId
         } catch (error) {
           console.warn('[ActivityLog] Failed to get user email, using userId:', error)
@@ -605,7 +603,7 @@ class ActivityLogService {
 
     if (!userDetails?.email) {
       try {
-        const user = await blink.auth.me()
+        const user = await auth.me()
         userEmail = user?.email || 'Unknown User'
       } catch (error) {
         console.warn('[ActivityLog] Failed to get user email for logout, using userId:', error)
@@ -665,8 +663,6 @@ class ActivityLogService {
     offset?: number
   }): Promise<ActivityLog[]> {
     try {
-      const db = blink.db as any
-
       // Try to get logs from activityLogs table first
       try {
         const logs = await db.activityLogs.list({
@@ -854,7 +850,6 @@ class ActivityLogService {
    */
   public async deleteOldLogs(daysToKeep: number = 365): Promise<number> {
     try {
-      const db = blink.db as any
       const cutoffDate = new Date()
       cutoffDate.setDate(cutoffDate.getDate() - daysToKeep)
 

@@ -1,13 +1,12 @@
 import { bookingEngine } from './booking-engine'
 import { v4 as uuidv4 } from 'uuid'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 
 export const testGroupBooking = async () => {
     console.log('🧪 Starting Group Booking Test...')
 
     try {
         // 1. Fetch real room types and rooms to ensure validity
-        const db = (blink.db as any)
         const roomTypes = await db.roomTypes.list()
         const rooms = await db.rooms.list()
 

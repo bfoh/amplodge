@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel'
 import { Star, User } from 'lucide-react'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { formatDistanceToNow } from 'date-fns'
 
 interface Review {
@@ -32,7 +32,7 @@ export function ReviewsCarousel() {
         const loadReviews = async () => {
             try {
                 // Fetch approved reviews
-                const allReviews = await blink.db.reviews.list({
+                const allReviews = await db.reviews.list({
                     where: { status: 'approved' },
                     orderBy: { createdAt: 'desc' },
                     limit: 10
@@ -63,7 +63,7 @@ export function ReviewsCarousel() {
 
                 if (guestIds.length > 0) {
                     // @ts-ignore
-                    const guestList = await blink.db.guests.list({
+                    const guestList = await db.guests.list({
                         where: { id: { in: guestIds } }
                     })
                     const guestMap: Record<string, Guest> = {}

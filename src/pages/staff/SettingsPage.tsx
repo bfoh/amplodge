@@ -4,7 +4,7 @@ import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { User, Mail, Settings } from 'lucide-react'
-import { blink } from '../../blink/client'
+import { db, auth } from '@/lib/db'
 import { toast } from 'sonner'
 import { hotelSettingsService } from '@/services/hotel-settings'
 
@@ -22,7 +22,7 @@ export function SettingsPage() {
 
   const loadUser = async () => {
     try {
-      const userData = await blink.auth.me()
+      const userData = await auth.me()
       setUser(userData)
     } catch (error) {
       console.error('Failed to load user:', error)
@@ -70,7 +70,7 @@ export function SettingsPage() {
   }
 
   const handleLogout = async () => {
-    await blink.auth.logout()
+    await auth.logout()
     toast.success('Logged out successfully')
   }
 

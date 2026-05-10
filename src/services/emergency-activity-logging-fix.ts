@@ -1,4 +1,4 @@
-import { blink } from '../blink/client'
+import { db, auth } from '@/lib/db'
 import { activityLogService } from './activity-log-service'
 
 /**
@@ -8,8 +8,6 @@ export async function forceCreateActivityLogsTable() {
   console.log('🔧 [ForceCreateActivityLogsTable] Starting...')
   
   try {
-    const db = blink.db as any
-    
     // Try to access the table first
     try {
       await db.activityLogs.list({ limit: 1 })
@@ -53,8 +51,6 @@ export async function testActivityLoggingDetailed() {
   console.log('🧪 [TestActivityLoggingDetailed] Starting detailed test...')
   
   try {
-    const db = blink.db as any
-    
     // Step 1: Force create table
     console.log('📋 [TestActivityLoggingDetailed] Step 1: Ensuring table exists...')
     const tableCreated = await forceCreateActivityLogsTable()
@@ -159,7 +155,7 @@ export async function emergencyFixActivityLogging() {
     
     // Step 2: Set current user
     try {
-      const currentUser = await blink.auth.me()
+      const currentUser = await auth.me()
       if (currentUser) {
         activityLogService.setCurrentUser(currentUser.id)
         console.log('✅ [EmergencyFixActivityLogging] Set current user:', currentUser.email)

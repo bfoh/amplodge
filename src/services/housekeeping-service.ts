@@ -1,4 +1,4 @@
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import type { Booking, Room, HousekeepingTask } from '@/types'
 import { activityLogService } from '@/services/activity-log-service'
 
@@ -30,7 +30,7 @@ class HousekeepingService {
 
         try {
             // Create the task in database
-            const newTask = await blink.db.housekeepingTasks.create(taskPayload)
+            const newTask = await db.housekeepingTasks.create(taskPayload)
             console.log('✅ [HousekeepingService] Task created successfully:', taskId)
 
             // Log the creation
@@ -74,7 +74,7 @@ class HousekeepingService {
             console.log(`🧹 [HousekeepingService] Completing task ${taskId} for room ${roomNumber}`)
 
             // 1. Update task
-            await blink.db.housekeepingTasks.update(taskId, {
+            await db.housekeepingTasks.update(taskId, {
                 status: 'completed',
                 completedAt: new Date().toISOString(),
                 notes: notes
@@ -82,22 +82,22 @@ class HousekeepingService {
 
             // 2. Find room and update status
             // We list by roomNumber to be safe, as task might store roomNumber string
-            const rooms = await blink.db.rooms.list({ where: { roomNumber }, limit: 1 })
+            const rooms = await db.rooms.list({ where: { roomNumber }, limit: 1 })
             const room = rooms[0]
 
             if (room) {
                 if (room.status?.toLowerCase() === 'cleaning') {
                     console.log(`[HousekeepingService] Updating room ${room.roomNumber} status to available`)
-                    await blink.db.rooms.update(room.id, { status: 'available' })
+                    await db.rooms.update(room.id, { status: 'available' })
 
                     // Update property status if it matches
                     try {
                         // Note: properties endpoint might need specific handling if it's different from rooms table
                         // Ideally properties and rooms are synced or same table structure wrapper
-                        const properties = await (blink.db as any).properties.list({ limit: 500 })
+                        const properties = await (db as any).properties.list({ limit: 500 })
                         const property = properties.find((p: any) => p.id === room.id || p.roomNumber === room.roomNumber)
                         if (property && property.status !== 'active') {
-                            await (blink.db as any).properties.update(property.id, { status: 'active' })
+                            await (db as any).properties.update(property.id, { status: 'active' })
                         }
                     } catch (e) {
                         console.warn('[HousekeepingService] Failed to sync property status:', e)

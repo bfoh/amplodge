@@ -1,7 +1,5 @@
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { bookingChargesService } from './booking-charges-service'
-
-const db = blink.db as any
 
 export interface ExtensionResult {
     success: boolean

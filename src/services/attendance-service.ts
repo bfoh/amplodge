@@ -4,7 +4,7 @@
  * and attendance record management.
  */
 
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 
 // ─── Rotating QR Token ────────────────────────────────────────────────────────
 
@@ -214,8 +214,6 @@ export interface AttendanceRecord {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const db = blink.db as any
 
 function todayStr(): string {
   return new Date().toISOString().split('T')[0]

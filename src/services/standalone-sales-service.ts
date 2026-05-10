@@ -4,7 +4,7 @@
  * Table: standaloneSales — auto-created by blink on first insert.
  */
 
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { format } from 'date-fns'
 import { inventoryService } from './inventory-service'
 
@@ -39,7 +39,6 @@ export const standaloneSalesService = {
   async addSale(
     data: Omit<StandaloneSale, 'id' | 'createdAt'>
   ): Promise<StandaloneSale> {
-    const db = blink.db as any
     const record: StandaloneSale = {
       ...data,
       id: `sale_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -81,7 +80,6 @@ export const standaloneSalesService = {
     weekStart: string,
     weekEnd: string
   ): Promise<StandaloneSale[]> {
-    const db = blink.db as any
     try {
       const rows = await db.standaloneSales.list({ limit: 2000 })
       return ((rows || []) as StandaloneSale[]).filter((s) => {
@@ -100,7 +98,6 @@ export const standaloneSalesService = {
     weekStart: string,
     weekEnd: string
   ): Promise<StandaloneSale[]> {
-    const db = blink.db as any
     try {
       const rows = await db.standaloneSales.list({ limit: 2000 })
       return ((rows || []) as StandaloneSale[]).filter((s) => {
@@ -115,7 +112,6 @@ export const standaloneSalesService = {
 
   /** Fetch ALL sales ever (for analytics). */
   async getAllSales(): Promise<StandaloneSale[]> {
-    const db = blink.db as any
     try {
       const rows = await db.standaloneSales.list({ limit: 5000 })
       return (rows || []) as StandaloneSale[]
@@ -126,7 +122,6 @@ export const standaloneSalesService = {
   },
 
   async deleteSale(id: string): Promise<void> {
-    const db = blink.db as any
     await db.standaloneSales.delete(id)
   },
 }

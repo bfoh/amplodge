@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import type { RoomType } from '@/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -12,7 +12,6 @@ import { activityLogService } from '@/services/activity-log-service'
 import { RefreshCw, Plus, Tag } from 'lucide-react'
 
 export function SetPricesPage() {
-  const db = (blink.db as any)
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
   const [edited, setEdited] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
@@ -147,9 +146,9 @@ export function SetPricesPage() {
       }
 
       // Also update properties that reference this room type
-      const properties = await blink.db.properties.list({ where: { propertyTypeId: roomTypeId } })
+      const properties = await db.properties.list({ where: { propertyTypeId: roomTypeId } })
       for (const prop of properties) {
-        await blink.db.properties.update(prop.id, { basePrice: newPrice })
+        await db.properties.update(prop.id, { basePrice: newPrice })
       }
 
       console.log(`✅ Synced price to ${rooms.length} rooms and ${properties.length} properties`)
@@ -186,7 +185,7 @@ export function SetPricesPage() {
 
       // Log price change
       try {
-        const user = await blink.auth.me().catch(() => null)
+        const user = await auth.me().catch(() => null)
         const roomType = roomTypes.find(rt => rt.id === id)
         await activityLogService.log({
           action: 'updated',
@@ -234,7 +233,7 @@ export function SetPricesPage() {
 
       // Log bulk price update
       try {
-        const user = await blink.auth.me().catch(() => null)
+        const user = await auth.me().catch(() => null)
         const changes = Object.entries(edited).map(([id, val]) => {
           const rt = roomTypes.find(r => r.id === id)
           return `${rt?.name || 'Unknown'}: ${rt?.basePrice || 0} → ${val}`

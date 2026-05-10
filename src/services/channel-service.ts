@@ -1,9 +1,9 @@
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { ChannelConnection, ChannelRoomMapping, ExternalBooking } from '@/types'
 
 export class ChannelService {
     private static instance: ChannelService
-    private db = blink.db as any
+    private db = db as any
 
     static getInstance(): ChannelService {
         if (!ChannelService.instance) {

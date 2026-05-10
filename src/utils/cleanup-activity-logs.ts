@@ -4,7 +4,7 @@
  */
 
 import { activityLogService } from '@/services/activity-log-service'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 
 /**
  * Clean up all test data from activity logs
@@ -13,8 +13,6 @@ export async function cleanupTestActivityLogs(): Promise<void> {
   console.log('[CleanupActivityLogs] Starting cleanup of test data...')
   
   try {
-    const db = blink.db as any
-    
     // Get all activity logs
     const allLogs = await db.contactMessages.list({
       where: { status: 'activity_log' }
@@ -106,8 +104,6 @@ export async function ensureUniqueActivityLogIds(): Promise<void> {
   console.log('[UniqueIds] Ensuring all activity logs have unique IDs...')
   
   try {
-    const db = blink.db as any
-    
     // Get all activity logs
     const allLogs = await db.contactMessages.list({
       where: { status: 'activity_log' }

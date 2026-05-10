@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { AlertTriangle, Trash2, Shield, CheckCircle2, Loader2 } from 'lucide-react'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { toast } from '@/hooks/use-toast'
 import { useStaffRole } from '@/hooks/use-staff-role'
 
@@ -40,14 +40,14 @@ export function CleanupToolPage() {
       let hasMore = true
 
       while (hasMore) {
-        const guests = await (blink.db as any).guests.list({ limit: 100 })
+        const guests = await (db as any).guests.list({ limit: 100 })
         if (guests.length === 0) {
           hasMore = false
           break
         }
 
         for (const guest of guests) {
-          await (blink.db as any).guests.delete(guest.id)
+          await (db as any).guests.delete(guest.id)
           deleted++
         }
       }
@@ -69,7 +69,6 @@ export function CleanupToolPage() {
 
     setResettingRooms(true)
     try {
-      const db = blink.db as any
       console.log('🛏️ Resetting room statuses...')
 
       const rooms = await db.rooms.list({ limit: 1000 })
@@ -116,14 +115,14 @@ export function CleanupToolPage() {
       let hasMore = true
 
       while (hasMore) {
-        const tasks = await (blink.db as any).housekeepingTasks.list({ limit: 100 })
+        const tasks = await (db as any).housekeepingTasks.list({ limit: 100 })
         if (tasks.length === 0) {
           hasMore = false
           break
         }
 
         for (const task of tasks) {
-          await (blink.db as any).housekeepingTasks.delete(task.id)
+          await (db as any).housekeepingTasks.delete(task.id)
           deletedTotal++
         }
         console.log(`Deleted batch of ${tasks.length} tasks...`)
@@ -154,7 +153,7 @@ export function CleanupToolPage() {
         let hasMore = true
         while (hasMore) {
           // Dynamic access to collection
-          const collection = (blink.db as any)[collectionName]
+          const collection = (db as any)[collectionName]
           if (!collection) break
 
           const items = await collection.list({ limit: 100 })
@@ -186,9 +185,9 @@ export function CleanupToolPage() {
       // 4. Reset Room Status (Update, not delete)
       console.log('Resetting room statuses...')
       let roomsUpdated = 0
-      const rooms = await (blink.db as any).rooms.list({ limit: 1000 })
+      const rooms = await (db as any).rooms.list({ limit: 1000 })
       for (const r of rooms) {
-        await (blink.db as any).rooms.update(r.id, { status: 'available' })
+        await (db as any).rooms.update(r.id, { status: 'available' })
         roomsUpdated++
       }
       console.log(`Reset ${roomsUpdated} rooms to available`)
@@ -219,7 +218,7 @@ export function CleanupToolPage() {
     try {
       console.log('🔍 Scanning database...')
 
-      const allStaff = await (blink.db as any).staff.list({})
+      const allStaff = await (db as any).staff.list({})
       console.log(`📋 Found ${allStaff.length} staff records`)
 
       const toKeep = allStaff.filter((staff: StaffMember) => {
@@ -262,7 +261,7 @@ export function CleanupToolPage() {
     setCleaning(true)
     try {
       console.log('🗑️ Starting cascade cleanup...')
-      const currentUser = await blink.auth.me()
+      const currentUser = await auth.me()
       let deleted = 0
       let totalActivityLogs = 0
       let totalBookings = 0
@@ -273,7 +272,7 @@ export function CleanupToolPage() {
           console.log(`Cascade deleting: ${staff.name}...`)
 
           // 1. Delete staff record
-          await (blink.db as any).staff.delete(staff.id)
+          await (db as any).staff.delete(staff.id)
           deleted++
 
           // 2. Previous Blink-specific user deletion removed - Supabase handles auth cleanup differently
@@ -281,7 +280,7 @@ export function CleanupToolPage() {
             try {
               // With Supabase, we just delete from the database
               // Auth cleanup should be handled separately via Supabase admin functions
-              await (blink.db as any).users.delete(staff.userId)
+              await (db as any).users.delete(staff.userId)
               totalUserAccounts++
               console.log(`  ✅ Deleted user account`)
             } catch (userErr) {
@@ -291,11 +290,11 @@ export function CleanupToolPage() {
 
           // 3. Delete activity logs
           try {
-            const logs = await (blink.db as any).activityLogs.list({
+            const logs = await (db as any).activityLogs.list({
               where: { userId: staff.userId }
             })
             for (const log of logs) {
-              await (blink.db as any).activityLogs.delete(log.id)
+              await (db as any).activityLogs.delete(log.id)
               totalActivityLogs++
             }
           } catch (logsErr) {
@@ -304,11 +303,11 @@ export function CleanupToolPage() {
 
           // 4. Anonymize bookings
           try {
-            const bookings = await (blink.db as any).bookings.list({
+            const bookings = await (db as any).bookings.list({
               where: { userId: staff.userId }
             })
             for (const booking of bookings) {
-              await (blink.db as any).bookings.update(booking.id, { userId: null })
+              await (db as any).bookings.update(booking.id, { userId: null })
               totalBookings++
             }
           } catch (bookingsErr) {
@@ -326,7 +325,7 @@ export function CleanupToolPage() {
 
       // Log activity
       try {
-        await (blink.db as any).activityLogs.create({
+        await (db as any).activityLogs.create({
           id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
           userId: currentUser.id,
           action: 'bulk_cascade_delete',

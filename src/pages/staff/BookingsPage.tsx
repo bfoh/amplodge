@@ -20,7 +20,7 @@ import {
 import { Plus, Calendar, User, Home, Search, Trash2, Users, QrCode, ExternalLink, Smartphone, Printer, BookOpen, X as XIcon } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { QRCodeSVG } from 'qrcode.react'
-import { blink } from '../../blink/client'
+import { db, auth } from '@/lib/db'
 import { toast } from 'sonner'
 import { Badge } from '../../components/ui/badge'
 import { useStaffRole } from '../../hooks/use-staff-role'
@@ -33,7 +33,7 @@ import { useCurrency } from '@/hooks/use-currency'
 // Helper function to get current user ID
 async function getCurrentUserId(): Promise<string> {
   try {
-    const user = await blink.auth.me()
+    const user = await auth.me()
     return user?.id || 'system'
   } catch (error) {
     console.error('Failed to get current user:', error)
@@ -156,8 +156,8 @@ export function BookingsPage() {
       // Load bookings, properties (rooms), and room types
       const [allBookings, roomsData, roomTypesData] = await Promise.all([
         bookingEngine.getAllBookings(),
-        (blink.db as any).rooms.list({ orderBy: { roomNumber: 'asc' } }),
-        (blink.db as any).roomTypes.list()
+        (db as any).rooms.list({ orderBy: { roomNumber: 'asc' } }),
+        (db as any).roomTypes.list()
       ])
 
       const roomTypeMap = new Map<string, string>((roomTypesData as any[]).map((rt: any) => [rt.id, rt.name]))
@@ -325,7 +325,7 @@ export function BookingsPage() {
 
       if (!createdBy) {
         try {
-          const currentUser = await blink.auth.me()
+          const currentUser = await auth.me()
           createdBy = currentUser?.id
           console.log('[BookingsPage] Fallback: Using current user ID:', createdBy)
         } catch (error) {

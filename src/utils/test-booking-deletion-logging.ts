@@ -2,7 +2,7 @@
  * Test utility for booking deletion logging
  */
 
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { activityLogService } from '@/services/activity-log-service'
 
 /**
@@ -26,7 +26,7 @@ export async function testBookingDeletionLogging(): Promise<void> {
     }
 
     console.log('[BookingDeletionTest] Creating test booking...')
-    await blink.db.bookings.create(testBooking)
+    await db.bookings.create(testBooking)
     console.log('[BookingDeletionTest] Test booking created:', testBooking.id)
 
     // Simulate the deletion process (similar to what happens in BookingsPage)
@@ -38,7 +38,7 @@ export async function testBookingDeletionLogging(): Promise<void> {
     const roomNumber = booking.roomNumber
     
     // Delete the booking
-    await blink.db.bookings.delete(remoteId)
+    await db.bookings.delete(remoteId)
     console.log('[BookingDeletionTest] Test booking deleted:', remoteId)
     
     // Log the booking deletion activity
@@ -142,8 +142,6 @@ export async function cleanupTestBookingDeletions(): Promise<void> {
   console.log('[CleanupTestDeletions] Cleaning up test booking deletion logs...')
   
   try {
-    const db = blink.db as any
-    
     // Get all activity logs
     const activityLogs = await db.contact_messages.list({
       where: { status: 'activity_log' }

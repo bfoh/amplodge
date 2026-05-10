@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -83,7 +83,7 @@ export function InventoryPage() {
   }, [])
 
   const fetchUser = async () => {
-    const user = await blink.auth.me()
+    const user = await auth.me()
     if (user) setCurrentUser(user as any)
   }
 

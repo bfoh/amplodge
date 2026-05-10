@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { Booking, Room } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -12,7 +12,6 @@ import { StaffSidebar } from '@/components/layout/StaffSidebar'
 import { bookingEngine } from '@/services/booking-engine'
 
 export function StaffDashboardPage() {
-  const db = (blink.db as any)
   const { currency } = useCurrency()
   const navigate = useNavigate()
   const [user, setUser] = useState<any>(null)
@@ -22,7 +21,7 @@ export function StaffDashboardPage() {
   const [conflicts, setConflicts] = useState(0)
 
   useEffect(() => {
-    const unsubscribe = blink.auth.onAuthStateChanged((state) => {
+    const unsubscribe = auth.onAuthStateChanged((state) => {
       setUser(state.user)
       if (!state.user && !state.isLoading) {
         navigate('/staff')
@@ -55,7 +54,7 @@ export function StaffDashboardPage() {
   }
 
   const handleLogout = async () => {
-    await blink.auth.logout()
+    await auth.logout()
     navigate('/staff')
   }
 

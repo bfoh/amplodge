@@ -3,7 +3,6 @@
  * This script provides direct testing methods for the Blink database
  */
 
-import { initializeBlinkDatabase, testActivityLogsTable, createSampleActivityLogs, forceCreateActivityLogsTable } from '@/blink/blink-config'
 
 /**
  * Run a complete test of the Blink database system

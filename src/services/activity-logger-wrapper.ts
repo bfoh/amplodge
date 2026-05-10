@@ -4,7 +4,7 @@
  */
 
 import { activityLogService } from './activity-log-service'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 
 /**
  * Wrapper class that automatically logs activities when operations are performed
@@ -317,7 +317,7 @@ export class ActivityLoggerWrapper {
    */
   static async getCurrentUserId(): Promise<string | null> {
     try {
-      const user = await blink.auth.me()
+      const user = await auth.me()
       return user?.id || null
     } catch (error) {
       console.error('[ActivityLoggerWrapper] Failed to get current user:', error)
@@ -330,7 +330,7 @@ export class ActivityLoggerWrapper {
    */
   static async getCurrentUserEmail(): Promise<string | null> {
     try {
-      const user = await blink.auth.me()
+      const user = await auth.me()
       return user?.email || null
     } catch (error) {
       console.error('[ActivityLoggerWrapper] Failed to get current user email:', error)

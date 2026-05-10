@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -9,7 +9,6 @@ import { toast } from 'sonner'
 import { activityLogService } from '@/services/activity-log-service'
 
 export function ContactPage() {
-  const db = (blink.db as any)
   const [formData, setFormData] = useState({
     name: '',
     email: '',

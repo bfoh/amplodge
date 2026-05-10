@@ -1,4 +1,4 @@
-import { blink } from '@/blink/client'
+import { db, auth } from '@/lib/db'
 
 /**
  * Cleanup utility to remove test bookings that are affecting room availability
@@ -48,7 +48,6 @@ export async function identifyTestBookings(): Promise<TestBooking[]> {
   try {
     console.log('🔍 [CleanupTestBookings] Identifying test bookings...')
     
-    const db = (blink.db as any)
     const allBookings = await db.bookings.list()
     
     console.log(`📊 [CleanupTestBookings] Found ${allBookings.length} total bookings`)
@@ -93,7 +92,6 @@ export async function deleteTestBookings(testBookings: TestBooking[]): Promise<{
   try {
     console.log(`🗑️ [CleanupTestBookings] Deleting ${testBookings.length} test bookings...`)
     
-    const db = (blink.db as any)
     let deleted = 0
     let failed = 0
     
@@ -154,7 +152,6 @@ export async function getBookingStatistics(): Promise<{
   testBookings: number
 }> {
   try {
-    const db = (blink.db as any)
     const allBookings = await db.bookings.list()
     
     const byStatus = allBookings.reduce((acc: Record<string, number>, booking: any) => {
