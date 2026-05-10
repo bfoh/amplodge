@@ -275,7 +275,7 @@ export function CleanupToolPage() {
           await (db as any).staff.delete(staff.id)
           deleted++
 
-          // 2. Previous Blink-specific user deletion removed - Supabase handles auth cleanup differently
+          // 2. Auth-row deletion is intentionally separate — handled via Supabase admin functions, not here
           if (staff.userId && staff.userId !== 'pending') {
             try {
               // With Supabase, we just delete from the database

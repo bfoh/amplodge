@@ -116,7 +116,7 @@ class BookingEngine {
     return navigator.onLine
   }
 
-  // Create a booking directly in Blink DB and return LocalBooking-shaped object for UI compatibility
+  // Create a booking directly via the data wrapper and return a LocalBooking-shaped object for UI compatibility
   async createBooking(bookingData: Omit<LocalBooking, '_id' | 'createdAt' | 'updatedAt' | 'synced'>): Promise<LocalBooking> {
     console.log('[BookingEngine] Starting booking creation')
 
@@ -297,7 +297,7 @@ class BookingEngine {
             throw new Error('Unable to resolve room type for selected room')
           }
 
-          // Create a room record so bookings can reference it (let Blink auto-generate the ID)
+          // Create a room record so bookings can reference it (let the wrapper auto-generate the ID)
           const newRoomPayload = {
             roomNumber: bookingData.roomNumber,
             roomTypeId,

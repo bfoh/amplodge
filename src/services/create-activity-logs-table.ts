@@ -1,8 +1,8 @@
 import { db, auth } from '@/lib/db'
 
 /**
- * Create the activityLogs table in the Blink database
- * This function will ensure the table exists before any operations are performed
+ * Probe the activityLogs table; warm the cache if it exists.
+ * Real schema lives in supabase/migrations/.
  */
 export async function createActivityLogsTable(): Promise<boolean> {
   try {

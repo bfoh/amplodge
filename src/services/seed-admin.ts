@@ -1,9 +1,9 @@
 import { db, auth } from '@/lib/db'
 
 /**
- * @deprecated This file is LEGACY code from the Blink era.
- * After migrating to Supabase, admin accounts should be created directly in Supabase Auth.
- * This file is retained for reference only and should NOT be used in production.
+ * @deprecated Legacy seed script. Admin accounts should be created directly
+ * in Supabase Auth (or via netlify/functions/create-employee.js).
+ * Retained for reference only; do NOT use in production.
  * 
  * Seed admin account for AMP Lodge
  * ONLY RUNS IN DEVELOPMENT - NOT IN PRODUCTION

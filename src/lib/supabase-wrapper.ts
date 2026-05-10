@@ -1,7 +1,7 @@
 /**
  * Supabase Database Wrapper — with Offline Support
  *
- * This module provides a Blink-compatible API using Supabase as the backend,
+ * This module provides the data-access API used by `@/lib/db`, backed by Supabase,
  * augmented with PouchDB-based offline caching and a sync queue.
  *
  * Read flow:

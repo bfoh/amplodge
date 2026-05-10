@@ -72,14 +72,14 @@ export async function debugInvoiceSystem(): Promise<{ success: boolean; details:
       errors: [] as string[]
     }
 
-    // Test 1: Check Blink client availability (now just checks if supabase wrapper is available)
+    // Test 1: Check Supabase wrapper availability
     console.log('🔍 [InvoiceDebug] Test 1: Checking database client availability...')
     try {
       const clientCheck = {
         test: 'database_client_availability',
         success: true,
         details: {
-          note: 'Using Supabase backend - Blink SDK no longer used'
+          note: 'Using Supabase wrapper from @/lib/db'
         }
       }
       debugResults.tests.push(clientCheck)

@@ -199,7 +199,7 @@ export function InvoiceDebugPage() {
                 This will test each component individually:
               </p>
               <ul className="text-sm text-gray-600 list-disc list-inside ml-4 space-y-1">
-                <li>Blink client availability</li>
+                <li>Database client availability</li>
                 <li>Invoice data creation</li>
                 <li>HTML generation</li>
                 <li>Email sending capability</li>

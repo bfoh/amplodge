@@ -1,9 +1,9 @@
 import { db, auth } from '@/lib/db'
 
 /**
- * @deprecated This file is LEGACY code from the Blink era.
- * After migrating to Supabase, seeding should be done via Supabase or disabled.
- * This file is retained for reference only.
+ * @deprecated Legacy seed script. Production data lives in Supabase;
+ * use SQL fixtures or the staff UI for sample data.
+ * Retained for reference only.
  * 
  * Seed sample room types and properties for AMP Lodge
  * This ensures the booking system has data to work with
@@ -18,7 +18,7 @@ export async function seedSampleData() {
 
   try {
     console.log('🌱 Seeding sample data...')
-    console.warn('⚠️ DEPRECATED: seed-sample-data.ts is legacy code from Blink era.')
+    console.warn('⚠️ DEPRECATED: seed-sample-data.ts is legacy code; prefer SQL fixtures.')
 
     // Check if we need to log out first (in case seed ran while another user was logged in)
     const currentAuthUser = await auth.me()
