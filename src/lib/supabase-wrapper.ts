@@ -886,40 +886,63 @@ export const auth = {
   },
 
   async me() {
-    // Try Supabase first if online
-    if (getNetworkOnline()) {
-      try {
-        const { data: { user }, error } = await supabase.auth.getUser()
-
-        if (error || !user) {
-          // If Supabase says no user, check cache (might be temporary network issue)
-          const cached = getCachedAuthSession()
-          if (cached) {
-            return cached
-          }
-          return null
-        }
-
-        // Cache the session
-        cacheAuthSession({ id: user.id, email: user.email })
-
-        return {
-          id: user.id,
-          email: user.email
-        }
-      } catch {
-        // Network error — fall back to cache
-        const cached = getCachedAuthSession()
-        return cached || null
+    // Offline — use cached session
+    if (!getNetworkOnline()) {
+      const cached = getCachedAuthSession()
+      if (cached) {
+        console.log('[SupabaseAuth] 📴 Using cached session for offline access')
       }
+      return cached || null
     }
 
-    // Offline — use cached session
+    // Online — distinguish 4 cases:
+    //   1. Supabase returns user → trust it, refresh cache
+    //   2. Supabase returns null user (no error) → real signed-out, clear cache
+    //   3. AuthApiError (real 4xx auth response) → token rejected, clear cache
+    //   4. Network error / 5xx → fall back to cache for offline tolerance
+    let supabaseError: unknown = null
+    let supabaseUser: { id: string; email: string | undefined } | null = null
+
+    try {
+      const { data: { user }, error } = await supabase.auth.getUser()
+      if (error) {
+        supabaseError = error
+      } else if (user) {
+        supabaseUser = { id: user.id, email: user.email }
+      }
+    } catch (networkErr) {
+      supabaseError = networkErr
+    }
+
+    // Case 1: Supabase responded with a user
+    if (supabaseUser) {
+      cacheAuthSession(supabaseUser)
+      return supabaseUser
+    }
+
+    // Case 2: Supabase responded successfully with NO user → real signed-out
+    if (!supabaseError) {
+      clearCachedAuthSession()
+      return null
+    }
+
+    // Case 3: AuthApiError → token rejected (revoked, expired, malformed)
+    const isAuthError = supabaseError && typeof supabaseError === 'object'
+      && 'name' in supabaseError
+      && (supabaseError as any).name === 'AuthApiError'
+    if (isAuthError) {
+      console.log('[SupabaseAuth] 🚪 AuthApiError — clearing cache and signing out')
+      clearCachedAuthSession()
+      return null
+    }
+
+    // Case 4: Network/server error → fall back to cache
     const cached = getCachedAuthSession()
     if (cached) {
-      console.log('[SupabaseAuth] 📴 Using cached session for offline access')
+      console.log('[SupabaseAuth] 📴 Network error — using cached session for offline access')
+      return cached
     }
-    return cached || null
+    return null
   },
 
   async changePassword(oldPassword: string, newPassword: string) {
@@ -939,18 +962,37 @@ export const auth = {
     // Initial state
     callback({ isLoading: true, user: null })
 
-    // Get current session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Get current session — distinguish error type same as me()
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        // Real auth error → clear cache, no user
+        const isAuthError = error && typeof error === 'object' && 'name' in error
+          && (error as any).name === 'AuthApiError'
+        if (isAuthError) {
+          clearCachedAuthSession()
+          callback({ isLoading: false, user: null })
+        } else {
+          // Treat as network error — fall back to cache
+          const cached = getCachedAuthSession()
+          callback({ isLoading: false, user: cached })
+        }
+        return
+      }
+
       const user = session?.user
         ? { id: session.user.id, email: session.user.email }
         : null
 
-      // Cache if we have a user
-      if (user) cacheAuthSession(user)
+      if (user) {
+        cacheAuthSession(user)
+      } else {
+        // Real signed-out — clear cache so refresh doesn't restore stale session
+        clearCachedAuthSession()
+      }
 
       callback({ isLoading: false, user })
     }).catch(() => {
-      // Offline — try cached session
+      // Network error — try cached session for offline tolerance
       const cached = getCachedAuthSession()
       callback({ isLoading: false, user: cached })
     })
