@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import { Calendar, LayoutDashboard, List, History, Settings, MessageSquare, Tag, BarChart3, ReceiptText, ChevronDown, Sparkles, Users, LogOut, TrendingUp, FileText, Package } from 'lucide-react'
 import { useStaffRole } from '@/hooks/use-staff-role'
+import { useIsAdmin } from '@/hooks/use-is-admin'
 import { canAccessRoute } from '@/lib/rbac'
 import { db, auth } from '@/lib/db'
 import type { StaffRole } from '@/lib/rbac'
@@ -56,6 +57,7 @@ const adminItems: Array<{
 
 export function StaffSidebar({ email }: StaffSidebarProps) {
   const { role, canManageEmployees, loading: isLoadingStaff } = useStaffRole()
+  const { isAdmin } = useIsAdmin()
 
   const [priceOpen, setPriceOpen] = useState(false)
   const submenuRef = useRef<HTMLDivElement>(null)
@@ -78,10 +80,11 @@ export function StaffSidebar({ email }: StaffSidebarProps) {
       return item.minRole.includes(role)
     })
 
-  // Filter admin items based on user role
-  // Show admin items for admin/owner, OR while loading to prevent flicker
-  const visibleAdminItems = isLoadingStaff || !role || email === import.meta.env.VITE_ADMIN_EMAIL
-    ? adminItems // Show admin items while loading or for admin email
+  // Filter admin items by role. While loading, show all to prevent flicker
+  // (BUG-0017 / BUG-0024 mitigation; once Phase 2D types are in we can drop the
+  // optimistic loading branch).
+  const visibleAdminItems = isLoadingStaff || !role || isAdmin
+    ? adminItems
     : adminItems.filter(item => item.minRole.includes(role))
 
   // Show price list section if user can access any price list items

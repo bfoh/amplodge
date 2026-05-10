@@ -2,10 +2,9 @@ import { db, auth } from '@/lib/db'
 
 /**
  * Clean employees database - Remove all staff except admin
- * 
+ *
  * SAFETY FEATURES:
- * - Preserves admin@amplodge.com account
- * - Preserves any owner role accounts
+ * - Preserves staff with admin or owner role
  * - Logs all deletions
  * - Provides detailed output
  */
@@ -43,16 +42,12 @@ export async function cleanEmployeesDatabase() {
     
     // Filter staff to keep (admin and owner roles)
     const staffToKeep = allStaff.filter((staff: any) => {
-      return staff.email === 'admin@amplodge.com' || 
-             staff.role === 'owner' ||
-             (staff.email && staff.email.toLowerCase().includes('admin'))
+      return staff.role === 'admin' || staff.role === 'owner'
     })
-    
+
     // Filter staff to delete
     const staffToDelete = allStaff.filter((staff: any) => {
-      return staff.email !== 'admin@amplodge.com' && 
-             staff.role !== 'owner' &&
-             (!staff.email || !staff.email.toLowerCase().includes('admin'))
+      return staff.role !== 'admin' && staff.role !== 'owner'
     })
     
     console.log(`✅ [CleanEmployees] Preserving ${staffToKeep.length} admin/owner accounts:`)
@@ -158,14 +153,10 @@ export async function cleanEmployeesDatabaseInteractive() {
   // Preview what will be deleted
   const allStaff = await (db as any).staff.list({})
   const staffToKeep = allStaff.filter((staff: any) => {
-    return staff.email === 'admin@amplodge.com' || 
-           staff.role === 'owner' ||
-           (staff.email && staff.email.toLowerCase().includes('admin'))
+    return staff.role === 'admin' || staff.role === 'owner'
   })
   const staffToDelete = allStaff.filter((staff: any) => {
-    return staff.email !== 'admin@amplodge.com' && 
-           staff.role !== 'owner' &&
-           (!staff.email || !staff.email.toLowerCase().includes('admin'))
+    return staff.role !== 'admin' && staff.role !== 'owner'
   })
   
   console.log(`📊 Preview:`)

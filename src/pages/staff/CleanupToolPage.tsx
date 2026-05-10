@@ -222,15 +222,11 @@ export function CleanupToolPage() {
       console.log(`📋 Found ${allStaff.length} staff records`)
 
       const toKeep = allStaff.filter((staff: StaffMember) => {
-        return staff.email === 'admin@amplodge.com' ||
-          staff.role === 'owner' ||
-          (staff.email && staff.email.toLowerCase().includes('admin'))
+        return staff.role === 'admin' || staff.role === 'owner'
       })
 
       const toDelete = allStaff.filter((staff: StaffMember) => {
-        return staff.email !== 'admin@amplodge.com' &&
-          staff.role !== 'owner' &&
-          (!staff.email || !staff.email.toLowerCase().includes('admin'))
+        return staff.role !== 'admin' && staff.role !== 'owner'
       })
 
       setStaffToKeep(toKeep)
