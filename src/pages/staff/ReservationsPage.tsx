@@ -217,29 +217,6 @@ export function ReservationsPage() {
       if (inFlight) return
       inFlight = true
       try {
-        // --- Phase 1 (Ghana latency win): paint the newest 50 bookings + first
-        // page of rooms/guests immediately so staff see *something* while the
-        // full listAll() pages stream in over a slower transatlantic link.
-        // Skipped on subsequent SWR-triggered re-runs (we already have data).
-        const isFirstLoad = bookings.length === 0
-        if (isFirstLoad) {
-          try {
-            const [fastB, fastR, fastG, fastRt] = await Promise.all([
-              db.bookings.list({ limit: 50, orderBy: { createdAt: 'desc' } }),
-              db.properties.list({ limit: 200 }),
-              db.guests.list({ limit: 500 }),
-              db.roomTypes.list({ limit: 100 }),
-            ])
-            setBookings((fastB as Booking[]).map(hydrateBooking))
-            setRooms(fastR)
-            setGuests(fastG)
-            setRoomTypes(fastRt)
-            setLoading(false)
-          } catch (fastErr) {
-            console.warn('[ReservationsPage] Fast first-paint failed, falling through to listAll:', fastErr)
-          }
-        }
-
         const [b, r, g, rt, charges] = await Promise.all([
           db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
           db.properties.listAll(),
@@ -251,82 +228,16 @@ export function ReservationsPage() {
         // Store charges for calculating totals
         setAllCharges(charges || [])
 
-        // Create temporary maps for lookup during deduplication.
-        // Explicit generics — listAll() is typed as Record<string,any>[], which
-        // collapses Map inference to <unknown,unknown> without these.
-        const tempRoomMap = new Map<string, Room>((r as Room[]).map(rm => [rm.id, rm]))
-        const tempGuestMap = new Map<string, Guest>((g as Guest[]).map(gm => [gm.id, gm]))
-
-        // Deduplicate bookings based on guest details, room, and normalized dates
-        // When duplicates with different statuses exist, keep the one with more advanced status
-        const statusPriority: Record<string, number> = {
-          'checked-out': 5,
-          'checked-in': 4,
-          'confirmed': 3,
-          'reserved': 2,
-          'cancelled': 1
-        }
-
-
         const hydratedBookings = (b as Booking[]).map(hydrateBooking)
 
+        // Only deduplicate by ID (React keys) in case of rare DB sync overlaps.
+        // We no longer aggressively deduplicate by guest/room/date client-side,
+        // so all actual DB records will be visible.
         const uniqueBookings = hydratedBookings.reduce((acc: Booking[], current) => {
-          // Helper to normalize date (strip time)
-          const normalizeDate = (d: string) => d ? format(parseISO(d), 'yyyy-MM-dd') : ''
-
-          // Get resolved details for current booking
-          const currentGuest = tempGuestMap.get(current.guestId)
-          const currentRoom = tempRoomMap.get(current.roomId)
-
-          const currentGuestName = (currentGuest?.name || '').trim().toLowerCase()
-          const currentRoomNumber = (currentRoom?.roomNumber || '').trim()
-          const currentCheckIn = normalizeDate(current.checkIn)
-          const currentCheckOut = normalizeDate(current.checkOut)
-
-          // Check if this is a duplicate by ID first
           const duplicateByIdIndex = acc.findIndex(item => item.id === current.id)
           if (duplicateByIdIndex >= 0) {
-            console.warn(`[ReservationsPage] Skipping duplicate booking (same ID): ${current.id}`)
             return acc
           }
-
-          // Check for logical duplicate (same guest, room, dates)
-          const duplicateByDetailsIndex = acc.findIndex(item => {
-            const itemRoom = tempRoomMap.get(item.roomId)
-            const itemRoomNumber = (itemRoom?.roomNumber || '').trim()
-            const itemCheckIn = normalizeDate(item.checkIn)
-            const itemCheckOut = normalizeDate(item.checkOut)
-
-            // Room and dates must match first
-            if (itemRoomNumber !== currentRoomNumber) return false
-            if (itemCheckIn !== currentCheckIn) return false
-            if (itemCheckOut !== currentCheckOut) return false
-
-            // Guest match: prefer guestId (most reliable), fall back to name comparison
-            if (item.guestId && current.guestId && item.guestId === current.guestId) return true
-            
-            // Fallback: name comparison for cases where the same guest has multiple IDs
-            const itemGuest = tempGuestMap.get(item.guestId)
-            const itemGuestName = (itemGuest?.name || item.guestNameSnapshot || '').trim().toLowerCase()
-            const matchName = currentGuestName !== '' && itemGuestName === currentGuestName
-            return matchName
-          })
-
-          if (duplicateByDetailsIndex >= 0) {
-            const existing = acc[duplicateByDetailsIndex]
-            const existingPriority = statusPriority[existing.status] || 0
-            const currentPriority = statusPriority[current.status] || 0
-
-            // Keep the one with higher priority status (more advanced in the booking lifecycle)
-            if (currentPriority > existingPriority) {
-              console.warn(`[ReservationsPage] Replacing duplicate booking ${existing.id} (status: ${existing.status}) with ${current.id} (status: ${current.status})`)
-              acc[duplicateByDetailsIndex] = current
-            } else {
-              console.warn(`[ReservationsPage] Hidden duplicate booking: ${current.id} (status: ${current.status}) - keeping ${existing.id} (status: ${existing.status})`)
-            }
-            return acc
-          }
-
           acc.push(current)
           return acc
         }, [])
