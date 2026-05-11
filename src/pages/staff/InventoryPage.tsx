@@ -94,6 +94,7 @@ export function InventoryPage() {
   const [allCharges, setAllCharges] = useState<any[]>([])
   const [allSales, setAllSales] = useState<any[]>([])
   const [revBookings, setRevBookings] = useState<any[]>([])
+  const [allStaff, setAllStaff] = useState<any[]>([])
   const [isTableExpanded, setIsTableExpanded] = useState(false)
 
   useEffect(() => {
@@ -104,12 +105,18 @@ export function InventoryPage() {
 
   const loadRevenueData = async () => {
     try {
-      const { charges, standaloneSales, bookings } = await analyticsService.prefetchSharedData()
-      setAllCharges(charges)
-      setAllSales(standaloneSales)
-      setRevBookings(bookings)
+      const { chargesRaw, standaloneSales, bookings, staff } = await analyticsService.prefetchSharedData()
+      setAllCharges(chargesRaw || [])
+      setAllSales(standaloneSales || [])
+      setRevBookings(bookings || [])
+      setAllStaff(staff || [])
     } catch (e) {
       console.error('Failed to load revenue data', e)
+      // Ensure state is always safe arrays even on error
+      setAllCharges([])
+      setAllSales([])
+      setRevBookings([])
+      setAllStaff([])
     }
   }
 
@@ -223,26 +230,44 @@ export function InventoryPage() {
   })
 
   const bookingsMap = new Map(revBookings.map(b => [b.id, b]))
+  const staffLookup = new Map(allStaff.map(s => [s.id, s.name]))
+  const staffUserLookup = new Map(allStaff.map(s => [s.userId || s.user_id, s.name]))
+  
+  const resolveStaffName = (id?: string, name?: string) => {
+    if (!id || id === 'system' || id === 'unknown') {
+      if (name && name !== 'System' && name !== 'unknown') return name
+      return 'System'
+    }
+    return staffLookup.get(id) || staffUserLookup.get(id) || name || 'System'
+  }
+
   const allEntries = [
-    ...filteredCharges.map(c => ({
-      id: c.id,
-      date: c.createdAt || c.created_at,
-      description: c.description || 'Charge',
-      category: c.category || 'other',
-      staffName: c.createdByName || c.created_by_name || 'System',
-      amount: Number(c.amount || 0),
-      paymentMethod: c.paymentMethod || c.payment_method || (c.notes?.toLowerCase().includes('cash') ? 'cash' : ''),
-      guestName: bookingsMap.get(c.bookingId || c.booking_id)?.guest?.fullName || c.guestName || '—'
-    })),
+    ...filteredCharges
+      .filter(c => c.category !== 'room_extension')
+      .map(c => {
+      const b = bookingsMap.get(c.bookingId || c.booking_id)
+      return {
+        id: c.id,
+        date: c.createdAt || c.created_at,
+        description: c.description || 'Charge',
+        category: c.category || 'other',
+        staffName: resolveStaffName(c.createdBy || c.created_by, c.createdByName || c.created_by_name),
+        amount: Number(c.amount || 0),
+        paymentMethod: c.paymentMethod || c.payment_method || (c.notes?.toLowerCase().includes('cash') ? 'cash' : ''),
+        guestName: b?.guestName || b?.guest?.fullName || c.guestName || '—',
+        roomNumber: b?.roomNumber || '—'
+      }
+    }),
     ...filteredSales.map(s => ({
       id: s.id,
       date: s.saleDate || s.sale_date,
       description: s.description || 'Walk-in Sale',
       category: s.category || 'other',
-      staffName: s.createdByName || s.created_by_name || 'System',
+      staffName: resolveStaffName(s.staffId || s.staff_id || (s as any).createdBy || (s as any).created_by, s.staffName || s.staff_name || (s as any).createdByName || (s as any).created_by_name),
       amount: Number(s.amount || 0),
       paymentMethod: s.paymentMethod || s.payment_method || '',
-      guestName: 'Walk-in'
+      guestName: 'Walk-in',
+      roomNumber: '—'
     }))
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
@@ -769,6 +794,7 @@ export function InventoryPage() {
                       <TableHead className="text-[10px] font-bold uppercase tracking-wider">Date</TableHead>
                       <TableHead className="text-[10px] font-bold uppercase tracking-wider">Item/Service</TableHead>
                       <TableHead className="text-[10px] font-bold uppercase tracking-wider">Guest</TableHead>
+                      <TableHead className="text-[10px] font-bold uppercase tracking-wider">Room</TableHead>
                       <TableHead className="text-[10px] font-bold uppercase tracking-wider">Staff</TableHead>
                       <TableHead className="text-[10px] font-bold uppercase tracking-wider">Payment</TableHead>
                       <TableHead className="text-right text-[10px] font-bold uppercase tracking-wider">Amount</TableHead>
@@ -787,6 +813,7 @@ export function InventoryPage() {
                           </td>
                           <td className="px-4 py-3 font-medium">{e.description}</td>
                           <td className="px-4 py-3 text-muted-foreground">{e.guestName}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{(e as any).roomNumber || '—'}</td>
                           <td className="px-4 py-3 text-muted-foreground">{e.staffName}</td>
                           <td className="px-4 py-3 capitalize text-[10px] font-semibold text-muted-foreground">
                             {e.paymentMethod || '—'}

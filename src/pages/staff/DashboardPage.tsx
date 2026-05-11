@@ -239,19 +239,19 @@ export function DashboardPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Stats Grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
 
         {/* Available Rooms — blue */}
-        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow">
+        <div className="relative overflow-hidden rounded-xl border bg-card p-4 sm:p-5 shadow-sm hover:shadow-md transition-shadow">
           <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent pointer-events-none" />
           <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-blue-400 to-blue-600" />
-          <div className="flex items-start justify-between mb-3">
-            <p className="text-sm font-medium text-muted-foreground">Available Rooms</p>
-            <div className="p-2 rounded-lg bg-blue-500/10">
+          <div className="flex items-start justify-between mb-2 sm:mb-3">
+            <p className="text-xs sm:text-sm font-medium text-muted-foreground">Available Rooms</p>
+            <div className="p-1.5 sm:p-2 rounded-lg bg-blue-500/10">
               <Building2 className="w-4 h-4 text-blue-600" />
             </div>
           </div>
-          <div className="text-2xl font-bold">{stats.availableRooms}</div>
+          <div className="text-xl sm:text-2xl font-bold">{stats.availableRooms}</div>
           <div className="text-xs text-muted-foreground mt-1 space-y-1">
             {stats.availableDetails.length > 0 ? (
               stats.availableDetails.map((detail, i) => (

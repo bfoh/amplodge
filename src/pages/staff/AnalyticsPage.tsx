@@ -67,6 +67,14 @@ import type {
 
 const ROOM_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4']
 
+const decodeChargePaymentMethod = (notes: string) => {
+  const n = (notes || '').toLowerCase()
+  if (n.includes('cash')) return 'Cash'
+  if (n.includes('momo') || n.includes('mobile')) return 'Mobile Money'
+  if (n.includes('card') || n.includes('pos')) return 'Card'
+  return ''
+}
+
 const ChartTooltip = ({ active, payload, label, formatter }: any) => {
   if (!active || !payload?.length) return null
   return (
@@ -101,6 +109,7 @@ export function AnalyticsPage() {
   // Additional Revenue Sources period state
   const [allChargesRaw, setAllChargesRaw] = useState<any[]>([])
   const [allSalesRaw, setAllSalesRaw] = useState<any[]>([])
+  const [allStaff, setAllStaff] = useState<any[]>([])
   const [chargePeriodMode, setChargePeriodMode] = useState<'week' | 'month' | 'year'>('week')
   const [chargeWeekIdx, setChargeWeekIdx] = useState(0)
   const [chargeMonthIdx, setChargeMonthIdx] = useState(0)
@@ -136,9 +145,9 @@ export function AnalyticsPage() {
       const performanceData = await analyticsService.getPerformanceMetrics(
         shared, { revenue: revenueData, occupancy: occupancyData }
       )
-      const allBookings = shared.bookings
-      const chargesRaw = shared.chargesRaw
-      const salesRaw = shared.standaloneSales
+      const allBookings = shared.bookings || []
+      const chargesRaw = shared.chargesRaw || []
+      const salesRaw = shared.standaloneSales || []
       setRevenue(revenueData)
       setOccupancy(occupancyData)
       setGuests(guestData)
@@ -161,8 +170,9 @@ export function AnalyticsPage() {
           return true
         })
       )
-      setAllChargesRaw(chargesRaw || [])
-      setAllSalesRaw(salesRaw || [])
+      setAllChargesRaw(chargesRaw)
+      setAllSalesRaw(salesRaw)
+      setAllStaff(shared.staff || [])
     } catch (error) {
       console.error('Failed to load analytics:', error)
     } finally {
@@ -293,16 +303,28 @@ export function AnalyticsPage() {
   }
 
   // ── Staff breakdown for Additional Revenue ─────────────────────────────
+  const staffLookup = new Map(allStaff.map(s => [s.id, s.name]))
+  const staffUserLookup = new Map(allStaff.map(s => [s.userId || s.user_id, s.name]))
+  
+  const resolveStaffName = (id?: string, name?: string) => {
+    if (!id || id === 'system' || id === 'unknown') {
+      if (name && name !== 'System' && name !== 'unknown') return name
+      return 'System'
+    }
+    return staffLookup.get(id) || staffUserLookup.get(id) || name || 'System'
+  }
+
   const chargeStaffMap: Record<string, { amount: number, name: string }> = {}
   for (const c of filteredCharges) {
+    if (c.category === 'room_extension') continue // Extensions go to Room track
     const sId = c.createdBy || c.created_by || 'unknown'
-    const sName = c.createdByName || c.created_by_name || 'System'
+    const sName = resolveStaffName(sId, c.createdByName || c.created_by_name)
     if (!chargeStaffMap[sId]) chargeStaffMap[sId] = { amount: 0, name: sName }
     chargeStaffMap[sId].amount += Number(c.amount || 0)
   }
   for (const s of filteredSales) {
-    const sId = (s as any).createdBy || (s as any).created_by || 'unknown'
-    const sName = (s as any).createdByName || (s as any).created_by_name || 'System'
+    const sId = (s as any).staffId || (s as any).staff_id || (s as any).createdBy || (s as any).created_by || 'unknown'
+    const sName = resolveStaffName(sId, (s as any).staffName || (s as any).staff_name || (s as any).createdByName || (s as any).created_by_name)
     if (!chargeStaffMap[sId]) chargeStaffMap[sId] = { amount: 0, name: sName }
     chargeStaffMap[sId].amount += Number((s as any).amount || 0)
   }
@@ -312,7 +334,9 @@ export function AnalyticsPage() {
   // ── Combined Additional Entries for Table ──────────────────────────────
   const bookingsMap = new Map(allRevenueBookings.concat(allDepositBookings).map(b => [b.id, b]))
   const allAdditionalEntries = [
-    ...filteredCharges.map(c => {
+    ...filteredCharges
+      .filter(c => c.category !== 'room_extension') // Room extensions are in the Room track
+      .map(c => {
       const bId = c.bookingId || c.booking_id || ''
       const b = bookingsMap.get(bId)
       return {
@@ -320,11 +344,12 @@ export function AnalyticsPage() {
         date: c.createdAt || c.created_at || '',
         description: c.description || 'Charge',
         category: c.category || 'other',
-        staffName: c.createdByName || c.created_by_name || 'System',
+        staffName: resolveStaffName(c.createdBy || c.created_by, c.createdByName || c.created_by_name),
         amount: Number(c.amount || 0),
         type: 'Charge',
         paymentMethod: c.paymentMethod || c.payment_method || decodeChargePaymentMethod(c.notes) || '',
-        guestName: b?.guest?.fullName || c.guestName || '—'
+        guestName: b?.guestName || b?.guest?.fullName || c.guestName || '—',
+        roomNumber: b?.roomNumber || '—'
       }
     }),
     ...filteredSales.map(s => ({
@@ -332,11 +357,12 @@ export function AnalyticsPage() {
       date: (s as any).saleDate || (s as any).sale_date || '',
       description: (s as any).description || 'Walk-in Sale',
       category: (s as any).category || 'other',
-      staffName: (s as any).createdByName || (s as any).created_by_name || 'System',
+      staffName: resolveStaffName((s as any).staffId || (s as any).staff_id || (s as any).createdBy || (s as any).created_by, (s as any).staffName || (s as any).staff_name || (s as any).createdByName || (s as any).created_by_name),
       amount: Number((s as any).amount || 0),
       type: 'Sale',
       paymentMethod: (s as any).paymentMethod || (s as any).payment_method || '',
-      guestName: 'Walk-in'
+      guestName: 'Walk-in',
+      roomNumber: '—'
     }))
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
@@ -872,7 +898,14 @@ export function AnalyticsPage() {
                 </DropdownMenu>
               </div>
             </CardHeader>
-
+            <CardContent className="pt-4">
+              {catEntries.length === 0 ? (
+                <div className="h-24 flex flex-col items-center justify-center text-muted-foreground gap-1">
+                  <TrendingUp className="w-8 h-8 opacity-20" />
+                  <p className="text-sm">No charges or sales recorded for this period</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
                   {/* Payment Method Summary Bar (Matches Bookings Card) */}
                   <div className="mb-4 rounded-xl bg-muted/30 px-4 py-3">
                     <div className="h-2 w-full rounded-full overflow-hidden flex gap-px mb-3">
@@ -932,6 +965,7 @@ export function AnalyticsPage() {
                               <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Date</th>
                               <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Description</th>
                               <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Guest</th>
+                              <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Room</th>
                               <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Staff</th>
                               <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Payment</th>
                               <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Amount</th>
@@ -942,25 +976,26 @@ export function AnalyticsPage() {
                               const m = normPay(e.paymentMethod)
                               const payIcon = m === 'cash' ? '💵' : m === 'mobile_money' ? '📱' : m === 'card' ? '💳' : '💰'
                               return (
-                                <tr key={idx} className="hover:bg-muted/30 transition-colors">
-                                  <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
-                                    {new Date(e.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-sm">{catIcons[e.category] || '📦'}</span>
-                                      <span className="font-medium">{e.description}</span>
-                                    </div>
-                                  </td>
-                                  <td className="px-4 py-3 text-xs">{e.guestName}</td>
-                                  <td className="px-4 py-3 text-xs text-muted-foreground">{e.staffName}</td>
-                                  <td className="px-4 py-3 text-[10px] font-medium text-muted-foreground italic">
-                                    {payIcon} {e.paymentMethod || '—'}
-                                  </td>
-                                  <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                                    {formatCurrencySync(e.amount, currency)}
-                                  </td>
-                                </tr>
+                                  <tr key={idx} className="hover:bg-muted/30 transition-colors">
+                                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                                      {new Date(e.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-sm">{catIcons[e.category] || '📦'}</span>
+                                        <span className="font-medium">{e.description}</span>
+                                      </div>
+                                    </td>
+                                    <td className="px-4 py-3 text-xs">{e.guestName}</td>
+                                    <td className="px-4 py-3 text-xs text-muted-foreground">{e.roomNumber || '—'}</td>
+                                    <td className="px-4 py-3 text-xs text-muted-foreground">{e.staffName}</td>
+                                    <td className="px-4 py-3 text-[10px] font-medium text-muted-foreground italic">
+                                      {payIcon} {e.paymentMethod || '—'}
+                                    </td>
+                                    <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                                      {formatCurrencySync(e.amount, currency)}
+                                    </td>
+                                  </tr>
                               )
                             })}
                           </tbody>
@@ -1109,9 +1144,12 @@ export function AnalyticsPage() {
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {breakdownBookings.map((b, i) => {
-                    const staffName = b.status === 'checked-out'
+                    const sId = b.status === 'checked-out'
+                      ? (b.checkOutBy || b.checkInBy || b.createdBy)
+                      : (b.checkInBy || b.createdBy)
+                    const staffName = resolveStaffName(sId, b.status === 'checked-out'
                       ? (b.checkOutByName || b.checkInByName || b.createdByName)
-                      : (b.checkInByName || b.createdByName)
+                      : (b.checkInByName || b.createdByName))
                     const rawPay = (b.paymentMethod || b.payment?.method || (b as any).payment_method || '').trim().toLowerCase()
                     const payMap: Record<string, { label: string; cls: string }> = {
                       cash:         { label: '💵 Cash',         cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:ring-emerald-800' },

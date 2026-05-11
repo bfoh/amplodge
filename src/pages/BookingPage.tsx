@@ -535,13 +535,14 @@ export function BookingPage() {
   return (
     <>
       <OfflineStatusBanner />
-      <div className="min-h-screen pt-20 py-20 bg-gradient-to-b from-secondary/30 to-secondary/60">
+      <div className="min-h-screen pt-12 sm:pt-20 pb-20 bg-gradient-to-b from-secondary/30 to-secondary/60">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between mb-8">
-            <h1 className="text-5xl font-serif font-bold tracking-tight">Book Your Stay</h1>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 sm:mb-12 gap-4">
+            <h1 className="text-3xl sm:text-5xl font-serif font-bold tracking-tight text-foreground">Book Your Stay</h1>
             {window.location.search.includes('admin=true') && (
               <Button
                 variant="outline"
+                className="w-full sm:w-auto"
                 onClick={() => setIsReceptionBooking(!isReceptionBooking)}
               >
                 {isReceptionBooking ? '🏨 Reception Mode' : '💻 Online Mode'}
@@ -550,18 +551,18 @@ export function BookingPage() {
           </div>
 
           {/* Progress Steps */}
-          <div className="flex items-center justify-center mb-16 px-4 overflow-x-auto">
+          <div className="flex items-center justify-start sm:justify-center mb-10 sm:mb-16 pb-4 sm:pb-0 overflow-x-auto no-scrollbar mask-fade-right">
             {[1, 2, 3, 4, 5].map((s) => (
-              <div key={s} className="flex items-center min-w-fit">
+              <div key={s} className="flex items-center shrink-0">
                 <div
-                  className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center font-bold text-base transition-all duration-300 ${step >= s ? 'bg-gradient-to-br from-primary to-accent text-white shadow-lg' : 'bg-white border-2 border-secondary text-muted-foreground'
+                  className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center font-bold text-sm sm:text-base transition-all duration-300 ${step >= s ? 'bg-gradient-to-br from-primary to-accent text-white shadow-lg scale-110' : 'bg-white border-2 border-secondary text-muted-foreground'
                     }`}
                 >
-                  {step > s ? <Check className="w-6 h-6" /> : s}
+                  {step > s ? <Check className="w-5 h-5 sm:w-6 sm:h-6" /> : s}
                 </div>
                 {s < 5 && (
                   <div
-                    className={`w-8 sm:w-16 h-1 mx-2 rounded-full transition-all duration-300 ${step > s ? 'bg-gradient-to-r from-primary to-accent' : 'bg-secondary'}`}
+                    className={`w-6 sm:w-16 h-0.5 sm:h-1 mx-2 rounded-full transition-all duration-300 ${step > s ? 'bg-gradient-to-r from-primary to-accent' : 'bg-secondary/50'}`}
                   />
                 )}
               </div>
@@ -654,49 +655,48 @@ export function BookingPage() {
                       value={numGuests}
                       onChange={(e) => setNumGuests(parseInt(e.target.value))}
                     />
-                  </div>
-
-                  {/* Room List */}
-                  <div className="space-y-4 pt-4 border-t">
-                    <h3 className="font-medium text-lg">Available Rooms</h3>
-                    {roomTypes.map((roomType) => {
-                      // Use getCurrentAvailability for DISPLAY (static, doesn't change with date selection)
-                      const available = getCurrentAvailability(roomType.id)
-                      const isSelected = selectedRoomTypeId === roomType.id
-                      return (
-                        <div
-                          key={roomType.id}
-                          onClick={() => available > 0 && setSelectedRoomTypeId(roomType.id)}
-                          className={`p-4 border rounded-lg cursor-pointer transition-all ${isSelected
-                            ? 'border-primary bg-primary/5'
-                            : 'hover:border-primary/50'
-                            } ${available === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        >
-                          <div className="flex justify-between items-start">
-                            <div className="flex-1">
-                              <h3 className="font-semibold text-lg">{roomType.name}</h3>
-                              <p className="text-sm text-muted-foreground">{roomType.description}</p>
-                              <p className="text-sm mt-2">
-                                <span className="font-medium">Capacity:</span> {roomType.capacity} guests
-                              </p>
-                              <p className="text-sm">
-                                <span className="font-medium">Available:</span> {available} rooms
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-2xl font-bold text-primary">{formatCurrencySync(roomType.basePrice, currency)}</p>
-                              <p className="text-sm text-muted-foreground">per night</p>
-                              {available > 0 && isSelected && (
-                                <div className="mt-2 text-primary text-sm font-medium flex items-center justify-end gap-1">
-                                  <Check className="w-4 h-4" /> Selected
+                                      <div className="space-y-3 sm:space-y-4 pt-4 border-t">
+                      <h3 className="font-medium text-lg">Available Rooms</h3>
+                      {roomTypes.map((roomType) => {
+                        const available = getCurrentAvailability(roomType.id)
+                        const isSelected = selectedRoomTypeId === roomType.id
+                        return (
+                          <div
+                            key={roomType.id}
+                            onClick={() => available > 0 && setSelectedRoomTypeId(roomType.id)}
+                            className={`p-3 sm:p-4 border rounded-xl cursor-pointer transition-all ${isSelected
+                              ? 'border-primary bg-primary/5 shadow-inner'
+                              : 'hover:border-primary/50'
+                              } ${available === 0 ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
+                          >
+                            <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+                              <div className="flex-1 space-y-1">
+                                <h3 className="font-bold text-base sm:text-lg tracking-tight">{roomType.name}</h3>
+                                <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2">{roomType.description}</p>
+                                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                                  <p className="text-[11px] sm:text-sm">
+                                    <span className="font-medium">Capacity:</span> {roomType.capacity} guests
+                                  </p>
+                                  <p className="text-[11px] sm:text-sm">
+                                    <span className="font-medium text-primary">Available:</span> {available} rooms
+                                  </p>
                                 </div>
-                              )}
+                              </div>
+                              <div className="text-left sm:text-right w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-0 border-primary/10">
+                                <p className="text-xl sm:text-2xl font-bold text-primary">{formatCurrencySync(roomType.basePrice, currency)}</p>
+                                <p className="text-[10px] sm:text-xs text-muted-foreground">per night</p>
+                                {available > 0 && isSelected && (
+                                  <div className="mt-2 text-primary text-xs sm:text-sm font-bold flex items-center sm:justify-end gap-1">
+                                    <Check className="w-4 h-4" /> Selected
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      )
-                    })}
-                  </div>
+                        )
+                      })}
+                    </div>
+ </div>
 
                   <div className="flex justify-end pt-4">
                     <Button onClick={handleAddToCart} disabled={!selectedRoomTypeId || !checkIn || !checkOut} size="lg">
@@ -718,19 +718,19 @@ export function BookingPage() {
                     </div>
                   ) : (
                     <>
-                      <div className="space-y-4">
+                      <div className="space-y-3">
                         {cartItems.map((item, idx) => (
-                          <div key={item.tempId} className="border p-4 rounded-lg flex justify-between items-center bg-secondary/10">
-                            <div>
-                              <h4 className="font-serif font-bold">{item.roomTypeName}</h4>
-                              <p className="text-sm text-muted-foreground">
+                          <div key={item.tempId} className="border p-3 sm:p-4 rounded-xl flex justify-between items-center bg-secondary/5 hover:bg-secondary/10 transition-colors">
+                            <div className="space-y-0.5">
+                              <h4 className="font-serif font-bold text-sm sm:text-base">{item.roomTypeName}</h4>
+                              <p className="text-[10px] sm:text-sm text-muted-foreground">
                                 {format(item.checkIn, 'MMM dd')} - {format(item.checkOut, 'MMM dd')} ({differenceInDays(item.checkOut, item.checkIn)} nights)
                               </p>
-                              <p className="text-sm">{item.numGuests} Guests</p>
+                              <p className="text-[10px] sm:text-sm font-medium">{item.numGuests} Guests</p>
                             </div>
-                            <div className="text-right">
-                              <p className="font-bold">{formatCurrencySync(item.price, currency)}</p>
-                              <Button variant="ghost" size="sm" className="text-destructive h-auto p-0 hover:bg-transparent" onClick={() => removeFromCart(item.tempId)}>
+                            <div className="text-right shrink-0">
+                              <p className="font-bold text-sm sm:text-base">{formatCurrencySync(item.price, currency)}</p>
+                              <Button variant="ghost" size="sm" className="text-destructive h-auto p-0 mt-1 hover:bg-transparent text-xs" onClick={() => removeFromCart(item.tempId)}>
                                 Remove
                               </Button>
                             </div>
@@ -738,15 +738,15 @@ export function BookingPage() {
                         ))}
                       </div>
 
-                      <div className="flex justify-between items-center border-t pt-4 mt-6">
-                        <div className="text-lg font-bold">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-t pt-6 mt-6 gap-6">
+                        <div className="text-lg sm:text-xl font-bold">
                           Total: <span className="text-primary">{formatCurrencySync(cartTotal, currency)}</span>
                         </div>
-                        <div className="space-x-4">
-                          <Button variant="outline" onClick={() => setStep(1)}>
+                        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                          <Button variant="outline" onClick={() => setStep(1)} className="w-full sm:w-auto order-2 sm:order-1">
                             + Add Another Room
                           </Button>
-                          <Button onClick={() => setStep(3)}>
+                          <Button onClick={() => setStep(3)} className="w-full sm:w-auto order-1 sm:order-2 bg-primary shadow-lg hover:shadow-primary/20">
                             Proceed to Billing
                           </Button>
                         </div>

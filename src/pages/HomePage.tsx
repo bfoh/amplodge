@@ -74,29 +74,29 @@ export function HomePage() {
   return (
     <div className="min-h-screen">
       {/* Hero Section */}
-      <section id="hero" className="relative min-h-[90svh] sm:min-h-screen flex items-center justify-center overflow-hidden">
+      <section id="hero" className="relative min-h-[85svh] sm:min-h-screen flex items-center justify-center overflow-hidden">
         <div
-          className="absolute inset-0 bg-cover bg-center before:absolute before:inset-0 before:bg-gradient-to-b before:from-black/40 before:via-black/20 before:to-black/50"
+          className="absolute inset-0 bg-cover bg-center before:absolute before:inset-0 before:bg-gradient-to-b before:from-black/50 before:via-black/20 before:to-black/60"
           style={{
             backgroundImage: `url('https://firebasestorage.googleapis.com/v0/b/blink-451505.firebasestorage.app/o/user-uploads%2FQFoz0QclVFXcNNPMxlrHiX37KPP2%2F635126960__33431230.jpg?alt=media&token=be2c31b0-dce3-4eb6-9de9-022beeb03dd7')`,
-            filter: 'brightness(1.1) contrast(1.08)'
+            filter: 'brightness(1.05) contrast(1.1)'
           }}
         />
-        <div className="relative z-10 text-center px-4 max-w-5xl mx-auto pt-20">
-          <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-[5.5rem] font-serif font-bold text-white mb-7 drop-shadow-2xl animate-fade-in leading-[1.1] tracking-tight">
-            Welcome to AMP Lodge
+        <div className="relative z-10 text-center px-4 max-w-5xl mx-auto pt-24 sm:pt-20">
+          <h1 className="text-4xl sm:text-6xl md:text-7xl lg:text-[5.5rem] font-serif font-bold text-white mb-6 sm:mb-8 drop-shadow-2xl animate-fade-in leading-[1.1] tracking-tight">
+            Welcome to <span className="text-accent underline decoration-accent/30 underline-offset-8">AMP Lodge</span>
           </h1>
-          <p className="text-xl sm:text-2xl md:text-3xl text-white/95 mb-12 animate-slide-up drop-shadow-lg font-light max-w-3xl mx-auto leading-relaxed">
+          <p className="text-lg sm:text-2xl md:text-3xl text-white/95 mb-10 sm:mb-14 animate-slide-up drop-shadow-lg font-light max-w-3xl mx-auto leading-relaxed">
             Your Premium Retreat in the Heart of Ghana
           </p>
-          <div className="flex flex-col sm:flex-row gap-5 justify-center items-center animate-slide-up">
-            <Link to="/rooms">
-              <Button size="lg" className="text-lg px-12 py-7 bg-gradient-to-r from-primary via-primary to-accent hover:from-primary/95 hover:to-accent/95 shadow-2xl hover:shadow-accent/60 transition-all duration-300 text-white font-semibold rounded-xl">
+          <div className="flex flex-col sm:flex-row gap-4 sm:gap-6 justify-center items-center animate-slide-up px-4">
+            <Link to="/booking" className="w-full sm:w-auto">
+              <Button size="lg" className="w-full sm:w-auto text-base sm:text-lg px-10 py-7 bg-gradient-to-r from-primary via-primary to-accent hover:from-primary/95 hover:to-accent/95 shadow-2xl hover:shadow-accent/40 transition-all duration-300 text-white font-bold rounded-xl active:scale-95">
                 Explore Rooms
               </Button>
             </Link>
-            <Link to="/virtual-tour">
-              <Button size="lg" variant="outline" className="text-lg px-12 py-7 border-2 border-white/90 text-white bg-white/10 backdrop-blur-md hover:bg-white hover:text-primary transition-all duration-300 shadow-xl rounded-xl">
+            <Link to="/virtual-tour" className="w-full sm:w-auto">
+              <Button size="lg" variant="outline" className="w-full sm:w-auto text-base sm:text-lg px-10 py-7 border-2 border-white/80 text-white bg-white/5 backdrop-blur-md hover:bg-white hover:text-primary transition-all duration-300 shadow-xl rounded-xl active:scale-95">
                 <PlayCircle className="w-5 h-5 mr-2" />
                 Virtual Tour
               </Button>
@@ -106,29 +106,29 @@ export function HomePage() {
       </section>
 
       {/* Amenities Section */}
-      <section className="py-28 bg-gradient-to-b from-background to-secondary/30">
+      <section className="py-20 sm:py-28 bg-gradient-to-b from-background to-secondary/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-20">
-            <h2 className="text-4xl md:text-5xl font-serif font-bold text-foreground mb-6 tracking-tight">
+          <div className="text-center mb-12 sm:mb-20">
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-serif font-bold text-foreground mb-4 sm:mb-6 tracking-tight">
               Premium Amenities
             </h2>
-            <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+            <p className="text-base sm:text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
               Experience comfort and luxury with our world-class facilities
             </p>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6 lg:gap-8">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 sm:gap-6 lg:gap-8">
             {amenities.map((amenity, index) => {
               const Icon = amenity.icon
               return (
                 <div
                   key={index}
-                  className="group flex flex-col items-center text-center p-7 lg:p-9 rounded-2xl bg-white hover:bg-gradient-to-br hover:from-white hover:to-secondary/50 transition-all duration-300 hover:scale-[1.03] hover:shadow-xl shadow-sm border border-primary/8"
+                  className="group flex flex-col items-center text-center p-5 sm:p-7 lg:p-9 rounded-2xl bg-white hover:bg-gradient-to-br hover:from-white hover:to-secondary/50 transition-all duration-300 hover:scale-[1.03] hover:shadow-xl shadow-sm border border-primary/8"
                 >
-                  <div className="w-16 h-16 lg:w-20 lg:h-20 rounded-full bg-gradient-to-br from-primary/15 to-accent/15 flex items-center justify-center mb-5 transition-all duration-300 group-hover:scale-110 group-hover:from-primary/20 group-hover:to-accent/20">
-                    <Icon className="w-8 h-8 lg:w-10 lg:h-10 text-primary" />
+                  <div className="w-12 h-12 sm:w-16 sm:h-16 lg:w-20 lg:h-20 rounded-2xl bg-gradient-to-br from-primary/10 to-accent/10 flex items-center justify-center mb-4 transition-all duration-300 group-hover:scale-110 group-hover:from-primary/20 group-hover:to-accent/20 group-hover:rotate-3">
+                    <Icon className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 text-primary" />
                   </div>
-                  <p className="font-semibold text-foreground text-sm lg:text-base">{amenity.label}</p>
+                  <p className="font-bold text-foreground text-xs sm:text-sm lg:text-base tracking-tight">{amenity.label}</p>
                 </div>
               )
             })}

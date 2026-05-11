@@ -149,12 +149,12 @@ export function RoomsPage() {
   }
 
   return (
-    <div className="min-h-screen pt-20">
+    <div className="min-h-screen pt-12 sm:pt-20">
       {/* Header */}
-      <section className="bg-gradient-to-br from-primary/10 via-secondary to-accent/10 py-24">
+      <section className="bg-gradient-to-br from-primary/10 via-secondary to-accent/10 py-16 sm:py-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h1 className="text-5xl md:text-6xl font-serif font-bold text-foreground mb-6 tracking-tight">Our Rooms</h1>
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+          <h1 className="text-3xl sm:text-5xl md:text-6xl font-serif font-bold text-foreground mb-4 sm:mb-6 tracking-tight">Our Rooms</h1>
+          <p className="text-base sm:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed px-4">
             Discover your perfect accommodation among our carefully curated selection of luxury rooms
           </p>
         </div>
@@ -172,7 +172,7 @@ export function RoomsPage() {
 
               return (
                 <Card key={roomType.id} className="overflow-hidden hover:shadow-2xl transition-all duration-300 flex flex-col h-full border-primary/10 hover:border-primary/25 bg-white group">
-                  <div className="relative h-72 overflow-hidden">
+                  <div className="relative h-56 sm:h-72 overflow-hidden">
                     <img
                       src={roomType.imageUrl}
                       alt={roomType.name}
@@ -180,49 +180,49 @@ export function RoomsPage() {
                       className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                     />
                     {availableCount > 0 && (
-                      <div className="absolute top-4 right-4 bg-primary text-primary-foreground px-4 py-2 rounded-full text-sm font-semibold shadow-lg">
+                      <div className="absolute top-4 right-4 bg-primary text-primary-foreground px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-[10px] sm:text-sm font-semibold shadow-lg">
                         {availableCount} Available
                       </div>
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                   </div>
-                  <CardHeader className="pb-4 pt-6">
-                    <CardTitle className="text-2xl font-serif mb-3 group-hover:text-primary transition-colors">{roomType.name}</CardTitle>
-                    <CardDescription className="leading-relaxed text-base">{roomType.description}</CardDescription>
+                  <CardHeader className="pb-3 pt-5 sm:pb-4 sm:pt-6">
+                    <CardTitle className="text-xl sm:text-2xl font-serif mb-2 sm:mb-3 group-hover:text-primary transition-colors">{roomType.name}</CardTitle>
+                    <CardDescription className="leading-relaxed text-sm sm:text-base line-clamp-2">{roomType.description}</CardDescription>
                   </CardHeader>
-                  <CardContent className="flex-1 pb-5">
-                    <div className="flex items-center justify-between mb-5">
+                  <CardContent className="flex-1 pb-4 sm:pb-5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
                       <div className="flex items-center text-muted-foreground">
-                        <Users className="w-5 h-5 mr-2" />
-                        <span className="text-sm font-medium">Up to {roomType.capacity} guests</span>
+                        <Users className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
+                        <span className="text-xs sm:text-sm font-medium">Up to {roomType.capacity} guests</span>
                       </div>
-                      <div className="flex items-center text-primary font-bold">
-                        <span className="text-3xl">{formatCurrencySync(roomType.basePrice, currency)}</span>
-                        <span className="text-sm text-muted-foreground ml-1 font-normal">/night</span>
+                      <div className="flex items-baseline text-primary font-bold">
+                        <span className="text-2xl sm:text-3xl">{formatCurrencySync(roomType.basePrice, currency)}</span>
+                        <span className="text-[10px] sm:text-sm text-muted-foreground ml-1 font-normal">/night</span>
                       </div>
                     </div>
-                    <div className="space-y-3">
-                      <p className="text-sm font-semibold text-foreground">Amenities:</p>
-                      <div className="flex flex-wrap gap-2">
+                    <div className="space-y-2 sm:space-y-3">
+                      <p className="text-xs sm:text-sm font-semibold text-foreground">Amenities:</p>
+                      <div className="flex flex-wrap gap-1.5 sm:gap-2">
                         {amenitiesList.slice(0, 3).map((amenity, index) => (
                           <span
                             key={index}
-                            className="text-xs bg-secondary/80 text-secondary-foreground px-3 py-1.5 rounded-lg font-medium"
+                            className="text-[10px] sm:text-xs bg-secondary/80 text-secondary-foreground px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg font-medium"
                           >
                             {amenity}
                           </span>
                         ))}
                         {amenitiesList.length > 3 && (
-                          <span className="text-xs text-muted-foreground px-3 py-1.5 font-medium">
-                            +{amenitiesList.length - 3} more
+                          <span className="text-[10px] sm:text-xs text-muted-foreground px-2 py-1 font-medium">
+                            +{amenitiesList.length - 3}
                           </span>
                         )}
                       </div>
                     </div>
                   </CardContent>
-                  <CardFooter className="mt-auto pb-6">
+                  <CardFooter className="mt-auto pb-5 sm:pb-6">
                     <Link to={`/booking?roomType=${roomType.id}`} className="w-full">
-                      <Button className="w-full py-6 text-base font-semibold shadow-md hover:shadow-lg bg-gradient-to-r from-primary via-primary to-accent hover:from-primary/95 hover:to-accent/95 transition-all duration-300" disabled={availableCount === 0}>
+                      <Button className="w-full py-5 sm:py-6 text-sm sm:text-base font-semibold shadow-md hover:shadow-xl bg-gradient-to-r from-primary via-primary to-accent hover:from-primary/95 hover:to-accent/95 transition-all duration-300" disabled={availableCount === 0}>
                         {availableCount > 0 ? 'Book Now' : 'Fully Booked'}
                       </Button>
                     </Link>

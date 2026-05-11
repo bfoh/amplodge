@@ -182,33 +182,34 @@ export function StaffSidebar({ email, className, onNavigate }: StaffSidebarProps
   }
 
   return (
-    <aside className={className || "hidden md:flex w-64 h-screen flex-col bg-[#0B1220] text-white/90"}>
+    <aside className={cn(className, "flex h-full flex-col bg-[#0B1220] text-white/90 shadow-2xl transition-all duration-300")}>
 
-      <div className="px-6 py-8 border-b border-white/10 flex flex-col items-center">
-        <div className="w-16 h-16 mb-4 rounded-full bg-white/10 flex items-center justify-center overflow-hidden border border-white/20 shadow-inner group">
+      <div className="px-6 py-10 border-b border-white/5 flex flex-col items-center shrink-0">
+        <div className="w-20 h-20 mb-5 rounded-2xl bg-gradient-to-br from-white/10 to-white/5 flex items-center justify-center overflow-hidden border border-white/10 shadow-2xl group transition-transform duration-500 hover:scale-105">
            <img 
-            src="/amp-logo.png" 
+            src="/amp.png" 
             alt="AMP Lodge" 
-            className="w-12 h-12 object-contain transition-transform group-hover:scale-110 duration-500" 
+            className="w-14 h-14 object-contain transition-transform group-hover:rotate-3 duration-700" 
             onError={(e) => {
-              // Fallback to a generic icon if the image fails to load
               e.currentTarget.style.display = 'none';
               const parent = e.currentTarget.parentElement;
               if (parent) {
                 const icon = document.createElement('div');
-                icon.className = 'w-10 h-10 flex items-center justify-center text-white/40';
-                icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-home"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>';
+                icon.className = 'w-12 h-12 flex items-center justify-center text-primary';
+                icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-home"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>';
                 parent.appendChild(icon);
               }
             }}
           />
         </div>
-        <h2 className="text-lg font-serif font-bold text-white tracking-tight">AMP Lodge</h2>
-        <p className="text-[10px] uppercase tracking-[0.2em] text-white/40 mt-1">Management Portal</p>
+        <h2 className="text-xl font-serif font-bold text-white tracking-tight">AMP Lodge</h2>
+        <p className="text-[10px] uppercase tracking-[0.25em] text-primary/60 font-semibold mt-1.5">Management Portal</p>
         {email && (
-          <p className="mt-4 text-[11px] text-white/50 truncate w-full text-center px-2" title={email}>
-            {email}
-          </p>
+          <div className="mt-5 px-3 py-1.5 rounded-full bg-white/5 border border-white/5 max-w-full">
+            <p className="text-[10px] text-white/40 truncate w-full text-center" title={email}>
+              {email}
+            </p>
+          </div>
         )}
       </div>
 

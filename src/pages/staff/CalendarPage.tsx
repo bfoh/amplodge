@@ -367,49 +367,51 @@ export function CalendarPage() {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-4 sm:space-y-6 animate-fade-in">
       {/* Top Navigation Bar */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         {/* Date Navigation */}
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={previousMonth} className="h-10 w-10">
-            <ChevronLeft className="w-5 h-5" />
-          </Button>
+        <div className="flex items-center gap-2 justify-between sm:justify-start w-full sm:w-auto">
+          <div className="flex items-center gap-1.5">
+            <Button variant="outline" size="icon" onClick={previousMonth} className="h-9 w-9 sm:h-10 sm:w-10">
+              <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+            </Button>
 
-          <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-10 px-4 font-medium">Today</Button>
+            <Button variant="outline" onClick={() => setCurrentDate(new Date())} className="h-9 px-3 sm:h-10 sm:px-4 text-xs sm:text-sm font-medium">Today</Button>
 
-          <Button variant="outline" size="icon" onClick={nextMonth} className="h-10 w-10">
-            <ChevronRight className="w-5 h-5" />
-          </Button>
+            <Button variant="outline" size="icon" onClick={nextMonth} className="h-9 w-9 sm:h-10 sm:w-10">
+              <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />
+            </Button>
+          </div>
 
-          <div className="flex items-center gap-2 ml-4">
-            <Button variant="outline" className="h-10 px-4 font-medium">{monthNames[month]}</Button>
-            <Button variant="outline" className="h-10 px-4 font-medium">{year}</Button>
+          <div className="flex items-center gap-1.5 ml-2">
+            <Button variant="outline" className="h-9 px-3 sm:h-10 sm:px-4 text-xs sm:text-sm font-bold bg-primary/5 border-primary/10">{monthNames[month]}</Button>
+            <Button variant="outline" className="h-9 px-3 sm:h-10 sm:px-4 text-xs sm:text-sm font-bold">{year}</Button>
           </div>
         </div>
 
         {/* View Controls */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center border rounded-lg overflow-hidden">
-            <Button variant={viewMode === 'timeline' ? 'default' : 'ghost'} size="icon" onClick={() => setViewMode('timeline')} className="rounded-none h-10 w-10">
-              <LayoutGrid className="w-5 h-5" />
+        <div className="flex items-center gap-2 justify-end">
+          <div className="flex items-center border rounded-lg overflow-hidden bg-white/50 backdrop-blur-sm">
+            <Button variant={viewMode === 'timeline' ? 'default' : 'ghost'} size="icon" onClick={() => setViewMode('timeline')} className="rounded-none h-9 w-9 sm:h-10 sm:w-10">
+              <LayoutGrid className="w-4 h-4 sm:w-5 sm:h-5" />
             </Button>
-            <Button variant={viewMode === 'grid' ? 'default' : 'ghost'} size="icon" onClick={() => setViewMode('grid')} className="rounded-none h-10 w-10">
-              <CalendarIcon className="w-5 h-5" />
+            <Button variant={viewMode === 'grid' ? 'default' : 'ghost'} size="icon" onClick={() => setViewMode('grid')} className="rounded-none h-9 w-9 sm:h-10 sm:w-10">
+              <CalendarIcon className="w-4 h-4 sm:w-5 sm:h-5" />
             </Button>
-            <Button variant={viewMode === 'list' ? 'default' : 'ghost'} size="icon" onClick={() => setViewMode('list')} className="rounded-none h-10 w-10">
-              <List className="w-5 h-5" />
+            <Button variant={viewMode === 'list' ? 'default' : 'ghost'} size="icon" onClick={() => setViewMode('list')} className="rounded-none h-9 w-9 sm:h-10 sm:w-10">
+              <List className="w-4 h-4 sm:w-5 sm:h-5" />
             </Button>
           </div>
-          <Button variant="outline" size="icon" className="h-10 w-10">
-            <Filter className="w-5 h-5" />
+          <Button variant="outline" size="icon" className="h-9 w-9 sm:h-10 sm:w-10 bg-white/50 backdrop-blur-sm">
+            <Filter className="w-4 h-4 sm:w-5 sm:h-5" />
           </Button>
         </div>
       </div>
 
       {/* Calendar Card */}
-      <Card className="overflow-hidden">
-        <CardContent className="p-0 flex flex-col" style={{ height: 'calc(100vh - 240px)' }}>
+      <Card className="overflow-hidden border-primary/5 shadow-lg bg-white/80 backdrop-blur-sm">
+        <CardContent className="p-0 flex flex-col" style={{ height: 'calc(100svh - 220px)', minHeight: '400px' }}>
           {viewMode === 'timeline' ? (
             <CalendarTimeline
               currentDate={currentDate}

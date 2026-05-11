@@ -217,7 +217,7 @@ export function ReservationsPage() {
       if (inFlight) return
       inFlight = true
       try {
-        const [b, r, g, rt, charges] = await Promise.all([
+        const [b, r, g, rt, charges, roomsTable] = await Promise.all([
           db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
           db.properties.listAll(),
           db.guests.listAll(),
@@ -243,11 +243,10 @@ export function ReservationsPage() {
 
         setBookings(uniqueBookings)
         // Combine properties and rooms tables for maximum ID coverage
-        const roomsTable = arguments[5] || []
         const combinedRooms = [...r]
         const seenRoomIds = new Set(r.map(item => item.id))
         
-        roomsTable.forEach((rt: any) => {
+        ;(roomsTable || []).forEach((rt: any) => {
           if (!seenRoomIds.has(rt.id)) {
             combinedRooms.push(rt)
             seenRoomIds.add(rt.id)

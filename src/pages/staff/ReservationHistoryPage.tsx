@@ -96,7 +96,7 @@ export function ReservationHistoryPage() {
       setLoading(true)
       
       // Fetch all relevant data from database with reduced limits for better performance
-      const [bookingsData, guestsData, invoicesData, staffData, allGuestsForMap, allPropertiesForMap] = await Promise.all([
+      const [bookingsData, guestsData, invoicesData, staffData, allGuestsForMap, allPropertiesForMap, roomsTable] = await Promise.all([
         db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
         db.guests.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
         db.invoices.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
@@ -109,11 +109,10 @@ export function ReservationHistoryPage() {
       const guestLookupMap = new Map<string, any>(allGuestsForMap.map((g: any) => [g.id, g] as [string, any]))
       
       // Combine rooms and properties for maximum ID coverage
-      const roomsTable = arguments[5] || []
       const combinedRooms = [...allPropertiesForMap]
       const seenRoomIds = new Set(allPropertiesForMap.map((item: any) => item.id))
       
-      roomsTable.forEach((rt: any) => {
+      ;(roomsTable || []).forEach((rt: any) => {
         if (!seenRoomIds.has(rt.id)) {
           combinedRooms.push(rt)
           seenRoomIds.add(rt.id)

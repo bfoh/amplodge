@@ -597,14 +597,14 @@ export function BookingsPage() {
                 New Booking
               </Button>
             </DialogTrigger>
-            <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>{editingId ? 'Edit Booking' : 'Create New Booking'}</DialogTitle>
-                <DialogDescription>
-                  Enter booking details
+            <DialogContent className="w-[calc(100vw-1rem)] sm:w-[calc(100vw-2rem)] max-w-2xl max-h-[95vh] sm:max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+              <DialogHeader className="mb-4">
+                <DialogTitle className="text-xl sm:text-2xl font-bold">{editingId ? 'Edit Booking' : 'Create New Booking'}</DialogTitle>
+                <DialogDescription className="text-sm">
+                  Complete the fields below to {editingId ? 'update' : 'create'} a reservation.
                 </DialogDescription>
               </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="propertyId">Room*</Label>
                   <select
@@ -902,12 +902,12 @@ export function BookingsPage() {
 
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search bookings by guest name or email..."
+            placeholder="Search guest name or email..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-9"
+            className="pl-9 h-10 sm:h-11 bg-white/50 backdrop-blur-sm border-primary/10 shadow-sm"
           />
         </div>
       </div>
@@ -931,19 +931,19 @@ export function BookingsPage() {
       ) : (
         <div className="space-y-3">
           {filteredBookings.map((booking) => (
-            <Card key={booking.id} className={`hover:shadow-md transition-shadow border-l-4 ${getStatusBorderColor(booking.status)}`}>
-              <CardContent className="p-4">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="flex-1 space-y-2">
-                    <div className="flex items-start justify-between">
-                      <div>
+            <Card key={booking.id} className={`hover:shadow-md transition-shadow border-l-4 ${getStatusBorderColor(booking.status)} bg-white/50 backdrop-blur-sm`}>
+              <CardContent className="p-3 sm:p-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
+                  <div className="flex-1 space-y-1.5 sm:space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-semibold text-lg">{booking.guestName}</h3>
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(booking.status)}`}>
+                          <h3 className="font-bold text-base sm:text-lg tracking-tight">{booking.guestName}</h3>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold uppercase tracking-wider ${getStatusColor(booking.status)}`}>
                             {booking.status}
                           </span>
                           {booking.groupReference && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 ring-1 ring-amber-200">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-amber-50 text-amber-700 ring-1 ring-amber-200">
                               <Users className="w-3 h-3 mr-1" />{booking.groupReference}
                             </span>
                           )}

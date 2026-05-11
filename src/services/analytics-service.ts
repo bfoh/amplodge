@@ -25,6 +25,7 @@ export interface AnalyticsSharedData {
   chargesRaw: any[]
   standaloneSales: any[]
   guests: any[]
+  staff: any[]
 }
 
 class AnalyticsService {
@@ -33,7 +34,7 @@ class AnalyticsService {
    * to eliminate redundant DB calls across a single page load.
    */
   async prefetchSharedData(): Promise<AnalyticsSharedData> {
-    const [bookings, roomTypes, properties, chargesRaw, standaloneSales, guests] =
+    const [bookings, roomTypes, properties, chargesRaw, standaloneSales, guests, staff] =
       await Promise.all([
         bookingEngine.getAllBookings().catch(() => [] as any[]),
         db.roomTypes.list().catch(() => [] as any[]),
@@ -41,8 +42,9 @@ class AnalyticsService {
         (db.bookingCharges.list({ limit: 5000 }) as Promise<any[]>).catch(() => [] as any[]),
         standaloneSalesService.getAllSales().catch(() => [] as any[]),
         db.guests.list().catch(() => [] as any[]),
+        db.staff.list().catch(() => [] as any[]),
       ])
-    return { bookings, roomTypes, properties, chargesRaw, standaloneSales, guests }
+    return { bookings, roomTypes, properties, chargesRaw, standaloneSales, guests, staff }
   }
 
   /**
@@ -212,13 +214,18 @@ class AnalyticsService {
       // Helper: booking charges created within a date range (filter by createdAt)
       // Uses date-only slicing (YYYY-MM-DD) for correct comparison against timestamps,
       // matching the same logic as the "Additional Revenue Sources" card.
-      const chargesInRange = (from: string, to?: string) =>
+      const chargesInRange = (from: string, to?: string, categoryMode?: 'extensions_only' | 'services_only') =>
         (allChargesRaw || []).reduce((sum: number, c: any) => {
           const cd = c.createdAt || c.created_at || ''
           if (!cd) return sum
           const cdDate = cd.slice(0, 10) // YYYY-MM-DD only
           if (cdDate < from) return sum
           if (to && cdDate > to) return sum
+          
+          const cat = c.category || 'other'
+          if (categoryMode === 'extensions_only' && cat !== 'room_extension') return sum
+          if (categoryMode === 'services_only' && cat === 'room_extension') return sum
+          
           return sum + Number(c.amount || 0)
         }, 0)
 
@@ -241,7 +248,8 @@ class AnalyticsService {
       const revenueByPeriod = {
         today: bookingRoomRev(revenueBookings.filter(b => b.dates.checkIn === todayStr))
           + depositInRangeStr(todayStr, todayStr)
-          + chargesInRange(todayStr, todayStr)
+          + chargesInRange(todayStr, todayStr, 'extensions_only')
+          + chargesInRange(todayStr, todayStr, 'services_only')
           + salesInRange(todayStr, todayStr),
 
         thisWeek: bookingRoomRev(revenueBookings.filter(b => {
@@ -249,7 +257,8 @@ class AnalyticsService {
             return ci >= thisWeekStart && ci <= thisWeekEnd
           }))
           + depositInRange(thisWeekStart, thisWeekEnd)
-          + chargesInRange(weekStartStr, weekEndStr)
+          + chargesInRange(weekStartStr, weekEndStr, 'extensions_only')
+          + chargesInRange(weekStartStr, weekEndStr, 'services_only')
           + salesInRange(weekStartStr, weekEndStr),
 
         thisMonth: bookingRoomRev(revenueBookings.filter(b => {
@@ -257,7 +266,8 @@ class AnalyticsService {
             return ci >= thisMonthStart && ci <= thisMonthEnd
           }))
           + depositInRange(thisMonthStart, thisMonthEnd)
-          + chargesInRange(monthStartStr, monthEndStr)
+          + chargesInRange(monthStartStr, monthEndStr, 'extensions_only')
+          + chargesInRange(monthStartStr, monthEndStr, 'services_only')
           + salesInRange(monthStartStr, monthEndStr),
 
         lastMonth: bookingRoomRev(revenueBookings.filter(b => {
@@ -265,7 +275,8 @@ class AnalyticsService {
             return checkIn >= lastMonthStart && checkIn <= lastMonthEnd
           }))
           + depositInRange(lastMonthStart, lastMonthEnd)
-          + chargesInRange(lastMonthStartStr, lastMonthEndStr)
+          + chargesInRange(lastMonthStartStr, lastMonthEndStr, 'extensions_only')
+          + chargesInRange(lastMonthStartStr, lastMonthEndStr, 'services_only')
           + salesInRange(lastMonthStartStr, lastMonthEndStr),
 
         thisYear: bookingRoomRev(revenueBookings.filter(b => {
@@ -273,7 +284,8 @@ class AnalyticsService {
             return ci >= thisYearStart && ci <= thisYearEnd
           }))
           + depositInRange(thisYearStart, thisYearEnd)
-          + chargesInRange(yearStartStr, yearEndStr)
+          + chargesInRange(yearStartStr, yearEndStr, 'extensions_only')
+          + chargesInRange(yearStartStr, yearEndStr, 'services_only')
           + salesInRange(yearStartStr, yearEndStr),
 
         lastYear: bookingRoomRev(revenueBookings.filter(b => {
@@ -281,7 +293,8 @@ class AnalyticsService {
             return checkIn >= lastYearStart && checkIn <= lastYearEnd
           }))
           + depositInRange(lastYearStart, lastYearEnd)
-          + chargesInRange(lastYearStartStr, lastYearEndStr)
+          + chargesInRange(lastYearStartStr, lastYearEndStr, 'extensions_only')
+          + chargesInRange(lastYearStartStr, lastYearEndStr, 'services_only')
           + salesInRange(lastYearStartStr, lastYearEndStr),
       }
 
