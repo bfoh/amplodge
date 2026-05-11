@@ -233,14 +233,12 @@ export function ReservationsPage() {
         // Only deduplicate by ID (React keys) in case of rare DB sync overlaps.
         // We no longer aggressively deduplicate by guest/room/date client-side,
         // so all actual DB records will be visible.
-        const uniqueBookings = hydratedBookings.reduce((acc: Booking[], current) => {
-          const duplicateByIdIndex = acc.findIndex(item => item.id === current.id)
-          if (duplicateByIdIndex >= 0) {
-            return acc
-          }
-          acc.push(current)
-          return acc
-        }, [])
+        const seenIds = new Set<string>()
+        const uniqueBookings = hydratedBookings.filter(b => {
+          if (seenIds.has(b.id)) return false
+          seenIds.add(b.id)
+          return true
+        })
 
         setBookings(uniqueBookings)
         setRooms(r)

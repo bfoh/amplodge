@@ -137,6 +137,8 @@ export function useStaffRole() {
         setRole(staffRole)
         saveToCache(uid, record, staffRole)
         console.log('🔄 [useStaffRole] Background refresh complete:', staffRole)
+      } else {
+        console.warn('⚠️ [useStaffRole] Background refresh found NO staff record for uid:', uid)
       }
     } catch (err) {
       console.warn('⚠️ [useStaffRole] Background refresh failed:', err)

@@ -303,12 +303,10 @@ function createTableWrapper(tableName: string) {
         if (error) throw error
 
         // Update cache with fresh data
-        if (data && !options.where) {
+        if (data && !options.where && !options.limit) {
           offlineCache.warmTable(tableName, data).catch(() => {})
-        } else if (data) {
-          for (const row of data) {
-            offlineCache.writeOne(tableName, row).catch(() => {})
-          }
+        } else if (data && data.length > 0) {
+          offlineCache.writeMany(tableName, data).catch(() => {})
         }
 
         return data || []
@@ -420,9 +418,7 @@ function createTableWrapper(tableName: string) {
         if (!options.where) {
           offlineCache.warmTable(tableName, all).catch(() => {})
         } else {
-          for (const row of all) {
-            offlineCache.writeOne(tableName, row).catch(() => {})
-          }
+          offlineCache.writeMany(tableName, all).catch(() => {})
         }
         return all
       }

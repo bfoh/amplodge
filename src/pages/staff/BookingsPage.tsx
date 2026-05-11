@@ -207,22 +207,17 @@ export function BookingsPage() {
       })
 
       // Deduplicate bookings based on unique combination of guest email, room number, and dates
-      const uniqueBookings = formattedBookings.reduce((acc: BookingWithDetails[], current: BookingWithDetails) => {
-        const isDuplicate = acc.some(booking =>
-          booking.guestEmail === current.guestEmail &&
-          booking.roomNumber === current.roomNumber &&
-          booking.checkIn === current.checkIn &&
-          booking.checkOut === current.checkOut
-        )
-
-        if (!isDuplicate) {
-          acc.push(current)
-        } else {
-          console.log(`[BookingsPage] Removed duplicate booking for ${current.guestEmail} in room ${current.roomNumber}`)
+      // O(N) approach using a Set of composite keys
+      const seen = new Set<string>()
+      const uniqueBookings = formattedBookings.filter(booking => {
+        const key = `${booking.guestEmail}|${booking.roomNumber}|${booking.checkIn}|${booking.checkOut}`
+        if (seen.has(key)) {
+          console.log(`[BookingsPage] Removed duplicate booking for ${booking.guestEmail} in room ${booking.roomNumber}`)
+          return false
         }
-
-        return acc
-      }, [])
+        seen.add(key)
+        return true
+      })
 
       setBookings(uniqueBookings)
       setProperties(roomsData as any[])

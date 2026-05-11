@@ -109,6 +109,12 @@ class BookingEngine {
     }
   }
 
+  public invalidateCache() {
+    this._allBookingsCache = null
+    this._allBookingsInflight = null
+    console.log('🧹 [BookingEngine] Internal cache invalidated.')
+  }
+
   private notifySyncHandlers(status: 'syncing' | 'synced' | 'error', message?: string) {
     this.syncHandlers.forEach(h => h(status, message))
   }
@@ -724,7 +730,7 @@ class BookingEngine {
     }
 
     console.log('[BookingEngine] Booking completed successfully:', localId)
-    this.invalidateBookingsCache()
+    this.invalidateCache()
     this.notifySyncHandlers('synced', 'Booking saved to database')
     return local
   }
@@ -965,6 +971,7 @@ class BookingEngine {
     await db.bookings.delete(booking.id)
     console.log(`[BookingEngine] Removed booking ${bookingId} from group. Remaining members: ${groupBookings.length}`)
 
+    this.invalidateCache()
     return {
       remainingCount: groupBookings.length,
       newPrimaryId
@@ -1263,7 +1270,7 @@ class BookingEngine {
         }
       }
 
-      this.invalidateBookingsCache()
+      this.invalidateCache()
       this.notifySyncHandlers('synced', 'Booking deleted successfully')
     } catch (error) {
       console.error('[BookingEngine] Failed to delete booking:', error)
@@ -1272,10 +1279,6 @@ class BookingEngine {
     }
   }
 
-  // Invalidate the getAllBookings cache (call after create/update/delete)
-  invalidateBookingsCache() {
-    this._allBookingsCache = null
-  }
 
   // Map DB bookings to LocalBooking for Admin views
   async getAllBookings(): Promise<LocalBooking[]> {
@@ -1748,7 +1751,7 @@ class BookingEngine {
       // Still try to update status even if logging fails
       await db.bookings.update(remoteId, { status })
     } finally {
-      this.invalidateBookingsCache()
+      this.invalidateCache()
     }
   }
 

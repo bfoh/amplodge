@@ -121,6 +121,19 @@ export function StaffSidebar({ email, className, onNavigate }: StaffSidebarProps
     ? adminItems
     : adminItems.filter(item => item.minRole.some(r => r.toLowerCase() === normalizedRole))
 
+  // DIAGNOSTIC LOGGING
+  useEffect(() => {
+    console.log('[StaffSidebar Diagnostic]', {
+      role,
+      normalizedRole,
+      isAdmin,
+      isLoadingStaff,
+      visibleNavItemsCount: visibleNavItems.length,
+      visibleAdminItemsCount: visibleAdminItems.length,
+      visibleNavLabels: visibleNavItems.map(i => i.label)
+    })
+  }, [role, normalizedRole, isAdmin, isLoadingStaff, visibleNavItems, visibleAdminItems])
+
   // Show price list section if user can access any price list items
   const showPriceListSection = visiblePriceListItems.length > 0
 
@@ -163,6 +176,7 @@ export function StaffSidebar({ email, className, onNavigate }: StaffSidebarProps
     } catch (error) {
       console.error('Failed to get current user for logout logging:', error)
     }
+    console.log('🔄 [StaffSidebar] Logging out user...')
     await auth.logout()
     navigate('/staff/login')
   }
