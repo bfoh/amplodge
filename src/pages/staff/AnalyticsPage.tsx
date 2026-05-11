@@ -145,16 +145,21 @@ export function AnalyticsPage() {
       const performanceData = await analyticsService.getPerformanceMetrics(
         shared, { revenue: revenueData, occupancy: occupancyData }
       )
+      
       const allBookings = shared.bookings || []
       const chargesRaw = shared.chargesRaw || []
       const salesRaw = shared.standaloneSales || []
+      const staffRaw = shared.staff || []
+      
+      setAllRevenueBookings(revenueData.bookings || [])
+      setAllChargesRaw(chargesRaw)
+      setAllSalesRaw(salesRaw)
+      setAllStaff(staffRaw)
       setRevenue(revenueData)
       setOccupancy(occupancyData)
       setGuests(guestData)
       setPerformance(performanceData)
-      setAllRevenueBookings(
-        allBookings.filter(b => ['checked-in', 'checked-out'].includes(b.status))
-      )
+      
       // Confirmed bookings that collected a deposit — these are real cash received
       // For groups: only the primary booking (to avoid double-counting)
       const _seenDepositGroups = new Set<string>()
@@ -170,9 +175,6 @@ export function AnalyticsPage() {
           return true
         })
       )
-      setAllChargesRaw(chargesRaw)
-      setAllSalesRaw(salesRaw)
-      setAllStaff(shared.staff || [])
     } catch (error) {
       console.error('Failed to load analytics:', error)
     } finally {

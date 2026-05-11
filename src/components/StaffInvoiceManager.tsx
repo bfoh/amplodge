@@ -17,6 +17,7 @@ import { toast } from 'sonner'
 import { format } from 'date-fns'
 import { createInvoiceData, downloadInvoicePDF, printInvoice, createPreInvoiceData, downloadPreInvoicePDF, printPreInvoice, PreInvoiceData, createGroupInvoiceData, downloadGroupInvoicePDF } from '@/services/invoice-service'
 import { db, auth } from '@/lib/db'
+import { cn } from '@/lib/utils'
 
 interface InvoiceRecord {
   id: string
@@ -499,8 +500,14 @@ export function StaffInvoiceManager() {
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col text-sm">
-                            <span className="font-medium">{format(new Date(invoice.checkIn), 'MMM dd')} <span className="text-muted-foreground">-</span> {format(new Date(invoice.checkOut), 'MMM dd')}</span>
-                            <span className="text-xs text-muted-foreground">{format(new Date(invoice.checkOut), 'yyyy')}</span>
+                            <span className="font-medium">
+                              {invoice.checkIn ? format(new Date(invoice.checkIn), 'MMM dd') : 'N/A'} 
+                              <span className="text-muted-foreground mx-1">-</span> 
+                              {invoice.checkOut ? format(new Date(invoice.checkOut), 'MMM dd') : 'N/A'}
+                            </span>
+                            {invoice.checkOut && (
+                              <span className="text-xs text-muted-foreground">{format(new Date(invoice.checkOut), 'yyyy')}</span>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="text-right font-medium text-sm">

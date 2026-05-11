@@ -30,6 +30,7 @@ import { db, auth } from '@/lib/db'
 import type { StaffRole } from '@/lib/rbac'
 import { SyncStatusBadge } from '@/components/SyncStatusBadge'
 import { activityLogService } from '@/services/activity-log-service'
+import { cn } from '@/lib/utils'
 
 type StaffSidebarProps = {
   email?: string | null

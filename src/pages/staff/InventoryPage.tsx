@@ -105,11 +105,12 @@ export function InventoryPage() {
 
   const loadRevenueData = async () => {
     try {
-      const { chargesRaw, standaloneSales, bookings, staff } = await analyticsService.prefetchSharedData()
-      setAllCharges(chargesRaw || [])
-      setAllSales(standaloneSales || [])
-      setRevBookings(bookings || [])
-      setAllStaff(staff || [])
+      const shared = await analyticsService.prefetchSharedData() || {} as any
+      const { chargesRaw = [], standaloneSales = [], bookings = [], staff = [] } = shared
+      setAllCharges(chargesRaw)
+      setAllSales(standaloneSales)
+      setRevBookings(bookings)
+      setAllStaff(staff)
     } catch (e) {
       console.error('Failed to load revenue data', e)
       // Ensure state is always safe arrays even on error
