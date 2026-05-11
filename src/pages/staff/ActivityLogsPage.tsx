@@ -25,6 +25,7 @@ export function ActivityLogsPage() {
   const [endDate, setEndDate] = useState('')
   const [userFilter, setUserFilter] = useState<string>('all')
   const [users, setUsers] = useState<Array<{ id: string; name: string }>>([])
+  const [rooms, setRooms] = useState<any[]>([])
   const [autoRefresh, setAutoRefresh] = useState(false)
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -92,13 +93,27 @@ export function ActivityLogsPage() {
 
   async function loadUsers() {
     try {
-      const staffList = await db.staff.list({ limit: 100 })
-      setUsers(staffList.map((s: any) => ({
+      const [staffList, guestList, roomList] = await Promise.all([
+        db.staff.list({ limit: 100 }),
+        db.guests.list({ limit: 500 }),
+        db.properties.list({ limit: 100 })
+      ])
+      
+      setRooms(roomList)
+
+      const mappedStaff = staffList.map((s: any) => ({
         id: s.userId || s.id,
-        name: s.name || s.email || 'Unknown User'
-      })))
+        name: s.name || s.email || 'Staff member'
+      }))
+
+      const mappedGuests = guestList.map((g: any) => ({
+        id: g.id,
+        name: `Guest: ${g.name || 'Anonymous'}`
+      }))
+
+      setUsers([...mappedStaff, ...mappedGuests])
     } catch (error) {
-      console.error('Failed to load users:', error)
+      console.error('Failed to load users/guests/rooms:', error)
     }
   }
 
@@ -197,65 +212,77 @@ export function ActivityLogsPage() {
   function convertDetailsToReadableMessage(details: Record<string, any>): string {
     if (!details) return 'No details available'
 
+    // Create a local copy to enrich without mutating the original log
+    const enrichedDetails = { ...details }
+
+    // Enrich with room number if missing but roomId exists
+    if (!enrichedDetails.roomNumber && enrichedDetails.roomId) {
+      const room = rooms.find(r => r.id === enrichedDetails.roomId)
+      if (room) enrichedDetails.roomNumber = room.roomNumber || room.room_number
+    }
+
+    // Use enrichedDetails for all subsequent logic
+    const d = enrichedDetails
+
     // 1. Booking-related details
-    if (details.guestName || details.roomNumber) {
+    if (d.guestName || d.roomNumber) {
       const parts = []
-      if (details.guestName) parts.push(`Guest: ${details.guestName}`)
-      if (details.roomNumber) parts.push(`Room: ${details.roomNumber}${details.roomType ? ` (${details.roomType})` : ''}`)
-      if (details.checkIn && details.checkOut) parts.push(`Stay: ${details.checkIn} to ${details.checkOut}`)
-      if (details.amount) parts.push(`Amount: GHS ${details.amount}`)
-      if (details.status) parts.push(`Status: ${details.status}`)
-      if (details.reason) parts.push(`Reason: ${details.reason}`)
+      if (d.guestName) parts.push(`Guest: ${d.guestName}`)
+      if (d.roomNumber) parts.push(`Room: ${d.roomNumber}${d.roomType ? ` (${d.roomType})` : ''}`)
+      if (d.checkIn && d.checkOut) parts.push(`Stay: ${d.checkIn} to ${d.checkOut}`)
+      if (d.amount) parts.push(`Amount: GHS ${d.amount}`)
+      if (d.status) parts.push(`Status: ${d.status}`)
+      if (d.reason) parts.push(`Reason: ${d.reason}`)
       return parts.join(' | ') || 'Booking details updated'
     }
 
     // 2. Financial transactions (Invoices/Payments)
-    if (details.invoiceNumber || details.paymentMethod || details.amount || details.totalAmount) {
+    if (d.invoiceNumber || d.paymentMethod || d.amount || d.totalAmount) {
       const parts = []
-      if (details.invoiceNumber) parts.push(`Invoice: ${details.invoiceNumber}`)
-      if (details.paymentMethod) parts.push(`via ${details.paymentMethod}`)
-      const amt = details.amount || details.totalAmount
+      if (d.invoiceNumber) parts.push(`Invoice: ${d.invoiceNumber}`)
+      if (d.paymentMethod) parts.push(`via ${d.paymentMethod}`)
+      const amt = d.amount || d.totalAmount
       if (amt) parts.push(`Amount: GHS ${amt}`)
-      if (details.guestName) parts.push(`for ${details.guestName}`)
-      if (details.roomNumber) parts.push(`Room ${details.roomNumber}`)
-      if (details.reference) parts.push(`Ref: ${details.reference}`)
+      if (d.guestName) parts.push(`for ${d.guestName}`)
+      if (d.roomNumber) parts.push(`Room ${d.roomNumber}`)
+      if (d.reference) parts.push(`Ref: ${d.reference}`)
       return parts.join(' ') || 'Financial transaction recorded'
     }
 
     // 3. Authentication details
-    if (details.loginAt) return `Logged in at ${new Date(details.loginAt).toLocaleString()}`
-    if (details.logoutAt) return `Logged out at ${new Date(details.logoutAt).toLocaleString()}`
-    if (details.email && details.role) return `User ${details.email} (${details.role})`
+    if (d.loginAt) return `Logged in at ${new Date(d.loginAt).toLocaleString()}`
+    if (d.logoutAt) return `Logged out at ${new Date(d.logoutAt).toLocaleString()}`
+    if (d.email && d.role) return `User ${d.email} (${d.role})`
 
     // 4. Tasks & Maintenance
-    if (details.title) {
-      const parts = [`Task: ${details.title}`]
-      if (details.roomNumber) parts.push(`Room ${details.roomNumber}`)
-      if (details.completedBy) parts.push(`by ${details.completedBy}`)
+    if (d.title) {
+      const parts = [`Task: ${d.title}`]
+      if (d.roomNumber) parts.push(`Room ${d.roomNumber}`)
+      if (d.completedBy) parts.push(`by ${d.completedBy}`)
       return parts.join(' ')
     }
 
     // 5. Staff/Guest basic info
-    if (details.name && details.email) {
-      const roleText = details.role ? `${details.role.toLowerCase()} ` : ''
-      return `Created ${roleText}${details.name} (${details.email})`
+    if (d.name && d.email) {
+      const roleText = d.role ? `${d.role.toLowerCase()} ` : ''
+      return `Created ${roleText}${d.name} (${d.email})`
     }
 
     // 6. Generic update changes
-    if (details.changes && typeof details.changes === 'object') {
-      const changeKeys = Object.keys(details.changes)
+    if (d.changes && typeof d.changes === 'object') {
+      const changeKeys = Object.keys(d.changes)
       if (changeKeys.length > 0) {
         return `Updated: ${changeKeys.join(', ')}`
       }
     }
 
     // 7. Generic device/IP info
-    if (details.ipAddress && details.ipAddress !== 'unknown') {
-      return `Action from IP ${details.ipAddress}`
+    if (d.ipAddress && d.ipAddress !== 'unknown') {
+      return `Action from IP ${d.ipAddress}`
     }
 
     // 8. Final fallback: Stringify relevant keys
-    const summary = Object.entries(details)
+    const summary = Object.entries(d)
       .filter(([key]) => !['timestamp', 'userId', 'id', 'userAgent'].includes(key))
       .map(([key, val]) => `${key}: ${val}`)
       .join(', ')

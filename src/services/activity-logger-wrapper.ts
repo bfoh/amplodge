@@ -220,6 +220,8 @@ export class ActivityLoggerWrapper {
           method: paymentData.method,
           reference: paymentData.reference,
           status: paymentData.status,
+          guestName: paymentData.guestName,
+          roomNumber: paymentData.roomNumber,
         },
         userId
       )
