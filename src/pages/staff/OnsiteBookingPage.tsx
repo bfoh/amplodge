@@ -28,6 +28,9 @@ export function OnsiteBookingPage() {
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
   const [bookings, setBookings] = useState<any[]>([])
   const [properties, setProperties] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [processingId, setProcessingId] = useState<string | null>(null)
+  const submittingRef = useRef(false)
 
   // Cart state for multiple rooms
   interface CartItem {
@@ -40,8 +43,12 @@ export function OnsiteBookingPage() {
     checkIn: Date
     checkOut: Date
     numGuests: number
+    idempotencyKey: string
   }
   const [cart, setCart] = useState<CartItem[]>([])
+
+
+
   // Map of tempId (from cart) -> Guest Details
   const [guestAssignments, setGuestAssignments] = useState<Record<string, { name: string, email: string }>>({})
 
@@ -60,12 +67,7 @@ export function OnsiteBookingPage() {
   )
   const [paymentType, setPaymentType] = useState<'full' | 'part' | 'pending'>('pending')
   const [amountPaid, setAmountPaid] = useState<number>(0)
-  const [loading, setLoading] = useState(false)
-  // Synchronous double-click guard. React state lags one render behind the click;
-  // a ref flips on the click handler's very first line, closing the 200-400 ms
-  // gap (RTT to Supabase from Ghana) where two clicks could fire two pipelines.
-  const submittingRef = useRef(false)
-
+  
   // Billing Adjustments State
   const [additionalCharges, setAdditionalCharges] = useState<{ id: string, description: string, amount: number }[]>([])
   const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('fixed')
@@ -134,9 +136,6 @@ export function OnsiteBookingPage() {
   }
 
   // Helper function to check if dates overlap using strict YYYY-MM-DD comparison
-  // This avoids timezone issues where "Jan 8 00:00" might be != "Jan 8 00:00" in different zones
-  // Helper function to check if dates overlap using strict YYYY-MM-DD comparison
-  // This avoids timezone issues where "Jan 8 00:00" might be != "Jan 8 00:00" in different zones
   const isOverlap = (start1: Date | undefined, end1: Date | undefined, start2: string | Date | undefined, end2: string | Date | undefined) => {
     // Return false if any date is missing
     if (!start1 || !end1 || !start2 || !end2) return false
@@ -282,7 +281,8 @@ export function OnsiteBookingPage() {
       price: roomType.basePrice,
       checkIn: checkIn as Date,
       checkOut: checkOut as Date,
-      numGuests: numGuests
+      numGuests: numGuests,
+      idempotencyKey: makeUuid()
     }])
     toast.success(`Added ${roomType.name} (${availableProperty.roomNumber}) to booking`)
   }
@@ -316,13 +316,7 @@ export function OnsiteBookingPage() {
       return
     }
     submittingRef.current = true
-
-    // One idempotency UUID per cart item. If the request is somehow re-sent
-    // (sync queue retry, network blip), the DB unique index on
-    // bookings.client_request_id rejects the duplicate insert and the engine
-    // re-reads the existing row.
-    const idempotencyKeys: string[] = cart.map(() => makeUuid())
-
+    
     setLoading(true)
     try {
       const isSingleRoom = cart.length === 1
@@ -393,7 +387,7 @@ export function OnsiteBookingPage() {
           createdBy: user?.id,
           createdByName: staffName,
           specialRequests: bookingEvent ? specialRequests : (guestInfo.specialRequests || ''),
-          idempotencyKey: idempotencyKeys[index],
+          idempotencyKey: item.idempotencyKey,
           ...(index === 0 ? { subtotal: totalPrice } : {})
         }
       }

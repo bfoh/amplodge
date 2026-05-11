@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { AlertTriangle, Trash2, Shield, CheckCircle2, Loader2 } from 'lucide-react'
+import { AlertTriangle, Trash2, Shield, CheckCircle2, Loader2, RefreshCw } from 'lucide-react'
 import { db, auth } from '@/lib/db'
 import { toast } from '@/hooks/use-toast'
 import { useStaffRole } from '@/hooks/use-staff-role'
@@ -29,6 +29,7 @@ export function CleanupToolPage() {
   const [cleaningGuests, setCleaningGuests] = useState(false)
   const [cleaningMockData, setCleaningMockData] = useState(false)
   const [resettingRooms, setResettingRooms] = useState(false)
+  const [deduplicatingBookings, setDeduplicatingBookings] = useState(false)
 
   const clearGuests = async () => {
     if (!confirm('Are you sure you want to delete ALL guest records? This may affect booking history.')) return
@@ -200,6 +201,56 @@ export function CleanupToolPage() {
       toast({ title: 'Failed to clear data', description: error.message, variant: 'destructive' })
     } finally {
       setCleaningMockData(false)
+    }
+  }
+
+  const deduplicateBookings = async () => {
+    if (!confirm('Scan for and remove duplicate bookings? This will keep one copy of each reservation based on guest, room, and dates.')) return
+
+    setDeduplicatingBookings(true)
+    try {
+      console.log('🔍 Deduplicating bookings...')
+      const allBookings = await (db as any).bookings.list({ limit: 5000 })
+      const groups: Record<string, any[]> = {}
+      
+      // Group by logical identity
+      allBookings.forEach((b: any) => {
+        if (!['reserved', 'confirmed', 'checked-in'].includes(b.status)) return
+        
+        const key = `${b.guest_id || b.guestId}_${b.room_id || b.roomId}_${b.check_in || b.dates?.checkIn}_${b.check_out || b.dates?.checkOut}`
+        if (!groups[key]) groups[key] = []
+        groups[key].push(b)
+      })
+
+      let deleted = 0
+      for (const key in groups) {
+        const matches = groups[key]
+        if (matches.length > 1) {
+          // Keep the first one, delete the rest
+          // Sort to prefer ones with client_request_id or more recent created_at
+          matches.sort((a, b) => {
+            if (a.client_request_id && !b.client_request_id) return -1
+            if (!a.client_request_id && b.client_request_id) return 1
+            return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+          })
+
+          const toDelete = matches.slice(1)
+          for (const b of toDelete) {
+            await (db as any).bookings.delete(b.id)
+            deleted++
+          }
+        }
+      }
+
+      toast({
+        title: 'Deduplication complete',
+        description: `Removed ${deleted} duplicate bookings`,
+      })
+    } catch (error: any) {
+      console.error('Failed to deduplicate bookings:', error)
+      toast({ title: 'Deduplication failed', description: error.message, variant: 'destructive' })
+    } finally {
+      setDeduplicatingBookings(false)
     }
   }
 
@@ -416,6 +467,16 @@ export function CleanupToolPage() {
             >
               {resettingRooms ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
               Reset Room Statuses
+            </Button>
+
+            <Button
+              variant="outline"
+              onClick={deduplicateBookings}
+              disabled={deduplicatingBookings}
+              className="border-amber-300 text-amber-800 hover:bg-amber-100"
+            >
+              {deduplicatingBookings ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+              Deduplicate Bookings
             </Button>
 
             <Button

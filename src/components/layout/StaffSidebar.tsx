@@ -97,28 +97,28 @@ export function StaffSidebar({ email, className, onNavigate }: StaffSidebarProps
   const buttonRef = useRef<HTMLButtonElement>(null)
 
   // While loading, show all items to prevent navigation flicker
-  // Once loaded, filter based on role
-  const visibleNavItems = isLoadingStaff || !role
+  // Once loaded, filter based on role (case-insensitive)
+  const normalizedRole = role?.toLowerCase()
+  
+  const visibleNavItems = isLoadingStaff || !normalizedRole
     ? navItems // Show all items while loading
     : navItems.filter(item => {
       if (!item.minRole) return true
-      return item.minRole.includes(role)
+      return item.minRole.some(r => r.toLowerCase() === normalizedRole)
     })
 
   // Filter price list items based on user role
-  const visiblePriceListItems = isLoadingStaff || !role
+  const visiblePriceListItems = isLoadingStaff || !normalizedRole
     ? priceListItems // Show all items while loading
     : priceListItems.filter(item => {
       if (!item.minRole) return true
-      return item.minRole.includes(role)
+      return item.minRole.some(r => r.toLowerCase() === normalizedRole)
     })
 
   // Filter admin items by role. While loading, show all to prevent flicker
-  // (BUG-0017 / BUG-0024 mitigation; once Phase 2D types are in we can drop the
-  // optimistic loading branch).
-  const visibleAdminItems = isLoadingStaff || !role || isAdmin
+  const visibleAdminItems = isLoadingStaff || !normalizedRole || isAdmin
     ? adminItems
-    : adminItems.filter(item => item.minRole.includes(role))
+    : adminItems.filter(item => item.minRole.some(r => r.toLowerCase() === normalizedRole))
 
   // Show price list section if user can access any price list items
   const showPriceListSection = visiblePriceListItems.length > 0
@@ -172,9 +172,20 @@ export function StaffSidebar({ email, className, onNavigate }: StaffSidebarProps
       <div className="px-6 py-8 border-b border-white/10 flex flex-col items-center">
         <div className="w-16 h-16 mb-4 rounded-full bg-white/10 flex items-center justify-center overflow-hidden border border-white/20 shadow-inner group">
            <img 
-            src="/amp.png" 
+            src="/amp-logo.png" 
             alt="AMP Lodge" 
             className="w-12 h-12 object-contain transition-transform group-hover:scale-110 duration-500" 
+            onError={(e) => {
+              // Fallback to a generic icon if the image fails to load
+              e.currentTarget.style.display = 'none';
+              const parent = e.currentTarget.parentElement;
+              if (parent) {
+                const icon = document.createElement('div');
+                icon.className = 'w-10 h-10 flex items-center justify-center text-white/40';
+                icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-home"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>';
+                parent.appendChild(icon);
+              }
+            }}
           />
         </div>
         <h2 className="text-lg font-serif font-bold text-white tracking-tight">AMP Lodge</h2>

@@ -35,6 +35,19 @@ export class ErrorBoundary extends Component<Props, State> {
     // Log error to console in development
     console.error('🔥 [ErrorBoundary] Uncaught error:', error, errorInfo)
 
+    // Detect chunk load failures (common after a new deployment)
+    // "Failed to fetch dynamically imported module" or "Loading chunk X failed"
+    const errorMsg = error?.message || ''
+    const isChunkLoadError = /failed to fetch dynamically imported module|loading chunk/i.test(errorMsg)
+
+    if (isChunkLoadError) {
+      console.warn('🔄 [ErrorBoundary] Chunk load failed detected. Forcing page refresh in 2 seconds...')
+      // Give the user a moment to see something (or just do it if it's a white screen)
+      setTimeout(() => {
+        window.location.reload()
+      }, 2000)
+    }
+
     // Update state with error details
     this.setState({
       error,
