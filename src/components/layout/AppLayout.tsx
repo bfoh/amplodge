@@ -7,6 +7,7 @@ import { Menu, Bell } from 'lucide-react'
 import { auth } from '@/lib/db'
 import { OfflineIndicator } from '../OfflineIndicator'
 import { StaffSidebar } from './StaffSidebar'
+import { MobileBottomNav } from './MobileBottomNav'
 
 export function AppLayout() {
   const location = useLocation()
@@ -107,12 +108,15 @@ export function AppLayout() {
         </div>
 
         <OfflineIndicator />
-        <div className="flex-1 overflow-auto pt-[60px] lg:pt-0 scroll-smooth">
+        <div className="flex-1 overflow-auto pt-[60px] pb-16 lg:pt-0 lg:pb-0 scroll-smooth">
           <div className="px-4 lg:px-8 py-6 lg:py-10 max-w-[1600px] mx-auto w-full">
             <Outlet />
           </div>
         </div>
       </main>
+      
+      {/* Mobile Bottom Navigation */}
+      <MobileBottomNav />
     </div>
   )
 }

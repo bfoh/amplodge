@@ -26,6 +26,7 @@ export function ActivityLogsPage() {
   const [userFilter, setUserFilter] = useState<string>('all')
   const [users, setUsers] = useState<Array<{ id: string; name: string }>>([])
   const [rooms, setRooms] = useState<any[]>([])
+  const [bookings, setBookings] = useState<any[]>([])
   const [autoRefresh, setAutoRefresh] = useState(false)
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -93,13 +94,15 @@ export function ActivityLogsPage() {
 
   async function loadUsers() {
     try {
-      const [staffList, guestList, roomList] = await Promise.all([
+      const [staffList, guestList, roomList, bookingList] = await Promise.all([
         db.staff.list({ limit: 100 }),
         db.guests.list({ limit: 500 }),
-        db.properties.list({ limit: 100 })
+        db.properties.list({ limit: 100 }),
+        db.bookings.list({ limit: 500, orderBy: { createdAt: 'desc' } })
       ])
       
       setRooms(roomList)
+      setBookings(bookingList)
 
       const mappedStaff = staffList.map((s: any) => ({
         id: s.userId || s.id,
@@ -118,19 +121,31 @@ export function ActivityLogsPage() {
   }
 
   // Helper function to resolve userId to user name
-  function resolveUserName(userId: string | undefined): string {
+  function resolveUserName(userId: string | undefined, details?: any): string {
+    // 1. Check if details contains staff info (for "system" logs or misattributed logs)
+    if (details) {
+      if (details.createdBy && details.createdBy !== 'system') return details.createdBy
+      if (details.staffName && details.staffName !== 'system') return details.staffName
+      if (details.performedBy && details.performedBy !== 'system') return details.performedBy
+      if (details.completedBy && details.completedBy !== 'system') return details.completedBy
+    }
+
     if (!userId || userId === 'system') return 'System'
     if (userId === 'guest') return 'Guest'
 
-    // 1. Try to find in the local users list (hydrated from staff table)
+    // 2. Try to find in the local users list (hydrated from staff table)
     const user = users.find(u => u.id === userId || (u as any).userId === userId)
     if (user) return user.name
 
-    // 2. Check if the ID itself looks like an email or human name
+    // 3. Try to resolve guest from bookings if it's a guest-initiated action
+    const booking = bookings.find(b => b.guestId === userId)
+    if (booking && booking.guestName) return `Guest: ${booking.guestName}`
+
+    // 4. Check if the ID itself looks like an email or human name
     if (userId.includes('@')) return userId
     if (userId.length < 20 && !userId.includes('-')) return userId // Likely a legacy manual name
 
-    // 3. Final fallback: Return a shortened ID
+    // 5. Final fallback: Return a shortened ID
     return userId.length > 20 ? `${userId.slice(0, 8)}...` : userId
   }
 
@@ -214,6 +229,19 @@ export function ActivityLogsPage() {
 
     // Create a local copy to enrich without mutating the original log
     const enrichedDetails = { ...details }
+
+    // Enrich with booking data if bookingId exists
+    if (enrichedDetails.bookingId) {
+      const booking = bookings.find(b => b.id === enrichedDetails.bookingId)
+      if (booking) {
+        if (!enrichedDetails.guestName) enrichedDetails.guestName = booking.guestName
+        if (!enrichedDetails.roomNumber) {
+          const room = rooms.find(r => r.id === booking.roomId)
+          enrichedDetails.roomNumber = room?.roomNumber || room?.room_number || booking.roomNumber
+        }
+        if (!enrichedDetails.amount && booking.totalPrice) enrichedDetails.amount = booking.totalPrice
+      }
+    }
 
     // Enrich with room number if missing but roomId exists
     if (!enrichedDetails.roomNumber && enrichedDetails.roomId) {
@@ -404,7 +432,7 @@ export function ActivityLogsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <div className="p-1.5 rounded-lg bg-primary/10">
@@ -416,24 +444,24 @@ export function ActivityLogsPage() {
             Complete audit trail — {logs.length} total activities
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={loadLogs} variant="outline" disabled={loading}>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={loadLogs} variant="outline" size="sm" disabled={loading} className="flex-1 sm:flex-none">
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Button onClick={handleExportCSV} variant="outline" disabled={filteredLogs.length === 0}>
+          <Button onClick={handleExportCSV} variant="outline" size="sm" disabled={filteredLogs.length === 0} className="flex-1 sm:flex-none">
             <Download className="w-4 h-4 mr-2" />
-            Export CSV
+            CSV
           </Button>
-          <Button onClick={handleExportPDF} variant="outline" disabled={filteredLogs.length === 0}>
+          <Button onClick={handleExportPDF} variant="outline" size="sm" disabled={filteredLogs.length === 0} className="flex-1 sm:flex-none">
             <Download className="w-4 h-4 mr-2" />
-            Export PDF
+            PDF
           </Button>
         </div>
       </div>
 
       {/* Stats Strip */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
           <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-blue-400 to-blue-600" />
           <p className="text-xs font-medium text-muted-foreground">Total Activities</p>
@@ -453,28 +481,28 @@ export function ActivityLogsPage() {
 
       {/* Filters */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+        <CardHeader className="p-4 sm:p-6 pb-2">
+          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
             <Filter className="w-4 h-4" />
             Filters
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-5">
+        <CardContent className="p-4 sm:p-6 pt-2">
+          <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
             {/* Search */}
-            <div className="relative">
+            <div className="relative lg:col-span-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="Search..."
+                placeholder="Search logs..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
+                className="pl-9 h-10"
               />
             </div>
 
             {/* Action Filter */}
             <Select value={actionFilter} onValueChange={(value) => setActionFilter(value as any)}>
-              <SelectTrigger>
+              <SelectTrigger className="h-10">
                 <SelectValue placeholder="Filter by action" />
               </SelectTrigger>
               <SelectContent>
@@ -495,7 +523,7 @@ export function ActivityLogsPage() {
 
             {/* Entity Type Filter */}
             <Select value={entityTypeFilter} onValueChange={(value) => setEntityTypeFilter(value as any)}>
-              <SelectTrigger>
+              <SelectTrigger className="h-10">
                 <SelectValue placeholder="Filter by entity" />
               </SelectTrigger>
               <SelectContent>
@@ -513,7 +541,7 @@ export function ActivityLogsPage() {
 
             {/* User Filter */}
             <Select value={userFilter} onValueChange={setUserFilter}>
-              <SelectTrigger>
+              <SelectTrigger className="h-10">
                 <SelectValue placeholder="Filter by user" />
               </SelectTrigger>
               <SelectContent>
@@ -527,19 +555,18 @@ export function ActivityLogsPage() {
             </Select>
 
             {/* Reset Button */}
-            <Button onClick={handleReset} variant="outline" className="w-full">
-              Reset Filters
-            </Button>
-
-            {/* Auto-refresh Toggle */}
-            <Button
-              onClick={() => setAutoRefresh(!autoRefresh)}
-              variant={autoRefresh ? 'default' : 'outline'}
-              className={`w-full ${autoRefresh ? 'bg-green-600 hover:bg-green-700 text-white' : ''}`}
-            >
-              <RefreshCw className={`w-4 h-4 mr-2 ${autoRefresh ? 'animate-spin' : ''}`} />
-              {autoRefresh ? 'Auto-refresh ON (30s)' : 'Auto-refresh OFF'}
-            </Button>
+            <div className="flex gap-2">
+              <Button onClick={handleReset} variant="outline" className="flex-1 h-10 px-2 text-xs font-semibold">
+                Reset
+              </Button>
+              <Button
+                onClick={() => setAutoRefresh(!autoRefresh)}
+                variant={autoRefresh ? 'default' : 'outline'}
+                className={`flex-1 h-10 px-2 text-xs font-semibold ${autoRefresh ? 'bg-green-600 hover:bg-green-700 text-white border-green-600' : ''}`}
+              >
+                {autoRefresh ? 'Live ON' : 'Live OFF'}
+              </Button>
+            </div>
           </div>
 
           {/* Date Range */}
@@ -576,8 +603,8 @@ export function ActivityLogsPage() {
         Showing {filteredLogs.length} of {logs.length} activity logs
       </div>
 
-      {/* Activity Logs Table */}
-      <Card>
+      {/* Desktop Table View */}
+      <Card className="hidden md:block">
         <CardContent className="p-0">
           {loading ? (
             <div className="flex items-center justify-center py-12">
@@ -610,10 +637,10 @@ export function ActivityLogsPage() {
                       <TableCell className="whitespace-nowrap">
                         <div className="flex flex-col">
                           <span className="text-sm font-medium">
-                            {format(new Date(log.createdAt), 'MMM d, yyyy')}
+                            {log.createdAt ? format(new Date(log.createdAt), 'MMM d, yyyy') : 'N/A'}
                           </span>
                           <span className="text-xs text-muted-foreground">
-                            {format(new Date(log.createdAt), 'h:mm a')}
+                            {log.createdAt ? format(new Date(log.createdAt), 'h:mm a') : 'N/A'}
                           </span>
                         </div>
                       </TableCell>
@@ -634,7 +661,7 @@ export function ActivityLogsPage() {
                         {formatDetails(log.details)}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {resolveUserName(log.userId)}
+                        {resolveUserName(log.userId, log.details)}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -644,6 +671,56 @@ export function ActivityLogsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Mobile Card List View */}
+      <div className="md:hidden space-y-3 pb-20">
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+            <Loader2 className="w-8 h-8 animate-spin mb-2" />
+            <p>Loading activity logs...</p>
+          </div>
+        ) : filteredLogs.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground border rounded-xl bg-white/50">
+            No activity logs match your filters
+          </div>
+        ) : (
+          filteredLogs.map((log) => (
+            <Card key={log.id} className="overflow-hidden border-border/60 shadow-sm">
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-start justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">
+                      {log.createdAt ? format(new Date(log.createdAt), 'MMM d, yyyy • h:mm a') : 'N/A'}
+                    </span>
+                    <div className="flex flex-wrap gap-2 mt-1.5">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-tight ${getActionPillColor(log.action)}`}>
+                        {log.action}
+                      </span>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-tight ${getEntityTypeBadgeColor(log.entityType)}`}>
+                        {log.entityType}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[11px] font-medium text-primary bg-primary/5 px-2 py-1 rounded-md">
+                      {resolveUserName(log.userId, log.details)}
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="bg-muted/30 rounded-lg p-3 text-[13px] leading-relaxed border border-border/40">
+                  {convertDetailsToReadableMessage(log.details)}
+                </div>
+                
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono bg-stone-50 px-2 py-1 rounded">
+                  <span>REF: {log.id.slice(0, 8)}</span>
+                  <span>ENT: {log.entityId.slice(0, 8)}</span>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </div>
 
     </div>
   )

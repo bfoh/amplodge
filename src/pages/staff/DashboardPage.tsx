@@ -238,124 +238,105 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+      {/* Stats Grid - Premium Mobile Optimized */}
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-6">
 
         {/* Available Rooms — blue */}
-        <div className="relative overflow-hidden rounded-xl border bg-card p-4 sm:p-5 shadow-sm hover:shadow-md transition-shadow">
+        <div className="relative overflow-hidden rounded-xl border bg-white p-4 sm:p-5 shadow-sm active:scale-[0.98] transition-all">
           <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent pointer-events-none" />
-          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-blue-400 to-blue-600" />
-          <div className="flex items-start justify-between mb-2 sm:mb-3">
-            <p className="text-xs sm:text-sm font-medium text-muted-foreground">Available Rooms</p>
-            <div className="p-1.5 sm:p-2 rounded-lg bg-blue-500/10">
+          <div className="absolute top-0 left-0 w-full h-1 bg-blue-500" />
+          <div className="flex items-center justify-between mb-3">
+            <div className="p-2 rounded-lg bg-blue-50">
               <Building2 className="w-4 h-4 text-blue-600" />
             </div>
+            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded uppercase tracking-tighter">Live</span>
           </div>
-          <div className="text-xl sm:text-2xl font-bold">{stats.availableRooms}</div>
-          <div className="text-xs text-muted-foreground mt-1 space-y-1">
-            {stats.availableDetails.length > 0 ? (
-              stats.availableDetails.map((detail, i) => (
-                <div key={i} className="flex justify-between">
-                  <span>{detail.name}</span>
-                  <span className="font-medium">{detail.count} available</span>
-                </div>
-              ))
-            ) : (
-              <span>ALL ROOMS OCCUPIED</span>
+          <div className="space-y-0.5">
+            <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">Available Rooms</p>
+            <div className="text-2xl font-bold text-stone-800 tabular-nums">{stats.availableRooms}</div>
+          </div>
+          <div className="mt-3 pt-3 border-t border-stone-50 space-y-1">
+            {stats.availableDetails.slice(0, 2).map((detail, i) => (
+              <div key={i} className="flex justify-between text-[10px] text-muted-foreground">
+                <span className="truncate max-w-[80px]">{detail.name}</span>
+                <span className="font-bold text-stone-600">{detail.count}</span>
+              </div>
+            ))}
+            {stats.availableDetails.length > 2 && (
+              <p className="text-[9px] text-primary font-medium">+ {stats.availableDetails.length - 2} more types</p>
+            )}
+            {stats.availableDetails.length === 0 && (
+              <p className="text-[10px] text-rose-500 font-bold uppercase tracking-tighter">Fully Occupied</p>
             )}
           </div>
         </div>
 
-        {/* Active Bookings — violet */}
-        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow">
-          <div className="absolute inset-0 bg-gradient-to-br from-violet-500/5 via-transparent to-transparent pointer-events-none" />
-          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-violet-400 to-violet-600" />
-          <div className="flex items-start justify-between mb-3">
-            <p className="text-sm font-medium text-muted-foreground">Active Bookings</p>
-            <div className="p-2 rounded-lg bg-violet-500/10">
-              <Calendar className="w-4 h-4 text-violet-600" />
+        {/* Today's Activity — orange */}
+        <div className="relative overflow-hidden rounded-xl border bg-white p-4 sm:p-5 shadow-sm active:scale-[0.98] transition-all">
+          <div className="absolute inset-0 bg-gradient-to-br from-orange-500/5 via-transparent to-transparent pointer-events-none" />
+          <div className="absolute top-0 left-0 w-full h-1 bg-orange-500" />
+          <div className="flex items-center justify-between mb-3">
+            <div className="p-2 rounded-lg bg-orange-50">
+              <Clock className="w-4 h-4 text-orange-600" />
+            </div>
+            <span className="text-[10px] font-bold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded uppercase tracking-tighter">Today</span>
+          </div>
+          <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">Activity Summary</p>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-emerald-50/50 rounded-lg p-2 border border-emerald-100/50">
+              <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-tighter">In</p>
+              <p className="text-lg font-bold text-emerald-600 tabular-nums">{stats.todayCheckIns}</p>
+            </div>
+            <div className="bg-orange-50/50 rounded-lg p-2 border border-orange-100/50">
+              <p className="text-[10px] font-bold text-orange-700 uppercase tracking-tighter">Out</p>
+              <p className="text-lg font-bold text-orange-600 tabular-nums">{stats.todayCheckOuts}</p>
             </div>
           </div>
-          <div className="text-2xl font-bold">{stats.activeBookings}</div>
-          <p className="text-xs text-muted-foreground mt-1">Currently active</p>
-        </div>
-
-        {/* Total Guests — emerald */}
-        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow">
-          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-transparent to-transparent pointer-events-none" />
-          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-emerald-400 to-emerald-600" />
-          <div className="flex items-start justify-between mb-3">
-            <p className="text-sm font-medium text-muted-foreground">Total Guests</p>
-            <div className="p-2 rounded-lg bg-emerald-500/10">
-              <Users className="w-4 h-4 text-emerald-600" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold">{stats.totalGuests}</div>
-          <p className="text-xs text-muted-foreground mt-1">Guest database</p>
-        </div>
-
-        {/* Total Revenue — green */}
-        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow">
-          <div className="absolute inset-0 bg-gradient-to-br from-green-500/5 via-transparent to-transparent pointer-events-none" />
-          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-green-400 to-green-600" />
-          <div className="flex items-start justify-between mb-3">
-            <p className="text-sm font-medium text-muted-foreground">Total Revenue</p>
-            <div className="p-2 rounded-lg bg-green-500/10">
-              <DollarSign className="w-4 h-4 text-green-600" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold">{formatCurrencySync(stats.revenue, currency)}</div>
-          <p className="text-xs text-muted-foreground mt-1">All-time revenue</p>
-        </div>
-
-        {/* Avg Nightly Rate — amber */}
-        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow">
-          <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 via-transparent to-transparent pointer-events-none" />
-          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-amber-400 to-amber-600" />
-          <div className="flex items-start justify-between mb-3">
-            <p className="text-sm font-medium text-muted-foreground">Avg Nightly Rate</p>
-            <div className="p-2 rounded-lg bg-amber-500/10">
-              <TrendingUp className="w-4 h-4 text-amber-600" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold">{formatCurrencySync(stats.avgNightlyRate, currency)}</div>
-          <p className="text-xs text-muted-foreground mt-1">Average per night</p>
         </div>
 
         {/* Occupancy Rate — indigo */}
-        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow">
+        <div className="relative overflow-hidden rounded-xl border bg-white p-4 sm:p-5 shadow-sm active:scale-[0.98] transition-all">
           <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 via-transparent to-transparent pointer-events-none" />
-          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-indigo-400 to-indigo-600" />
-          <div className="flex items-start justify-between mb-3">
-            <p className="text-sm font-medium text-muted-foreground">Occupancy Rate</p>
-            <div className="p-2 rounded-lg bg-indigo-500/10">
+          <div className="absolute top-0 left-0 w-full h-1 bg-indigo-500" />
+          <div className="flex items-center justify-between mb-3">
+            <div className="p-2 rounded-lg bg-indigo-50">
               <BarChart2 className="w-4 h-4 text-indigo-600" />
             </div>
           </div>
-          <div className="text-2xl font-bold">{stats.occupancyRate}%</div>
-          <p className="text-xs text-muted-foreground mt-1">Current occupancy</p>
+          <div className="space-y-0.5">
+            <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">Occupancy Rate</p>
+            <div className="text-2xl font-bold text-stone-800 tabular-nums">{stats.occupancyRate}%</div>
+          </div>
+          <div className="mt-4 h-1.5 w-full bg-stone-100 rounded-full overflow-hidden">
+             <div 
+               className="h-full bg-indigo-500 transition-all duration-1000" 
+               style={{ width: `${stats.occupancyRate}%` }} 
+             />
+          </div>
+          <p className="text-[9px] text-muted-foreground mt-2 font-medium uppercase tracking-tight">
+            {stats.totalRooms - stats.availableRooms} / {stats.totalRooms} Rooms Booked
+          </p>
         </div>
 
-        {/* Today's Activity — orange */}
-        <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm hover:shadow-md transition-shadow">
-          <div className="absolute inset-0 bg-gradient-to-br from-orange-500/5 via-transparent to-transparent pointer-events-none" />
-          <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-orange-400 to-orange-600" />
-          <div className="flex items-start justify-between mb-3">
-            <p className="text-sm font-medium text-muted-foreground">Today's Activity</p>
-            <div className="p-2 rounded-lg bg-orange-500/10">
-              <Clock className="w-4 h-4 text-orange-600" />
+        {/* Total Revenue — green */}
+        <div className="relative overflow-hidden rounded-xl border bg-white p-4 sm:p-5 shadow-sm active:scale-[0.98] transition-all">
+          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-transparent to-transparent pointer-events-none" />
+          <div className="absolute top-0 left-0 w-full h-1 bg-emerald-500" />
+          <div className="flex items-center justify-between mb-3">
+            <div className="p-2 rounded-lg bg-emerald-50">
+              <DollarSign className="w-4 h-4 text-emerald-600" />
             </div>
           </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-2xl font-bold text-green-600">{stats.todayCheckIns}</div>
-              <p className="text-xs text-muted-foreground">Check-ins</p>
-            </div>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-orange-600">{stats.todayCheckOuts}</div>
-              <p className="text-xs text-muted-foreground">Check-outs</p>
+          <div className="space-y-0.5">
+            <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">Total Revenue</p>
+            <div className="text-xl sm:text-2xl font-bold text-stone-800 tabular-nums truncate">
+              {formatCurrencySync(stats.revenue, currency)}
             </div>
           </div>
+          <p className="text-[10px] text-emerald-600 mt-2 font-bold flex items-center gap-1">
+            <TrendingUp className="w-3 h-3" />
+            All-time metrics
+          </p>
         </div>
 
       </div>
@@ -370,53 +351,53 @@ export function DashboardPage() {
           </div>
           {recentBookings.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mx-auto mb-3">
-                <Calendar className="w-7 h-7 opacity-50" />
+              <div className="w-14 h-14 rounded-2xl bg-stone-50 flex items-center justify-center mx-auto mb-3">
+                <Calendar className="w-7 h-7 opacity-30 text-stone-400" />
               </div>
-              <p className="font-medium">No bookings yet</p>
-              <p className="text-sm mt-1">Create your first booking to get started</p>
+              <p className="font-bold text-stone-400 uppercase tracking-widest text-[10px]">No bookings yet</p>
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {recentBookings.map((booking: any) => {
-                const statusClass =
-                  booking.status === 'confirmed' ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' :
-                  booking.status === 'checked-in' ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' :
-                  booking.status === 'checked-out' ? 'bg-slate-50 text-slate-700 ring-1 ring-slate-200' :
-                  booking.status === 'cancelled' ? 'bg-red-50 text-red-700 ring-1 ring-red-200' :
-                  'bg-slate-50 text-slate-700 ring-1 ring-slate-200'
-
-                const accentBorder =
-                  booking.status === 'confirmed' ? 'border-l-emerald-400' :
-                  booking.status === 'checked-in' ? 'border-l-blue-400' :
-                  booking.status === 'checked-out' ? 'border-l-slate-400' :
-                  booking.status === 'cancelled' ? 'border-l-red-400' :
-                  'border-l-slate-300'
+                const statusStyles = {
+                  confirmed: 'bg-emerald-50 text-emerald-700 ring-emerald-100 border-l-emerald-500',
+                  'checked-in': 'bg-blue-50 text-blue-700 ring-blue-100 border-l-blue-500',
+                  'checked-out': 'bg-stone-50 text-stone-700 ring-stone-100 border-l-stone-400',
+                  cancelled: 'bg-red-50 text-red-700 ring-red-100 border-l-red-500',
+                  reserved: 'bg-amber-50 text-amber-700 ring-amber-100 border-l-amber-500'
+                }
+                const style = statusStyles[booking.status as keyof typeof statusStyles] || statusStyles['checked-out']
 
                 return (
                   <div
                     key={booking.id}
-                    className={`flex items-center justify-between p-4 rounded-lg border border-l-4 ${accentBorder} hover:bg-accent/40 transition-colors`}
+                    className={`flex items-center justify-between p-4 rounded-xl border border-l-4 ${style} active:scale-[0.99] transition-all bg-white shadow-sm`}
                   >
                     <div className="space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-semibold text-sm">{booking.guestName}</p>
-                        {booking.roomTypeName && (
-                          <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full font-medium">
-                            {booking.roomTypeName}
-                          </span>
-                        )}
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusClass}`}>
+                        <p className="font-bold text-sm text-stone-800">{booking.guestName}</p>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-tighter ring-1 ${style}`}>
                           {booking.status}
                         </span>
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(booking.checkIn).toLocaleDateString()} &ndash; {new Date(booking.checkOut).toLocaleDateString()}
-                      </p>
-                      <p className="text-xs text-muted-foreground">Room {booking.roomNumber}</p>
+                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground font-medium">
+                        <div className="flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />
+                          <span>{format(parseISO(booking.checkIn), 'MMM dd')} - {format(parseISO(booking.checkOut), 'MMM dd')}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Home className="w-3 h-3" />
+                          <span>Room {booking.roomNumber}</span>
+                        </div>
+                      </div>
+                      {booking.roomTypeName && (
+                        <p className="text-[10px] text-primary font-bold uppercase tracking-widest">{booking.roomTypeName}</p>
+                      )}
                     </div>
                     <div className="text-right shrink-0 ml-4">
-                      <p className="font-bold text-primary text-sm">{formatCurrencySync(Number(booking.totalPrice), currency)}</p>
+                      <p className="font-bold text-stone-900 text-sm tabular-nums">
+                        {formatCurrencySync(Number(booking.totalPrice), currency)}
+                      </p>
                     </div>
                   </div>
                 )

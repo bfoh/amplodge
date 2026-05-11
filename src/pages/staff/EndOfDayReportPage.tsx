@@ -105,105 +105,89 @@ Conflicts,${report.conflicts}
           </div>
         ) : report ? (
           <div className="space-y-6">
-            {/* Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
+            {/* Summary Cards - Premium Mobile Optimized */}
+            <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              <div className="relative overflow-hidden rounded-xl border bg-white p-4 sm:p-5 shadow-sm active:scale-[0.98] transition-all">
                 <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent pointer-events-none" />
-                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-blue-400 to-blue-600" />
-                <p className="text-sm font-medium text-muted-foreground mb-2">Total Bookings</p>
-                <div className="text-3xl font-bold">{report.totalBookings}</div>
-                <p className="text-xs text-muted-foreground mt-1">{report.confirmedBookings} confirmed</p>
+                <div className="absolute top-0 left-0 w-full h-1 bg-blue-500" />
+                <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1.5">Total Bookings</p>
+                <div className="text-2xl font-bold text-stone-800 tabular-nums">{report.totalBookings}</div>
+                <p className="text-[10px] text-muted-foreground mt-2 font-medium uppercase tracking-tight">{report.confirmedBookings} confirmed</p>
               </div>
 
-              <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
+              <div className="relative overflow-hidden rounded-xl border bg-white p-4 sm:p-5 shadow-sm active:scale-[0.98] transition-all">
                 <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-transparent to-transparent pointer-events-none" />
-                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-emerald-400 to-emerald-600" />
-                <p className="text-sm font-medium text-muted-foreground mb-2">Total Revenue</p>
-                <div className="text-3xl font-bold text-emerald-700">{formatCurrencySync(report.totalRevenue, currency)}</div>
-                <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                <div className="absolute top-0 left-0 w-full h-1 bg-emerald-500" />
+                <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1.5">Total Revenue</p>
+                <div className="text-xl sm:text-2xl font-bold text-emerald-700 tabular-nums">{formatCurrencySync(report.totalRevenue, currency)}</div>
+                <p className="text-[9px] text-emerald-600 mt-2 font-bold uppercase tracking-tighter flex items-center gap-1">
                   <TrendingUp className="h-3 w-3" />
-                  From confirmed bookings
+                  Confirmed only
                 </p>
               </div>
 
-              <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
+              <div className="relative overflow-hidden rounded-xl border bg-white p-4 sm:p-5 shadow-sm active:scale-[0.98] transition-all">
                 <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 via-transparent to-transparent pointer-events-none" />
-                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-red-400 to-red-600" />
-                <p className="text-sm font-medium text-muted-foreground mb-2">Cancellations</p>
-                <div className="text-3xl font-bold text-red-600">{report.cancelledBookings}</div>
-                <p className="text-xs text-muted-foreground mt-1">
+                <div className="absolute top-0 left-0 w-full h-1 bg-red-500" />
+                <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1.5">Cancellations</p>
+                <div className="text-2xl font-bold text-red-600 tabular-nums">{report.cancelledBookings}</div>
+                <p className="text-[9px] text-rose-500 mt-2 font-bold uppercase tracking-tighter">
                   {report.totalBookings > 0
-                    ? `${((report.cancelledBookings / report.totalBookings) * 100).toFixed(1)}% rate`
-                    : '0% rate'}
+                    ? `${((report.cancelledBookings / report.totalBookings) * 100).toFixed(1)}% cancel rate`
+                    : '0% cancel rate'}
                 </p>
               </div>
 
-              <div className="relative overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
-                <div className="absolute inset-0 bg-gradient-to-br from-slate-500/5 via-transparent to-transparent pointer-events-none" />
-                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-slate-400 to-slate-600" />
-                <p className="text-sm font-medium text-muted-foreground mb-2">System Status</p>
-                <div className="space-y-1">
-                  <div className="flex justify-between text-sm">
-                    <span>Pending Sync:</span>
-                    <span className="font-semibold">{report.pendingSyncs}</span>
+              <div className="relative overflow-hidden rounded-xl border bg-white p-4 sm:p-5 shadow-sm active:scale-[0.98] transition-all">
+                <div className="absolute inset-0 bg-gradient-to-br from-stone-500/5 via-transparent to-transparent pointer-events-none" />
+                <div className="absolute top-0 left-0 w-full h-1 bg-stone-500" />
+                <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1.5">System Status</p>
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex justify-between items-center text-[10px]">
+                    <span className="font-medium text-muted-foreground uppercase tracking-tight">Sync</span>
+                    <span className="font-bold text-stone-700 tabular-nums">{report.pendingSyncs}</span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Conflicts:</span>
-                    <span className="font-semibold text-red-600">{report.conflicts}</span>
+                  <div className="flex justify-between items-center text-[10px]">
+                    <span className="font-medium text-muted-foreground uppercase tracking-tight">Conflicts</span>
+                    <span className={`font-bold tabular-nums ${report.conflicts > 0 ? 'text-rose-500' : 'text-stone-700'}`}>{report.conflicts}</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Payment Breakdown */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Payment Breakdown</CardTitle>
-                <CardDescription>Revenue by payment method</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 border rounded-lg">
-                    <div>
-                      <p className="font-medium">Cash</p>
-                      <p className="text-sm text-muted-foreground">Physical currency payments</p>
+            {/* Payment Breakdown - Premium Mobile Optimized */}
+            <div className="bg-white border rounded-xl overflow-hidden shadow-sm">
+              <div className="px-5 py-4 border-b bg-stone-50/50">
+                <h3 className="font-bold text-base text-stone-800">Payment Breakdown</h3>
+                <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">Revenue by method</p>
+              </div>
+              <div className="p-4 space-y-3">
+                {[
+                  { label: 'Cash', value: report.payments.cash, desc: 'Physical currency', color: 'blue' },
+                  { label: 'Mobile Money', value: report.payments.mobileMoney, desc: 'Digital wallet', color: 'purple' },
+                  { label: 'Card', value: report.payments.card, desc: 'Credit/Debit card', color: 'emerald' }
+                ].map((item) => (
+                  <div key={item.label} className="flex items-center justify-between p-4 rounded-xl border border-stone-100 bg-white active:scale-[0.99] transition-transform shadow-sm">
+                    <div className="space-y-0.5">
+                      <p className="font-bold text-sm text-stone-800">{item.label}</p>
+                      <p className="text-[10px] text-muted-foreground font-medium">{item.desc}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-2xl font-bold text-primary">{formatCurrencySync(report.payments.cash, currency)}</p>
+                      <p className="text-lg font-bold text-primary tabular-nums">{formatCurrencySync(item.value, currency)}</p>
                     </div>
                   </div>
+                ))}
 
-                  <div className="flex items-center justify-between p-4 border rounded-lg">
-                    <div>
-                      <p className="font-medium">Mobile Money</p>
-                      <p className="text-sm text-muted-foreground">Digital wallet payments</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-primary">{formatCurrencySync(report.payments.mobileMoney, currency)}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 border rounded-lg">
-                    <div>
-                      <p className="font-medium">Card</p>
-                      <p className="text-sm text-muted-foreground">Credit/Debit card payments</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-primary">{formatCurrencySync(report.payments.card, currency)}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-6 pt-6 border-t">
-                  <div className="flex items-center justify-between">
-                    <p className="text-lg font-semibold">Total Payments</p>
-                    <p className="text-3xl font-bold text-primary">
+                <div className="mt-4 pt-5 border-t border-stone-100">
+                  <div className="flex items-center justify-between px-2">
+                    <p className="text-sm font-bold text-stone-700 uppercase tracking-widest">Total Daily Revenue</p>
+                    <p className="text-2xl font-black text-primary tabular-nums">
                       {formatCurrencySync(report.payments.cash + report.payments.mobileMoney + report.payments.card, currency)}
                     </p>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
 
             {/* Alerts */}
             {(report.pendingSyncs > 0 || report.conflicts > 0) && (

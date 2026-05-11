@@ -130,12 +130,14 @@ export function StaffInvoiceManager() {
         let roomNumber = room?.roomNumber || 'N/A'
 
         // 2. Try ROOM_SNAPSHOT if database join failed
-        if (roomNumber === 'N/A' && booking.specialRequests && typeof booking.specialRequests === 'string') {
-          const snapMatch = booking.specialRequests.match(/<!-- ROOM_SNAPSHOT:(.*?) -->/)
+        const specialReq = booking.special_requests || booking.specialRequests
+        if (roomNumber === 'N/A' && specialReq && typeof specialReq === 'string') {
+          const snapMatch = specialReq.match(/<!-- ROOM_SNAPSHOT:(.*?) -->/)
           if (snapMatch) {
             try {
               const snap = JSON.parse(snapMatch[1])
               if (snap.roomNumber) roomNumber = snap.roomNumber
+              else if (snap.room_number) roomNumber = snap.room_number
             } catch {}
           }
         }
@@ -484,8 +486,8 @@ export function StaffInvoiceManager() {
               </div>
             </div>
 
-            {/* Invoices Table */}
-            <div className="border rounded-lg">
+            {/* Desktop Table View */}
+            <div className="hidden md:block border rounded-lg overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent border-b border-border/60">
@@ -507,28 +509,28 @@ export function StaffInvoiceManager() {
                     </TableRow>
                   ) : (
                     filteredInvoices.map((invoice) => (
-                      <TableRow key={invoice.id} className="hover:bg-muted/30 transition-colors cursor-default group">
+                      <TableRow key={invoice.id} className="hover:bg-muted/30 transition-colors cursor-default group text-sm">
                         <TableCell>
                           <div className="font-mono text-xs text-muted-foreground bg-muted/50 px-2 py-1 rounded w-fit">
                             {invoice.invoiceNumber}
                           </div>
                           {invoice.groupId && (
-                            <div className="mt-1 text-[10px] text-amber-600 font-medium flex items-center gap-1">
+                            <div className="mt-1 text-[10px] text-amber-600 font-medium flex items-center gap-1 uppercase tracking-tighter">
                               <Users className="w-3 h-3" /> Group
                             </div>
                           )}
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col">
-                            <span className="font-medium text-sm text-foreground">{invoice.guestName}</span>
+                            <span className="font-medium text-foreground">{invoice.guestName}</span>
                             {invoice.guestEmail && <span className="text-xs text-muted-foreground truncate max-w-[180px]">{invoice.guestEmail}</span>}
                           </div>
                         </TableCell>
                         <TableCell>
-                          <span className="font-medium text-sm">Room {invoice.roomNumber}</span>
+                          <span className="font-medium">Room {invoice.roomNumber}</span>
                         </TableCell>
                         <TableCell>
-                          <div className="flex flex-col text-sm">
+                          <div className="flex flex-col">
                             <span className="font-medium">
                               {invoice.checkIn ? format(new Date(invoice.checkIn), 'MMM dd') : 'N/A'} 
                               <span className="text-muted-foreground mx-1">-</span> 
@@ -539,7 +541,7 @@ export function StaffInvoiceManager() {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="text-right font-medium text-sm">
+                        <TableCell className="text-right font-bold text-stone-800">
                           GH₵{invoice.totalAmount.toFixed(2)}
                         </TableCell>
                         <TableCell>
@@ -582,8 +584,93 @@ export function StaffInvoiceManager() {
               </Table>
             </div>
 
+            {/* Mobile Card View */}
+            <div className="md:hidden space-y-4">
+              {filteredInvoices.length === 0 ? (
+                <div className="text-center py-12 bg-stone-50 rounded-lg border-2 border-dashed border-stone-200">
+                  <Receipt className="w-12 h-12 text-stone-300 mx-auto mb-2" />
+                  <p className="text-stone-500 font-medium">No invoices found</p>
+                </div>
+              ) : (
+                filteredInvoices.map((invoice) => (
+                  <Card key={invoice.id} className="overflow-hidden border-stone-200 shadow-sm active:scale-[0.99] transition-transform">
+                    <CardContent className="p-0">
+                      {/* Card Header: Guest & Status */}
+                      <div className="p-4 bg-stone-50/50 border-b border-stone-100 flex items-start justify-between">
+                        <div className="flex flex-col gap-0.5">
+                          <h4 className="font-bold text-stone-800 leading-tight">{invoice.guestName}</h4>
+                          <div className="flex items-center gap-1.5 mt-1">
+                             <span className="text-[10px] font-mono text-muted-foreground bg-white border px-1.5 py-0.5 rounded shadow-sm">
+                               {invoice.invoiceNumber}
+                             </span>
+                             {invoice.groupId && (
+                               <span className="text-[10px] font-bold text-amber-600 flex items-center gap-1">
+                                 <Users className="w-3 h-3" /> GROUP
+                               </span>
+                             )}
+                          </div>
+                        </div>
+                        <StatusBadge status={invoice.status} />
+                      </div>
+
+                      {/* Card Body: Details */}
+                      <div className="p-4 grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Room</p>
+                          <p className="text-sm font-semibold text-stone-700">Room {invoice.roomNumber}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Amount</p>
+                          <p className="text-sm font-bold text-primary">GH₵{invoice.totalAmount.toFixed(2)}</p>
+                        </div>
+                        <div className="col-span-2 space-y-1">
+                          <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Stay Dates</p>
+                          <p className="text-sm text-stone-600 font-medium">
+                            {invoice.checkIn ? format(new Date(invoice.checkIn), 'MMM dd') : 'N/A'} - {invoice.checkOut ? format(new Date(invoice.checkOut), 'MMM dd, yyyy') : 'N/A'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Card Footer: Actions */}
+                      <div className="px-4 py-3 bg-stone-50/30 border-t border-stone-100 flex items-center gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="flex-1 h-10 font-bold border-stone-200 text-stone-700 active:bg-stone-100"
+                          onClick={() => handleDownloadInvoice(invoice)}
+                          disabled={downloading === invoice.id}
+                        >
+                          {downloading === invoice.id ? <LoadingSpinner /> : <Download className="w-3.5 h-3.5 mr-2" />}
+                          Download
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" className="h-10 w-10 border-stone-200 text-stone-700">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-[220px]">
+                             <DropdownMenuItem onClick={() => handlePrintInvoice(invoice)} disabled={printing === invoice.id}>
+                                {printing === invoice.id ? <LoadingSpinner /> : <Printer className="w-4 h-4 mr-2" />}
+                                <span>Print Invoice</span>
+                              </DropdownMenuItem>
+                              {invoice.groupId && (
+                                <DropdownMenuItem onClick={() => handleGroupInvoiceDownload(invoice)} disabled={downloading === invoice.id}>
+                                  <Users className="w-4 h-4 mr-2 text-amber-600" />
+                                  <span className="text-amber-700 font-medium">Download Group Invoice</span>
+                                </DropdownMenuItem>
+                              )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+
             {/* Summary */}
-            <div className="text-sm text-muted-foreground">
+            <div className="text-sm text-muted-foreground pt-2">
               Showing {filteredInvoices.length} of {invoices.length} invoices
             </div>
           </div>

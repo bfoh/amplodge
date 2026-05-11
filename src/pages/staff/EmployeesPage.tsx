@@ -819,71 +819,139 @@ export function EmployeesPage() {
               </CardContent>
             ) : (
               <CardContent className="p-0">
-                <div className="overflow-x-auto"><Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50 hover:bg-muted/50">
-                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Name</TableHead>
-                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Email</TableHead>
-                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Role</TableHead>
-                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Created</TableHead>
-                      {canManageEmployees && <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3 text-right">Actions</TableHead>}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredEmployees.map((employee) => (
-                      <TableRow key={employee.id}>
-                        <TableCell className="font-medium">{employee.name}</TableCell>
-                        <TableCell>{employee.email}</TableCell>
-                        <TableCell>
+                {/* Desktop Table View */}
+                <div className="hidden md:block overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/50 hover:bg-muted/50">
+                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Name</TableHead>
+                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Email</TableHead>
+                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Role</TableHead>
+                        <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Created</TableHead>
+                        {canManageEmployees && <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3 text-right">Actions</TableHead>}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredEmployees.map((employee) => (
+                        <TableRow key={employee.id}>
+                          <TableCell className="font-medium">{employee.name}</TableCell>
+                          <TableCell>{employee.email}</TableCell>
+                          <TableCell>
+                            {(employee.role === 'owner' || employee.role === 'admin') ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary ring-1 ring-primary/20">
+                                {getRoleDisplay(employee.role)}
+                              </span>
+                            ) : employee.role === 'manager' ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 ring-1 ring-blue-200">
+                                {getRoleDisplay(employee.role)}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground ring-1 ring-border">
+                                {getRoleDisplay(employee.role)}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {new Date(employee.createdAt).toLocaleDateString()}
+                          </TableCell>
+                          {canManageEmployees && (
+                            <TableCell className="text-right">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="sm">
+                                    <MoreVertical className="w-4 h-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  {canEditEmployee(employee) && (
+                                    <DropdownMenuItem onClick={() => handleEdit(employee)}>
+                                      <Edit className="w-4 h-4 mr-2" />
+                                      Edit
+                                    </DropdownMenuItem>
+                                  )}
+                                  {canDeleteEmployee(employee) && (
+                                    <DropdownMenuItem
+                                      onClick={() => handleDeleteClick(employee)}
+                                      className="text-destructive focus:text-destructive"
+                                    >
+                                      <Trash2 className="w-4 h-4 mr-2" />
+                                      Delete
+                                    </DropdownMenuItem>
+                                  )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Mobile Card View */}
+                <div className="md:hidden divide-y divide-border">
+                  {filteredEmployees.map((employee) => (
+                    <div 
+                      key={employee.id} 
+                      className="p-4 bg-white active:scale-[0.99] transition-transform flex items-center justify-between"
+                    >
+                      <div className="space-y-1 min-w-0 flex-1 mr-4">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-bold text-sm text-stone-800 truncate">{employee.name}</p>
                           {(employee.role === 'owner' || employee.role === 'admin') ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary ring-1 ring-primary/20">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter bg-primary/10 text-primary ring-1 ring-primary/20">
                               {getRoleDisplay(employee.role)}
                             </span>
                           ) : employee.role === 'manager' ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 ring-1 ring-blue-200">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter bg-blue-50 text-blue-700 ring-1 ring-blue-200">
                               {getRoleDisplay(employee.role)}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground ring-1 ring-border">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter bg-muted text-muted-foreground ring-1 ring-border">
                               {getRoleDisplay(employee.role)}
                             </span>
                           )}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {new Date(employee.createdAt).toLocaleDateString()}
-                        </TableCell>
-                        {canManageEmployees && (
-                          <TableCell className="text-right">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm">
-                                  <MoreVertical className="w-4 h-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                {canEditEmployee(employee) && (
-                                  <DropdownMenuItem onClick={() => handleEdit(employee)}>
-                                    <Edit className="w-4 h-4 mr-2" />
-                                    Edit
-                                  </DropdownMenuItem>
-                                )}
-                                {canDeleteEmployee(employee) && (
-                                  <DropdownMenuItem
-                                    onClick={() => handleDeleteClick(employee)}
-                                    className="text-destructive focus:text-destructive"
-                                  >
-                                    <Trash2 className="w-4 h-4 mr-2" />
-                                    Delete
-                                  </DropdownMenuItem>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground truncate">{employee.email}</p>
+                        {employee.phone && (
+                          <p className="text-[10px] text-muted-foreground/80 font-medium">{employee.phone}</p>
                         )}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table></div>
+                        <p className="text-[9px] text-stone-400 font-bold uppercase tracking-widest pt-1">
+                          Since {new Date(employee.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+
+                      {canManageEmployees && (
+                        <div className="shrink-0">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full hover:bg-stone-50 active:bg-stone-100">
+                                <MoreVertical className="w-4 h-4 text-stone-400" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-48">
+                              {canEditEmployee(employee) && (
+                                <DropdownMenuItem onClick={() => handleEdit(employee)} className="py-2.5">
+                                  <Edit className="w-4 h-4 mr-2" />
+                                  Edit Details
+                                </DropdownMenuItem>
+                              )}
+                              {canDeleteEmployee(employee) && (
+                                <DropdownMenuItem
+                                  onClick={() => handleDeleteClick(employee)}
+                                  className="text-destructive focus:text-destructive py-2.5"
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Remove Staff
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </CardContent>
             )}
           </Card>

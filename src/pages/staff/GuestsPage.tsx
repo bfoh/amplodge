@@ -477,8 +477,7 @@ export function GuestsPage() {
         <Input placeholder="Search guests by name or email..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-9 bg-card" />
       </div>
 
-      {/* Mobile card view */}
-      <div className="sm:hidden space-y-3">
+      <div className="md:hidden space-y-3">
         {filteredGuests.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 rounded-xl border bg-card">
             <Users className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
@@ -486,103 +485,116 @@ export function GuestsPage() {
               {searchTerm ? 'No guests found' : 'No guests in the database'}
             </p>
             {!searchTerm && (
-              <Button variant="link" onClick={() => setDialogOpen(true)} className="mt-2">
+              <Button variant="link" onClick={() => setDialogOpen(true)} className="mt-2 text-primary font-bold">
                 Add your first guest
               </Button>
             )}
           </div>
         ) : (
           filteredGuests.map((guest) => (
-            <Card key={guest.id} className="shadow-sm">
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <p className="font-semibold text-base">{guest.name}</p>
-                    {guest.country && <p className="text-xs text-muted-foreground">{guest.country}</p>}
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 -mt-1 -mr-1">
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => {
-                        setEditingId(guest.id)
-                        setFormData({
-                          name: guest.name || '',
-                          email: guest.email || '',
-                          phone: guest.phone || '',
-                          address: guest.address || '',
-                          country: guest.country || '',
-                          notes: guest.notes || ''
-                        })
-                        setDialogOpen(true)
-                      }}>
-                        <Pencil className="h-4 w-4 mr-2" />
-                        Edit
+            <div key={guest.id} className="bg-white border rounded-xl p-4 shadow-sm active:scale-[0.99] transition-transform">
+              <div className="flex items-start justify-between mb-3">
+                <div className="space-y-0.5">
+                  <h3 className="font-bold text-base text-stone-800 leading-tight">{guest.name}</h3>
+                  {guest.country && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-stone-100 text-stone-600 uppercase tracking-tighter">
+                      {guest.country}
+                    </span>
+                  )}
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 -mt-1 -mr-1 rounded-full hover:bg-stone-100">
+                      <MoreVertical className="h-4 w-4 text-stone-500" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-[180px]">
+                    <DropdownMenuItem onClick={() => {
+                      setEditingId(guest.id)
+                      setFormData({
+                        name: guest.name || '',
+                        email: guest.email || '',
+                        phone: guest.phone || '',
+                        address: guest.address || '',
+                        country: guest.country || '',
+                        notes: guest.notes || ''
+                      })
+                      setDialogOpen(true)
+                    }}>
+                      <Pencil className="h-4 w-4 mr-2" />
+                      Edit Profile
+                    </DropdownMenuItem>
+                    {canDeleteGuests && (
+                      <DropdownMenuItem
+                        onClick={() => handleDeleteClick(guest.id)}
+                        className="text-destructive focus:text-destructive focus:bg-destructive/5"
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete Guest
                       </DropdownMenuItem>
-                      {canDeleteGuests && (
-                        <DropdownMenuItem
-                          onClick={() => handleDeleteClick(guest.id)}
-                          className="text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Delete
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-                <div className="space-y-1.5 text-sm text-muted-foreground mb-3">
-                  {guest.email && (
-                    <div className="flex items-center gap-1.5">
-                      <Mail className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">{guest.email}</span>
-                    </div>
-                  )}
-                  {guest.phone && (
-                    <div className="flex items-center gap-1.5">
-                      <Phone className="w-3.5 h-3.5 shrink-0" />
-                      <span>{guest.phone}</span>
-                    </div>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-xs border-t pt-3">
-                  <div>
-                    <p className="text-muted-foreground uppercase tracking-wide font-medium mb-0.5">Revenue</p>
-                    <p className="font-semibold text-sm">{formatCurrencySync(guest.totalRevenue || 0, currency)}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground uppercase tracking-wide font-medium mb-0.5">Room</p>
-                    <p className="font-medium">{guest.lastBooking?.roomNumber || '-'}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground uppercase tracking-wide font-medium mb-0.5">Check In</p>
-                    <p>{formatDate(guest.lastBooking?.checkIn)}</p>
-                    {(guest.lastBooking?.checkInByName || guest.lastBooking?.checkInBy) && (
-                      <p className="text-[10px] text-muted-foreground">by {guest.lastBooking?.checkInByName || resolveName(guest.lastBooking?.checkInBy)}</p>
                     )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              <div className="space-y-1.5 mb-4">
+                {guest.email && (
+                  <div className="flex items-center gap-2 text-stone-500">
+                    <Mail className="w-3.5 h-3.5 shrink-0" />
+                    <span className="text-xs truncate font-medium">{guest.email}</span>
                   </div>
-                  <div>
-                    <p className="text-muted-foreground uppercase tracking-wide font-medium mb-0.5">Check Out</p>
-                    {getCheckOutDisplay(guest.lastBooking)}
+                )}
+                {guest.phone && (
+                  <div className="flex items-center gap-2 text-stone-500">
+                    <Phone className="w-3.5 h-3.5 shrink-0" />
+                    <span className="text-xs font-medium">{guest.phone}</span>
                   </div>
-                  {guest.lastBooking?.source && (
-                    <div className="col-span-2">
-                      <p className="text-muted-foreground uppercase tracking-wide font-medium mb-0.5">Source</p>
-                      {(!guest.lastBooking?.source || guest.lastBooking?.source === 'online') ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">Online</span>
-                      ) : guest.lastBooking?.source === 'voice_agent' ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">Voice Agent</span>
-                      ) : (
-                        <span>Staff: {guest.lastBooking?.createdByName || resolveName(guest.lastBooking?.createdBy) || 'Unknown'}</span>
-                      )}
-                    </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-3 border-t border-stone-50">
+                <div className="space-y-0.5">
+                  <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground">Total Revenue</p>
+                  <p className="font-bold text-stone-900 text-sm tabular-nums">
+                    {formatCurrencySync(guest.totalRevenue || 0, currency)}
+                  </p>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground">Last Room</p>
+                  <p className="font-bold text-stone-700 text-sm">
+                    {guest.lastBooking?.roomNumber ? `Room ${guest.lastBooking.roomNumber}` : '—'}
+                  </p>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground">Check In</p>
+                  <p className="text-[11px] font-medium text-stone-700">{formatDate(guest.lastBooking?.checkIn)}</p>
+                  {(guest.lastBooking?.checkInByName || guest.lastBooking?.checkInBy) && (
+                    <p className="text-[9px] text-muted-foreground italic">by {guest.lastBooking?.checkInByName || resolveName(guest.lastBooking?.checkInBy)}</p>
                   )}
                 </div>
-              </CardContent>
-            </Card>
+                <div className="space-y-0.5">
+                  <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground">Check Out</p>
+                  <div className="text-[11px] font-medium text-stone-700">{getCheckOutDisplay(guest.lastBooking)}</div>
+                </div>
+
+                {guest.lastBooking?.source && (
+                  <div className="col-span-2 pt-1">
+                    <div className="flex items-center justify-between bg-stone-50 rounded-lg px-3 py-2">
+                       <span className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground">Booking Source</span>
+                       {(!guest.lastBooking?.source || guest.lastBooking?.source === 'online') ? (
+                          <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full ring-1 ring-blue-100 uppercase tracking-tighter">Online</span>
+                        ) : guest.lastBooking?.source === 'voice_agent' ? (
+                          <span className="text-[10px] font-bold text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full ring-1 ring-purple-100 uppercase tracking-tighter">Voice Agent</span>
+                        ) : (
+                          <span className="text-[10px] font-bold text-stone-600 bg-stone-200/50 px-2 py-0.5 rounded-full uppercase tracking-tighter truncate max-w-[150px]">
+                            {guest.lastBooking?.createdByName || resolveName(guest.lastBooking?.createdBy) || 'Staff'}
+                          </span>
+                        )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           ))
         )}
       </div>

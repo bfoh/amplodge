@@ -266,43 +266,36 @@ export function CalendarListView({
   return (
     <>
       {/* Header with filters */}
-      <div className="p-4 border-b bg-muted/30">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-col gap-2 md:flex-row md:items-center">
-            <h3 className="text-lg font-semibold">Bookings List</h3>
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="text-xs">
+      <div className="p-3 sm:p-4 border-b bg-muted/30">
+        <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-1.5 sm:gap-2 md:flex-row md:items-center">
+            <h3 className="text-base sm:text-lg font-semibold">Bookings Summary</h3>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Badge variant="outline" className="text-[10px] sm:text-xs">
                 {filteredBookings.length} total
               </Badge>
-              {upcomingBookings.length > 0 && (
-                <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                  {upcomingBookings.length} upcoming
-                </Badge>
-              )}
-              {currentBookings.length > 0 && (
-                <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
-                  {currentBookings.length} checked-in
-                </Badge>
-              )}
               {departingBookings.length > 0 && (
-                <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200">
-                  {departingBookings.length} departing today
+                <Badge variant="outline" className="text-[10px] sm:text-xs bg-orange-50 text-orange-700 border-orange-200">
+                  {departingBookings.length} check-outs today
                 </Badge>
               )}
             </div>
           </div>
 
-          <div className="flex gap-2">
-            <Input
-              placeholder="Search bookings..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full md:w-64"
-            />
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Input
+                placeholder="Guest or room..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full sm:w-64 h-9 pl-8"
+              />
+              <Users className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            </div>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-2 border rounded-md text-sm"
+              className="px-3 py-1.5 border rounded-md text-sm bg-white h-9"
             >
               <option value="all">All Status</option>
               <option value="confirmed">Confirmed</option>
@@ -315,19 +308,17 @@ export function CalendarListView({
       </div>
 
       {/* Bookings List */}
-      <div className="flex-1 overflow-auto p-4">
+      <div className="flex-1 overflow-auto p-3 sm:p-4">
         {filteredBookings.length === 0 ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center">
-              <CalendarIcon className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
-              <p className="text-muted-foreground">No bookings found</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                {searchTerm || statusFilter !== 'all' ? 'Try adjusting your filters' : 'Create your first booking to get started'}
-              </p>
-            </div>
+          <div className="flex flex-col items-center justify-center h-64 text-center">
+            <CalendarIcon className="w-10 h-10 mb-3 text-muted-foreground/40" />
+            <p className="text-muted-foreground font-medium">No bookings found</p>
+            <p className="text-xs text-muted-foreground mt-1 px-4">
+              Try adjusting your filters or search terms
+            </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3 sm:space-y-4">
             {filteredBookings.map(booking => {
               const room = getRoomForBooking(booking)
               const statusInfo = getStatusInfo(booking.status)
@@ -336,106 +327,74 @@ export function CalendarListView({
 
               return (
                 <Card key={booking.id} className={cn(
-                  "transition-all hover:shadow-md",
-                  isDeparting && "border-orange-200 bg-orange-50/50"
+                  "transition-all active:scale-[0.99] border-border/60 shadow-sm",
+                  isDeparting && "border-orange-200 bg-orange-50/30"
                 )}>
-                  <CardContent className="p-4">
-                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                      {/* Guest Info */}
-                      <div className="flex-1">
-                        <div className="flex items-start justify-between mb-2">
-                          <div>
-                            <h4 className="font-semibold text-lg">{booking.guestName}</h4>
-                            <p className="text-sm text-muted-foreground">Room {room?.roomNumber || 'N/A'}</p>
-                          </div>
-                          <Badge className={cn("text-xs", statusInfo.color)}>
-                            {statusInfo.label}
-                          </Badge>
-                        </div>
-
-                        {/* Contact Info */}
-                        <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground mb-3">
-                          {booking.guestEmail && (
-                            <div className="flex items-center gap-1">
-                              <Mail className="w-4 h-4" />
-                              <span>{booking.guestEmail}</span>
-                            </div>
-                          )}
-                          {booking.guestPhone && (
-                            <div className="flex items-center gap-1">
-                              <Phone className="w-4 h-4" />
-                              <span>{booking.guestPhone}</span>
-                            </div>
-                          )}
-                          {booking.guestAddress && (
-                            <div className="flex items-center gap-1">
-                              <MapPin className="w-4 h-4" />
-                              <span className="truncate max-w-[200px]">{booking.guestAddress}</span>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Booking Details */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                          <div className="flex items-center gap-2">
-                            <CalendarIcon className="w-4 h-4 text-muted-foreground" />
-                            <div>
-                              <p className="text-muted-foreground">Check-in</p>
-                              <p className="font-medium">{new Date(booking.checkIn).toLocaleDateString()}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <CalendarIcon className="w-4 h-4 text-muted-foreground" />
-                            <div>
-                              <p className="text-muted-foreground">Check-out</p>
-                              <p className="font-medium">{new Date(booking.checkOut).toLocaleDateString()}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Users className="w-4 h-4 text-muted-foreground" />
-                            <div>
-                              <p className="text-muted-foreground">Guests</p>
-                              <p className="font-medium">{booking.numGuests}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <DollarSign className="w-4 h-4 text-muted-foreground" />
-                            <div>
-                              <p className="text-muted-foreground">Total</p>
-                              <p className="font-medium">{formatCurrencySync(booking.totalPrice || 0, currency)}</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Special indicators */}
-                        {(isUpcoming || isDeparting) && (
-                          <div className="mt-3 flex gap-2">
-                            {isUpcoming && (
-                              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                                <Clock className="w-3 h-3 mr-1" />
-                                Upcoming
-                              </Badge>
-                            )}
+                  <CardContent className="p-3 sm:p-4">
+                    <div className="flex flex-col gap-3">
+                      {/* Guest Info Header */}
+                      <div className="flex items-start justify-between">
+                        <div className="flex flex-col gap-0.5">
+                          <h4 className="font-bold text-base sm:text-lg text-stone-800 leading-tight">
+                            {booking.guestName}
+                          </h4>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-[11px] font-bold text-primary bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10">
+                              Room {room?.roomNumber || 'N/A'}
+                            </span>
                             {isDeparting && (
-                              <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200">
-                                <LogOut className="w-3 h-3 mr-1" />
-                                Departing Today
-                              </Badge>
+                              <span className="text-[10px] font-bold text-orange-600 bg-orange-100/50 px-1.5 py-0.5 rounded">
+                                DUE TODAY
+                              </span>
                             )}
                           </div>
-                        )}
+                        </div>
+                        <Badge className={cn("text-[10px] font-bold uppercase tracking-tight h-5", statusInfo.color)}>
+                          {statusInfo.label}
+                        </Badge>
+                      </div>
+
+                      {/* Booking Metadata Grid */}
+                      <div className="grid grid-cols-2 gap-x-2 gap-y-3 py-2 border-y border-stone-100">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">Check-in</span>
+                          <div className="flex items-center gap-1 text-xs font-semibold text-stone-700">
+                            <CalendarIcon className="w-3 h-3 text-stone-400" />
+                            {new Date(booking.checkIn).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">Check-out</span>
+                          <div className="flex items-center gap-1 text-xs font-semibold text-stone-700">
+                            <CalendarIcon className="w-3 h-3 text-stone-400" />
+                            {new Date(booking.checkOut).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">Guests</span>
+                          <div className="flex items-center gap-1 text-xs font-semibold text-stone-700">
+                            <Users className="w-3 h-3 text-stone-400" />
+                            {booking.numGuests} {booking.numGuests === 1 ? 'Guest' : 'Guests'}
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">Total Amount</span>
+                          <div className="flex items-center gap-1 text-xs font-bold text-primary">
+                            <DollarSign className="w-3 h-3" />
+                            {formatCurrencySync(booking.totalPrice || 0, currency)}
+                          </div>
+                        </div>
                       </div>
 
                       {/* Actions */}
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2 mt-1">
                         {canCheckIn(booking) && (
                           <Button
                             size="sm"
-                            variant="outline"
                             onClick={() => setCheckInDialog(booking)}
-                            className="h-8"
+                            className="flex-1 h-9 text-xs font-bold shadow-sm"
                           >
-                            <LogIn className="w-4 h-4 mr-1" />
+                            <LogIn className="w-3.5 h-3.5 mr-1.5" />
                             Check In
                           </Button>
                         )}
@@ -444,23 +403,30 @@ export function CalendarListView({
                           <>
                             <Button
                               size="sm"
-                              variant="ghost"
+                              variant="outline"
                               onClick={() => setExtendStayDialog(booking)}
-                              className="h-8 text-amber-600 hover:text-amber-700"
+                              className="flex-1 h-9 text-xs font-bold border-amber-200 text-amber-700 hover:bg-amber-50"
                             >
-                              <CalendarPlus className="w-4 h-4 mr-1" />
+                              <CalendarPlus className="w-3.5 h-3.5 mr-1.5" />
                               Extend
                             </Button>
                             <Button
                               size="sm"
                               variant="outline"
                               onClick={() => setCheckOutDialog(booking)}
-                              className="h-8"
+                              className="flex-1 h-9 text-xs font-bold border-primary/20 text-primary hover:bg-primary/5 shadow-sm"
                             >
-                              <LogOut className="w-4 h-4 mr-1" />
+                              <LogOut className="w-3.5 h-3.5 mr-1.5" />
                               Check Out
                             </Button>
                           </>
+                        )}
+                        
+                        {!canCheckIn(booking) && !canCheckOut(booking) && (
+                           <div className="flex-1 text-[10px] text-muted-foreground flex items-center gap-1.5 bg-stone-50 p-2 rounded-md border border-stone-100">
+                             <Clock className="w-3 h-3" />
+                             {booking.status === 'checked-out' ? 'Booking completed' : 'No pending actions'}
+                           </div>
                         )}
                       </div>
                     </div>

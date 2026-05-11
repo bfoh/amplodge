@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { format, parseISO } from 'date-fns'
 import { useSubscription } from '@/hooks/use-subscription'
 import { toast } from 'sonner'
 import { db, auth } from '@/lib/db'
@@ -554,98 +555,187 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
       ) : records.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">No attendance records yet. Staff can clock in by scanning the QR code above.</div>
       ) : (
-        <div className="rounded-xl border overflow-hidden overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50">
-              <tr>
-                {['Staff Name', 'Date', 'Clock In', 'Clock Out', 'Hours', 'Status', 'Notes', ''].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {records.map(r => (
-                <tr key={r.id} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-3 font-medium whitespace-nowrap">{r.staffName}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">{r.date}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">{r.clockIn || '—'}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">{r.clockOut || '—'}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">{r.hoursWorked ? `${r.hoursWorked}h` : '—'}</td>
-                  <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
-                  <td className="px-4 py-3 max-w-[220px]">
-                    {(() => {
-                      const loc = parseLocationFromNotes(r.notes)
-                      const label = getNotesLabel(r.notes)
+        <div className="space-y-4">
+          {/* Desktop Table View */}
+          <div className="hidden md:block rounded-xl border overflow-hidden overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  {['Staff Name', 'Date', 'Clock In', 'Clock Out', 'Hours', 'Status', 'Notes', ''].map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {records.map(r => (
+                  <tr key={r.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="px-4 py-3 font-medium whitespace-nowrap">{r.staffName}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">{r.date}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">{r.clockIn || '—'}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">{r.clockOut || '—'}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">{r.hoursWorked ? `${r.hoursWorked}h` : '—'}</td>
+                    <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
+                    <td className="px-4 py-3 max-w-[220px]">
+                      {(() => {
+                        const loc = parseLocationFromNotes(r.notes)
+                        const label = getNotesLabel(r.notes)
 
-                      // ── New rich format ──────────────────────────────────
-                      if (loc) {
-                        const mapsUrl = `https://maps.google.com/maps?q=${loc.lat.toFixed(7)},${loc.lng.toFixed(7)}`
-                        const poorAccuracy = loc.accuracy > 100
-                        return (
-                          <div className="flex flex-col gap-1">
-                            <a
-                              href={mapsUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              title={`Open in Google Maps\nLat: ${loc.lat.toFixed(6)}, Lng: ${loc.lng.toFixed(6)}\nGPS accuracy: ±${Math.round(loc.accuracy)} m`}
-                              className={`inline-flex items-center gap-1.5 rounded-full text-xs font-medium px-2.5 py-1 border hover:opacity-80 transition-opacity cursor-pointer ${
-                                loc.inside
-                                  ? 'bg-green-100 text-green-800 border-green-200'
-                                  : 'bg-amber-100 text-amber-800 border-amber-200'
-                              }`}
-                            >
+                        if (loc) {
+                          const mapsUrl = `https://maps.google.com/maps?q=${loc.lat.toFixed(7)},${loc.lng.toFixed(7)}`
+                          const poorAccuracy = loc.accuracy > 100
+                          return (
+                            <div className="flex flex-col gap-1">
+                              <a
+                                href={mapsUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={`Open in Google Maps\nLat: ${loc.lat.toFixed(6)}, Lng: ${loc.lng.toFixed(6)}\nGPS accuracy: ±${Math.round(loc.accuracy)} m`}
+                                className={`inline-flex items-center gap-1.5 rounded-full text-xs font-medium px-2.5 py-1 border hover:opacity-80 transition-opacity cursor-pointer ${
+                                  loc.inside
+                                    ? 'bg-green-100 text-green-800 border-green-200'
+                                    : 'bg-amber-100 text-amber-800 border-amber-200'
+                                }`}
+                              >
+                                <MapPin className="w-3 h-3 flex-shrink-0" />
+                                {label || (loc.inside ? `Within hotel (${Math.round(loc.distance)} m)` : `Outside hotel (${Math.round(loc.distance)} m)`)}
+                              </a>
+                              {poorAccuracy && (
+                                <span className="text-[10px] text-muted-foreground pl-1">
+                                  ±{Math.round(loc.accuracy)} m GPS accuracy
+                                </span>
+                              )}
+                            </div>
+                          )
+                        }
+
+                        if (r.notes === 'GPS: location access denied' || r.notes?.includes('denied')) {
+                          return (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 text-red-800 text-xs font-medium px-2.5 py-1 border border-red-200">
                               <MapPin className="w-3 h-3 flex-shrink-0" />
-                              {label || (loc.inside ? `Within hotel (${Math.round(loc.distance)} m)` : `Outside hotel (${Math.round(loc.distance)} m)`)}
-                            </a>
-                            {poorAccuracy && (
-                              <span className="text-[10px] text-muted-foreground pl-1">
-                                ±{Math.round(loc.accuracy)} m GPS accuracy
-                              </span>
-                            )}
-                          </div>
-                        )
-                      }
+                              Location denied
+                            </span>
+                          )
+                        }
+                        if (r.notes === 'GPS: clocked in outside hotel premises' || r.notes?.includes('outside hotel') || r.notes?.includes('Outside hotel')) {
+                          return (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 text-amber-800 text-xs font-medium px-2.5 py-1 border border-amber-200">
+                              <MapPin className="w-3 h-3 flex-shrink-0" />
+                              Outside hotel
+                            </span>
+                          )
+                        }
+                        if (r.notes?.includes('unavailable')) {
+                          return (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 text-gray-600 text-xs font-medium px-2.5 py-1 border border-gray-200">
+                              <MapPin className="w-3 h-3 flex-shrink-0" />
+                              Location N/A
+                            </span>
+                          )
+                        }
 
-                      // ── Legacy format (old records without LOC comment) ──
-                      if (r.notes === 'GPS: location access denied' || r.notes?.includes('denied')) {
                         return (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 text-red-800 text-xs font-medium px-2.5 py-1 border border-red-200">
-                            <MapPin className="w-3 h-3 flex-shrink-0" />
-                            Location denied
-                          </span>
+                          <span className="text-muted-foreground truncate block text-xs">{r.notes || '—'}</span>
                         )
-                      }
-                      if (r.notes === 'GPS: clocked in outside hotel premises' || r.notes?.includes('outside hotel') || r.notes?.includes('Outside hotel')) {
-                        return (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 text-amber-800 text-xs font-medium px-2.5 py-1 border border-amber-200">
-                            <MapPin className="w-3 h-3 flex-shrink-0" />
-                            Outside hotel
-                          </span>
-                        )
-                      }
-                      if (r.notes?.includes('unavailable')) {
-                        return (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 text-gray-600 text-xs font-medium px-2.5 py-1 border border-gray-200">
-                            <MapPin className="w-3 h-3 flex-shrink-0" />
-                            Location N/A
-                          </span>
-                        )
-                      }
+                      })()}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(r.id)}>
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-                      return (
-                        <span className="text-muted-foreground truncate block text-xs">{r.notes || '—'}</span>
-                      )
-                    })()}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(r.id)}>
+          {/* Mobile Card View */}
+          <div className="md:hidden space-y-3">
+            {records.map(r => (
+              <div 
+                key={r.id} 
+                className="bg-white border rounded-xl p-4 shadow-sm active:scale-[0.99] transition-transform space-y-3"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <p className="font-bold text-stone-800 text-sm">{r.staffName}</p>
+                    <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">{format(parseISO(r.date), 'MMM dd, yyyy')}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <StatusBadge status={r.status} />
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-8 w-8 text-destructive/40 hover:text-destructive hover:bg-red-50 rounded-full" 
+                      onClick={() => handleDelete(r.id)}
+                    >
                       <X className="w-4 h-4" />
                     </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 bg-stone-50 rounded-lg p-3">
+                  <div className="space-y-0.5">
+                    <p className="text-[9px] uppercase tracking-tighter font-bold text-stone-400">In</p>
+                    <p className="text-xs font-bold text-stone-700">{r.clockIn || '—'}</p>
+                  </div>
+                  <div className="space-y-0.5 border-x border-stone-200 px-2">
+                    <p className="text-[9px] uppercase tracking-tighter font-bold text-stone-400">Out</p>
+                    <p className="text-xs font-bold text-stone-700">{r.clockOut || '—'}</p>
+                  </div>
+                  <div className="space-y-0.5 pl-1">
+                    <p className="text-[9px] uppercase tracking-tighter font-bold text-stone-400">Total</p>
+                    <p className="text-xs font-bold text-primary">{r.hoursWorked ? `${r.hoursWorked}h` : '—'}</p>
+                  </div>
+                </div>
+
+                <div className="pt-1">
+                  {(() => {
+                    const loc = parseLocationFromNotes(r.notes)
+                    const label = getNotesLabel(r.notes)
+
+                    if (loc) {
+                      const mapsUrl = `https://maps.google.com/maps?q=${loc.lat.toFixed(7)},${loc.lng.toFixed(7)}`
+                      return (
+                        <a
+                          href={mapsUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`flex items-center gap-2 rounded-lg text-xs font-bold px-3 py-2 border transition-all ${
+                            loc.inside
+                              ? 'bg-green-50 text-green-700 border-green-100'
+                              : 'bg-amber-50 text-amber-700 border-amber-100'
+                          }`}
+                        >
+                          <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span className="truncate flex-1">
+                            {label || (loc.inside ? `Within hotel (${Math.round(loc.distance)} m)` : `Outside hotel (${Math.round(loc.distance)} m)`)}
+                          </span>
+                        </a>
+                      )
+                    }
+
+                    if (r.notes?.includes('denied')) {
+                      return (
+                        <div className="flex items-center gap-2 rounded-lg bg-red-50 text-red-700 text-xs font-bold px-3 py-2 border border-red-100">
+                          <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
+                          Location Denied
+                        </div>
+                      )
+                    }
+
+                    if (r.notes) {
+                      return (
+                        <p className="text-[11px] text-muted-foreground bg-stone-50 p-2 rounded-lg italic">"{r.notes}"</p>
+                      )
+                    }
+
+                    return null
+                  })()}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -811,41 +901,105 @@ function LeaveTab({ currentStaff }: { currentStaff: any }) {
       ) : records.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">No leave requests yet.</div>
       ) : (
-        <div className="rounded-xl border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50">
-              <tr>
-                {['Staff', 'Type', 'From', 'To', 'Days', 'Reason', 'Status', 'Actions'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {records.map(r => (
-                <tr key={r.id} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-3 font-medium">{r.staffName}</td>
-                  <td className="px-4 py-3 capitalize">{r.leaveType}</td>
-                  <td className="px-4 py-3">{r.startDate}</td>
-                  <td className="px-4 py-3">{r.endDate}</td>
-                  <td className="px-4 py-3">{daysBetween(r.startDate, r.endDate)}</td>
-                  <td className="px-4 py-3 max-w-[140px] truncate text-muted-foreground">{r.reason}</td>
-                  <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
-                  <td className="px-4 py-3">
-                    {r.status === 'pending' && (
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="outline" className="text-green-600 border-green-300 hover:bg-green-50" onClick={() => handleAction(r.id, 'approved')}>
-                          <Check className="w-3 h-3 mr-1" /> Approve
-                        </Button>
-                        <Button size="sm" variant="outline" className="text-red-600 border-red-300 hover:bg-red-50" onClick={() => handleAction(r.id, 'rejected')}>
-                          <X className="w-3 h-3 mr-1" /> Reject
-                        </Button>
-                      </div>
-                    )}
-                  </td>
+        <div className="space-y-4">
+          {/* Desktop Table View */}
+          <div className="hidden md:block rounded-xl border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  {['Staff', 'Type', 'From', 'To', 'Days', 'Reason', 'Status', 'Actions'].map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y">
+                {records.map(r => (
+                  <tr key={r.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="px-4 py-3 font-medium">{r.staffName}</td>
+                    <td className="px-4 py-3 capitalize">{r.leaveType}</td>
+                    <td className="px-4 py-3">{r.startDate}</td>
+                    <td className="px-4 py-3">{r.endDate}</td>
+                    <td className="px-4 py-3">{daysBetween(r.startDate, r.endDate)}</td>
+                    <td className="px-4 py-3 max-w-[140px] truncate text-muted-foreground">{r.reason}</td>
+                    <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
+                    <td className="px-4 py-3">
+                      {r.status === 'pending' && (
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline" className="text-green-600 border-green-300 hover:bg-green-50" onClick={() => handleAction(r.id, 'approved')}>
+                            <Check className="w-3 h-3 mr-1" /> Approve
+                          </Button>
+                          <Button size="sm" variant="outline" className="text-red-600 border-red-300 hover:bg-red-50" onClick={() => handleAction(r.id, 'rejected')}>
+                            <X className="w-3 h-3 mr-1" /> Reject
+                          </Button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Card View */}
+          <div className="md:hidden space-y-4">
+            {records.map(r => (
+              <div 
+                key={r.id} 
+                className="bg-white border rounded-xl p-4 shadow-sm active:scale-[0.99] transition-transform space-y-4"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <p className="font-bold text-stone-800 text-sm">{r.staffName}</p>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter bg-blue-50 text-blue-700 ring-1 ring-blue-200">
+                        {r.leaveType}
+                      </span>
+                      <span className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">
+                        {daysBetween(r.startDate, r.endDate)} days
+                      </span>
+                    </div>
+                  </div>
+                  <StatusBadge status={r.status} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 bg-stone-50 rounded-lg p-3">
+                  <div className="space-y-0.5">
+                    <p className="text-[9px] uppercase tracking-tighter font-bold text-stone-400">Start Date</p>
+                    <p className="text-xs font-bold text-stone-700">{format(parseISO(r.startDate), 'MMM dd, yyyy')}</p>
+                  </div>
+                  <div className="space-y-0.5 border-l border-stone-200 pl-4">
+                    <p className="text-[9px] uppercase tracking-tighter font-bold text-stone-400">End Date</p>
+                    <p className="text-xs font-bold text-stone-700">{format(parseISO(r.endDate), 'MMM dd, yyyy')}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-[9px] uppercase tracking-tighter font-bold text-stone-400 px-1">Reason</p>
+                  <p className="text-xs text-muted-foreground bg-stone-50/50 p-3 rounded-lg border border-stone-100 italic line-clamp-3">
+                    "{r.reason}"
+                  </p>
+                </div>
+
+                {r.status === 'pending' && (
+                  <div className="grid grid-cols-2 gap-3 pt-2">
+                    <Button 
+                      className="w-full bg-green-600 hover:bg-green-700 text-white font-bold h-10 rounded-lg shadow-sm" 
+                      onClick={() => handleAction(r.id, 'approved')}
+                    >
+                      <Check className="w-4 h-4 mr-2" /> Approve
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      className="w-full border-red-200 text-red-600 hover:bg-red-50 font-bold h-10 rounded-lg" 
+                      onClick={() => handleAction(r.id, 'rejected')}
+                    >
+                      <X className="w-4 h-4 mr-2" /> Reject
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

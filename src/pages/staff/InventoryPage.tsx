@@ -464,10 +464,10 @@ export function InventoryPage() {
 
       {/* Table Section */}
       <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+        <CardHeader className="pb-3 px-4 sm:px-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <CardTitle className="text-lg">Product List</CardTitle>
-            <div className="relative w-64">
+            <div className="relative w-full sm:w-64">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search items..."
@@ -478,8 +478,9 @@ export function InventoryPage() {
             </div>
           </div>
         </CardHeader>
-        <CardContent>
-          <div className="rounded-md border">
+        <CardContent className="p-0 sm:p-6">
+          {/* Desktop Table View */}
+          <div className="hidden md:block rounded-md border mx-0 sm:mx-0">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -556,6 +557,7 @@ export function InventoryPage() {
                                   stockQuantity: item.stockQuantity,
                                   minThreshold: item.minThreshold,
                                   unitPrice: item.unitPrice,
+                                Lyn: item.Lyn || 0,
                                 })
                                 setIsAddOpen(true)
                               }}>
@@ -575,6 +577,112 @@ export function InventoryPage() {
                 )}
               </TableBody>
             </Table>
+          </div>
+
+          {/* Mobile Card View */}
+          <div className="md:hidden divide-y divide-border border-t">
+            {loading ? (
+              <div className="py-12 text-center text-muted-foreground flex flex-col items-center gap-2">
+                <Loader2 className="w-6 h-6 animate-spin" />
+                <span>Loading products...</span>
+              </div>
+            ) : filteredItems.length === 0 ? (
+              <div className="py-12 text-center text-muted-foreground">No products found.</div>
+            ) : (
+              filteredItems.map((item) => {
+                const isLow = item.stockQuantity <= item.minThreshold
+                const isOut = item.stockQuantity <= 0
+                
+                return (
+                  <div 
+                    key={item.id} 
+                    className="p-4 bg-white active:scale-[0.99] transition-transform space-y-3"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="space-y-1 min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-bold text-sm text-stone-800 truncate">{item.name}</p>
+                          <Badge variant="outline" className="text-[9px] h-4 uppercase tracking-tighter font-black py-0 px-1.5 border-stone-200 text-stone-500">
+                            {item.category}
+                          </Badge>
+                        </div>
+                        <p className="text-lg font-black text-primary">
+                          {formatCurrencySync(item.unitPrice, currency)}
+                        </p>
+                      </div>
+
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full hover:bg-stone-50 active:bg-stone-100 shrink-0">
+                            <MoreVertical className="w-4 h-4 text-stone-400" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuItem onClick={() => {
+                            setRestockItem(item)
+                            setIsRestockOpen(true)
+                          }} className="py-2.5">
+                            <Plus className="w-4 h-4 mr-2" />
+                            Add Stock
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => {
+                            setEditingItem(item)
+                            setForm({
+                              name: item.name,
+                              category: item.category,
+                              stockQuantity: item.stockQuantity,
+                              minThreshold: item.minThreshold,
+                              unitPrice: item.unitPrice,
+                            })
+                            setIsAddOpen(true)
+                          }} className="py-2.5">
+                            <Edit className="w-4 h-4 mr-2" />
+                            Edit Details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="text-destructive focus:text-destructive py-2.5" onClick={() => handleDelete(item.id)}>
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Delete Item
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+
+                    <div className="flex items-center justify-between bg-stone-50 rounded-xl p-3 border border-stone-100">
+                      <div className="space-y-0.5">
+                        <p className="text-[9px] uppercase tracking-tighter font-bold text-stone-400">Inventory Status</p>
+                        <div className="flex items-center gap-1.5">
+                          {isOut ? (
+                            <span className="flex items-center gap-1 text-[11px] font-bold text-rose-600">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse" />
+                              Out of Stock
+                            </span>
+                          ) : isLow ? (
+                            <span className="flex items-center gap-1 text-[11px] font-bold text-amber-600">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
+                              Low Stock
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-600">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                              In Stock
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-right space-y-0.5 border-l border-stone-200 pl-4">
+                        <p className="text-[9px] uppercase tracking-tighter font-bold text-stone-400">Current Qty</p>
+                        <p className={cn(
+                          "text-xl font-black",
+                          isOut ? "text-rose-600" : isLow ? "text-amber-600" : "text-stone-800"
+                        )}>
+                          {item.stockQuantity}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })
+            )}
           </div>
         </CardContent>
       </Card>
@@ -775,7 +883,7 @@ export function InventoryPage() {
 
           {/* Detailed Entries Table */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 px-4 sm:px-6">
               <CardTitle className="text-sm font-semibold">Recent Transactions</CardTitle>
               <Button 
                 variant="ghost" 
@@ -787,8 +895,9 @@ export function InventoryPage() {
                 <ChevronDown className={cn("w-3 h-3 transition-transform", isTableExpanded && "rotate-180")} />
               </Button>
             </CardHeader>
-            <CardContent>
-              <div className="rounded-md border overflow-hidden">
+            <CardContent className="p-0 sm:p-6">
+              {/* Desktop Table View */}
+              <div className="hidden md:block rounded-md border overflow-hidden mx-0 sm:mx-0">
                 <Table>
                   <TableHeader className="bg-muted/50">
                     <TableRow>
@@ -804,7 +913,7 @@ export function InventoryPage() {
                   <TableBody>
                     {allEntries.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="h-24 text-center text-muted-foreground italic">No transactions found for this period</TableCell>
+                        <TableCell colSpan={7} className="h-24 text-center text-muted-foreground italic">No transactions found for this period</TableCell>
                       </TableRow>
                     ) : (
                       (isTableExpanded ? allEntries : allEntries.slice(0, 10)).map((e, idx) => (
@@ -828,9 +937,56 @@ export function InventoryPage() {
                   </TableBody>
                 </Table>
               </div>
+
+              {/* Mobile Card View */}
+              <div className="md:hidden divide-y divide-border border-t">
+                {allEntries.length === 0 ? (
+                  <div className="py-12 text-center text-muted-foreground italic">No transactions found.</div>
+                ) : (
+                  (isTableExpanded ? allEntries : allEntries.slice(0, 10)).map((e, idx) => (
+                    <div 
+                      key={idx} 
+                      className="p-4 bg-white active:scale-[0.99] transition-transform space-y-3"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="space-y-0.5 min-w-0 flex-1">
+                          <p className="font-bold text-sm text-stone-800 truncate">{e.description}</p>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">
+                              {new Date(e.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </span>
+                            <Badge variant="outline" className="text-[9px] h-4 uppercase tracking-tighter font-black py-0 px-1.5 border-stone-200 text-stone-500">
+                              {e.category}
+                            </Badge>
+                          </div>
+                        </div>
+                        <p className="text-sm font-black text-stone-900 tabular-nums">
+                          {formatCurrencySync(e.amount, currency)}
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 bg-stone-50 rounded-xl p-3 border border-stone-100">
+                        <div className="space-y-0.5">
+                          <p className="text-[9px] uppercase tracking-tighter font-bold text-stone-400">Guest / Room</p>
+                          <p className="text-[11px] font-bold text-stone-700 truncate">
+                            {e.guestName} {e.roomNumber !== '—' ? `· Room ${e.roomNumber}` : ''}
+                          </p>
+                        </div>
+                        <div className="text-right space-y-0.5 border-l border-stone-200 pl-4">
+                          <p className="text-[9px] uppercase tracking-tighter font-bold text-stone-400">Staff / Payment</p>
+                          <p className="text-[11px] font-bold text-stone-700 truncate">
+                            {e.staffName} · <span className="capitalize">{e.paymentMethod || 'Other'}</span>
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
               {!isTableExpanded && allEntries.length > 10 && (
-                <div className="text-center mt-4">
-                  <Button variant="outline" size="sm" onClick={() => setIsTableExpanded(true)}>
+                <div className="text-center mt-4 pb-4">
+                  <Button variant="outline" size="sm" className="w-[90%] sm:w-auto" onClick={() => setIsTableExpanded(true)}>
                     View All {allEntries.length} Transactions
                   </Button>
                 </div>

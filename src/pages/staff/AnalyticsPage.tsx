@@ -960,48 +960,92 @@ export function AnalyticsPage() {
                     </button>
 
                     {isChargeTableExpanded && (
-                      <div className="mt-4 overflow-x-auto border rounded-xl">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="bg-muted/40">
-                              <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Date</th>
-                              <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Description</th>
-                              <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Guest</th>
-                              <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Room</th>
-                              <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Staff</th>
-                              <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Payment</th>
-                              <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Amount</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border/50">
-                            {allAdditionalEntries.map((e, idx) => {
-                              const m = normPay(e.paymentMethod)
-                              const payIcon = m === 'cash' ? '💵' : m === 'mobile_money' ? '📱' : m === 'card' ? '💳' : '💰'
-                              return (
-                                  <tr key={idx} className="hover:bg-muted/30 transition-colors">
-                                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
-                                      {new Date(e.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                                    </td>
-                                    <td className="px-4 py-3">
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-sm">{catIcons[e.category] || '📦'}</span>
-                                        <span className="font-medium">{e.description}</span>
-                                      </div>
-                                    </td>
-                                    <td className="px-4 py-3 text-xs">{e.guestName}</td>
-                                    <td className="px-4 py-3 text-xs text-muted-foreground">{e.roomNumber || '—'}</td>
-                                    <td className="px-4 py-3 text-xs text-muted-foreground">{e.staffName}</td>
-                                    <td className="px-4 py-3 text-[10px] font-medium text-muted-foreground italic">
-                                      {payIcon} {e.paymentMethod || '—'}
-                                    </td>
-                                    <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                                      {formatCurrencySync(e.amount, currency)}
-                                    </td>
-                                  </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
+                      <div className="mt-4">
+                        {/* Desktop Table */}
+                        <div className="hidden md:block overflow-x-auto border rounded-xl">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="bg-muted/40">
+                                <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Date</th>
+                                <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Description</th>
+                                <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Guest</th>
+                                <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Room</th>
+                                <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Staff</th>
+                                <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Payment</th>
+                                <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border/50">
+                              {allAdditionalEntries.map((e, idx) => {
+                                const m = normPay(e.paymentMethod)
+                                const payIcon = m === 'cash' ? '💵' : m === 'mobile_money' ? '📱' : m === 'card' ? '💳' : '💰'
+                                return (
+                                    <tr key={idx} className="hover:bg-muted/30 transition-colors">
+                                      <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                                        {new Date(e.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-sm">{catIcons[e.category] || '📦'}</span>
+                                          <span className="font-medium">{e.description}</span>
+                                        </div>
+                                      </td>
+                                      <td className="px-4 py-3 text-xs">{e.guestName}</td>
+                                      <td className="px-4 py-3 text-xs text-muted-foreground">{e.roomNumber || '—'}</td>
+                                      <td className="px-4 py-3 text-xs text-muted-foreground">{e.staffName}</td>
+                                      <td className="px-4 py-3 text-[10px] font-medium text-muted-foreground italic">
+                                        {payIcon} {e.paymentMethod || '—'}
+                                      </td>
+                                      <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                                        {formatCurrencySync(e.amount, currency)}
+                                      </td>
+                                    </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Mobile Cards */}
+                        <div className="md:hidden space-y-3">
+                          {allAdditionalEntries.map((e, idx) => {
+                            const m = normPay(e.paymentMethod)
+                            const payIcon = m === 'cash' ? '💵' : m === 'mobile_money' ? '📱' : m === 'card' ? '💳' : '💰'
+                            return (
+                              <div key={idx} className="bg-white border rounded-xl p-4 shadow-sm active:scale-[0.99] transition-transform">
+                                <div className="flex justify-between items-start mb-3">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-lg">{catIcons[e.category] || '📦'}</span>
+                                    <div>
+                                      <p className="font-bold text-sm text-stone-800">{e.description}</p>
+                                      <p className="text-[10px] text-muted-foreground">
+                                        {new Date(e.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <p className="font-bold text-sm text-stone-900">{formatCurrencySync(e.amount, currency)}</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-y-3 gap-x-2 pt-3 border-t border-stone-50">
+                                  <div>
+                                    <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground mb-0.5">Guest / Room</p>
+                                    <p className="text-xs font-medium text-stone-700">{e.guestName} · Room {e.roomNumber || '—'}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground mb-0.5">Staff</p>
+                                    <p className="text-xs font-medium text-stone-700">{e.staffName}</p>
+                                  </div>
+                                  <div className="col-span-2">
+                                    <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground mb-0.5">Payment Method</p>
+                                    <p className="text-xs font-medium text-muted-foreground italic flex items-center gap-1.5">
+                                      <span>{payIcon}</span>
+                                      {e.paymentMethod || '—'}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1129,7 +1173,91 @@ export function AnalyticsPage() {
               <p className="text-xs text-muted-foreground mt-1">Try selecting a different {breakdownMode}</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="md:hidden space-y-3 p-4 bg-muted/20">
+              {breakdownBookings.map((b, i) => {
+                const sId = b.status === 'checked-out'
+                  ? (b.checkOutBy || b.checkInBy || b.createdBy)
+                  : (b.checkInBy || b.createdBy)
+                const staffName = resolveStaffName(sId, b.status === 'checked-out'
+                  ? (b.checkOutByName || b.checkInByName || b.createdByName)
+                  : (b.checkInByName || b.createdByName))
+                
+                const rawPay = (b.paymentMethod || b.payment?.method || (b as any).payment_method || '').trim().toLowerCase()
+                const payMap: Record<string, { label: string; cls: string; icon: string }> = {
+                  cash:         { label: 'Cash',         icon: '💵', cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:ring-emerald-800' },
+                  mobile_money: { label: 'Momo',         icon: '📱', cls: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:ring-blue-800' },
+                  card:         { label: 'Card',         icon: '💳',  cls: 'bg-purple-50 text-purple-700 ring-1 ring-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:ring-purple-800' },
+                }
+                const normKey = rawPay === 'cash' ? 'cash'
+                  : (rawPay === 'mobile_money' || rawPay === 'mobile money' || rawPay.includes('mobile') || rawPay.includes('momo')) ? 'mobile_money'
+                  : (rawPay === 'card' || rawPay.includes('card') || rawPay.includes('credit') || rawPay.includes('debit')) ? 'card'
+                  : ''
+                const payEntry = normKey ? payMap[normKey] : null
+
+                return (
+                  <div key={b.id || i} className="bg-white border rounded-xl p-4 shadow-sm active:scale-[0.99] transition-transform">
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <p className="font-bold text-stone-800 leading-tight">{b.guest?.fullName || '—'}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] font-bold text-muted-foreground bg-stone-100 px-1.5 py-0.5 rounded">
+                            Room {b.roomNumber || '—'}
+                          </span>
+                          {(b as any)._isDeposit ? (
+                            <span className="text-[10px] font-bold text-amber-600 uppercase tracking-tighter">Deposit</span>
+                          ) : (
+                             <span className={cn(
+                               "text-[10px] font-bold uppercase tracking-tighter",
+                               b.status === 'checked-out' ? 'text-slate-500' : 'text-emerald-600'
+                             )}>
+                               {b.status === 'checked-out' ? 'Checked Out' : 'Checked In'}
+                             </span>
+                          )}
+                        </div>
+                      </div>
+                      <p className="font-bold text-sm text-stone-900 tabular-nums">
+                        {formatCurrencySync((b as any)._displayAmount ?? Number(b.amount || b.totalPrice || 0), currency)}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 pt-3 border-t border-stone-50">
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground mb-0.5">Stay Dates</p>
+                        <p className="text-[11px] font-medium text-stone-700">{b.dates.checkIn} - {b.dates.checkOut}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground mb-0.5">Staff</p>
+                        <p className="text-[11px] font-medium text-stone-700 truncate">{staffName}</p>
+                      </div>
+                      <div className="col-span-2">
+                         <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground mb-0.5">Payment Method</p>
+                         {(b as any).paymentSplits?.length > 1 ? (
+                            <div className="flex flex-wrap gap-1 mt-0.5">
+                              {(b as any).paymentSplits.map((s: any, si: number) => {
+                                const splitKey = normPay(s.method)
+                                const splitEntry = splitKey ? payMap[splitKey] : null
+                                return splitEntry ? (
+                                  <span key={si} className={cn("inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold", splitEntry.cls)}>
+                                    {splitEntry.icon} {formatCurrencySync(Number(s.amount) || 0, currency)}
+                                  </span>
+                                ) : null
+                              })}
+                            </div>
+                         ) : payEntry ? (
+                            <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold mt-0.5", payEntry.cls)}>
+                              {payEntry.icon} {payEntry.label}
+                            </span>
+                         ) : (
+                           <span className="text-[10px] text-muted-foreground">—</span>
+                         )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-muted/40">

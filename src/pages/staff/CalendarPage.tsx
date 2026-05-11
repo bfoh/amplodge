@@ -40,7 +40,7 @@ export function CalendarPage() {
   const [roomTypes, setRoomTypes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [viewMode, setViewMode] = useState<ViewMode>('grid')
+  const [viewMode, setViewMode] = useState<ViewMode>(window.innerWidth < 768 ? 'list' : 'grid')
 
   // Booking form (aligned with Staff Bookings page)
   const [formData, setFormData] = useState({

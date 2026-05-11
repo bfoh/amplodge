@@ -1163,11 +1163,11 @@ export function ReservationsPage() {
             </CardContent>
           </Card>
 
-          {/* Reservations Table */}
-          <Card className="border-stone-200/60 shadow-sm bg-white/90 backdrop-blur-sm overflow-hidden">
+          {/* Desktop Table View */}
+          <Card className="hidden md:block border-stone-200/60 shadow-sm bg-white/90 backdrop-blur-sm overflow-hidden">
             <CardContent className="p-0">
               {filtered.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8">No bookings found.</p>
+                <p className="text-center text-muted-foreground py-12">No bookings found matching your filters.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <Table>
@@ -1186,10 +1186,6 @@ export function ReservationsPage() {
                     <TableBody>
                       {filtered.map((b) => {
                         const guest = guestMap.get(b.guestId)
-                        // Robust room lookup:
-                        // 1. Live lookup from combined roomMap
-                        // 2. Fallback to ROOM_SNAPSHOT in special_requests
-                        // 3. Last resort fallback to raw booking roomNumber field if it exists
                         const liveRoom = roomMap.get(b.roomId)
                         let roomNumber = liveRoom?.roomNumber || 'N/A'
                         
@@ -1203,21 +1199,14 @@ export function ReservationsPage() {
                           }
                         }
                         
-                        // If still N/A, check if the booking object itself has a roomNumber field (from hydrate)
                         if (roomNumber === 'N/A' && (b as any).roomNumber) {
                           roomNumber = (b as any).roomNumber
                         }
 
-                        const room = liveRoom || { roomNumber } as any
                         const isMainActionLoading = downloadingInvoice === b.id || updatingId === b.id
-
-                        // Prefer GUEST_SNAPSHOT over live guest table for name/email display.
-                        // This prevents guest table changes from retroactively renaming group members.
-                        // Falls through to email-derived name when both sources are empty/"Guest".
                         const displayName = resolveGuestDisplayName(b, guest)
                         const displayEmail = (b as any).guestEmailSnapshot || guest?.email
 
-                        // Determine Valid Actions
                         const canShowCheckIn = canCheckIn(b)
                         const canShowCheckOut = canCheckOut(b)
                         const isCheckedOut = b.status === 'checked-out'
@@ -1284,7 +1273,6 @@ export function ReservationsPage() {
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-2 opacity-100 group-hover:opacity-100 transition-opacity">
-                                {/* Primary Action Button */}
                                 {canShowCheckIn && (
                                   <Button size="sm" onClick={() => setCheckInDialog(b)} className="h-8 shadow-sm">
                                     <LogIn className="w-3.5 h-3.5 mr-1.5" /> Check In
@@ -1303,7 +1291,6 @@ export function ReservationsPage() {
                                   </Button>
                                 )}
 
-                                {/* Secondary Actions Dropdown */}
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                     <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
@@ -1312,7 +1299,6 @@ export function ReservationsPage() {
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end" className="w-[180px]">
                                     <DropdownMenuLabel>Actions</DropdownMenuLabel>
-
                                     {isGroup && (
                                       <>
                                         <DropdownMenuItem onClick={() => setManageGroupDialog({ groupId: b.groupId!, groupReference: (b as any).groupReference || 'Group' })}>
@@ -1325,7 +1311,6 @@ export function ReservationsPage() {
                                         </DropdownMenuItem>
                                       </>
                                     )}
-
                                     {canShowCheckOut && (
                                       <>
                                         <DropdownMenuItem onClick={() => setChargesDialog(b)}>
@@ -1338,14 +1323,11 @@ export function ReservationsPage() {
                                         </DropdownMenuItem>
                                       </>
                                     )}
-
                                     <DropdownMenuSeparator />
-
                                     <DropdownMenuItem onClick={() => handleDownloadInvoice(b)}>
                                       <Download className="w-4 h-4 mr-2" />
                                       <span>Download Invoice</span>
                                     </DropdownMenuItem>
-
                                     {!isCancelled && (
                                       <DropdownMenuItem onClick={() => handleDownloadPreInvoice(b)} disabled={downloadingPreInvoice === b.id}>
                                         {downloadingPreInvoice === b.id
@@ -1354,9 +1336,7 @@ export function ReservationsPage() {
                                         <span>Download Pre-Invoice</span>
                                       </DropdownMenuItem>
                                     )}
-
                                     <DropdownMenuSeparator />
-
                                     {isCheckedOut && (
                                       <DropdownMenuItem onClick={() => handleWhatsAppShare(b, 'invoice')} disabled={sharingWhatsApp === `${b.id}-invoice`}>
                                         {sharingWhatsApp === `${b.id}-invoice`
@@ -1365,7 +1345,6 @@ export function ReservationsPage() {
                                         <span>Share Invoice via WhatsApp</span>
                                       </DropdownMenuItem>
                                     )}
-
                                     {!isCancelled && (
                                       <DropdownMenuItem onClick={() => handleWhatsAppShare(b, 'pre-invoice')} disabled={sharingWhatsApp === `${b.id}-pre-invoice`}>
                                         {sharingWhatsApp === `${b.id}-pre-invoice`
@@ -1374,7 +1353,6 @@ export function ReservationsPage() {
                                         <span>Share Pre-Invoice via WhatsApp</span>
                                       </DropdownMenuItem>
                                     )}
-
                                     {!isCheckedOut && !isCancelled && (
                                       <>
                                         <DropdownMenuSeparator />
@@ -1400,6 +1378,125 @@ export function ReservationsPage() {
               )}
             </CardContent>
           </Card>
+
+          <div className="md:hidden space-y-3 pb-24">
+            {filtered.length === 0 ? (
+              <p className="text-center text-muted-foreground py-12">No bookings found matching your filters.</p>
+            ) : (
+              filtered.map((b) => {
+                const guest = guestMap.get(b.guestId)
+                const liveRoom = roomMap.get(b.roomId)
+                let roomNumber = liveRoom?.roomNumber || 'N/A'
+                
+                if (roomNumber === 'N/A' && b.special_requests) {
+                  const snapMatch = b.special_requests.match(/<!-- ROOM_SNAPSHOT:(.*?) -->/)
+                  if (snapMatch) {
+                    try {
+                      const snap = JSON.parse(snapMatch[1])
+                      if (snap.roomNumber) roomNumber = snap.roomNumber
+                    } catch {}
+                  }
+                }
+                
+                const displayName = resolveGuestDisplayName(b, guest)
+                const displayEmail = (b as any).guestEmailSnapshot || guest?.email
+                const canShowCheckIn = canCheckIn(b)
+                const canShowCheckOut = canCheckOut(b)
+                const isGroup = !!b.groupId
+
+                return (
+                  <div key={b.id} className="bg-white border rounded-xl p-4 shadow-sm active:scale-[0.99] transition-transform">
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-mono text-[9px] text-muted-foreground bg-stone-100 px-1.5 py-0.5 rounded">#{b.id.slice(-8)}</span>
+                          <StatusBadge status={b.status} />
+                        </div>
+                        <h3 className="font-bold text-base text-stone-800 leading-tight">{displayName}</h3>
+                        {displayEmail && <p className="text-[11px] text-muted-foreground truncate max-w-[220px]">{displayEmail}</p>}
+                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 -mt-1 -mr-2 rounded-full">
+                            <MoreHorizontal className="w-5 h-5 text-muted-foreground" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-[200px]">
+                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                          {isGroup && (
+                            <DropdownMenuItem onClick={() => setManageGroupDialog({ groupId: b.groupId!, groupReference: (b as any).groupReference || 'Group' })}>
+                              <Settings className="w-4 h-4 mr-2 text-blue-600" /> Manage Group
+                            </DropdownMenuItem>
+                          )}
+                          {canShowCheckOut && (
+                            <>
+                              <DropdownMenuItem onClick={() => setChargesDialog(b)}>
+                                <Receipt className="w-4 h-4 mr-2" /> Add Charges
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => setExtendStayDialog(b)}>
+                                <CalendarPlus className="w-4 h-4 mr-2" /> Extend Stay
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => handleDownloadInvoice(b)}>
+                            <Download className="w-4 h-4 mr-2" /> Download Invoice
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleWhatsAppShare(b, 'invoice')}>
+                            <MessageCircle className="w-4 h-4 mr-2 text-green-600" /> Share via WhatsApp
+                          </DropdownMenuItem>
+                          {b.status !== 'cancelled' && b.status !== 'checked-out' && (
+                            <DropdownMenuItem onClick={() => setCancelDialog(b)} className="text-destructive">
+                              <LogOut className="w-4 h-4 mr-2 rotate-180" /> Cancel Booking
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 pt-3 border-t border-stone-50">
+                       <div className="space-y-0.5">
+                         <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground">Room</p>
+                         <p className="font-bold text-stone-700 text-sm">Room {roomNumber}</p>
+                       </div>
+                       <div className="space-y-0.5">
+                         <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground">Total</p>
+                         <p className="font-bold text-primary text-sm tabular-nums">{formatCurrencySync(getBookingTotal(b), currency)}</p>
+                       </div>
+                       <div className="space-y-0.5">
+                         <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground">Dates</p>
+                         <p className="text-[11px] font-medium text-stone-600">
+                           {format(parseISO(b.checkIn), 'MMM dd')} - {format(parseISO(b.checkOut), 'MMM dd')}
+                         </p>
+                       </div>
+                       <div className="space-y-0.5">
+                         <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground">Payment</p>
+                         <p className="text-[11px] font-medium text-stone-600">{b.paymentMethod || 'Unpaid'}</p>
+                       </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 mt-4 pt-3 border-t border-stone-50">
+                      {canShowCheckIn && (
+                        <Button className="flex-1 h-9 font-bold text-xs bg-primary hover:bg-primary/90" onClick={() => setCheckInDialog(b)}>
+                          <LogIn className="w-3.5 h-3.5 mr-1.5" /> Check In
+                        </Button>
+                      )}
+                      {canShowCheckOut && (
+                        <Button variant="outline" className="flex-1 h-9 font-bold text-xs border-primary/30 text-primary hover:bg-primary/5" onClick={() => setCheckOutDialog(b)}>
+                          <LogOut className="w-3.5 h-3.5 mr-1.5" /> Check Out
+                        </Button>
+                      )}
+                      {!canShowCheckIn && !canShowCheckOut && b.status === 'checked-out' && (
+                        <Button variant="secondary" className="flex-1 h-9 font-bold text-xs bg-stone-100 text-stone-700 hover:bg-stone-200" onClick={() => handleDownloadInvoice(b)}>
+                          <Download className="w-3.5 h-3.5 mr-1.5" /> Invoice
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
         </main>
       </div >
     </>

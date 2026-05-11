@@ -183,14 +183,14 @@ export function StaffSidebar({ email, className, onNavigate }: StaffSidebarProps
   }
 
   return (
-    <aside className={cn(className, "flex h-full flex-col bg-[#0B1220] text-white/90 shadow-2xl transition-all duration-300")}>
+    <aside className={cn("flex h-full flex-col bg-[#0B1220] text-white/90 shadow-2xl transition-all duration-300", className)}>
 
-      <div className="px-6 py-10 border-b border-white/5 flex flex-col items-center shrink-0">
-        <div className="w-20 h-20 mb-5 rounded-2xl bg-gradient-to-br from-white/10 to-white/5 flex items-center justify-center overflow-hidden border border-white/10 shadow-2xl group transition-transform duration-500 hover:scale-105">
+      <div className="px-6 py-6 border-b border-white/5 flex flex-col items-center shrink-0">
+        <div className="w-16 h-16 mb-4 rounded-2xl bg-gradient-to-br from-white/10 to-white/5 flex items-center justify-center overflow-hidden border border-white/10 shadow-2xl group transition-transform duration-500 hover:scale-105">
            <img 
             src="/amp.png" 
             alt="AMP Lodge" 
-            className="w-14 h-14 object-contain transition-transform group-hover:rotate-3 duration-700" 
+            className="w-10 h-10 object-contain transition-transform group-hover:rotate-3 duration-700" 
             onError={(e) => {
               e.currentTarget.style.display = 'none';
               const parent = e.currentTarget.parentElement;

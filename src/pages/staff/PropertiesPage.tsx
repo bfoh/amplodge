@@ -539,16 +539,18 @@ export function PropertiesPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           {properties.map((property: any) => {
             const { status, booking } = getRoomStatus(property)
 
-            let statusColor = 'bg-green-500'
+            let statusColor = 'bg-emerald-500'
+            let statusBg = 'bg-emerald-50 text-emerald-700 border-emerald-100'
             let statusText = 'Available'
             let tooltipText = 'Room is available for booking'
 
             if (status === 'occupied') {
-              statusColor = 'bg-red-500'
+              statusColor = 'bg-rose-500'
+              statusBg = 'bg-rose-50 text-rose-700 border-rose-100'
               statusText = 'Occupied'
               if (booking) {
                 const guestName = booking.guest?.fullName || booking.guest?.name || 'Guest'
@@ -556,35 +558,52 @@ export function PropertiesPage() {
                 tooltipText = `Occupied by ${guestName} until ${checkOut}`
               }
             } else if (status === 'maintenance') {
-              statusColor = 'bg-yellow-500'
+              statusColor = 'bg-amber-500'
+              statusBg = 'bg-amber-50 text-amber-700 border-amber-100'
               statusText = 'Maintenance'
               tooltipText = 'Room is under maintenance'
             }
 
             return (
-              <Card key={property.id} className="hover:shadow-lg transition-shadow relative overflow-hidden" title={tooltipText}>
-                {/* Status Badge */}
-                <div className={`absolute top-0 right-0 px-3 py-1 text-xs font-bold text-white rounded-bl-lg z-10 ${statusColor}`}>
-                  {statusText}
-                </div>
+              <Card 
+                key={property.id} 
+                className="group relative overflow-hidden border-border/40 hover:border-primary/20 hover:shadow-xl transition-all duration-300 active:scale-[0.98] sm:active:scale-100" 
+                title={tooltipText}
+              >
+                {/* Visual Status Indicator (Mobile Focused) */}
+                <div className={cn("absolute top-0 right-0 h-1.5 w-1/3 rounded-bl-full z-10", statusColor)} />
 
-                <CardHeader>
+                <CardHeader className="p-4 sm:p-6 pb-2">
                   <div className="flex items-start justify-between">
-                    <div className="flex-1 pr-8">
-                      <CardTitle className="line-clamp-1">{property.name}</CardTitle>
-                      <CardDescription className="line-clamp-1 mt-1">
-                        {property.roomNumber ? `Room ${property.roomNumber}` : ''}
-                        {property.roomNumber && (property.roomTypeName || property.propertyType) ? ' • ' : ''}
-                        {property.roomTypeName || property.propertyType || ''}
-                      </CardDescription>
+                    <div className="flex-1 min-w-0 pr-4">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border",
+                          statusBg
+                        )}>
+                          {statusText}
+                        </span>
+                        {property.roomNumber && (
+                          <span className="text-[10px] font-black bg-stone-100 text-stone-600 px-2 py-0.5 rounded shadow-sm">
+                            #{property.roomNumber}
+                          </span>
+                        )}
+                      </div>
+                      <CardTitle className="text-lg font-bold leading-tight text-stone-800 line-clamp-1 group-hover:text-primary transition-colors">
+                        {property.name}
+                      </CardTitle>
+                      <p className="text-xs font-medium text-stone-400 mt-0.5 truncate">
+                        {property.roomTypeName || property.propertyType || 'Standard Unit'}
+                      </p>
                     </div>
+
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreVertical className="h-4 w-4" />
+                        <Button variant="ghost" size="icon" className="h-10 w-10 -mt-1 -mr-2 rounded-full hover:bg-stone-100 active:bg-stone-200 shrink-0">
+                          <MoreVertical className="h-5 w-5 text-stone-400" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
+                      <DropdownMenuContent align="end" className="w-48">
                         <DropdownMenuItem onClick={() => {
                           setEditingId(property.id)
                           setFormData({
@@ -599,45 +618,55 @@ export function PropertiesPage() {
                             description: property.description || ''
                           })
                           setDialogOpen(true)
-                        }}>
+                        }} className="py-2.5">
                           <Pencil className="h-4 w-4 mr-2" />
-                          Edit
+                          Edit Details
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => handleDeleteClick(property.id)}
-                          className="text-destructive"
+                          className="text-destructive focus:text-destructive py-2.5"
                         >
                           <Trash2 className="h-4 w-4 mr-2" />
-                          Delete
+                          Delete Room
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  {property.roomNumber && (
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <div className="flex items-center gap-1">
-                        <Building2 className="w-4 h-4" />
-                        <span>{property.roomNumber}</span>
+
+                <CardContent className="p-4 sm:p-6 pt-2 space-y-4">
+                  {/* Features Grid */}
+                  <div className="grid grid-cols-2 gap-3 bg-stone-50/50 rounded-xl p-3 border border-stone-100/50">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-white shadow-sm border border-stone-100">
+                        <Bed className="w-3.5 h-3.5 text-primary" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter leading-none">Beds</span>
+                        <span className="text-xs font-bold text-stone-700">{property.bedrooms} Units</span>
                       </div>
                     </div>
-                  )}
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                    <div className="flex items-center gap-1">
-                      <Bed className="w-4 h-4" />
-                      <span>{property.bedrooms}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Users className="w-4 h-4" />
-                      <span>{property.maxGuests}</span>
+                    <div className="flex items-center gap-2 border-l border-stone-200 pl-3">
+                      <div className="p-1.5 rounded-lg bg-white shadow-sm border border-stone-100">
+                        <Users className="w-3.5 h-3.5 text-primary" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter leading-none">Guests</span>
+                        <span className="text-xs font-bold text-stone-700">Max {property.maxGuests}</span>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between pt-2 border-t">
-                    <div className="flex items-center gap-1 text-primary font-semibold">
-                      <span>{formatCurrencySync(property.displayPrice, currency)}</span>
+                  
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="flex flex-col">
+                      <span className="text-xl font-black text-primary tracking-tighter leading-none">
+                        {formatCurrencySync(property.displayPrice, currency)}
+                      </span>
+                      <span className="text-[10px] text-stone-400 font-bold uppercase tracking-widest mt-1">per night</span>
                     </div>
-                    <span className="text-xs text-muted-foreground">per night</span>
+                    <Button variant="outline" size="sm" className="h-9 px-4 rounded-xl text-[11px] font-bold uppercase tracking-wider border-stone-200 hover:bg-primary hover:text-white hover:border-primary transition-all duration-300">
+                      View Details
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
