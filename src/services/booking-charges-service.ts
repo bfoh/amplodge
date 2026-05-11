@@ -110,12 +110,23 @@ class BookingChargesService {
             // Trigger real-time inventory reduction if inventoryId is provided
             if (data.inventoryId) {
                 try {
-                    await inventoryService.logTransaction({
-                        inventoryId: data.inventoryId,
-                        type: 'sale',
-                        quantity: -data.quantity,
-                        notes: `Guest charge: ${data.description} (Booking ${data.bookingId})`
-                    })
+                    // Use staff info if provided, else try to get current user, else fallback to 'system'
+                    let staffInfo = { id: 'system', name: 'System' }
+                    if (data.createdBy) {
+                        staffInfo = { id: data.createdBy, name: 'Staff' }
+                    } else {
+                        const me = await auth.me().catch(() => null)
+                        if (me) {
+                            staffInfo = { id: me.id, name: me.email?.split('@')[0] || 'Staff' }
+                        }
+                    }
+
+                    await inventoryService.reduceStock(
+                        data.inventoryId,
+                        data.quantity,
+                        staffInfo,
+                        `Guest charge: ${data.description} (Booking ${data.bookingId})`
+                    )
                 } catch (invError) {
                     console.error('[BookingChargesService] Failed to reduce stock:', invError)
                 }

@@ -160,15 +160,29 @@ export function BookingsPage() {
   const loadData = async () => {
     try {
       // Load bookings, properties (rooms), and room types
-      const [allBookings, roomsData, roomTypesData] = await Promise.all([
+      const [allBookings, roomsData, roomTypesData, propertiesData] = await Promise.all([
         bookingEngine.getAllBookings(),
         (db as any).rooms.list({ orderBy: { roomNumber: 'asc' } }),
-        (db as any).roomTypes.list()
+        (db as any).roomTypes.list(),
+        db.properties.listAll().catch(() => [])
       ])
+
+      // Combine rooms and properties for maximum inventory visibility
+      const combinedRooms = [...(roomsData as any[])]
+      const seenRoomIds = new Set(combinedRooms.map(r => r.id))
+      
+      if (Array.isArray(propertiesData)) {
+        propertiesData.forEach((p: any) => {
+          if (!seenRoomIds.has(p.id)) {
+            combinedRooms.push(p)
+            seenRoomIds.add(p.id)
+          }
+        })
+      }
 
       const roomTypeMap = new Map<string, string>((roomTypesData as any[]).map((rt: any) => [rt.id, rt.name]))
       const propertyTypeByRoomNumber = new Map<string, string>(
-        (roomsData as any[]).map((p: any) => [p.roomNumber, p.roomTypeId])
+        combinedRooms.map((p: any) => [p.roomNumber, p.roomTypeId])
       )
 
       // Transform to UI format and deduplicate
@@ -220,7 +234,7 @@ export function BookingsPage() {
       })
 
       setBookings(uniqueBookings)
-      setProperties(roomsData as any[])
+      setProperties(combinedRooms)
       setRoomTypes(roomTypesData as any[])
     } catch (error) {
       console.error('Failed to load data:', error)

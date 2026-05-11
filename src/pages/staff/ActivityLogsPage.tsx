@@ -24,6 +24,8 @@ export function ActivityLogsPage() {
   const [endDate, setEndDate] = useState('')
   const [userFilter, setUserFilter] = useState<string>('all')
   const [users, setUsers] = useState<Array<{ id: string; name: string }>>([])
+  const [autoRefresh, setAutoRefresh] = useState(false)
+  const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     loadUsers()
@@ -31,13 +33,34 @@ export function ActivityLogsPage() {
 
   useEffect(() => {
     loadLogs()
-  }, [logsUpdate, actionFilter, entityTypeFilter, startDate, endDate, userFilter])
+  }, [logsUpdate, loadLogs])
 
   useEffect(() => {
     applyFilters()
   }, [logs, searchQuery])
 
-  async function loadLogs() {
+  // Implement auto-refresh logic
+  useEffect(() => {
+    if (autoRefresh) {
+      refreshIntervalRef.current = setInterval(() => {
+        console.log('[ActivityLogsPage] Auto-refreshing logs...')
+        loadLogs()
+      }, 30000) // 30 seconds
+    } else {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current)
+        refreshIntervalRef.current = null
+      }
+    }
+
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current)
+      }
+    }
+  }, [autoRefresh])
+
+  const loadLogs = useCallback(async () => {
     try {
       setLoading(true)
       const options: any = { limit: 500 }
@@ -62,7 +85,7 @@ export function ActivityLogsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [actionFilter, entityTypeFilter, startDate, endDate, userFilter])
 
   // Test function removed
 
@@ -170,6 +193,7 @@ export function ActivityLogsPage() {
   }
 
   function convertDetailsToReadableMessage(details: Record<string, any>): string {
+    if (!details) return 'No details available'
     // Handle different types of details and create readable messages
     if (details.guestName && details.roomNumber) {
       // Booking-related details

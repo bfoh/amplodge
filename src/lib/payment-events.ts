@@ -152,35 +152,45 @@ export function computeStaffAttributedRevenue(
     const status = paymentStatus || 'pending'
     const paid = amountPaidAtBooking ?? 0
 
-    // How much the booking creator collected at booking time
+    // 1. Booking creator gets what was collected at booking time
     const creatorAmount = status === 'full'
       ? effectivePrice
       : status === 'part'
         ? paid
         : 0 // pending = nothing collected at booking time
 
-    // Remaining balance is collected at check-out (or check-in if no checkout staff recorded).
+    // 2. Remaining balance is credited to the check-in staff
     const remainder = Math.max(0, effectivePrice - creatorAmount)
-    // Prefer checkOutBy since remaining balance is typically collected at departure.
-    const collector = checkOutBy || checkInBy || ''
+    const checkInStaff = checkInBy || ''
 
     let attributed = 0
     if (createdBy === staffId) attributed += creatorAmount
-    if (remainder > 0 && collector === staffId) attributed += remainder
+    if (remainder > 0 && checkInStaff === staffId) attributed += remainder
+    
+    // Note: checkOutBy specifically gets 0 here per user requirement
     return attributed
   }
 
   // Modern booking with recorded PaymentEvents
-  const directAmount = events
-    .filter((e) => e.staffId === staffId)
-    .reduce((sum, e) => sum + e.amount, 0)
-
-  // Gap = effectivePrice not yet covered by any recorded payment event
+  let attributed = 0
   const coveredTotal = events.reduce((sum, e) => sum + e.amount, 0)
+  
+  for (const e of events) {
+    if (e.stage === 'booking') {
+      // Booking stage events go to whoever recorded them (usually creator)
+      if (e.staffId === staffId) attributed += e.amount
+    } else {
+      // checkin or checkout stage events go to the check-in staff
+      const checkInStaff = checkInBy || e.staffId // fallback to event staff if checkInBy is missing
+      if (checkInStaff === staffId) attributed += e.amount
+    }
+  }
+
+  // Any remaining gap (unrecorded balance) is attributed to the check-in staff
   const gap = Math.max(0, effectivePrice - coveredTotal)
+  if (gap > 0 && checkInBy === staffId) {
+    attributed += gap
+  }
 
-  // The checkout staff collects any remaining balance at departure
-  const gapAmount = gap > 0 && checkOutBy === staffId ? gap : 0
-
-  return directAmount + gapAmount
+  return attributed
 }

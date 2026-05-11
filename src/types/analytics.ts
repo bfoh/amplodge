@@ -50,6 +50,8 @@ export interface RevenueAnalytics {
   additionalRevenueByCategory?: Record<string, number>
   standaloneSalesTotal?: number
   roomRevenueTotal?: number
+  servicesRevenueTotal?: number
+  roomExtensionRevenueTotal?: number
 }
 
 export interface OccupancyAnalytics {

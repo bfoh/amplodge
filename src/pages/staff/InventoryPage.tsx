@@ -158,8 +158,8 @@ export function InventoryPage() {
   }
 
   const filteredItems = items.filter(item => 
-    item.name.toLowerCase().includes(search.toLowerCase()) ||
-    item.category.toLowerCase().includes(search.toLowerCase())
+    (item.name || '').toLowerCase().includes(search.toLowerCase()) ||
+    (item.category || '').toLowerCase().includes(search.toLowerCase())
   )
 
   const lowStockItems = items.filter(i => i.stockQuantity <= i.minThreshold)

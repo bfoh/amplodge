@@ -103,10 +103,24 @@ export function ReservationHistoryPage() {
         db.staff.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
         db.guests.list().catch(() => []),
         db.properties.list().catch(() => []),
+        (db as any).rooms.list().catch(() => []),
       ])
 
       const guestLookupMap = new Map<string, any>(allGuestsForMap.map((g: any) => [g.id, g] as [string, any]))
-      const propertyLookupMap = new Map<string, any>(allPropertiesForMap.map((p: any) => [p.id, p] as [string, any]))
+      
+      // Combine rooms and properties for maximum ID coverage
+      const roomsTable = arguments[5] || []
+      const combinedRooms = [...allPropertiesForMap]
+      const seenRoomIds = new Set(allPropertiesForMap.map((item: any) => item.id))
+      
+      roomsTable.forEach((rt: any) => {
+        if (!seenRoomIds.has(rt.id)) {
+          combinedRooms.push(rt)
+          seenRoomIds.add(rt.id)
+        }
+      })
+
+      const propertyLookupMap = new Map<string, any>(combinedRooms.map((p: any) => [p.id, p] as [string, any]))
 
       // Fetch activity logs to show booking deletions and other activities
       const activityLogsData = await db.activityLogs.list({
@@ -142,8 +156,24 @@ export function ReservationHistoryPage() {
         if (booking.roomId) {
           const property = propertyLookupMap.get(booking.roomId)
           if (property) roomNumber = property.roomNumber || property.name || roomNumber
-        } else if (booking.roomNumber) {
-          roomNumber = booking.roomNumber
+        } 
+        
+        // Fallback to snapshot in special_requests
+        if (roomNumber === 'Unknown Room' || roomNumber === 'N/A') {
+          const specialReq = booking.special_requests || booking.specialRequests || ''
+          const snapMatch = specialReq.match(/<!-- ROOM_SNAPSHOT:(.*?) -->/)
+          if (snapMatch) {
+            try {
+              const snap = JSON.parse(snapMatch[1])
+              if (snap.roomNumber) roomNumber = snap.roomNumber
+            } catch {}
+          }
+        }
+
+        // Final fallback to legacy columns
+        if (roomNumber === 'Unknown Room' || roomNumber === 'N/A') {
+          if (booking.roomNumber) roomNumber = booking.roomNumber
+          else if (booking.room_number) roomNumber = booking.room_number
         }
         
         // Booking creation

@@ -414,7 +414,27 @@ export function AnalyticsPage() {
             <p className="text-[1.65rem] font-bold tracking-tight leading-none">
               {formatCurrencySync(revenue?.totalRevenue || 0, currency)}
             </p>
-            <div className="flex items-center gap-1.5 mt-2.5">
+            <div className="mt-4 pt-4 border-t border-emerald-500/10 space-y-2">
+              <div className="flex items-center justify-between text-[10px] uppercase tracking-wider font-semibold text-muted-foreground/80">
+                <span>Revenue Track</span>
+                <span>Amount</span>
+              </div>
+              <div className="flex justify-between text-xs items-center">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <span className="text-muted-foreground">Room Bookings</span>
+                </div>
+                <span className="font-bold">{formatCurrencySync(revenue?.roomRevenueTotal || 0, currency)}</span>
+              </div>
+              <div className="flex justify-between text-xs items-center">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                  <span className="text-muted-foreground">Services & Products</span>
+                </div>
+                <span className="font-bold">{formatCurrencySync(revenue?.servicesRevenueTotal || 0, currency)}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 mt-4">
               {revenueGrowth >= 0
                 ? <ArrowUpRight className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                 : <ArrowDownRight className="w-3.5 h-3.5 text-red-500 shrink-0" />}

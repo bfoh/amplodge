@@ -222,7 +222,8 @@ export function ReservationsPage() {
           db.properties.listAll(),
           db.guests.listAll(),
           db.roomTypes.list({ limit: 100 }),
-          db.bookingCharges.listAll() || Promise.resolve([])
+          db.bookingCharges.listAll() || Promise.resolve([]),
+          (db as any).rooms.listAll().catch(() => [])
         ])
 
         // Store charges for calculating totals
@@ -241,7 +242,19 @@ export function ReservationsPage() {
         })
 
         setBookings(uniqueBookings)
-        setRooms(r)
+        // Combine properties and rooms tables for maximum ID coverage
+        const roomsTable = arguments[5] || []
+        const combinedRooms = [...r]
+        const seenRoomIds = new Set(r.map(item => item.id))
+        
+        roomsTable.forEach((rt: any) => {
+          if (!seenRoomIds.has(rt.id)) {
+            combinedRooms.push(rt)
+            seenRoomIds.add(rt.id)
+          }
+        })
+
+        setRooms(combinedRooms)
         setGuests(g)
         setRoomTypes(rt)
       } catch (e) {
@@ -1174,7 +1187,29 @@ export function ReservationsPage() {
                     <TableBody>
                       {filtered.map((b) => {
                         const guest = guestMap.get(b.guestId)
-                        const room = roomMap.get(b.roomId)
+                        // Robust room lookup:
+                        // 1. Live lookup from combined roomMap
+                        // 2. Fallback to ROOM_SNAPSHOT in special_requests
+                        // 3. Last resort fallback to raw booking roomNumber field if it exists
+                        const liveRoom = roomMap.get(b.roomId)
+                        let roomNumber = liveRoom?.roomNumber || 'N/A'
+                        
+                        if (roomNumber === 'N/A' && b.special_requests) {
+                          const snapMatch = b.special_requests.match(/<!-- ROOM_SNAPSHOT:(.*?) -->/)
+                          if (snapMatch) {
+                            try {
+                              const snap = JSON.parse(snapMatch[1])
+                              if (snap.roomNumber) roomNumber = snap.roomNumber
+                            } catch {}
+                          }
+                        }
+                        
+                        // If still N/A, check if the booking object itself has a roomNumber field (from hydrate)
+                        if (roomNumber === 'N/A' && (b as any).roomNumber) {
+                          roomNumber = (b as any).roomNumber
+                        }
+
+                        const room = liveRoom || { roomNumber } as any
                         const isMainActionLoading = downloadingInvoice === b.id || updatingId === b.id
 
                         // Prefer GUEST_SNAPSHOT over live guest table for name/email display.
@@ -1210,8 +1245,8 @@ export function ReservationsPage() {
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-col">
-                                <span className="font-medium text-sm">Room {room?.roomNumber || 'N/A'}</span>
-                                <span className="text-[10px] text-muted-foreground capitalize">{resolveRoomStatus(b, room).replace('-', ' ')}</span>
+                                <span className="font-medium text-sm">Room {roomNumber}</span>
+                                <span className="text-[10px] text-muted-foreground capitalize">{resolveRoomStatus(b, liveRoom).replace('-', ' ')}</span>
                               </div>
                             </TableCell>
                             <TableCell>

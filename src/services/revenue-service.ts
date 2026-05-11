@@ -356,9 +356,14 @@ export async function fetchBookingsForStaffWeek(
       const checkerName  = b.checkInByName  || b.check_in_by_name  || ''
       const checkOuter   = b.checkOutBy     || b.check_out_by    || ''
       const checkOutName = b.checkOutByName || b.check_out_by_name || ''
+
+      const bCharges = chargesByBookingId.get(b.id) || []
+      const hasMyCharge = bCharges.some((c: any) => isThisStaff(c.createdBy || c.created_by, ''))
+
       if (!isThisStaff(creator, creatorName) &&
           !isThisStaff(checker, checkerName) &&
-          !isThisStaff(checkOuter, checkOutName)) return false
+          !isThisStaff(checkOuter, checkOutName) &&
+          !hasMyCharge) return false
 
       const status = b.status || ''
 
@@ -438,8 +443,10 @@ export async function fetchBookingsForStaffWeek(
         ? paymentSplits.reduce((a, s) => s.amount > a.amount ? s : a, paymentSplits[0]).method
         : rawMethod
 
-      // Additional charges for this booking
-      const rawCharges = chargesByBookingId.get(b.id) || []
+      // Additional charges for this booking — only include those created by THIS staff member
+      const rawCharges = (chargesByBookingId.get(b.id) || [])
+        .filter((c: any) => isThisStaff(c.createdBy || c.created_by, ''))
+
       const additionalCharges: ChargeLineSummary[] = rawCharges.map((c: any) => ({
         id: c.id,
         description: c.description || '',
@@ -697,32 +704,14 @@ export async function fetchBookingsForStaffWeek(
     // Always keep deposit (confirmed) rows — they passed the filter so payment was made.
     .filter((b) => b.isDeposit || b.staffAttributedRevenue > 0 || b.effectivePrice === 0)
 
-  // ── Orphan charges ────────────────────────────────────────────────────────
-  // Charges created THIS WEEK on bookings owned by this staff member whose
-  // check-in date falls outside this week (not already covered by `matched`).
   const matchedIds = new Set(matched.map((b) => b.id))
-  // All booking IDs attributed to this staff member (created, checked-in, or checked-out by them)
-  const allStaffBookingIds = new Set(
-    ((allBookings || []) as any[])
-      .filter((b: any) => {
-        const creator      = b.createdBy      || b.created_by      || ''
-        const creatorName  = b.createdByName  || b.created_by_name || ''
-        const checker      = b.checkInBy      || b.check_in_by     || ''
-        const checkerName  = b.checkInByName  || b.check_in_by_name  || ''
-        const checkOuter   = b.checkOutBy     || b.check_out_by    || ''
-        const checkOutName = b.checkOutByName || b.check_out_by_name || ''
-        return isThisStaff(creator, creatorName) ||
-               isThisStaff(checker, checkerName) ||
-               isThisStaff(checkOuter, checkOutName)
-      })
-      .map((b: any) => b.id)
-  )
-
   const orphanCharges: ChargeLineSummary[] = []
   for (const [bookingId, charges] of chargesByBookingId.entries()) {
-    if (!allStaffBookingIds.has(bookingId)) continue  // not this staff's booking
-    if (matchedIds.has(bookingId)) continue           // already counted in matched
+    if (matchedIds.has(bookingId)) continue  // already counted in matched
     for (const c of charges) {
+      // Only include charges created by this staff member
+      if (!isThisStaff(c.createdBy || c.created_by, '')) continue
+
       const createdAt = c.createdAt || c.created_at || ''
       if (!createdAt) continue
       const d = new Date(createdAt)

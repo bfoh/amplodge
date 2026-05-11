@@ -138,7 +138,7 @@ class AnalyticsService {
         })
       }
 
-      const roomRevenueTotal = revenueBookings.reduce(
+      let baseRoomRevenueTotal = revenueBookings.reduce(
         (sum, b) => sum + Number(b.amount || b.totalPrice || 0),
         0
       )
@@ -146,18 +146,25 @@ class AnalyticsService {
       // Total deposits collected on confirmed bookings (cash already received)
       const depositRevenueTotal = depositBookings.reduce((sum, b) => sum + getDepositAmount(b), 0)
 
-      // Additional revenue from booking charges — iterate all raw charges directly to avoid
-      // booking-ID mismatch between bookingEngine IDs and remoteId used in GuestChargesDialog
+      // Additional revenue from booking charges
       const additionalRevenueByCategory: Record<string, number> = {}
-      let additionalChargesTotal = 0
+      let roomExtensionRevenueTotal = 0
+      let otherChargesTotal = 0
+
       for (const c of (allChargesRaw || [])) {
         const amt = Number(c.amount || 0)
-        additionalChargesTotal += amt
         const cat = c.category || 'other'
+        
+        if (cat === 'room_extension') {
+          roomExtensionRevenueTotal += amt
+        } else {
+          otherChargesTotal += amt
+        }
+        
         additionalRevenueByCategory[cat] = (additionalRevenueByCategory[cat] || 0) + amt
       }
 
-      // Standalone sales (all-time — filtered by date range below for period breakdowns)
+      // Standalone sales
       const standaloneSalesTotal = (allStandaloneSales || []).reduce(
         (sum: number, s: any) => sum + Number(s.amount || 0), 0
       )
@@ -166,7 +173,12 @@ class AnalyticsService {
         additionalRevenueByCategory[cat] = (additionalRevenueByCategory[cat] || 0) + Number(s.amount || 0)
       }
 
-      const totalRevenue = roomRevenueTotal + depositRevenueTotal + additionalChargesTotal + standaloneSalesTotal
+      // Final aggregated tracks
+      const roomRevenueTotal = baseRoomRevenueTotal + roomExtensionRevenueTotal
+      const servicesRevenueTotal = otherChargesTotal + standaloneSalesTotal
+      const additionalChargesTotal = roomExtensionRevenueTotal + otherChargesTotal
+
+      const totalRevenue = roomRevenueTotal + servicesRevenueTotal + depositRevenueTotal
 
       // Revenue by period
       const today = new Date().toISOString().split('T')[0]
@@ -532,6 +544,8 @@ class AnalyticsService {
       return {
         totalRevenue,
         roomRevenueTotal,
+        servicesRevenueTotal,
+        roomExtensionRevenueTotal,
         standaloneSalesTotal,
         additionalRevenueByCategory,
         revenueByPeriod,

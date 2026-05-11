@@ -410,7 +410,8 @@ class BookingEngine {
       (bookingData.paymentSplits && bookingData.paymentSplits.length > 1
         ? `\n\n<!-- PAYMENT_SPLITS:${JSON.stringify(bookingData.paymentSplits)} -->`
         : '') +
-      `\n\n<!-- GUEST_SNAPSHOT:${JSON.stringify(guestSnapshot)} -->`
+      `\n\n<!-- GUEST_SNAPSHOT:${JSON.stringify(guestSnapshot)} -->` +
+      `\n\n<!-- ROOM_SNAPSHOT:${JSON.stringify({ roomNumber: bookingData.roomNumber })} -->`
 
     console.log('[BookingEngine Debug] Generated specialRequests length:', specialRequests.length)
     if (hasGroupData) {
@@ -1391,6 +1392,18 @@ class BookingEngine {
         }
       }
 
+      // Parse ROOM_SNAPSHOT
+      let snapshotRoomNumber: string | undefined
+      const roomSnapMatch = specialReq.match(/<!-- ROOM_SNAPSHOT:(.*?) -->/)
+      if (roomSnapMatch && roomSnapMatch[1]) {
+        try {
+          const snap = JSON.parse(roomSnapMatch[1])
+          snapshotRoomNumber = snap.roomNumber || undefined
+        } catch (e) {
+          // ignore malformed snapshot
+        }
+      }
+
       // Parse payment splits from specialRequests
       let paymentSplits: Array<{ method: string; amount: number }> | undefined
       const splitsMatch = specialReq.match(/<!-- PAYMENT_SPLITS:(.*?) -->/)
@@ -1420,7 +1433,7 @@ class BookingEngine {
           address: guest?.address || '',
         },
         roomType: room?.roomTypeId || '',
-        roomNumber: room?.roomNumber || '',
+        roomNumber: room?.roomNumber || snapshotRoomNumber || '',
         dates: {
           checkIn: b.checkIn,
           checkOut: b.checkOut,

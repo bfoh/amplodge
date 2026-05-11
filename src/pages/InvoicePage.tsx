@@ -84,23 +84,38 @@ export function InvoicePage() {
         const data = await response.json()
         console.log('✅ [InvoicePage] Secure Data Fetched:', data)
 
-        const mapBooking = (b: any) => ({
-          ...b,
-          checkIn: b.check_in,
-          checkOut: b.check_out,
-          guestId: b.guest_id,
-          roomId: b.room_id,
-          totalPrice: b.total_price,
-          numGuests: b.num_guests,
-          roomType: b.rooms?.room_types?.name || 'Standard Room',
-          roomNumber: b.rooms?.room_number || 'N/A',
-          guest: b.guests,
-          room: {
-            roomNumber: b.rooms?.room_number || 'N/A',
-            roomType: b.rooms?.room_types?.name || 'Standard Room',
-            basePrice: b.rooms?.room_types?.base_price || 0
+        const mapBooking = (b: any) => {
+          let roomNumber = b.rooms?.room_number || 'N/A'
+          
+          // Fallback to ROOM_SNAPSHOT if database join failed
+          if (roomNumber === 'N/A' && b.special_requests) {
+            const snapMatch = b.special_requests.match(/<!-- ROOM_SNAPSHOT:(.*?) -->/)
+            if (snapMatch) {
+              try {
+                const snap = JSON.parse(snapMatch[1])
+                if (snap.roomNumber) roomNumber = snap.roomNumber
+              } catch {}
+            }
           }
-        })
+
+          return {
+            ...b,
+            checkIn: b.check_in,
+            checkOut: b.check_out,
+            guestId: b.guest_id,
+            roomId: b.room_id,
+            totalPrice: b.total_price,
+            numGuests: b.num_guests,
+            roomType: b.rooms?.room_types?.name || 'Standard Room',
+            roomNumber,
+            guest: b.guests,
+            room: {
+              roomNumber,
+              roomType: b.rooms?.room_types?.name || 'Standard Room',
+              basePrice: b.rooms?.room_types?.base_price || 0
+            }
+          }
+        }
 
         const { booking, type, bookings: groupBookings } = data
         if (!booking) throw new Error('No booking data returned')

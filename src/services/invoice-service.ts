@@ -176,7 +176,23 @@ export async function createInvoiceData(booking: BookingWithDetails, roomDetails
       },
       booking: {
         id: booking.id,
-        roomNumber: roomDetails?.roomNumber || 'N/A',
+        roomNumber: (() => {
+          if (roomDetails?.roomNumber && roomDetails.roomNumber !== 'N/A') return roomDetails.roomNumber
+          
+          // Fallback to ROOM_SNAPSHOT in specialRequests
+          if (booking.specialRequests) {
+            const snapMatch = booking.specialRequests.match(/<!-- ROOM_SNAPSHOT:(.*?) -->/)
+            if (snapMatch) {
+              try {
+                const snap = JSON.parse(snapMatch[1])
+                if (snap.roomNumber) return snap.roomNumber
+              } catch {}
+            }
+          }
+          
+          // Final fallback to booking object itself
+          return (booking as any).roomNumber || 'N/A'
+        })(),
         roomType: roomDetails?.roomType || 'Standard Room',
         checkIn: booking.checkIn,
         checkOut: booking.actualCheckOut || booking.checkOut,
@@ -952,6 +968,12 @@ export async function downloadPreInvoicePDF(preInvoiceData: PreInvoiceData): Pro
     })
 
     const htmlContent = await generatePreInvoiceHTML(preInvoiceData)
+
+    // Dynamic imports to keep these large libs out of the initial bundle
+    const [jsPDF, html2canvas] = await Promise.all([
+      import('jspdf').then(m => m.default),
+      import('html2canvas').then(m => m.default)
+    ])
 
     // Create a temporary element to render the HTML
     const element = document.createElement('div')
