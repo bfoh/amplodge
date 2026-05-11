@@ -58,6 +58,7 @@ const navItems: NavItem[] = [
   { label: 'Guests', to: '/staff/guests', icon: Users, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Housekeeping', to: '/staff/housekeeping', icon: Sparkles, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Channels', to: '/staff/channels', icon: MessageSquare, minRole: ['owner', 'admin', 'manager'] },
+  { label: 'My Revenue', to: '/staff/my-revenue', icon: BarChart3, minRole: ['owner', 'admin', 'manager', 'staff'] },
 ]
 
 // Price list submenu items - Admin only
