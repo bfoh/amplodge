@@ -91,32 +91,21 @@ export function TaskCompletionPage() {
         completedAt: new Date().toISOString()
       })
 
-      // Find and update room status
+      // Find and update property status
       try {
-        const rooms = await db.rooms.list()
-        const room = rooms.find((r: any) => r.roomNumber === task.roomNumber)
+        const properties = await db.properties.list()
+        const property = properties.find((p: any) => p.roomNumber === task.roomNumber)
 
-        if (room && room.status?.toLowerCase() === 'cleaning') {
-          console.log(`[TaskCompletion] Updating room ${room.roomNumber} to available`)
-          await db.rooms.update(room.id, {
-            status: 'available'
+        if (property && property.status?.toLowerCase() === 'cleaning') {
+          console.log(`[TaskCompletion] Updating property ${property.roomNumber} to active`)
+          await db.properties.update(property.id, {
+            status: 'active'
           })
-
-          try {
-            const properties = await db.properties.list({ limit: 500 })
-            const property = properties.find((p: any) => p.id === room.id || p.roomNumber === room.roomNumber)
-            if (property && property.status !== 'active') {
-              console.log(`[TaskCompletion] Syncing property ${property.id} status to active`)
-              await db.properties.update(property.id, { status: 'active' })
-            }
-          } catch (propUpdateError) {
-            console.warn('Could not update property status:', propUpdateError)
-          }
         } else {
-          console.log(`[TaskCompletion] Room status is '${room?.status}', not updating to available`)
+          console.log(`[TaskCompletion] Property status is '${property?.status}', not updating to active`)
         }
-      } catch (roomError) {
-        console.warn('Could not update room status:', roomError)
+      } catch (propError) {
+        console.warn('Could not update property status:', propError)
       }
 
       // Log activity

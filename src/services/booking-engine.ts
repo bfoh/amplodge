@@ -15,6 +15,8 @@ export interface LocalBooking {
     phone: string
     address: string
   }
+  subtotal?: number
+  idempotencyKey?: string
   roomType: string
   roomNumber: string
   dates: {
@@ -71,12 +73,12 @@ export interface LocalBooking {
     value: number
     amount: number
   }
-  subtotal?: number
+
 
   // Idempotency key sent with the create request. The server enforces uniqueness
   // on bookings.client_request_id; a duplicate insert (e.g. double-click race)
   // returns 23505 and the engine re-reads the existing row instead of inserting.
-  idempotencyKey?: string
+
 }
 
 export interface AuditLog {
@@ -107,6 +109,12 @@ class BookingEngine {
     }
   }
 
+  public invalidateCache() {
+    this._allBookingsCache = null
+    this._allBookingsInflight = null
+    console.log('🧹 [BookingEngine] Internal cache invalidated.')
+  }
+
   private notifySyncHandlers(status: 'syncing' | 'synced' | 'error', message?: string) {
     this.syncHandlers.forEach(h => h(status, message))
   }
@@ -119,6 +127,12 @@ class BookingEngine {
   // Create a booking directly via the data wrapper and return a LocalBooking-shaped object for UI compatibility
   async createBooking(bookingData: Omit<LocalBooking, '_id' | 'createdAt' | 'updatedAt' | 'synced'>): Promise<LocalBooking> {
     console.log('[BookingEngine] Starting booking creation')
+
+    // Phase 2F: Strict validation for critical dates
+    if (!bookingData.dates?.checkIn || !bookingData.dates?.checkOut) {
+      console.error('[BookingEngine] Validation failed: Missing dates', bookingData.dates)
+      throw new Error('Check-in and check-out dates are required to create a booking.')
+    }
 
     const normalizedEmail = (bookingData.guest.email || '').trim().toLowerCase()
 
@@ -159,7 +173,7 @@ class BookingEngine {
       normalizedEmail
         ? db.guests.list({ where: { email: normalizedEmail }, limit: 1 }).catch(() => null)
         : Promise.resolve(null),
-      db.rooms.list({ where: { roomNumber: bookingData.roomNumber }, limit: 1 }).catch(() => null),
+      (db as any).rooms.list({ where: { roomNumber: bookingData.roomNumber }, limit: 1 }).catch(() => null),
       auth.me().catch(() => null),
     ])
 
@@ -267,68 +281,15 @@ class BookingEngine {
 
     console.log('[BookingEngine] Final guest ID:', guestId)
 
-    // Find room by roomNumber. The lookup was started in the Phase-1 fan-out
-    // (parallel with the guest resolution) so this await is essentially free —
-    // the network round-trip already happened while we were resolving the guest.
-    // Falls back to Properties → auto-create-Room when no row exists, exactly
-    // like before.
-    console.log('[BookingEngine] Looking for room number:', bookingData.roomNumber)
+    // Find room by roomNumber. Aligned with rooms table (FK source).
+    console.log('[BookingEngine] Resolving room for number:', bookingData.roomNumber)
     const [, roomResFromPhase1] = await phase1
-    let room = (roomResFromPhase1 as any[] | null)?.[0]
+    const room = (roomResFromPhase1 as any[] | null)?.[0]
 
     if (!room) {
-      console.warn('[BookingEngine] Room not found in rooms table for number:', bookingData.roomNumber, '— attempting to resolve from properties...')
-      try {
-        const propRes = await db.properties.list({ where: { roomNumber: bookingData.roomNumber }, limit: 1 })
-        const prop = propRes?.[0]
-
-        if (prop) {
-          // Determine roomTypeId from property if available; otherwise try by roomType name
-          let roomTypeId = prop.propertyTypeId
-          if (!roomTypeId && bookingData.roomType) {
-            try {
-              const rt = await db.roomTypes.list({ where: { name: bookingData.roomType }, limit: 1 })
-              roomTypeId = rt?.[0]?.id || roomTypeId
-            } catch (_) { /* ignore */ }
-          }
-
-          if (!roomTypeId) {
-            console.error('[BookingEngine] Unable to resolve roomTypeId for roomNumber:', bookingData.roomNumber)
-            throw new Error('Unable to resolve room type for selected room')
-          }
-
-          // Create a room record so bookings can reference it (let the wrapper auto-generate the ID)
-          const newRoomPayload = {
-            roomNumber: bookingData.roomNumber,
-            roomTypeId,
-            status: 'available',
-            price: Number(prop.basePrice || 0),
-            imageUrls: ''
-          }
-
-          try {
-            const created = await db.rooms.create(newRoomPayload)
-            room = created
-            console.log('[BookingEngine] Auto-created room from property:', room.id)
-          } catch (createRoomErr: any) {
-            const msg = createRoomErr?.message || ''
-            const status = createRoomErr?.status
-            console.warn('[BookingEngine] Room create failed:', status, msg)
-            if (status === 409 || msg.includes('Constraint violation') || msg.includes('UNIQUE')) {
-              // If room already exists, fetch it
-              const retry = await db.rooms.list({ where: { roomNumber: bookingData.roomNumber }, limit: 1 })
-              room = retry?.[0]
-              if (!room) {
-                throw createRoomErr
-              }
-            } else {
-              throw createRoomErr
-            }
-          }
-        }
-      } catch (propErr) {
-        console.error('[BookingEngine] Property resolution failed:', (propErr as any)?.message)
-      }
+      const error = new Error(`Property/Room not found for number: ${bookingData.roomNumber}`)
+      console.error('[BookingEngine] CRITICAL:', error.message)
+      throw error
     }
 
     if (!room) {
@@ -575,37 +536,18 @@ class BookingEngine {
       const roomForBackground = room
       Promise.resolve().then(async () => {
         try {
-          const currentRoom = await db.rooms.get(roomForBackground.id).catch(() => roomForBackground)
+          // Sync with both tables to be safe, preferring rooms as canonical for status
+          const currentRoom = await (db as any).rooms.get(roomForBackground.id).catch(() => roomForBackground)
 
-          // Only reset status if it's 'cleaning' or already 'available' (to ensure consistency)
-          // CRITICAL: Do NOT reset 'occupied' or 'maintenance' status.
-          if (currentRoom?.status === 'cleaning' || currentRoom?.status === 'available') {
-            if (currentRoom?.status !== 'available') {
-              await db.rooms.update(roomForBackground.id, { status: 'available' })
-              console.log('[BookingEngine] Reset room status from', currentRoom.status, 'to available for new booking')
+          if (currentRoom?.status === 'cleaning' || currentRoom?.status === 'active' || currentRoom?.status === 'available') {
+            if (currentRoom?.status !== 'active' && currentRoom?.status !== 'available') {
+              await (db as any).rooms.update(roomForBackground.id, { status: 'active' })
+              await db.properties.update(roomForBackground.id, { status: 'active' }).catch(() => null)
+              console.log('[BookingEngine] Reset room status to active')
             }
-
-            // Also align related property status
-            try {
-              const propMatch = await db.properties.list({
-                where: { roomNumber: roomForBackground.roomNumber },
-                limit: 1
-              })
-              const relatedProperty = propMatch?.[0]
-              if (relatedProperty && (relatedProperty.status === 'cleaning' || relatedProperty.status === 'active')) {
-                if (relatedProperty.status !== 'active') {
-                  await db.properties.update(relatedProperty.id, { status: 'active' })
-                  console.log('[BookingEngine] Reset property status to active')
-                }
-              }
-            } catch (propStatusError) {
-              console.warn('[BookingEngine] Failed to sync property status:', propStatusError)
-            }
-          } else {
-            console.log(`[BookingEngine] Skipping room status reset because currently: ${currentRoom?.status}`)
           }
-        } catch (roomStatusError) {
-          console.warn('[BookingEngine] Failed to reset room status:', roomStatusError)
+        } catch (statusError) {
+          console.warn('[BookingEngine] Failed to sync property status:', statusError)
         }
       })
     }
@@ -788,7 +730,7 @@ class BookingEngine {
     }
 
     console.log('[BookingEngine] Booking completed successfully:', localId)
-    this.invalidateBookingsCache()
+    this.invalidateCache()
     this.notifySyncHandlers('synced', 'Booking saved to database')
     return local
   }
@@ -1029,6 +971,7 @@ class BookingEngine {
     await db.bookings.delete(booking.id)
     console.log(`[BookingEngine] Removed booking ${bookingId} from group. Remaining members: ${groupBookings.length}`)
 
+    this.invalidateCache()
     return {
       remainingCount: groupBookings.length,
       newPrimaryId
@@ -1096,7 +1039,7 @@ class BookingEngine {
             guest = await db.guests.get(booking.guestId).catch(() => null)
           }
           if (booking.roomId) {
-            room = await db.rooms.get(booking.roomId).catch(() => null)
+            room = await db.properties.get(booking.roomId).catch(() => null)
           }
         }
       } catch (err: any) {
@@ -1177,7 +1120,7 @@ class BookingEngine {
       try {
         const allBookings = await db.bookings.list({ limit: 500 })
         const allGuests = await db.guests.list({ limit: 500 })
-        const allRooms = await db.rooms.list({ limit: 500 })
+        const allRooms = await db.properties.list({ limit: 500 })
 
         const guestMap = new Map(allGuests.map((g: any) => [g.id, g]))
         const roomMap = new Map(allRooms.map((r: any) => [r.id, r]))
@@ -1327,7 +1270,7 @@ class BookingEngine {
         }
       }
 
-      this.invalidateBookingsCache()
+      this.invalidateCache()
       this.notifySyncHandlers('synced', 'Booking deleted successfully')
     } catch (error) {
       console.error('[BookingEngine] Failed to delete booking:', error)
@@ -1336,10 +1279,6 @@ class BookingEngine {
     }
   }
 
-  // Invalidate the getAllBookings cache (call after create/update/delete)
-  invalidateBookingsCache() {
-    this._allBookingsCache = null
-  }
 
   // Map DB bookings to LocalBooking for Admin views
   async getAllBookings(): Promise<LocalBooking[]> {
@@ -1360,7 +1299,7 @@ class BookingEngine {
   private async _fetchAllBookings(): Promise<LocalBooking[]> {
     const [bookings, rooms, guests] = await Promise.all([
       db.bookings.list(),
-      db.rooms.list(),
+      (db as any).rooms.list(),
       db.guests.list(),
     ])
 
@@ -1646,7 +1585,7 @@ class BookingEngine {
       console.log('[BookingEngine] Found booking:', { id: booking.id, status: booking.status, guestId: booking.guestId })
 
       const guest = booking.guestId ? await db.guests.get(booking.guestId).catch(() => null) : null
-      const room = booking.roomId ? await db.rooms.get(booking.roomId).catch(() => null) : null
+      const room = booking.roomId ? await (db as any).rooms.get(booking.roomId).catch(() => null) : null
       const currentUser = await auth.me().catch(() => null)
 
       // Update status
@@ -1700,15 +1639,11 @@ class BookingEngine {
         }
         updates.actualCheckIn = new Date().toISOString()
 
-        // Auto-update room/property status
+        // Auto-update room status
         if (room) {
           try {
-            await db.rooms.update(room.id, { status: 'occupied' })
-            const props = await db.properties.list({ limit: 500 })
-            const prop = props.find((p: any) => p.id === room.id)
-            if (prop) {
-              await db.properties.update(prop.id, { status: 'occupied' })
-            }
+            await (db as any).rooms.update(room.id, { status: 'occupied' })
+            await db.properties.update(room.id, { status: 'occupied' }).catch(() => null)
           } catch (e) {
             console.warn('[BookingEngine] Failed to auto-update room status on check-in:', e)
           }
@@ -1724,15 +1659,11 @@ class BookingEngine {
         // Auto-update room status and create cleanup task
         if (room) {
           try {
-            await db.rooms.update(room.id, { status: 'cleaning' })
-            const props = await db.properties.list({ limit: 500 })
-            const prop = props.find((p: any) => p.id === room.id)
-            if (prop) {
-              await db.properties.update(prop.id, { status: 'cleaning' })
-            }
+            await (db as any).rooms.update(room.id, { status: 'cleaning' })
+            await db.properties.update(room.id, { status: 'cleaning' }).catch(() => null)
 
             // Create housekeeping task
-            const roomNumber = prop?.roomNumber || room?.roomNumber || prop?.name || 'N/A'
+            const roomNumber = (room as any)?.roomNumber || (room as any)?.name || 'N/A'
             const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(7)}`
             await db.housekeepingTasks.create({
               id: taskId,
@@ -1820,7 +1751,7 @@ class BookingEngine {
       // Still try to update status even if logging fails
       await db.bookings.update(remoteId, { status })
     } finally {
-      this.invalidateBookingsCache()
+      this.invalidateCache()
     }
   }
 

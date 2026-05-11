@@ -21,7 +21,8 @@ import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { BookingCharge, ChargeCategory } from '@/types'
 import { bookingChargesService, CHARGE_CATEGORIES, CreateChargeData } from '@/services/booking-charges-service'
-import { inventoryService, type InventoryItem } from '@/services/inventory-service'
+import { inventoryService } from '@/services/inventory-service'
+import { InventoryItem } from '@/types'
 
 interface GuestChargesDialogProps {
     open: boolean

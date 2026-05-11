@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { AlertTriangle, Trash2, Shield, CheckCircle2, Loader2 } from 'lucide-react'
+import { AlertTriangle, Trash2, Shield, CheckCircle2, Loader2, RefreshCw } from 'lucide-react'
 import { db, auth } from '@/lib/db'
 import { toast } from '@/hooks/use-toast'
 import { useStaffRole } from '@/hooks/use-staff-role'
@@ -29,6 +29,7 @@ export function CleanupToolPage() {
   const [cleaningGuests, setCleaningGuests] = useState(false)
   const [cleaningMockData, setCleaningMockData] = useState(false)
   const [resettingRooms, setResettingRooms] = useState(false)
+  const [deduplicatingBookings, setDeduplicatingBookings] = useState(false)
 
   const clearGuests = async () => {
     if (!confirm('Are you sure you want to delete ALL guest records? This may affect booking history.')) return
@@ -65,21 +66,11 @@ export function CleanupToolPage() {
   }
 
   const resetRoomStatuses = async () => {
-    if (!confirm('Reset ALL rooms to available (and properties to active)?')) return
+    if (!confirm('Reset ALL properties to active?')) return
 
     setResettingRooms(true)
     try {
-      console.log('🛏️ Resetting room statuses...')
-
-      const rooms = await db.rooms.list({ limit: 1000 })
-      let roomsUpdated = 0
-      for (const room of rooms) {
-        if (room.status !== 'available') {
-          await db.rooms.update(room.id, { status: 'available' })
-          roomsUpdated++
-        }
-      }
-
+      console.log('🛏️ Resetting property statuses...')
       let propertiesUpdated = 0
       try {
         const properties = await db.properties.list({ limit: 1000 })
@@ -90,12 +81,12 @@ export function CleanupToolPage() {
           }
         }
       } catch (propErr) {
-        console.warn('Failed to reset property statuses (non-critical):', propErr)
+        console.warn('Failed to reset property statuses:', propErr)
       }
 
       toast({
-        title: 'Room statuses reset',
-        description: `Rooms set to available: ${roomsUpdated}${propertiesUpdated ? ` • Properties reactivated: ${propertiesUpdated}` : ''}`
+        title: 'Property statuses reset',
+        description: `Properties reactivated: ${propertiesUpdated}`
       })
     } catch (error: any) {
       console.error('Failed to reset room statuses:', error)
@@ -182,15 +173,15 @@ export function CleanupToolPage() {
         await deleteCollection('invoices', 'invoices')
       } catch (e) { console.log('No invoices table or empty') }
 
-      // 4. Reset Room Status (Update, not delete)
-      console.log('Resetting room statuses...')
-      let roomsUpdated = 0
-      const rooms = await (db as any).rooms.list({ limit: 1000 })
-      for (const r of rooms) {
-        await (db as any).rooms.update(r.id, { status: 'available' })
-        roomsUpdated++
+      // 4. Reset Property Status (Update, not delete)
+      console.log('Resetting property statuses...')
+      let propertiesUpdated = 0
+      const properties = await (db as any).properties.list({ limit: 1000 })
+      for (const p of properties) {
+        await (db as any).properties.update(p.id, { status: 'active' })
+        propertiesUpdated++
       }
-      console.log(`Reset ${roomsUpdated} rooms to available`)
+      console.log(`Reset ${propertiesUpdated} properties to active`)
 
       // 5. Clear Activity Logs
       await deleteCollection('activityLogs', 'logs')
@@ -213,6 +204,56 @@ export function CleanupToolPage() {
     }
   }
 
+  const deduplicateBookings = async () => {
+    if (!confirm('Scan for and remove duplicate bookings? This will keep one copy of each reservation based on guest, room, and dates.')) return
+
+    setDeduplicatingBookings(true)
+    try {
+      console.log('🔍 Deduplicating bookings...')
+      const allBookings = await (db as any).bookings.list({ limit: 5000 })
+      const groups: Record<string, any[]> = {}
+      
+      // Group by logical identity
+      allBookings.forEach((b: any) => {
+        if (!['reserved', 'confirmed', 'checked-in'].includes(b.status)) return
+        
+        const key = `${b.guest_id || b.guestId}_${b.room_id || b.roomId}_${b.check_in || b.dates?.checkIn}_${b.check_out || b.dates?.checkOut}`
+        if (!groups[key]) groups[key] = []
+        groups[key].push(b)
+      })
+
+      let deleted = 0
+      for (const key in groups) {
+        const matches = groups[key]
+        if (matches.length > 1) {
+          // Keep the first one, delete the rest
+          // Sort to prefer ones with client_request_id or more recent created_at
+          matches.sort((a, b) => {
+            if (a.client_request_id && !b.client_request_id) return -1
+            if (!a.client_request_id && b.client_request_id) return 1
+            return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+          })
+
+          const toDelete = matches.slice(1)
+          for (const b of toDelete) {
+            await (db as any).bookings.delete(b.id)
+            deleted++
+          }
+        }
+      }
+
+      toast({
+        title: 'Deduplication complete',
+        description: `Removed ${deleted} duplicate bookings`,
+      })
+    } catch (error: any) {
+      console.error('Failed to deduplicate bookings:', error)
+      toast({ title: 'Deduplication failed', description: error.message, variant: 'destructive' })
+    } finally {
+      setDeduplicatingBookings(false)
+    }
+  }
+
   const scanDatabase = async () => {
     setScanning(true)
     try {
@@ -222,15 +263,11 @@ export function CleanupToolPage() {
       console.log(`📋 Found ${allStaff.length} staff records`)
 
       const toKeep = allStaff.filter((staff: StaffMember) => {
-        return staff.email === 'admin@amplodge.com' ||
-          staff.role === 'owner' ||
-          (staff.email && staff.email.toLowerCase().includes('admin'))
+        return staff.role === 'admin' || staff.role === 'owner'
       })
 
       const toDelete = allStaff.filter((staff: StaffMember) => {
-        return staff.email !== 'admin@amplodge.com' &&
-          staff.role !== 'owner' &&
-          (!staff.email || !staff.email.toLowerCase().includes('admin'))
+        return staff.role !== 'admin' && staff.role !== 'owner'
       })
 
       setStaffToKeep(toKeep)
@@ -433,6 +470,16 @@ export function CleanupToolPage() {
             </Button>
 
             <Button
+              variant="outline"
+              onClick={deduplicateBookings}
+              disabled={deduplicatingBookings}
+              className="border-amber-300 text-amber-800 hover:bg-amber-100"
+            >
+              {deduplicatingBookings ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+              Deduplicate Bookings
+            </Button>
+
+            <Button
               variant="destructive"
               onClick={clearMockData}
               disabled={cleaningMockData}
@@ -442,7 +489,7 @@ export function CleanupToolPage() {
             </Button>
           </div>
           <p className="text-xs text-amber-800 mt-2">
-            "Clear All Mock Data" will delete all bookings, guests, invoices, logs, and reset all rooms to "Available".
+            "Clear All Mock Data" will delete all bookings, guests, invoices, logs, and reset all properties to "Active".
           </p>
         </CardContent>
       </Card>

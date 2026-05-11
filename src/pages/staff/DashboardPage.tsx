@@ -4,6 +4,7 @@ import { db, auth } from '@/lib/db'
 import { bookingEngine } from '../../services/booking-engine'
 import { formatCurrencySync } from '../../lib/utils'
 import { useCurrency } from '../../hooks/use-currency'
+import { useSubscription } from '../../hooks/use-subscription'
 
 interface Stats {
   totalRooms: number
@@ -18,9 +19,11 @@ interface Stats {
   availableRooms: number
   availableDetails: { name: string; count: number }[]
 }
-
 export function DashboardPage() {
   const { currency } = useCurrency()
+  const bookingsUpdate = useSubscription('bookings')
+  const propertiesUpdate = useSubscription('properties')
+  
   const [stats, setStats] = useState<Stats>({
     totalRooms: 0,
     totalProperties: 0,
@@ -39,14 +42,7 @@ export function DashboardPage() {
 
   useEffect(() => {
     loadDashboardData()
-
-    // Set up polling for real-time updates every 30 seconds
-    const interval = setInterval(() => {
-      loadDashboardData()
-    }, 30000)
-
-    return () => clearInterval(interval)
-  }, [])
+  }, [bookingsUpdate, propertiesUpdate])
 
   const loadDashboardData = async () => {
     try {

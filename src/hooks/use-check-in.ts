@@ -28,7 +28,7 @@ export function useCheckIn() {
             if (room && booking.status !== 'checked-in') {
                 let freshRoomStatus = room.status
                 try {
-                    const freshRoom = await db.rooms.get(room.id)
+                    const freshRoom = await db.properties.get(room.id)
                     if (freshRoom) freshRoomStatus = freshRoom.status
                 } catch {
                     // Fall back to passed-in room status
@@ -48,7 +48,7 @@ export function useCheckIn() {
                     }
                     // No conflicting booking found — room status is stale, auto-fix it
                     console.warn(`[useCheckIn] Room ${room.roomNumber} status was 'occupied' but no checked-in booking found — auto-correcting to 'available'`)
-                    await db.rooms.update(room.id, { status: 'available' }).catch(() => {})
+                    await db.properties.update(room.id, { status: 'available' }).catch(() => {})
                 }
                 if (freshRoomStatus === 'maintenance') {
                     throw new Error(`Cannot check in: Room ${room.roomNumber} is under maintenance.`)
@@ -171,15 +171,14 @@ export function useCheckIn() {
 
             // 4. Update Room (with error handling - don't fail entire check-in if room update fails)
             if (roomId) {
-                console.log('[useCheckIn] Attempting to update room:', roomId)
                 try {
-                    await db.rooms.update(roomId, { status: 'occupied' })
-                    console.log('[useCheckIn] Room updated successfully')
+                    await db.properties.update(roomId, { status: 'occupied' })
+                    console.log('[useCheckIn] Property updated successfully')
 
-                    // Log room status change
+                    // Log status change
                     await activityLogService.log({
                         action: 'updated',
-                        entityType: 'room',
+                        entityType: 'property',
                         entityId: roomId,
                         details: {
                             roomNumber: room.roomNumber,
@@ -191,18 +190,8 @@ export function useCheckIn() {
                         },
                         userId: user?.id || 'system'
                     }).catch(logError => console.error('[useCheckIn] Failed to log room status change:', logError))
-
-                    // Update property status if consistent
-                    try {
-                        const props = await db.properties.list({ limit: 1, where: { id: roomId } })
-                        if (props.length > 0) {
-                            await db.properties.update(roomId, { status: 'occupied' })
-                        }
-                    } catch (e) {
-                        console.warn('[useCheckIn] Property status update skipped/failed', e)
-                    }
                 } catch (roomUpdateError) {
-                    console.warn('[useCheckIn] Room update failed (continuing anyway):', roomUpdateError)
+                    console.warn('[useCheckIn] Property update failed (continuing anyway):', roomUpdateError)
                 }
             }
 

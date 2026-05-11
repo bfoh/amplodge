@@ -7,10 +7,11 @@ import { CalendarPlus, UserPlus, Loader2, FileText, Users, Mail, CreditCard, Che
 import { format, parseISO, isToday } from 'date-fns'
 import { toast } from 'sonner'
 import { useStaffRole } from '@/hooks/use-staff-role'
+import { useSubscription } from '@/hooks/use-subscription'
 import ActivityDetailsSheet, { ActivityType, ActivitySummary } from '@/features/history/ActivityDetailsSheet'
 
 // Optimized staff info lookup function
-function getStaffInfoFromMap(staffId: string, staffMap: Map<string, any>) {
+function getStaffInfoFromMap(staffId: string | undefined, staffMap: Map<string, any>) {
   if (!staffId) return undefined
   
   const staff = staffMap.get(staffId)
@@ -26,17 +27,15 @@ function getStaffInfoFromMap(staffId: string, staffMap: Map<string, any>) {
 }
 
 // Optimized staff info lookup by email
-function getStaffInfoFromEmail(email: string, staffMap: Map<string, any>) {
+function getStaffInfoFromEmail(email: string | undefined, staffMap: Map<string, any>) {
   if (!email) return undefined
   
-  // Look for staff by email in the map
-  for (const [key, staff] of staffMap.entries()) {
-    if (staff.email === email) {
-      return {
-        id: staff.id,
-        name: staff.name || 'Unknown Staff',
-        role: staff.role || 'staff'
-      }
+  const staff = staffMap.get(email)
+  if (staff) {
+    return {
+      id: staff.id,
+      name: staff.name || 'Unknown Staff',
+      role: staff.role || 'staff'
     }
   }
   
@@ -66,7 +65,14 @@ export function ReservationHistoryPage() {
   const [filter, setFilter] = useState<'all' | 'today'>('all')
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [selectedActivity, setSelectedActivity] = useState<ActivitySummary | null>(null)
-  const { role, staffRecord: staffData, loading: staffLoading } = useStaffRole()
+  const { role, staffRecord: staffData, isLoading: staffLoading } = useStaffRole()
+  
+  // Real-time subscriptions
+  const bookingsUpdate = useSubscription('bookings')
+  const guestsUpdate = useSubscription('guests')
+  const invoicesUpdate = useSubscription('invoices')
+  const staffUpdate = useSubscription('staff')
+  const contactUpdate = useSubscription('contact_messages')
   
   console.log('[ReservationHistoryPage] useStaffRole result:', { staffData, role, staffLoading })
 
@@ -85,480 +91,267 @@ export function ReservationHistoryPage() {
   }
 
   // Fetch activities from database
-  useEffect(() => {
-    const fetchActivities = async () => {
-      try {
-        setLoading(true)
+  const fetchActivities = useCallback(async () => {
+    try {
+      setLoading(true)
+      
+      // Fetch all relevant data from database with reduced limits for better performance
+      const [bookingsData, guestsData, invoicesData, staffData, allGuestsForMap, allPropertiesForMap] = await Promise.all([
+        db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
+        db.guests.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
+        db.invoices.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
+        db.staff.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
+        db.guests.list().catch(() => []),
+        db.properties.list().catch(() => []),
+      ])
+
+      const guestLookupMap = new Map<string, any>(allGuestsForMap.map((g: any) => [g.id, g] as [string, any]))
+      const propertyLookupMap = new Map<string, any>(allPropertiesForMap.map((p: any) => [p.id, p] as [string, any]))
+
+      // Fetch activity logs to show booking deletions and other activities
+      const activityLogsData = await db.activityLogs.list({
+        orderBy: { createdAt: 'desc' },
+        limit: 50
+      }).catch(() => [])
+
+      const allActivities: Activity[] = []
+
+      // Create staff lookup map for better performance (index by both ID and email)
+      const staffMap = new Map()
+      staffData.forEach(staff => {
+        staffMap.set(staff.id, staff)
+        if (staff.userId) staffMap.set(staff.userId, staff)
+        if (staff.email) staffMap.set(staff.email, staff)
+      })
+
+      // Booking activities
+      for (const booking of bookingsData) {
+        const performedBy = getStaffInfoFromMap(booking.userId || booking.createdBy, staffMap)
         
-        // Fetch all relevant data from database with reduced limits for better performance
-        // Fetch full guests + rooms once (cache-instant via SWR wrapper) so the
-        // activity loop below can resolve names by Map lookup instead of doing
-        // 2 sequential round trips per booking (50 bookings = 100 round trips
-        // ~ 30 s in Ghana).
-        const [bookingsData, guestsData, invoicesData, staffData, contactData, allGuestsForMap, allRoomsForMap] = await Promise.all([
-          db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
-          db.guests.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
-          db.invoices.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
-          db.staff.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
-          db.contact_messages.list({ orderBy: { createdAt: 'desc' }, limit: 50 }).catch(() => []),
-          db.guests.list().catch(() => []),
-          db.rooms.list().catch(() => []),
-        ])
-        const guestLookupMap = new Map<string, any>(allGuestsForMap.map((g: any) => [g.id, g]))
-        const roomLookupMap = new Map<string, any>(allRoomsForMap.map((r: any) => [r.id, r]))
+        // Get guest and room information
+        let guestName = 'Unknown Guest'
+        let roomNumber = 'Unknown Room'
+        
+        if (booking.guestId) {
+          const guest = guestLookupMap.get(booking.guestId)
+          if (guest?.name) guestName = guest.name
+        } else if (booking.guest?.name) {
+          guestName = booking.guest.name
+        }
 
-        // Fetch activity logs to show booking deletions and other activities
-        const activityLogsData = await db.contact_messages.list({
-          where: { status: 'activity_log' },
-          orderBy: { createdAt: 'desc' },
-          limit: 50
-        }).catch(() => [])
-
-        const allActivities: Activity[] = []
-
-        // Create staff lookup map for better performance
-        const staffMap = new Map()
-        staffData.forEach(staff => {
-          staffMap.set(staff.id, staff)
-          if (staff.userId) {
-            staffMap.set(staff.userId, staff)
-          }
-        })
-
-        // Booking activities
-        for (const booking of bookingsData) {
-          const performedBy = getStaffInfoFromMap(booking.createdBy, staffMap)
-          
-          // Get guest and room information
-          let guestName = 'Unknown Guest'
-          let roomNumber = 'Unknown Room'
-          
-          if (booking.guestId) {
-            const guest = guestLookupMap.get(booking.guestId)
-            if (guest?.name) guestName = guest.name
-          } else if (booking.guest?.fullName) {
-            guestName = booking.guest.fullName
-          }
-
-          if (booking.roomId) {
-            const room = roomLookupMap.get(booking.roomId)
-            if (room) roomNumber = room.roomNumber || room.name || roomNumber
-          } else if (booking.roomNumber) {
-            roomNumber = booking.roomNumber
-          }
-          
-          // Booking creation
-          allActivities.push({
+        if (booking.roomId) {
+          const property = propertyLookupMap.get(booking.roomId)
+          if (property) roomNumber = property.roomNumber || property.name || roomNumber
+        } else if (booking.roomNumber) {
+          roomNumber = booking.roomNumber
+        }
+        
+        // Booking creation
+        allActivities.push({
           id: `booking-${booking.id}`,
           type: 'booking' as const,
           timestamp: booking.createdAt || new Date().toISOString(),
-            title: `Reservation created - ${guestName || 'Guest'} (Room ${roomNumber})`,
-            details: `Room ${roomNumber} - Check-in: ${booking.checkIn}, Check-out: ${booking.checkOut}`,
+          title: `Reservation created - ${guestName} (Room ${roomNumber})`,
+          details: `Room ${roomNumber} - Check-in: ${booking.dates?.checkIn || booking.checkIn}, Check-out: ${booking.dates?.checkOut || booking.checkOut}`,
+          performedBy: performedBy || undefined,
+          entityData: {
+            bookingId: booking.id,
+            roomNumber: roomNumber,
+            roomType: booking.roomType,
+            guestName: guestName,
+            guestEmail: booking.guest?.email || booking.guestId,
+            checkIn: booking.dates?.checkIn || booking.checkIn,
+            checkOut: booking.dates?.checkOut || booking.checkOut,
+            amount: booking.amount || booking.totalPrice,
+            status: booking.status,
+            source: booking.source,
+            createdAt: booking.createdAt,
+            updatedAt: booking.updatedAt
+          }
+        })
+
+        // Check-in activity
+        if (booking.actualCheckIn) {
+          allActivities.push({
+            id: `checkin-${booking.id}`,
+            type: 'checkin' as const,
+            timestamp: booking.actualCheckIn,
+            title: `Guest checked in - ${guestName} (Room ${roomNumber})`,
+            details: `Room ${roomNumber} - Guest: ${guestName}`,
             performedBy: performedBy || undefined,
             entityData: {
               bookingId: booking.id,
               roomNumber: roomNumber,
-              roomType: booking.roomType,
               guestName: guestName,
-              guestEmail: booking.guest?.email || booking.guestId,
-              checkIn: booking.checkIn,
-              checkOut: booking.checkOut,
-              amount: booking.amount || booking.totalPrice,
-              status: booking.status,
-              source: booking.source,
-              createdAt: booking.createdAt,
-              updatedAt: booking.updatedAt
+              actualCheckIn: booking.actualCheckIn,
+              scheduledCheckIn: booking.dates?.checkIn || booking.checkIn
             }
           })
-
-          // Check-in activity
-          if (booking.actualCheckIn) {
-            allActivities.push({
-              id: `checkin-${booking.id}`,
-              type: 'checkin' as const,
-              timestamp: booking.actualCheckIn,
-              title: `Guest checked in - ${guestName} (Room ${roomNumber})`,
-              details: `Room ${roomNumber} - Guest: ${guestName}`,
-              performedBy: performedBy || undefined,
-              entityData: {
-                bookingId: booking.id,
-                roomNumber: roomNumber,
-                guestName: guestName,
-                actualCheckIn: booking.actualCheckIn,
-                scheduledCheckIn: booking.checkIn
-              }
-            })
-          }
-
-          // Check-out activity
-          if (booking.actualCheckOut) {
-            allActivities.push({
-              id: `checkout-${booking.id}`,
-              type: 'checkout' as const,
-              timestamp: booking.actualCheckOut,
-              title: `Guest checked out - ${guestName} (Room ${roomNumber})`,
-              details: `Room ${roomNumber} - Guest: ${guestName}`,
-              performedBy: performedBy || undefined,
-              entityData: {
-                bookingId: booking.id,
-                roomNumber: roomNumber,
-                guestName: guestName,
-                actualCheckOut: booking.actualCheckOut,
-                scheduledCheckOut: booking.checkOut
-              }
-            })
-          }
-
-          // Payment activity
-          if (booking.payment?.status === 'completed' && booking.payment?.paidAt) {
-            allActivities.push({
-              id: `payment-${booking.id}`,
-              type: 'payment' as const,
-              timestamp: booking.payment.paidAt,
-              title: `Payment received - ${guestName} ($${booking.payment.amount})`,
-              details: `${booking.payment.method.toUpperCase()} - $${booking.payment.amount}`,
-              performedBy: performedBy || undefined,
-              entityData: {
-                bookingId: booking.id,
-                paymentMethod: booking.payment.method,
-                amount: booking.payment.amount,
-                status: booking.payment.status,
-                reference: booking.payment.reference,
-                paidAt: booking.payment.paidAt
-              }
-            })
-          }
-
-          // Booking status changes (if updatedAt is different from createdAt)
-          if (booking.updatedAt && booking.updatedAt !== booking.createdAt) {
-            allActivities.push({
-              id: `booking-update-${booking.id}`,
-              type: 'booking' as const,
-              timestamp: booking.updatedAt,
-              title: `Booking updated - ${guestName} (Room ${roomNumber})`,
-              details: `Status: ${booking.status} - Updated on ${new Date(booking.updatedAt).toLocaleString()}`,
-              performedBy: performedBy || undefined,
-              entityData: {
-                bookingId: booking.id,
-                roomNumber: roomNumber,
-                guestName: guestName,
-                status: booking.status,
-                updatedAt: booking.updatedAt,
-                previousStatus: booking.previousStatus || 'unknown'
-              }
-            })
-          }
         }
 
-        // Guest activities
-        for (const guest of guestsData) {
-          const performedBy = getStaffInfoFromMap(guest.createdBy, staffMap)
-          
+        // Check-out activity
+        if (booking.actualCheckOut) {
           allActivities.push({
+            id: `checkout-${booking.id}`,
+            type: 'checkout' as const,
+            timestamp: booking.actualCheckOut,
+            title: `Guest checked out - ${guestName} (Room ${roomNumber})`,
+            details: `Room ${roomNumber} - Guest: ${guestName}`,
+            performedBy: performedBy || undefined,
+            entityData: {
+              bookingId: booking.id,
+              roomNumber: roomNumber,
+              guestName: guestName,
+              actualCheckOut: booking.actualCheckOut,
+              scheduledCheckOut: booking.dates?.checkOut || booking.checkOut
+            }
+          })
+        }
+
+        // Payment activity
+        if (booking.payment?.status === 'completed' && booking.payment?.paidAt) {
+          allActivities.push({
+            id: `payment-${booking.id}`,
+            type: 'payment' as const,
+            timestamp: booking.payment.paidAt,
+            title: `Payment received - ${guestName} ($${booking.payment.amount})`,
+            details: `${booking.payment.method.toUpperCase()} - $${booking.payment.amount}`,
+            performedBy: performedBy || undefined,
+            entityData: {
+              bookingId: booking.id,
+              paymentMethod: booking.payment.method,
+              amount: booking.payment.amount,
+              status: booking.payment.status as 'pending' | 'failed' | 'completed',
+              reference: booking.payment.reference,
+              paidAt: booking.payment.paidAt
+            }
+          })
+        }
+      }
+
+      // Guest activities
+      for (const guest of guestsData) {
+        const performedBy = getStaffInfoFromMap(guest.userId || guest.createdBy, staffMap)
+        
+        allActivities.push({
           id: `guest-${guest.id}`,
           type: 'guest' as const,
           timestamp: guest.createdAt || new Date().toISOString(),
-            title: `Guest profile created - ${guest.name}`,
-            details: `${guest.name} - ${guest.email}`,
-            performedBy: performedBy || undefined,
-            entityData: {
-              guestId: guest.id,
-              name: guest.name,
-              email: guest.email,
-              phone: guest.phone,
-              address: guest.address,
-              createdAt: guest.createdAt,
-              updatedAt: guest.updatedAt
-            }
-          })
-        }
-
-        // Invoice activities
-        for (const invoice of invoicesData) {
-          const performedBy = getStaffInfoFromMap(invoice.createdBy, staffMap)
-          
-          allActivities.push({
-            id: `invoice-${invoice.id}`,
-            type: 'invoice' as const,
-            timestamp: invoice.createdAt || new Date().toISOString(),
-            title: `Invoice generated - ${invoice.guestName} ($${invoice.totalAmount})`,
-            details: `Amount: $${invoice.totalAmount} - Status: ${invoice.status}`,
-            performedBy: performedBy || undefined,
-            entityData: {
-              invoiceId: invoice.id,
-              totalAmount: invoice.totalAmount,
-              status: invoice.status,
-              guestName: invoice.guestName,
-              guestEmail: invoice.guestEmail,
-              items: invoice.items,
-              createdAt: invoice.createdAt,
-              updatedAt: invoice.updatedAt
-            }
-          })
-        }
-
-        // Staff activities
-        for (const staff of staffData) {
-          const performedBy = getStaffInfoFromMap(staff.createdBy, staffMap)
-          
-          allActivities.push({
-            id: `staff-${staff.id}`,
-            type: 'staff' as const,
-            timestamp: staff.createdAt || new Date().toISOString(),
-            title: `Staff member added - ${staff.name} (${staff.role})`,
-            details: `${staff.name} - Role: ${staff.role}`,
-            performedBy: performedBy || undefined,
-            entityData: {
-              staffId: staff.id,
-              name: staff.name,
-              email: staff.email,
-              role: staff.role,
-              phone: staff.phone,
-              createdAt: staff.createdAt,
-              updatedAt: staff.updatedAt
-            }
-          })
-        }
-
-        // Contact message activities (exclude activity logs to avoid duplication)
-        for (const contact of contactData) {
-          // Skip if this is an activity log entry to avoid duplication
-          if (contact.status === 'activity_log') {
-            continue
+          title: `Guest profile created - ${guest.name}`,
+          details: `${guest.name} - ${guest.email}`,
+          performedBy: performedBy || undefined,
+          entityData: {
+            guestId: guest.id,
+            name: guest.name,
+            email: guest.email,
+            phone: guest.phone,
+            address: guest.address,
+            createdAt: guest.createdAt,
+            updatedAt: guest.updatedAt
           }
-          
-          // Generate unique, descriptive heading based on contact details
-          let uniqueTitle = `Contact message received`
-          if (contact.name) {
-            uniqueTitle = `Contact message from ${contact.name}`
-          } else if (contact.email) {
-            uniqueTitle = `Contact message from ${contact.email}`
-          } else {
-            uniqueTitle = `Contact message received #${contact.id.slice(0, 7)}`
-          }
-
-          allActivities.push({
-            id: `contact-${contact.id}`,
-            type: 'contact' as const,
-            timestamp: contact.createdAt || new Date().toISOString(),
-            title: uniqueTitle,
-            details: `From: ${contact.name} - ${contact.email}`,
-            performedBy: undefined, // Contact messages are from external users
-            entityData: {
-              contactId: contact.id,
-              name: contact.name,
-              email: contact.email,
-              phone: contact.phone,
-              message: contact.message,
-              createdAt: contact.createdAt,
-              updatedAt: contact.updatedAt
-            }
-          })
-        }
-
-        // Process activity logs (including booking deletions)
-        for (const activityLog of activityLogsData) {
-          try {
-            const messageData = JSON.parse(activityLog.message)
-            
-            // Process booking deletion activities
-            if (messageData.action === 'deleted' && messageData.entityType === 'booking') {
-              const performedBy = getStaffInfoFromEmail(activityLog.email, staffMap)
-              
-              allActivities.push({
-                id: `activity-${activityLog.id}`,
-                type: 'booking_deletion' as const,
-                timestamp: activityLog.createdAt,
-                title: `Booking deleted - ${messageData.details.guestName} (Room ${messageData.details.roomNumber})`,
-                details: `Guest: ${messageData.details.guestName} - Room: ${messageData.details.roomNumber} - Amount: $${messageData.details.amount || 'N/A'}`,
-                performedBy: performedBy || undefined,
-                entityData: {
-                  bookingId: messageData.entityId,
-                  guestName: messageData.details.guestName,
-                  roomNumber: messageData.details.roomNumber,
-                  checkIn: messageData.details.checkIn,
-                  checkOut: messageData.details.checkOut,
-                  amount: messageData.details.amount,
-                  deletedAt: messageData.details.deletedAt
-                }
-              })
-            }
-            
-            // Process booking creation activities from activity logs
-            if (messageData.action === 'created' && messageData.entityType === 'booking') {
-              const performedBy = getStaffInfoFromEmail(activityLog.email, staffMap)
-              
-              allActivities.push({
-                id: `activity-${activityLog.id}`,
-                type: 'booking' as const,
-                timestamp: activityLog.createdAt,
-                title: `Booking created - ${messageData.details.guestName || 'Guest'} (Room ${messageData.details.roomNumber})`,
-                details: `Guest: ${messageData.details.guestName || 'Guest'} - Room: ${messageData.details.roomNumber} - Amount: $${messageData.details.amount || 'N/A'}`,
-                performedBy: performedBy || undefined,
-                entityData: {
-                  bookingId: messageData.entityId,
-                  guestName: messageData.details.guestName,
-                  roomNumber: messageData.details.roomNumber,
-                  checkIn: messageData.details.checkIn,
-                  checkOut: messageData.details.checkOut,
-                  amount: messageData.details.amount,
-                  status: messageData.details.status,
-                  createdAt: messageData.details.createdAt
-                }
-              })
-            }
-            
-            // Process booking update activities from activity logs
-            if (messageData.action === 'updated' && messageData.entityType === 'booking') {
-              const performedBy = getStaffInfoFromEmail(activityLog.email, staffMap)
-              
-              allActivities.push({
-                id: `activity-${activityLog.id}`,
-                type: 'booking' as const,
-                timestamp: activityLog.createdAt,
-                title: `Booking updated - ${messageData.details.guestName || 'Guest'} (Room ${messageData.details.roomNumber})`,
-                details: `Guest: ${messageData.details.guestName || 'Guest'} - Room: ${messageData.details.roomNumber} - Status: ${messageData.details.status || 'Updated'}`,
-                performedBy: performedBy || undefined,
-                entityData: {
-                  bookingId: messageData.entityId,
-                  guestName: messageData.details.guestName,
-                  roomNumber: messageData.details.roomNumber,
-                  status: messageData.details.status,
-                  changes: messageData.details.changes,
-                  updatedAt: messageData.details.updatedAt
-                }
-              })
-            }
-            
-            // Process login activities
-            if (messageData.action === 'login' && messageData.entityType === 'user') {
-              const performedBy = getStaffInfoFromEmail(activityLog.email, staffMap)
-              
-              allActivities.push({
-                id: `activity-${activityLog.id}`,
-                type: 'user_login' as const,
-                timestamp: activityLog.createdAt,
-                title: `User logged in - ${messageData.details.email}`,
-                details: `User: ${messageData.details.email} - Role: ${messageData.details.role} - Login time: ${new Date(messageData.details.loginAt).toLocaleString()}`,
-                performedBy: performedBy || undefined,
-                entityData: {
-                  userId: messageData.entityId,
-                  email: messageData.details.email,
-                  role: messageData.details.role,
-                  loginAt: messageData.details.loginAt,
-                  userAgent: messageData.metadata?.userAgent
-                }
-              })
-            }
-            
-            // Process logout activities
-            if (messageData.action === 'logout' && messageData.entityType === 'user') {
-              const performedBy = getStaffInfoFromEmail(activityLog.email, staffMap)
-              
-              allActivities.push({
-                id: `activity-${activityLog.id}`,
-                type: 'user_logout' as const,
-                timestamp: activityLog.createdAt,
-                title: `User logged out - ${messageData.details.email || 'Unknown User'}`,
-                details: `User: ${messageData.details.email || 'Unknown User'} - Logout time: ${new Date(messageData.details.logoutAt).toLocaleString()}`,
-                performedBy: performedBy || undefined,
-                entityData: {
-                  userId: messageData.entityId,
-                  email: messageData.details.email,
-                  logoutAt: messageData.details.logoutAt,
-                  userAgent: messageData.metadata?.userAgent
-                }
-              })
-            }
-            
-            // Process payment activities from activity logs
-            if (messageData.action === 'payment_received' && messageData.entityType === 'payment') {
-              const performedBy = getStaffInfoFromEmail(activityLog.email, staffMap)
-              
-              allActivities.push({
-                id: `activity-${activityLog.id}`,
-                type: 'payment' as const,
-                timestamp: activityLog.createdAt,
-                title: `Payment received - $${messageData.details.amount} via ${messageData.details.method}`,
-                details: `Amount: $${messageData.details.amount} - Method: ${messageData.details.method} - Reference: ${messageData.details.reference || 'N/A'}`,
-                performedBy: performedBy || undefined,
-                entityData: {
-                  paymentId: messageData.entityId,
-                  amount: messageData.details.amount,
-                  method: messageData.details.method,
-                  reference: messageData.details.reference,
-                  paidAt: messageData.details.paidAt
-                }
-              })
-            }
-            
-            // Process guest creation activities from activity logs
-            if (messageData.action === 'created' && messageData.entityType === 'guest') {
-              const performedBy = getStaffInfoFromEmail(activityLog.email, staffMap)
-              
-              allActivities.push({
-                id: `activity-${activityLog.id}`,
-                type: 'guest' as const,
-                timestamp: activityLog.createdAt,
-                title: `Guest profile created - ${messageData.details.name}`,
-                details: `Name: ${messageData.details.name} - Email: ${messageData.details.email}`,
-                performedBy: performedBy || undefined,
-                entityData: {
-                  guestId: messageData.entityId,
-                  name: messageData.details.name,
-                  email: messageData.details.email,
-                  phone: messageData.details.phone,
-                  createdAt: messageData.details.createdAt
-                }
-              })
-            }
-            
-            // Process staff creation activities from activity logs
-            if (messageData.action === 'created' && messageData.entityType === 'staff') {
-              const performedBy = getStaffInfoFromEmail(activityLog.email, staffMap)
-              
-              allActivities.push({
-                id: `activity-${activityLog.id}`,
-                type: 'staff' as const,
-                timestamp: activityLog.createdAt,
-                title: `Staff member added - ${messageData.details.name} (${messageData.details.role})`,
-                details: `Name: ${messageData.details.name} - Role: ${messageData.details.role} - Email: ${messageData.details.email}`,
-                performedBy: performedBy || undefined,
-                entityData: {
-                  staffId: messageData.entityId,
-                  name: messageData.details.name,
-                  email: messageData.details.email,
-                  role: messageData.details.role,
-                  createdAt: messageData.details.createdAt
-                }
-              })
-            }
-          } catch (error) {
-            console.error('Failed to parse activity log:', activityLog.id, error)
-          }
-        }
-
-        // Sort all activities by timestamp (newest first)
-        const sortedActivities = allActivities.sort(
-          (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-        )
-
-        setActivities(sortedActivities)
-        console.log(`📊 Loaded ${sortedActivities.length} activities from database`)
-      } catch (error) {
-        console.error('Failed to fetch activities:', error)
-        setActivities([]) // Set empty array on error to show no mock data
-      } finally {
-        setLoading(false)
+        })
       }
-    }
 
-    fetchActivities()
-    
-    // Refresh every 30 seconds to show new activities
-    const interval = setInterval(fetchActivities, 30000)
-    return () => clearInterval(interval)
+      // Invoice activities
+      for (const invoice of invoicesData) {
+        const performedBy = getStaffInfoFromMap(invoice.createdBy, staffMap)
+        
+        allActivities.push({
+          id: `invoice-${invoice.id}`,
+          type: 'invoice' as const,
+          timestamp: invoice.createdAt || new Date().toISOString(),
+          title: `Invoice generated - ${invoice.guestName} ($${invoice.totalAmount})`,
+          details: `Amount: $${invoice.totalAmount} - Status: ${invoice.status}`,
+          performedBy: performedBy || undefined,
+          entityData: {
+            invoiceId: invoice.id,
+            totalAmount: invoice.totalAmount,
+            status: invoice.status,
+            guestName: invoice.guestName,
+            guestEmail: invoice.guestEmail,
+            items: invoice.items,
+            createdAt: invoice.createdAt,
+            updatedAt: invoice.updatedAt
+          }
+        })
+      }
+
+      // Staff activities
+      for (const staff of staffData) {
+        const performedBy = getStaffInfoFromMap(staff.createdBy, staffMap)
+        
+        allActivities.push({
+          id: `staff-${staff.id}`,
+          type: 'staff' as const,
+          timestamp: staff.createdAt || new Date().toISOString(),
+          title: `Staff member added - ${staff.name} (${staff.role})`,
+          details: `${staff.name} - Role: ${staff.role}`,
+          performedBy: performedBy || undefined,
+          entityData: {
+            staffId: staff.id,
+            name: staff.name,
+            email: staff.email,
+            role: staff.role,
+            phone: staff.phone,
+            createdAt: staff.createdAt,
+            updatedAt: staff.updatedAt
+          }
+        })
+      }
+
+      // Process activity logs
+      for (const log of activityLogsData) {
+        const performedBy = getStaffInfoFromMap(log.userId, staffMap)
+        
+        // Map log.action to ActivityType
+        let type: ActivityType = 'contact'
+        if (log.action === 'deleted') type = 'booking_deletion'
+        else if (log.action === 'cancelled') type = 'cancellation'
+        else if (log.action === 'login') type = 'user_login'
+        else if (log.action === 'logout') type = 'user_logout'
+        else if (log.action === 'checked_in') type = 'checkin'
+        else if (log.action === 'checked_out') type = 'checkout'
+        else if (log.action === 'payment_received') type = 'payment'
+
+        // Create a readable title and details
+        let title = `${log.action.replace('_', ' ')}: ${log.entityType}`
+        let details = `Entity ID: ${log.entityId}`
+
+        if (log.action === 'deleted' && log.entityType === 'booking') {
+          title = `Booking Deleted: ${log.details?.guestName || 'Unknown'}`
+          details = `Room ${log.details?.roomNumber || 'N/A'} - Amount: $${log.details?.amount || 'N/A'}`
+        } else if (log.action === 'login') {
+          title = `User Login: ${log.details?.email || performedBy?.name || 'System'}`
+          details = `Role: ${log.details?.role || 'User'}`
+        }
+
+        allActivities.push({
+          id: `activity-${log.id}`,
+          type,
+          timestamp: log.createdAt,
+          title,
+          details,
+          performedBy: performedBy || undefined,
+          entityData: log.details
+        })
+      }
+
+      const sortedActivities = allActivities.sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      )
+
+      setActivities(sortedActivities)
+    } catch (error) {
+      console.error('Failed to fetch activities:', error)
+      setActivities([])
+    } finally {
+      setLoading(false)
+    }
   }, [])
+
+  useEffect(() => {
+    fetchActivities()
+  }, [fetchActivities, bookingsUpdate, guestsUpdate, invoicesUpdate, staffUpdate, contactUpdate])
 
   // Filter activities
   const filteredActivities = activities.filter(activity => {

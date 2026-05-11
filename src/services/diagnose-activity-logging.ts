@@ -43,8 +43,8 @@ export async function diagnoseActivityLogging() {
       try {
         const testRecord = {
           id: `diagnostic_${Date.now()}`,
-          action: 'diagnostic',
-          entityType: 'diagnostic',
+          action: 'diagnostic' as const,
+          entityType: 'diagnostic' as const,
           entityId: 'diagnostic',
           details: JSON.stringify({ diagnostic: true }),
           userId: 'system',
@@ -72,8 +72,8 @@ export async function diagnoseActivityLogging() {
       try {
         const testRecord = {
           id: `write_test_${Date.now()}`,
-          action: 'write_test',
-          entityType: 'write_test',
+          action: 'diagnostic' as const,
+          entityType: 'diagnostic' as const,
           entityId: 'write_test',
           details: JSON.stringify({ writeTest: true }),
           userId: 'system',
@@ -187,8 +187,8 @@ export async function fixActivityLoggingIssues() {
       // Try to create a test record to initialize the table
       const initRecord = {
         id: `init_${Date.now()}`,
-        action: 'initialization',
-        entityType: 'system',
+        action: 'diagnostic' as const,
+        entityType: 'diagnostic' as const,
         entityId: 'system_init',
         details: JSON.stringify({ initialization: true }),
         userId: 'system',
@@ -226,8 +226,8 @@ export async function fixActivityLoggingIssues() {
     console.log('🔧 [FixActivityLoggingIssues] Testing activity logging...')
     try {
       await activityLogService.log({
-        action: 'system_fix',
-        entityType: 'system',
+        action: 'diagnostic' as const,
+        entityType: 'diagnostic' as const,
         entityId: 'system_fix_test',
         details: {
           fixApplied: true,

@@ -26,9 +26,11 @@ export function OnsiteBookingPage() {
   const [user, setUser] = useState<any>(null)
   const [step, setStep] = useState(1)
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
-  const [rooms, setRooms] = useState<Room[]>([])
   const [bookings, setBookings] = useState<any[]>([])
   const [properties, setProperties] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [processingId, setProcessingId] = useState<string | null>(null)
+  const submittingRef = useRef(false)
 
   // Cart state for multiple rooms
   interface CartItem {
@@ -41,8 +43,12 @@ export function OnsiteBookingPage() {
     checkIn: Date
     checkOut: Date
     numGuests: number
+    idempotencyKey: string
   }
   const [cart, setCart] = useState<CartItem[]>([])
+
+
+
   // Map of tempId (from cart) -> Guest Details
   const [guestAssignments, setGuestAssignments] = useState<Record<string, { name: string, email: string }>>({})
 
@@ -61,12 +67,7 @@ export function OnsiteBookingPage() {
   )
   const [paymentType, setPaymentType] = useState<'full' | 'part' | 'pending'>('pending')
   const [amountPaid, setAmountPaid] = useState<number>(0)
-  const [loading, setLoading] = useState(false)
-  // Synchronous double-click guard. React state lags one render behind the click;
-  // a ref flips on the click handler's very first line, closing the 200-400 ms
-  // gap (RTT to Supabase from Ghana) where two clicks could fire two pipelines.
-  const submittingRef = useRef(false)
-
+  
   // Billing Adjustments State
   const [additionalCharges, setAdditionalCharges] = useState<{ id: string, description: string, amount: number }[]>([])
   const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('fixed')
@@ -90,10 +91,9 @@ export function OnsiteBookingPage() {
 
   const loadData = async () => {
     try {
-      const [typesData, roomsData, propertiesData, bookingsData] = await Promise.all([
+      const [typesData, roomsData, bookingsData] = await Promise.all([
         db.roomTypes.list(),
-        db.rooms.list(),
-        db.properties.list({ orderBy: { createdAt: 'desc' } }),
+        (db as any).rooms.list({ orderBy: { createdAt: 'desc' } }),
         bookingEngine.getAllBookings()
       ])
       const normalize = (s: string) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
@@ -102,14 +102,14 @@ export function OnsiteBookingPage() {
         return n && n.length > 0
       })
 
-      // Process properties data to match room types
-      const propertiesWithPrices = propertiesData.map((prop: any) => {
+      // Process rooms data to match room types
+      const roomsWithPrices = roomsData.map((room: any) => {
         const matchingType =
-          filteredTypes.find((rt) => rt.id === prop.propertyTypeId) ||
-          filteredTypes.find((rt) => rt.name.toLowerCase() === (prop.propertyType || '').toLowerCase())
+          filteredTypes.find((rt) => rt.id === room.propertyTypeId) ||
+          filteredTypes.find((rt) => rt.name.toLowerCase() === (room.propertyType || '').toLowerCase())
         return {
-          ...prop,
-          roomTypeName: matchingType?.name || prop.propertyType || '',
+          ...room,
+          roomTypeName: matchingType?.name || room.propertyType || '',
           displayPrice: matchingType?.basePrice ?? 0
         }
       })
@@ -120,7 +120,7 @@ export function OnsiteBookingPage() {
         if (booking.roomNumber) {
           return booking // Already has roomNumber from bookingEngine
         }
-        const room = roomsData.find((r: any) => r.id === booking.roomId)
+        const room = roomsData.find((p: any) => p.id === booking.roomId)
         return {
           ...booking,
           roomNumber: room?.roomNumber || 'Unknown'
@@ -128,8 +128,7 @@ export function OnsiteBookingPage() {
       })
 
       setRoomTypes(filteredTypes)
-      setRooms(roomsData)
-      setProperties(propertiesWithPrices)
+      setProperties(roomsWithPrices)
       setBookings(processedBookings)
     } catch (error) {
       console.error('Failed to load data:', error)
@@ -137,9 +136,6 @@ export function OnsiteBookingPage() {
   }
 
   // Helper function to check if dates overlap using strict YYYY-MM-DD comparison
-  // This avoids timezone issues where "Jan 8 00:00" might be != "Jan 8 00:00" in different zones
-  // Helper function to check if dates overlap using strict YYYY-MM-DD comparison
-  // This avoids timezone issues where "Jan 8 00:00" might be != "Jan 8 00:00" in different zones
   const isOverlap = (start1: Date | undefined, end1: Date | undefined, start2: string | Date | undefined, end2: string | Date | undefined) => {
     // Return false if any date is missing
     if (!start1 || !end1 || !start2 || !end2) return false
@@ -276,28 +272,17 @@ export function OnsiteBookingPage() {
 
     // Resolve to a Room object (or best effort)
     // We prefer finding a matching Room entity, but if not found we might need to rely on Property
-    const roomObj = rooms.find(r => r.roomNumber === availableProperty.roomNumber)
-
-    if (!roomObj) {
-      console.warn(`[OnsiteBooking] Found available property ${availableProperty.roomNumber} but no matching Room entity found.`)
-      // Fallback or error? For now, we need an ID. 
-      // If rooms are auto-created, maybe we can't add it yet? 
-      // Let's iterate: if we can't find a room object, we can't get a roomId safely unless we use property.id
-      // But the system seems to parallel properties and rooms.
-      toast.error(`System error: Room ${availableProperty.roomNumber} configuration incomplete.`)
-      return
-    }
-
     setCart([...cart, {
       id: Math.random().toString(36).substr(2, 9),
       roomTypeId: roomType.id,
       roomTypeName: roomType.name,
-      roomId: roomObj.id,
+      roomId: availableProperty.id,
       roomNumber: availableProperty.roomNumber,
       price: roomType.basePrice,
       checkIn: checkIn as Date,
       checkOut: checkOut as Date,
-      numGuests: numGuests
+      numGuests: numGuests,
+      idempotencyKey: makeUuid()
     }])
     toast.success(`Added ${roomType.name} (${availableProperty.roomNumber}) to booking`)
   }
@@ -331,13 +316,7 @@ export function OnsiteBookingPage() {
       return
     }
     submittingRef.current = true
-
-    // One idempotency UUID per cart item. If the request is somehow re-sent
-    // (sync queue retry, network blip), the DB unique index on
-    // bookings.client_request_id rejects the duplicate insert and the engine
-    // re-reads the existing row.
-    const idempotencyKeys: string[] = cart.map(() => makeUuid())
-
+    
     setLoading(true)
     try {
       const isSingleRoom = cart.length === 1
@@ -395,8 +374,8 @@ export function OnsiteBookingPage() {
           status: 'confirmed' as const,
           source: 'reception' as const,
           payment: {
-            method: primaryPaymentMethod,
-            status: paymentType === 'full' ? 'completed' : 'pending',
+            method: primaryPaymentMethod as 'cash' | 'mobile_money' | 'card' | 'not_paid',
+            status: (paymentType === 'full' ? 'completed' : 'pending') as 'completed' | 'pending',
             amount: paymentType === 'full' ? itemTotal : (paymentType === 'part' ? splitsPaidTotal : 0),
             reference: `PAY-${Date.now()}-${index}`,
             paidAt: paymentType !== 'pending' ? new Date().toISOString() : undefined
@@ -408,7 +387,7 @@ export function OnsiteBookingPage() {
           createdBy: user?.id,
           createdByName: staffName,
           specialRequests: bookingEvent ? specialRequests : (guestInfo.specialRequests || ''),
-          idempotencyKey: idempotencyKeys[index],
+          idempotencyKey: item.idempotencyKey,
           ...(index === 0 ? { subtotal: totalPrice } : {})
         }
       }

@@ -30,7 +30,7 @@ type ViewMode = 'timeline' | 'grid' | 'list'
 
 export function CalendarPage() {
   const navigate = useNavigate()
-  const { staffRecord: staffData, role, loading: staffLoading } = useStaffRole()
+  const { staffRecord: staffData, role, isLoading: staffLoading } = useStaffRole()
   const { currency } = useCurrency()
 
   console.log('[CalendarPage] useStaffRole result:', { staffData, role, staffLoading })
@@ -284,21 +284,13 @@ export function CalendarPage() {
       const selectedRoomType = roomTypes.find((rt: any) => rt.id === selectedProperty.propertyTypeId)
       const roomTypeName = selectedRoomType?.name || ''
 
-      // Comprehensive fallback: Get current user ID directly if staffData is not available
       let createdBy = staffData?.userId || staffData?.id
       console.log('[CalendarPage] Initial createdBy from staffData:', createdBy)
 
       if (!createdBy) {
-        try {
-          const currentUser = await auth.me()
-          createdBy = currentUser?.id
-          console.log('[CalendarPage] Fallback: Using current user ID:', createdBy)
-        } catch (error) {
-          console.error('[CalendarPage] Failed to get current user:', error)
-          // Last resort: generate a temporary ID
-          createdBy = `temp-user-${Date.now()}`
-          console.log('[CalendarPage] Last resort: Using temporary ID:', createdBy)
-        }
+        toast.error('Staff profile not fully loaded. Please wait a moment and try again.')
+        setSubmitting(false)
+        return
       }
 
       console.log('[CalendarPage] Staff data:', staffData)

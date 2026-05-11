@@ -8,7 +8,8 @@
 
 import { db, auth } from '@/lib/db'
 import { startOfWeek, endOfWeek, format, subWeeks, addDays, parseISO } from 'date-fns'
-import { standaloneSalesService, type StandaloneSale } from './standalone-sales-service'
+import { standaloneSalesService } from './standalone-sales-service'
+import type { StandaloneSale, ActivityLog } from '@/types'
 import { CHARGE_CATEGORIES } from './booking-charges-service'
 import { parsePaymentEvents, computeStaffAttributedRevenue } from '@/lib/payment-events'
 
@@ -23,7 +24,7 @@ export interface WeeklyRevenueReport {
   totalRevenue: number
   bookingCount: number
   bookingIds: string    // JSON-encoded string array of booking IDs
-  status: 'draft' | 'submitted' | 'reviewed'
+  status: 'draft' | 'submitted' | 'reviewed' | 'init'
   notes: string         // Staff's own notes on the week
   adminNotes: string    // Admin feedback
   reviewedBy: string    // Admin user ID
@@ -204,7 +205,7 @@ export async function fetchBookingsForStaffWeek(
   try {
     ;[allBookings, allRooms, allGuests, allChargesRaw] = await Promise.all([
       db.bookings.list({ limit: 2000 }),
-      db.rooms.list({ limit: 500 }),
+      db.properties.list({ limit: 500 }),
       db.guests.list({ limit: 1000 }),
       db.bookingCharges.list({ limit: 5000 }).catch(() => []),
     ])
@@ -253,6 +254,25 @@ export async function fetchBookingsForStaffWeek(
       }
     }
     allBookings = deduped
+  }
+
+  // Build a map of group totals — for group bookings, the group subtotal is needed
+  // to split the group deposit proportionally across all room rows in the report.
+  const groupSubtotalMap = new Map<string, number>()
+  for (const b of ((allBookings || []) as any[])) {
+    const specialReq = b.special_requests || b.specialRequests || ''
+    if (specialReq.includes('GROUP_DATA')) {
+      const gdMatch = specialReq.match(/<!-- GROUP_DATA:(.*?) -->/)
+      if (gdMatch?.[1]) {
+        try {
+          const gd = JSON.parse(gdMatch[1])
+          const gid = gd.groupId
+          if (gid) {
+            groupSubtotalMap.set(gid, (groupSubtotalMap.get(gid) || 0) + Number(b.totalPrice || 0))
+          }
+        } catch { /* ignore */ }
+      }
+    }
   }
 
   // Group booking charges by booking ID

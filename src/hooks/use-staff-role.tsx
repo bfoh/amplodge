@@ -71,12 +71,42 @@ interface StaffRecord {
 }
 
 export function useStaffRole() {
-  const [role, setRole] = useState<StaffRole | null>(null)
-  const [staffRecord, setStaffRecord] = useState<StaffRecord | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [userId, setUserId] = useState<string | null>(null)
+  // --- Hydrate from cache synchronously to avoid the loading spinner ---
+  // The auth session and staff role are both cached in localStorage.
+  // If we have both, we can skip the "Verifying access..." phase entirely.
+  const initialState = (() => {
+    try {
+      // Check for cached auth session
+      const authRaw = localStorage.getItem('amplodge_auth_session')
+      if (!authRaw) return null
+      const authParsed = JSON.parse(authRaw)
+      const AUTH_SESSION_EXPIRY = 7 * 24 * 60 * 60 * 1000
+      if (Date.now() - authParsed.timestamp > AUTH_SESSION_EXPIRY) return null
+      const cachedUser = authParsed.user
+      if (!cachedUser?.id) return null
+
+      // Check for cached staff role
+      const roleRaw = localStorage.getItem(`${CACHE_KEY_PREFIX}${cachedUser.id}`)
+      if (!roleRaw) return null
+      const roleParsed = JSON.parse(roleRaw)
+      if (Date.now() - roleParsed.timestamp > CACHE_EXPIRY) return null
+
+      return {
+        userId: cachedUser.id,
+        role: roleParsed.role as StaffRole,
+        staffRecord: roleParsed.staffRecord as StaffRecord,
+      }
+    } catch {
+      return null
+    }
+  })()
+
+  const [role, setRole] = useState<StaffRole | null>(initialState?.role ?? null)
+  const [staffRecord, setStaffRecord] = useState<StaffRecord | null>(initialState?.staffRecord ?? null)
+  const [loading, setLoading] = useState(!initialState) // false if we hydrated from cache
+  const [userId, setUserId] = useState<string | null>(initialState?.userId ?? null)
   const isLoadingRef = useRef(false)
-  const loadedUserIdRef = useRef<string | null>(null)
+  const loadedUserIdRef = useRef<string | null>(initialState?.userId ?? null)
 
   // Computed properties for backward compatibility
   const isOwner = role === 'owner'
@@ -107,6 +137,8 @@ export function useStaffRole() {
         setRole(staffRole)
         saveToCache(uid, record, staffRole)
         console.log('🔄 [useStaffRole] Background refresh complete:', staffRole)
+      } else {
+        console.warn('⚠️ [useStaffRole] Background refresh found NO staff record for uid:', uid)
       }
     } catch (err) {
       console.warn('⚠️ [useStaffRole] Background refresh failed:', err)
@@ -290,7 +322,7 @@ export function useStaffRole() {
   return {
     role,
     staffRecord,
-    loading,
+    isLoading: loading,
     userId,
     isOwner,
     isAdmin,

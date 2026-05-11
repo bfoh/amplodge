@@ -134,26 +134,18 @@ export function SetPricesPage() {
     setEdited((prev) => ({ ...prev, [id]: value }))
   }
 
-  // Sync price update to all rooms that use this room type
+  // Sync price update to all properties that use this room type
   const syncPriceToRooms = async (roomTypeId: string, newPrice: number) => {
     try {
-      // Find all rooms with this room type
-      const rooms = await db.rooms.list({ where: { roomTypeId } })
-
-      // Update each room's price
-      for (const room of rooms) {
-        await db.rooms.update(room.id, { price: newPrice })
-      }
-
       // Also update properties that reference this room type
       const properties = await db.properties.list({ where: { propertyTypeId: roomTypeId } })
       for (const prop of properties) {
-        await db.properties.update(prop.id, { basePrice: newPrice })
+        await db.properties.update(prop.id, { basePrice: newPrice, price: newPrice })
       }
 
-      console.log(`✅ Synced price to ${rooms.length} rooms and ${properties.length} properties`)
+      console.log(`✅ Synced price to ${properties.length} properties`)
     } catch (err) {
-      console.warn('Failed to sync price to rooms:', err)
+      console.warn('Failed to sync price to properties:', err)
     }
   }
 

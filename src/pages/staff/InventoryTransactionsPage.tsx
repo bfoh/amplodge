@@ -19,7 +19,8 @@ import {
   Search,
   Filter
 } from 'lucide-react'
-import { inventoryService, type InventoryTransaction, type InventoryItem } from '@/services/inventory-service'
+import { inventoryService } from '@/services/inventory-service'
+import { type InventoryTransaction, type InventoryItem } from '@/types'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
 import { format } from 'date-fns'

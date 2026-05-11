@@ -26,7 +26,7 @@ import {
 type GpsStep = 'idle' | 'acquiring' | 'done' | 'denied' | 'unavailable'
 
 export function ClockPage() {
-  const { userId, staffRecord, loading: roleLoading } = useStaffRole()
+  const { userId, staffRecord, isLoading: roleLoading } = useStaffRole()
   const [searchParams] = useSearchParams()
   const token = searchParams.get('t')
 

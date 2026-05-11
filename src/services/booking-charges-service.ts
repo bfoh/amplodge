@@ -110,7 +110,7 @@ class BookingChargesService {
             // Trigger real-time inventory reduction if inventoryId is provided
             if (data.inventoryId) {
                 try {
-                    await inventoryService.recordTransaction({
+                    await inventoryService.logTransaction({
                         inventoryId: data.inventoryId,
                         type: 'sale',
                         quantity: -data.quantity,

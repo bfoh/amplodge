@@ -20,8 +20,8 @@ export async function forceCreateActivityLogsTable() {
     // Force create the table by creating a record
     const initRecord = {
       id: `init_${Date.now()}`,
-      action: 'initialization',
-      entityType: 'system',
+      action: 'diagnostic' as const,
+      entityType: 'diagnostic' as const,
       entityId: 'system_init',
       details: JSON.stringify({ initialization: true }),
       userId: 'system',
@@ -63,8 +63,8 @@ export async function testActivityLoggingDetailed() {
     console.log('📝 [TestActivityLoggingDetailed] Step 2: Testing direct database write...')
     const testRecord = {
       id: `detailed_test_${Date.now()}`,
-      action: 'detailed_test',
-      entityType: 'test',
+      action: 'diagnostic' as const,
+      entityType: 'diagnostic' as const,
       entityId: 'detailed_test_123',
       details: JSON.stringify({ detailedTest: true }),
       userId: 'system',
@@ -91,8 +91,8 @@ export async function testActivityLoggingDetailed() {
     console.log('🔧 [TestActivityLoggingDetailed] Step 4: Testing activity log service...')
     try {
       await activityLogService.log({
-        action: 'service_test',
-        entityType: 'test',
+        action: 'diagnostic' as const,
+        entityType: 'diagnostic' as const,
         entityId: 'service_test_456',
         details: { serviceTest: true },
         userId: 'system',
@@ -170,8 +170,8 @@ export async function emergencyFixActivityLogging() {
     
     // Step 3: Test logging
     await activityLogService.log({
-      action: 'emergency_fix',
-      entityType: 'system',
+      action: 'diagnostic' as const,
+      entityType: 'diagnostic' as const,
       entityId: 'emergency_fix_test',
       details: { emergencyFix: true },
       userId: 'system',

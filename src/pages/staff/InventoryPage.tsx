@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSubscription } from '@/hooks/use-subscription'
 import { db, auth } from '@/lib/db'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -34,7 +35,8 @@ import {
   Trash2,
   Package2
 } from 'lucide-react'
-import { inventoryService, type InventoryItem } from '@/services/inventory-service'
+import { inventoryService } from '@/services/inventory-service'
+import { type InventoryItem } from '@/types'
 import { toast } from 'sonner'
 import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
@@ -55,6 +57,7 @@ import {
 
 export function InventoryPage() {
   const { currency } = useCurrency()
+  const inventoryUpdate = useSubscription('inventory')
   const [items, setItems] = useState<InventoryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -80,7 +83,7 @@ export function InventoryPage() {
   useEffect(() => {
     loadInventory()
     fetchUser()
-  }, [])
+  }, [inventoryUpdate])
 
   const fetchUser = async () => {
     const user = await auth.me()
@@ -360,12 +363,12 @@ export function InventoryPage() {
                               Out of Stock
                             </Badge>
                           ) : isLow ? (
-                            <Badge variant="warning" className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200 gap-1">
+                            <Badge variant="outline" className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200 gap-1">
                               <AlertTriangle className="w-3 h-3" />
                               Low Stock
                             </Badge>
                           ) : (
-                            <Badge variant="success" className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">
+                            <Badge variant="outline" className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">
                               In Stock
                             </Badge>
                           )}

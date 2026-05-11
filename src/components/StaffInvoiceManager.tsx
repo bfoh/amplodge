@@ -100,14 +100,14 @@ export function StaffInvoiceManager() {
       const guestIds = [...new Set(allBookings.map((b: any) => b.guestId).filter(Boolean))] as string[]
       const roomIds = [...new Set(allBookings.map((b: any) => b.roomId).filter(Boolean))] as string[]
 
-      const [guests, rooms] = await Promise.all([
+      const [guests, properties] = await Promise.all([
         guestIds.length > 0 ? db.guests.list({ where: { id: { in: guestIds } } }) : Promise.resolve([]),
-        roomIds.length > 0 ? db.rooms.list({ where: { id: { in: roomIds } } }) : Promise.resolve([])
+        roomIds.length > 0 ? db.properties.list({ where: { id: { in: roomIds } } }) : Promise.resolve([])
       ])
 
       // Create maps for quick lookup
       const guestMap = new Map(guests.map((g: any) => [g.id, g]))
-      const roomMap = new Map(rooms.map((r: any) => [r.id, r]))
+      const roomMap = new Map(properties.map((p: any) => [p.id, p]))
 
       // Convert bookings to invoice records
       const invoiceRecords: InvoiceRecord[] = allBookings.map((booking: any) => {
@@ -219,10 +219,12 @@ export function StaffInvoiceManager() {
 
       const [guests, rooms] = await Promise.all([
         db.guests.list({ where: { id: { in: guestIds } } }),
-        db.rooms.list({ where: { id: { in: roomIds } } })
+        db.properties.list({ where: { id: { in: roomIds } } })
       ]);
 
       const guestMap = new Map(guests.map((g: any) => [g.id, g]));
+      const propertyRes = roomIds.length > 0 ? await db.properties.list({ where: { id: { in: roomIds } } }) : []
+      const propertyMap = new Map(propertyRes.map((p: any) => [p.id, p]))
       const roomMap = new Map(rooms.map((r: any) => [r.id, r]));
 
       const fullBookingDetails = groupBookingsRaw.map((b: any) => ({
@@ -274,14 +276,14 @@ export function StaffInvoiceManager() {
         throw new Error('Booking not found')
       }
 
-      // Fetch guest and room data
-      const [guest, room] = await Promise.all([
+      // Fetch guest and property data
+      const [guest, property] = await Promise.all([
         db.guests.get(booking.guestId),
-        db.rooms.get(booking.roomId)
+        db.properties.get(booking.roomId)
       ])
 
-      if (!guest || !room) {
-        throw new Error('Guest or room data not found')
+      if (!guest || !property) {
+        throw new Error('Guest or property data not found')
       }
 
       // Create booking with details for invoice
@@ -289,21 +291,21 @@ export function StaffInvoiceManager() {
         ...booking,
         guest: guest,
         room: {
-          roomNumber: room.roomNumber,
-          roomType: room.roomType || 'Standard Room'
+          roomNumber: property.roomNumber,
+          roomType: property.name || 'Standard Room'
         }
-      }
+      } as any
 
       if (invoice.isPreInvoice || invoice.invoiceNumber.startsWith('PRE-')) {
         // Use pre-invoice generation for confirmed bookings
         console.log('📋 [StaffInvoiceManager] Using PRE-INVOICE template')
-        const preInvoiceData = await createPreInvoiceData(bookingWithDetails, room)
+        const preInvoiceData = await createPreInvoiceData(bookingWithDetails, property)
         preInvoiceData.invoiceNumber = invoice.invoiceNumber
         await downloadPreInvoicePDF(preInvoiceData)
         toast.success(`Pre-Invoice ${invoice.invoiceNumber} downloaded successfully!`)
       } else {
         // Use regular invoice for paid/checked-out bookings
-        const invoiceData = await createInvoiceData(bookingWithDetails, room)
+        const invoiceData = await createInvoiceData(bookingWithDetails, property)
         invoiceData.invoiceNumber = invoice.invoiceNumber
         await downloadInvoicePDF(invoiceData)
         toast.success(`Invoice ${invoice.invoiceNumber} downloaded successfully!`)
@@ -327,14 +329,14 @@ export function StaffInvoiceManager() {
         throw new Error('Booking not found')
       }
 
-      // Fetch guest and room data
-      const [guest, room] = await Promise.all([
+      // Fetch guest and property data
+      const [guest, property] = await Promise.all([
         db.guests.get(booking.guestId),
-        db.rooms.get(booking.roomId)
+        db.properties.get(booking.roomId)
       ])
 
-      if (!guest || !room) {
-        throw new Error('Guest or room data not found')
+      if (!guest || !property) {
+        throw new Error('Guest or property data not found')
       }
 
       // Create booking with details for invoice
@@ -342,21 +344,21 @@ export function StaffInvoiceManager() {
         ...booking,
         guest: guest,
         room: {
-          roomNumber: room.roomNumber,
-          roomType: room.roomType || 'Standard Room'
+          roomNumber: property.roomNumber,
+          roomType: property.name || 'Standard Room'
         }
-      }
+      } as any
 
       if (invoice.isPreInvoice || invoice.invoiceNumber.startsWith('PRE-')) {
         // Use same pre-invoice template as download
         console.log('📋 [StaffInvoiceManager] Using PRE-INVOICE template for printing')
-        const preInvoiceData = await createPreInvoiceData(bookingWithDetails, room)
+        const preInvoiceData = await createPreInvoiceData(bookingWithDetails, property)
         preInvoiceData.invoiceNumber = invoice.invoiceNumber
         await printPreInvoice(preInvoiceData)
         toast.success(`Pre-Invoice ${invoice.invoiceNumber} sent to printer!`)
       } else {
         // Use regular invoice template for paid invoices
-        const invoiceData = await createInvoiceData(bookingWithDetails, room)
+        const invoiceData = await createInvoiceData(bookingWithDetails, property)
         invoiceData.invoiceNumber = invoice.invoiceNumber
         await printInvoice(invoiceData)
         toast.success(`Invoice ${invoice.invoiceNumber} sent to printer!`)

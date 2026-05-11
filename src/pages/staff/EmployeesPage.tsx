@@ -10,13 +10,14 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { supabase } from '@/lib/supabase'
+import { callFunction } from '@/lib/api'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from '@/hooks/use-toast'
 import { useStaffRole } from '@/hooks/use-staff-role'
 import { canManageStaff, canAssignRole, getRoleDisplay, getRoleDescription } from '@/lib/rbac'
-import type { StaffRole } from '@/lib/rbac'
+import { type StaffRole } from '@/types'
 import { sendStaffWelcomeEmail } from '@/services/email-service'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -27,8 +28,7 @@ const employeeSchema = z.object({
   email: z.string().email('Enter a valid email'),
   phone: z.string().optional(),
   role: z
-    .enum(['staff', 'manager', 'admin', 'owner'])
-    .default('staff'),
+    .enum(['staff', 'manager', 'admin', 'owner']),
 })
 
 type EmployeeFormValues = z.infer<typeof employeeSchema>
@@ -39,7 +39,7 @@ interface StaffMember {
   name: string
   email: string
   phone?: string
-  role: string
+  role: StaffRole
   createdAt: string
 }
 
@@ -186,7 +186,7 @@ export function EmployeesPage() {
       if (deletingEmployee.userId && deletingEmployee.userId !== 'pending') {
         try {
           console.log('🗑️ [EmployeesPage] Deleting Auth user...')
-          await fetch('/.netlify/functions/delete-employee', {
+          await callFunction('delete-employee', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ userId: deletingEmployee.userId })
@@ -418,7 +418,7 @@ export function EmployeesPage() {
         // First, try using the Netlify function (production) - uses Admin API
         try {
           console.log('📡 [EmployeesPage] Calling Netlify function to create auth user...')
-          const response = await fetch('/.netlify/functions/create-employee', {
+          const response = await callFunction('create-employee', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

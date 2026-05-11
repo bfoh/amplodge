@@ -1,13 +1,40 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { NavLink } from 'react-router-dom'
-import { Calendar, LayoutDashboard, List, History, Settings, MessageSquare, Tag, BarChart3, ReceiptText, ChevronDown, Sparkles, Users, LogOut, TrendingUp, FileText, Package } from 'lucide-react'
+import { NavLink, useNavigate } from 'react-router-dom'
+import { 
+  Calendar, 
+  LayoutDashboard, 
+  List, 
+  History, 
+  Settings, 
+  MessageSquare, 
+  Tag, 
+  BarChart3, 
+  ReceiptText, 
+  ChevronDown, 
+  Sparkles, 
+  Users, 
+  LogOut, 
+  TrendingUp, 
+  FileText, 
+  Package,
+  PlusCircle,
+  Star,
+  Megaphone,
+  Briefcase,
+  Home
+} from 'lucide-react'
 import { useStaffRole } from '@/hooks/use-staff-role'
+import { useIsAdmin } from '@/hooks/use-is-admin'
 import { canAccessRoute } from '@/lib/rbac'
 import { db, auth } from '@/lib/db'
 import type { StaffRole } from '@/lib/rbac'
+import { SyncStatusBadge } from '@/components/SyncStatusBadge'
+import { activityLogService } from '@/services/activity-log-service'
 
 type StaffSidebarProps = {
   email?: string | null
+  className?: string
+  onNavigate?: () => void
 }
 
 interface NavItem {
@@ -22,12 +49,16 @@ interface NavItem {
 
 // Main navigation items with role-based access
 const navItems: NavItem[] = [
+  { label: 'Dashboard', to: '/staff/dashboard', icon: LayoutDashboard, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Calendar', to: '/staff/calendar', icon: Calendar, minRole: ['owner', 'admin', 'manager', 'staff'] },
-  { label: 'Rooms', to: '/staff/properties', icon: LayoutDashboard, minRole: ['owner', 'admin', 'manager'] },
+  { label: 'Rooms', to: '/staff/properties', icon: Home, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Bookings', to: '/staff/bookings', icon: List, minRole: ['owner', 'admin', 'manager', 'staff'] },
+  { label: 'Reservations', to: '/staff/reservations', icon: History, minRole: ['owner', 'admin', 'manager', 'staff'] },
+  { label: 'Onsite Booking', to: '/staff/onsite', icon: PlusCircle, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Guests', to: '/staff/guests', icon: Users, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Housekeeping', to: '/staff/housekeeping', icon: Sparkles, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Channels', to: '/staff/channels', icon: MessageSquare, minRole: ['owner', 'admin', 'manager'] },
+  { label: 'My Revenue', to: '/staff/my-revenue', icon: BarChart3, minRole: ['owner', 'admin', 'manager', 'staff'] },
 ]
 
 // Price list submenu items - Admin only
@@ -47,42 +78,61 @@ const adminItems: Array<{
 }> = [
     { label: 'Inventory', to: '/staff/inventory', icon: Package, minRole: ['owner', 'admin', 'manager'] },
     { label: 'Employees', to: '/staff/employees', icon: Users, minRole: ['owner', 'admin', 'manager'] },
-    { label: 'Price list', to: '/staff/set-prices', icon: Tag, minRole: ['owner', 'admin', 'manager'] },
+    { label: 'HR', to: '/staff/hr', icon: Briefcase, minRole: ['owner', 'admin'] },
     { label: 'Invoices', to: '/staff/invoices', icon: ReceiptText, minRole: ['owner', 'admin', 'manager'] },
     { label: 'Analytics', to: '/staff/analytics', icon: TrendingUp, minRole: ['owner', 'admin', 'manager'] },
+    { label: 'Marketing', to: '/staff/marketing', icon: Megaphone, minRole: ['owner', 'admin', 'manager', 'staff'] },
+    { label: 'Guest Reviews', to: '/staff/reviews', icon: Star, minRole: ['owner', 'admin', 'manager', 'staff'] },
+    { label: 'Service Requests', to: '/staff/requests', icon: MessageSquare, minRole: ['owner', 'admin', 'manager', 'staff'] },
     { label: 'Activity Logs', to: '/staff/activity-logs', icon: FileText, minRole: ['owner', 'admin', 'manager'] },
     { label: 'Settings', to: '/staff/settings', icon: Settings, minRole: ['owner', 'admin', 'manager'] },
   ]
 
-export function StaffSidebar({ email }: StaffSidebarProps) {
-  const { role, canManageEmployees, loading: isLoadingStaff } = useStaffRole()
+export function StaffSidebar({ email, className, onNavigate }: StaffSidebarProps) {
+  const { role, canManageEmployees, isLoading: isLoadingStaff } = useStaffRole()
+  const { isAdmin } = useIsAdmin()
+  const navigate = useNavigate()
 
   const [priceOpen, setPriceOpen] = useState(false)
   const submenuRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
 
   // While loading, show all items to prevent navigation flicker
-  // Once loaded, filter based on role
-  const visibleNavItems = isLoadingStaff || !role
+  // Once loaded, filter based on role (case-insensitive)
+  const normalizedRole = role?.toLowerCase()
+  
+  const visibleNavItems = isLoadingStaff || !normalizedRole
     ? navItems // Show all items while loading
     : navItems.filter(item => {
       if (!item.minRole) return true
-      return item.minRole.includes(role)
+      return item.minRole.some(r => r.toLowerCase() === normalizedRole)
     })
 
   // Filter price list items based on user role
-  const visiblePriceListItems = isLoadingStaff || !role
+  const visiblePriceListItems = isLoadingStaff || !normalizedRole
     ? priceListItems // Show all items while loading
     : priceListItems.filter(item => {
       if (!item.minRole) return true
-      return item.minRole.includes(role)
+      return item.minRole.some(r => r.toLowerCase() === normalizedRole)
     })
 
-  // Filter admin items based on user role
-  // Show admin items for admin/owner, OR while loading to prevent flicker
-  const visibleAdminItems = isLoadingStaff || !role || email === import.meta.env.VITE_ADMIN_EMAIL
-    ? adminItems // Show admin items while loading or for admin email
-    : adminItems.filter(item => item.minRole.includes(role))
+  // Filter admin items by role. While loading, show all to prevent flicker
+  const visibleAdminItems = isLoadingStaff || !normalizedRole || isAdmin
+    ? adminItems
+    : adminItems.filter(item => item.minRole.some(r => r.toLowerCase() === normalizedRole))
+
+  // DIAGNOSTIC LOGGING
+  useEffect(() => {
+    console.log('[StaffSidebar Diagnostic]', {
+      role,
+      normalizedRole,
+      isAdmin,
+      isLoadingStaff,
+      visibleNavItemsCount: visibleNavItems.length,
+      visibleAdminItemsCount: visibleAdminItems.length,
+      visibleNavLabels: visibleNavItems.map(i => i.label)
+    })
+  }, [role, normalizedRole, isAdmin, isLoadingStaff, visibleNavItems, visibleAdminItems])
 
   // Show price list section if user can access any price list items
   const showPriceListSection = visiblePriceListItems.length > 0
@@ -115,12 +165,51 @@ export function StaffSidebar({ email }: StaffSidebarProps) {
     }
   }
 
-  return (
-    <aside className="hidden md:flex w-64 h-screen flex-col bg-[#0B1220] text-white/90">
+  const handleLogout = async () => {
+    try {
+      const user = await auth.me()
+      if (user) {
+        await activityLogService.logUserLogout(user.id, { email: user.email }).catch(err =>
+          console.error('Failed to log logout activity:', err)
+        )
+      }
+    } catch (error) {
+      console.error('Failed to get current user for logout logging:', error)
+    }
+    console.log('🔄 [StaffSidebar] Logging out user...')
+    await auth.logout()
+    navigate('/staff/login')
+  }
 
-      <div className="px-4 py-5 border-b border-white/10">
-        <p className="text-xs uppercase tracking-widest text-white/60">Application</p>
-        <p className="mt-2 text-sm text-white/80 truncate" title={email || ''}>{email || 'Staff'}</p>
+  return (
+    <aside className={className || "hidden md:flex w-64 h-screen flex-col bg-[#0B1220] text-white/90"}>
+
+      <div className="px-6 py-8 border-b border-white/10 flex flex-col items-center">
+        <div className="w-16 h-16 mb-4 rounded-full bg-white/10 flex items-center justify-center overflow-hidden border border-white/20 shadow-inner group">
+           <img 
+            src="/amp-logo.png" 
+            alt="AMP Lodge" 
+            className="w-12 h-12 object-contain transition-transform group-hover:scale-110 duration-500" 
+            onError={(e) => {
+              // Fallback to a generic icon if the image fails to load
+              e.currentTarget.style.display = 'none';
+              const parent = e.currentTarget.parentElement;
+              if (parent) {
+                const icon = document.createElement('div');
+                icon.className = 'w-10 h-10 flex items-center justify-center text-white/40';
+                icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-home"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>';
+                parent.appendChild(icon);
+              }
+            }}
+          />
+        </div>
+        <h2 className="text-lg font-serif font-bold text-white tracking-tight">AMP Lodge</h2>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-white/40 mt-1">Management Portal</p>
+        {email && (
+          <p className="mt-4 text-[11px] text-white/50 truncate w-full text-center px-2" title={email}>
+            {email}
+          </p>
+        )}
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
@@ -130,6 +219,7 @@ export function StaffSidebar({ email }: StaffSidebarProps) {
             key={item.to}
             to={item.disabled ? '#' : item.to}
             aria-disabled={item.disabled}
+            onClick={onNavigate}
             className={({ isActive }) => [
               'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
               item.indent ? 'ml-7' : '',
@@ -180,6 +270,7 @@ export function StaffSidebar({ email }: StaffSidebarProps) {
                   <NavLink
                     key={item.to}
                     to={item.to}
+                    onClick={onNavigate}
                     className={({ isActive }) => [
                       'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ml-7',
                       'hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20',
@@ -206,6 +297,7 @@ export function StaffSidebar({ email }: StaffSidebarProps) {
               <NavLink
                 key={item.to}
                 to={item.to}
+                onClick={onNavigate}
                 className={({ isActive }) => [
                   'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
                   'hover:bg-white/10',
@@ -220,8 +312,20 @@ export function StaffSidebar({ email }: StaffSidebarProps) {
         )}
       </nav>
 
-      <div className="p-4 border-t border-white/10 text-[11px] text-white/60">
-        © AMP Lodge
+      <div className="p-4 border-t border-white/10 space-y-3">
+        <div className="bg-white/5 rounded-lg p-2">
+          <SyncStatusBadge />
+        </div>
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors text-rose-400 hover:bg-rose-500/10 hover:text-rose-300"
+        >
+          <LogOut className="w-4 h-4" />
+          <span>Logout</span>
+        </button>
+        <div className="text-center text-[10px] text-white/40 pt-2">
+          © AMP Lodge
+        </div>
       </div>
     </aside>
   )

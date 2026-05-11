@@ -49,6 +49,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@react-three/drei": "^10.7.5",
     "@react-three/fiber": "^9.3.0",
+    "@sentry/react": "^10.52.0",
     "@supabase/supabase-js": "^2.87.1",
     "@types/pouchdb": "^6.4.2",
     "@types/pouchdb-find": "^7.3.3",

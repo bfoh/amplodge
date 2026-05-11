@@ -8,6 +8,7 @@ import { Calendar, DollarSign, Users, Bed, LogOut, AlertTriangle } from 'lucide-
 import { format, isToday, parseISO } from 'date-fns'
 import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
+import { useSubscription } from '@/hooks/use-subscription'
 import { StaffSidebar } from '@/components/layout/StaffSidebar'
 import { bookingEngine } from '@/services/booking-engine'
 
@@ -19,6 +20,9 @@ export function StaffDashboardPage() {
   const [rooms, setRooms] = useState<Room[]>([])
   const [loading, setLoading] = useState(true)
   const [conflicts, setConflicts] = useState(0)
+
+  const bookingsUpdate = useSubscription('bookings')
+  const propertiesUpdate = useSubscription('properties')
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((state) => {
@@ -34,13 +38,13 @@ export function StaffDashboardPage() {
     if (user) {
       loadData()
     }
-  }, [user])
+  }, [user, bookingsUpdate, propertiesUpdate])
 
   const loadData = async () => {
     try {
       const [bookingsData, roomsData] = await Promise.all([
         db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 100 }),
-        db.rooms.list({ orderBy: { createdAt: 'desc' }, limit: 200 })
+        db.properties.list({ orderBy: { createdAt: 'desc' }, limit: 200 })
       ])
       setBookings(bookingsData)
       setRooms(roomsData)

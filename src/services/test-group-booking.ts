@@ -6,17 +6,17 @@ export const testGroupBooking = async () => {
     console.log('🧪 Starting Group Booking Test...')
 
     try {
-        // 1. Fetch real room types and rooms to ensure validity
+        // 1. Fetch real room types and properties to ensure validity
         const roomTypes = await db.roomTypes.list()
-        const rooms = await db.rooms.list()
+        const properties = await db.properties.list()
 
-        if (rooms.length < 2) {
-            console.warn('⚠️ Not enough rooms to test multi-room booking effectively.')
+        if (properties.length < 2) {
+            console.warn('⚠️ Not enough properties to test multi-room booking effectively.')
             return
         }
 
-        const room1 = rooms[0]
-        const room2 = rooms[1]
+        const room1 = properties[0]
+        const room2 = properties[1]
 
         console.log(`📋 Found rooms: ${room1.roomNumber}, ${room2.roomNumber}`)
 

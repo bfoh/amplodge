@@ -1,13 +1,18 @@
 import { Resend } from 'resend';
 import { Buffer } from 'node:buffer';
+import { requireAdmin, jsonResponse, handleCors } from './_lib/auth.js';
 
-export const handler = async (event, context) => {
-    // Only allow POST requests
+export const handler = async (event) => {
+    const corsResp = handleCors(event); if (corsResp) return corsResp
+
     if (event.httpMethod !== 'POST') {
-        return {
-            statusCode: 405,
-            body: JSON.stringify({ error: 'Method not allowed' })
-        };
+        return jsonResponse(405, { error: 'Method not allowed' });
+    }
+
+    try {
+        await requireAdmin(event);
+    } catch (e) {
+        return jsonResponse(e.status, e.body);
     }
 
     // Get API key from environment (check both variable names for compatibility)

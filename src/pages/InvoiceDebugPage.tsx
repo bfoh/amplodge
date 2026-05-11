@@ -68,15 +68,15 @@ export function InvoiceDebugPage() {
       }
 
       console.log('📊 [InvoiceDebugPage] Creating invoice data...')
-      const invoiceData = createInvoiceData(testBooking, testRoom)
+      const invoiceData = await createInvoiceData(testBooking, testRoom)
       console.log('✅ [InvoiceDebugPage] Invoice data created:', invoiceData.invoiceNumber)
 
       console.log('📄 [InvoiceDebugPage] Generating invoice HTML...')
-      const invoiceHtml = await generateInvoicePDF(invoiceData)
-      console.log('✅ [InvoiceDebugPage] Invoice HTML generated, length:', invoiceHtml.length)
+      const invoiceBlob = await generateInvoicePDF(invoiceData)
+      console.log('✅ [InvoiceDebugPage] Invoice HTML generated, size:', invoiceBlob.size)
 
       console.log('📧 [InvoiceDebugPage] Sending invoice email...')
-      const emailResult = await sendInvoiceEmail(invoiceData, invoiceHtml)
+      const emailResult = await sendInvoiceEmail(invoiceData, invoiceBlob)
       console.log('📧 [InvoiceDebugPage] Email result:', emailResult)
 
       if (emailResult.success) {

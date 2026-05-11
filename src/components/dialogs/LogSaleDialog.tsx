@@ -16,8 +16,9 @@ import { getCurrencySymbol } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { toast } from 'sonner'
 import { Loader2, Package } from 'lucide-react'
-import { standaloneSalesService, SALE_CATEGORIES, type StandaloneSale } from '@/services/standalone-sales-service'
-import { inventoryService, type InventoryItem } from '@/services/inventory-service'
+import { standaloneSalesService, SALE_CATEGORIES } from '@/services/standalone-sales-service'
+import { inventoryService } from '@/services/inventory-service'
+import { StandaloneSale, InventoryItem } from '@/types'
 
 interface LogSaleDialogProps {
   open: boolean

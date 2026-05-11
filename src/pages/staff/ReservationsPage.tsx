@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db, auth, onTableUpdated } from '@/lib/db'
-import type { Booking, Room, Guest } from '@/types'
+import { useSubscription } from '@/hooks/use-subscription'
+import type { Booking, Room, Guest, RoomType, Property } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -104,11 +105,19 @@ function StatusBadge({ status }: { status: string }) {
 export function ReservationsPage() {
   const navigate = useNavigate()
   const { currency } = useCurrency()
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<{ id: string; email: string | undefined } | null>(null)
   const [bookings, setBookings] = useState<Booking[]>([])
   const [rooms, setRooms] = useState<Room[]>([])
-  const [roomTypes, setRoomTypes] = useState<any[]>([])
+  const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
   const [guests, setGuests] = useState<Guest[]>([])
+
+  // Subscriptions
+  const updatedAtBks = useSubscription('bookings')
+  const updatedAtProp = useSubscription('properties')
+  const updatedAtGuests = useSubscription('guests')
+  const updatedAtChg = useSubscription('booking_charges')
+
+  const [isPending, startTransition] = useTransition()
 
   // Filters
   const [query, setQuery] = useState('')
@@ -208,32 +217,9 @@ export function ReservationsPage() {
       if (inFlight) return
       inFlight = true
       try {
-        // --- Phase 1 (Ghana latency win): paint the newest 50 bookings + first
-        // page of rooms/guests immediately so staff see *something* while the
-        // full listAll() pages stream in over a slower transatlantic link.
-        // Skipped on subsequent SWR-triggered re-runs (we already have data).
-        const isFirstLoad = bookings.length === 0
-        if (isFirstLoad) {
-          try {
-            const [fastB, fastR, fastG, fastRt] = await Promise.all([
-              db.bookings.list({ limit: 50, orderBy: { createdAt: 'desc' } }),
-              db.rooms.list({ limit: 200 }),
-              db.guests.list({ limit: 500 }),
-              db.roomTypes.list({ limit: 100 }),
-            ])
-            setBookings((fastB as Booking[]).map(hydrateBooking))
-            setRooms(fastR)
-            setGuests(fastG)
-            setRoomTypes(fastRt)
-            setLoading(false)
-          } catch (fastErr) {
-            console.warn('[ReservationsPage] Fast first-paint failed, falling through to listAll:', fastErr)
-          }
-        }
-
         const [b, r, g, rt, charges] = await Promise.all([
           db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
-          db.rooms.listAll(),
+          db.properties.listAll(),
           db.guests.listAll(),
           db.roomTypes.list({ limit: 100 }),
           db.bookingCharges.listAll() || Promise.resolve([])
@@ -242,84 +228,17 @@ export function ReservationsPage() {
         // Store charges for calculating totals
         setAllCharges(charges || [])
 
-        // Create temporary maps for lookup during deduplication.
-        // Explicit generics — listAll() is typed as Record<string,any>[], which
-        // collapses Map inference to <unknown,unknown> without these.
-        const tempRoomMap = new Map<string, Room>((r as Room[]).map(rm => [rm.id, rm]))
-        const tempGuestMap = new Map<string, Guest>((g as Guest[]).map(gm => [gm.id, gm]))
-
-        // Deduplicate bookings based on guest details, room, and normalized dates
-        // When duplicates with different statuses exist, keep the one with more advanced status
-        const statusPriority: Record<string, number> = {
-          'checked-out': 5,
-          'checked-in': 4,
-          'confirmed': 3,
-          'reserved': 2,
-          'cancelled': 1
-        }
-
-
         const hydratedBookings = (b as Booking[]).map(hydrateBooking)
 
-        const uniqueBookings = hydratedBookings.reduce((acc: Booking[], current) => {
-          // Helper to normalize date (strip time)
-          const normalizeDate = (d: string) => d ? format(parseISO(d), 'yyyy-MM-dd') : ''
-
-          // Get resolved details for current booking
-          const currentGuest = tempGuestMap.get(current.guestId)
-          const currentRoom = tempRoomMap.get(current.roomId)
-
-          const currentGuestName = (currentGuest?.name || '').trim().toLowerCase()
-          const currentRoomNumber = (currentRoom?.roomNumber || '').trim()
-          const currentCheckIn = normalizeDate(current.checkIn)
-          const currentCheckOut = normalizeDate(current.checkOut)
-
-          // Check if this is a duplicate by ID first
-          const duplicateByIdIndex = acc.findIndex(item => item.id === current.id)
-          if (duplicateByIdIndex >= 0) {
-            console.warn(`[ReservationsPage] Skipping duplicate booking (same ID): ${current.id}`)
-            return acc
-          }
-
-          // Check for logical duplicate (same guest, room, dates)
-          const duplicateByDetailsIndex = acc.findIndex(item => {
-            const itemGuest = tempGuestMap.get(item.guestId)
-            const itemRoom = tempRoomMap.get(item.roomId)
-
-            const itemRoomNumber = (itemRoom?.roomNumber || '').trim()
-            const itemCheckIn = normalizeDate(item.checkIn)
-            const itemCheckOut = normalizeDate(item.checkOut)
-
-            // Room and dates must match first
-            if (itemRoomNumber !== currentRoomNumber) return false
-            if (itemCheckIn !== currentCheckIn) return false
-            if (itemCheckOut !== currentCheckOut) return false
-
-            // Guest match: prefer guestId (most reliable), fall back to resolved name
-            if (item.guestId && current.guestId) return item.guestId === current.guestId
-            // Fallback: name comparison — don't treat empty names as matching
-            const itemGuestName = (itemGuest?.name || '').trim().toLowerCase()
-            return currentGuestName !== '' && itemGuestName === currentGuestName
-          })
-
-          if (duplicateByDetailsIndex >= 0) {
-            const existing = acc[duplicateByDetailsIndex]
-            const existingPriority = statusPriority[existing.status] || 0
-            const currentPriority = statusPriority[current.status] || 0
-
-            // Keep the one with higher priority status (more advanced in the booking lifecycle)
-            if (currentPriority > existingPriority) {
-              console.warn(`[ReservationsPage] Replacing duplicate booking ${existing.id} (status: ${existing.status}) with ${current.id} (status: ${current.status})`)
-              acc[duplicateByDetailsIndex] = current
-            } else {
-              console.warn(`[ReservationsPage] Hidden duplicate booking: ${current.id} (status: ${current.status}) - keeping ${existing.id} (status: ${existing.status})`)
-            }
-            return acc
-          }
-
-          acc.push(current)
-          return acc
-        }, [])
+        // Only deduplicate by ID (React keys) in case of rare DB sync overlaps.
+        // We no longer aggressively deduplicate by guest/room/date client-side,
+        // so all actual DB records will be visible.
+        const seenIds = new Set<string>()
+        const uniqueBookings = hydratedBookings.filter(b => {
+          if (seenIds.has(b.id)) return false
+          seenIds.add(b.id)
+          return true
+        })
 
         setBookings(uniqueBookings)
         setRooms(r)
@@ -333,26 +252,7 @@ export function ReservationsPage() {
       }
     }
     load()
-    // SWR: re-run loader when background refresh writes new rows. Debounced
-    // and gated by inFlight to prevent emit-cascades from looping.
-    const queueLoad = () => {
-      if (pending || inFlight) return
-      pending = setTimeout(() => {
-        pending = null
-        if (!inFlight) load()
-      }, 800)
-    }
-    const unsubs = [
-      onTableUpdated('bookings', queueLoad),
-      onTableUpdated('rooms', queueLoad),
-      onTableUpdated('guests', queueLoad),
-      onTableUpdated('booking_charges', queueLoad),
-    ]
-    return () => {
-      unsubs.forEach(u => u())
-      if (pending) clearTimeout(pending)
-    }
-  }, [user])
+  }, [user, updatedAtBks, updatedAtProp, updatedAtGuests, updatedAtChg])
 
   const roomMap = useMemo(() => new Map(rooms.map(r => [r.id, r])), [rooms])
   const guestMap = useMemo(() => new Map(guests.map(g => [g.id, g])), [guests])
@@ -383,8 +283,13 @@ export function ReservationsPage() {
   // Helper to get total amount (room cost + additional charges)
   // Uses finalAmount if a discount was applied, otherwise totalPrice
   const getBookingTotal = (booking: Booking): number => {
-    // Use finalAmount if discount was applied, otherwise use totalPrice
-    const roomCost = booking.finalAmount ?? booking.totalPrice ?? 0
+    // Robust price resolution:
+    // 1. finalAmount (discounted price) takes absolute priority if present
+    // 2. totalPrice (standard DB field)
+    // 3. amount (UI/LocalBooking field)
+    // 4. amountPaid (last resort for historical/partially corrupted records)
+    const roomCost = (booking.finalAmount != null && booking.finalAmount > 0) ? booking.finalAmount :
+                     (booking.totalPrice || (booking as any).amount || booking.amountPaid || 0)
     const additionalCharges = chargesMap.get(booking.id) || 0
     return roomCost + additionalCharges
   }
@@ -643,7 +548,7 @@ export function ReservationsPage() {
       let housekeepingTaskCreated = false
 
       // Update booking status to checked-out
-      const staffName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Staff'
+      const staffName = (user as any)?.user_metadata?.full_name || (user as any)?.user_metadata?.name || user?.email || 'Staff'
       await db.bookings.update(booking.id, {
         status: 'checked-out',
         actualCheckOut: new Date().toISOString(),
@@ -651,18 +556,18 @@ export function ReservationsPage() {
         checkOutByName: staffName,
       })
 
-      // Update room status to cleaning
+      // Update property status to cleaning (canonical)
       const room = roomMap.get(booking.roomId)
       if (room) {
-        await db.rooms.update(room.id, { status: 'cleaning' })
+        await db.properties.update(room.id, { status: 'cleaning' })
         // Optimistically reflect in UI immediately
         setRooms(prev => prev.map(r => (r.id === room.id ? { ...r, status: 'cleaning' } : r)))
 
-        // Log room status change
+        // Log property status change
         try {
           await activityLogService.log({
             action: 'updated',
-            entityType: 'room',
+            entityType: 'property',
             entityId: room.id,
             details: {
               roomNumber: room.roomNumber,
@@ -676,17 +581,6 @@ export function ReservationsPage() {
           })
         } catch (logError) {
           console.error('Failed to log room status change:', logError)
-        }
-
-        // Update properties table if a matching property exists (best-effort)
-        try {
-          const props = await db.properties.list({ limit: 500 })
-          const prop = props.find((p: any) => p.id === room.id)
-          if (prop) {
-            await db.properties.update(prop.id, { status: 'cleaning' })
-          }
-        } catch (e) {
-          console.warn('Properties update skipped:', e)
         }
 
         // Create housekeeping task using the new service
@@ -736,7 +630,7 @@ export function ReservationsPage() {
           const invoiceData = await createInvoiceData(bookingWithDetails, room)
           console.log('✅ [ReservationsPage] Invoice data created:', {
             invoiceNumber: invoiceData.invoiceNumber,
-            roomTotal: booking.totalPrice,
+            roomTotal: (booking as any).totalPrice || (booking as any).amount || 0,
             additionalChargesTotal: invoiceData.charges.additionalChargesTotal,
             grandTotal: invoiceData.charges.total
           })
@@ -775,7 +669,7 @@ export function ReservationsPage() {
             }
 
             console.log('📧 [ReservationsPage] Sending check-out notification with total (room + charges):', {
-              roomCost: booking.totalPrice,
+              roomCost: (booking as any).totalPrice || (booking as any).amount || 0,
               additionalCharges: invoiceData.charges.additionalChargesTotal,
               grandTotal: invoiceData.charges.total
             })
@@ -888,15 +782,8 @@ export function ReservationsPage() {
         guest={checkInDialog ? guestMap.get(checkInDialog.guestId) : null}
         user={user}
         onSuccess={async () => {
-          // Optimistic UI update or reload
-          if (checkInDialog) {
-            // Reload data to ensure everything is synced
-            const [b] = await Promise.all([db.bookings.listAll({ orderBy: { createdAt: 'desc' } })])
-            setBookings(b)
-            // Also reload rooms to update status
-            const [r] = await Promise.all([db.rooms.listAll()])
-            setRooms(r)
-          }
+          // Subscriptions will handle the data refresh automatically
+          setCheckInDialog(null)
         }}
       />
 
@@ -993,7 +880,7 @@ export function ReservationsPage() {
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Room Cost (Paid)</p>
                   <p className="text-base font-semibold">
-                    {formatCurrencySync(checkOutDialog.finalAmount ?? checkOutDialog.totalPrice, currency)}
+                    {formatCurrencySync((checkOutDialog as any).finalAmount || (checkOutDialog as any).totalPrice || (checkOutDialog as any).amount || 0, currency)}
                   </p>
                   {checkOutDialog.discountAmount && checkOutDialog.discountAmount > 0 && (
                     <p className="text-xs text-green-600">
@@ -1036,14 +923,14 @@ export function ReservationsPage() {
                     <span className="font-medium">Grand Total</span>
                     <span className="text-xl font-bold text-primary">
                       {formatCurrencySync(
-                        (checkOutDialog.finalAmount ?? checkOutDialog.totalPrice) + checkoutCharges.reduce((sum, c) => sum + c.amount, 0),
+                        ((checkOutDialog as any).finalAmount || (checkOutDialog as any).totalPrice || (checkOutDialog as any).amount || 0) + checkoutCharges.reduce((sum, c) => sum + c.amount, 0),
                         currency
                       )}
                     </span>
                   </div>
                   {checkoutCharges.length > 0 && (
                     <p className="text-xs text-muted-foreground mt-1">
-                      Room: {formatCurrencySync(checkOutDialog.finalAmount ?? checkOutDialog.totalPrice, currency)} +
+                      Room: {formatCurrencySync((checkOutDialog as any).finalAmount || (checkOutDialog as any).totalPrice || (checkOutDialog as any).amount || 0, currency)} +
                       Charges: {formatCurrencySync(checkoutCharges.reduce((sum, c) => sum + c.amount, 0), currency)}
                     </p>
                   )}

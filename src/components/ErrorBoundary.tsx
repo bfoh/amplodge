@@ -1,4 +1,5 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react'
+import * as Sentry from '@sentry/react'
 import { Button } from './ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/card'
 import { AlertTriangle } from 'lucide-react'
@@ -33,15 +34,34 @@ export class ErrorBoundary extends Component<Props, State> {
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     // Log error to console in development
     console.error('🔥 [ErrorBoundary] Uncaught error:', error, errorInfo)
-    
+
+    // Detect chunk load failures (common after a new deployment)
+    // "Failed to fetch dynamically imported module" or "Loading chunk X failed"
+    const errorMsg = error?.message || ''
+    const isChunkLoadError = /failed to fetch dynamically imported module|loading chunk/i.test(errorMsg)
+
+    if (isChunkLoadError) {
+      console.warn('🔄 [ErrorBoundary] Chunk load failed detected. Forcing page refresh in 2 seconds...')
+      // Give the user a moment to see something (or just do it if it's a white screen)
+      setTimeout(() => {
+        window.location.reload()
+      }, 2000)
+    }
+
     // Update state with error details
     this.setState({
       error,
       errorInfo
     })
 
-    // TODO: Log to error reporting service (e.g., Sentry)
-    // logErrorToService(error, errorInfo)
+    // Send to Sentry (no-op if VITE_SENTRY_DSN not configured)
+    Sentry.captureException(error, {
+      contexts: {
+        react: {
+          componentStack: errorInfo.componentStack,
+        },
+      },
+    })
   }
 
   private handleReset = () => {

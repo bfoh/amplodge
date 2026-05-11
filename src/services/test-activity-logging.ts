@@ -21,8 +21,8 @@ export async function testActivityLogging() {
       try {
         const testRecord = {
           id: `test_${Date.now()}`,
-          action: 'test',
-          entityType: 'test',
+          action: 'diagnostic' as const,
+          entityType: 'diagnostic' as const,
           entityId: 'test',
           details: JSON.stringify({ test: true }),
           userId: 'system',
@@ -46,8 +46,8 @@ export async function testActivityLogging() {
     console.log('📝 [TestActivityLogging] Testing activity logging service...')
     try {
       await activityLogService.log({
-        action: 'created',
-        entityType: 'test',
+        action: 'created' as const,
+        entityType: 'diagnostic' as const,
         entityId: 'test_booking_123',
         details: {
           testData: 'This is a test log entry',

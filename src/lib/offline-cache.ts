@@ -241,6 +241,47 @@ export async function writeOne(tableName: string, doc: Record<string, any>): Pro
 }
 
 /**
+ * Write multiple documents to the cache efficiently using bulkDocs.
+ * This is used for write-through caching of partial query results.
+ */
+export async function writeMany(tableName: string, docs: Record<string, any>[]): Promise<void> {
+  if (docs.length === 0) return
+
+  const db = getDB(tableName)
+  try {
+    // PouchDB bulkDocs is much faster than individual put() calls
+    // We still need to get the latest _rev for each doc if it exists
+    const ids = docs.map(d => String(d.id))
+    const existing = await db.allDocs({ keys: ids, include_docs: false })
+    const revMap = new Map<string, string>()
+    existing.rows.forEach((row: any) => {
+      if (row.value && row.value.rev) {
+        revMap.set(row.id, row.value.rev)
+      }
+    })
+
+    const bulkDocs = docs.map(doc => {
+      const docId = String(doc.id)
+      const rev = revMap.get(docId)
+      return {
+        ...doc,
+        _id: docId,
+        ...(rev ? { _rev: rev } : {})
+      }
+    })
+
+    const result = await db.bulkDocs(bulkDocs)
+    const errors = result.filter((r: any) => r.error)
+    if (errors.length > 0) {
+      console.warn(`[OfflineCache] ${tableName}: ${errors.length} bulk write errors during writeMany`, errors.slice(0, 3))
+    }
+  } catch (err) {
+    console.error(`[OfflineCache] ❌ Failed writeMany for ${tableName}:`, err)
+    throw err
+  }
+}
+
+/**
  * Delete a single document from the cache.
  */
 export async function deleteOne(tableName: string, id: string): Promise<void> {

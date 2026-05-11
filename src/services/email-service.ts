@@ -6,6 +6,7 @@
  */
 
 import { generateEmailHtml, EMAIL_STYLES } from '@/services/email-template'
+import { callFunction } from '@/lib/api'
 
 export interface EmailPayload {
   to: string | string[]
@@ -37,7 +38,7 @@ async function sendEmail(payload: EmailPayload, context = 'Email'): Promise<Emai
       subject: payload.subject
     })
 
-    const response = await fetch('/.netlify/functions/send-email', {
+    const response = await callFunction('send-email', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

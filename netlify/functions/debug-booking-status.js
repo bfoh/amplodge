@@ -1,6 +1,15 @@
-const { createClient } = require('@supabase/supabase-js');
+import { createClient } from '@supabase/supabase-js'
+import { requireAdmin, jsonResponse, handleCors } from './_lib/auth.js'
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
+    const corsResp = handleCors(event); if (corsResp) return corsResp
+
+    try {
+        await requireAdmin(event);
+    } catch (e) {
+        return jsonResponse(e.status, e.body);
+    }
+
     try {
         const token = event.queryStringParameters?.token;
 

@@ -20,7 +20,7 @@ class HousekeepingService {
             userId: currentUser?.id || booking.userId || null,
             propertyId: room.id,
             roomNumber: room.roomNumber,
-            status: 'pending',
+            status: 'pending' as 'pending',
             notes: `Checkout cleaning for ${guestName}`,
             createdAt: new Date().toISOString(),
             assignedTo: null // Explicitly null for new tasks
@@ -80,31 +80,17 @@ class HousekeepingService {
                 notes: notes
             })
 
-            // 2. Find room and update status
-            // We list by roomNumber to be safe, as task might store roomNumber string
-            const rooms = await db.rooms.list({ where: { roomNumber }, limit: 1 })
-            const room = rooms[0]
+            // 2. Find property and update status
+            const properties = await db.properties.list({ where: { roomNumber }, limit: 1 })
+            const property = properties[0]
 
-            if (room) {
-                if (room.status?.toLowerCase() === 'cleaning') {
-                    console.log(`[HousekeepingService] Updating room ${room.roomNumber} status to available`)
-                    await db.rooms.update(room.id, { status: 'available' })
-
-                    // Update property status if it matches
-                    try {
-                        // Note: properties endpoint might need specific handling if it's different from rooms table
-                        // Ideally properties and rooms are synced or same table structure wrapper
-                        const properties = await (db as any).properties.list({ limit: 500 })
-                        const property = properties.find((p: any) => p.id === room.id || p.roomNumber === room.roomNumber)
-                        if (property && property.status !== 'active') {
-                            await (db as any).properties.update(property.id, { status: 'active' })
-                        }
-                    } catch (e) {
-                        console.warn('[HousekeepingService] Failed to sync property status:', e)
-                    }
+            if (property) {
+                if (property.status?.toLowerCase() === 'cleaning') {
+                    console.log(`[HousekeepingService] Updating property ${property.roomNumber} status to active`)
+                    await db.properties.update(property.id, { status: 'active' })
                 }
             } else {
-                console.warn(`[HousekeepingService] Room not found for number: ${roomNumber}`)
+                console.warn(`[HousekeepingService] Property not found for number: ${roomNumber}`)
             }
 
             return { success: true }

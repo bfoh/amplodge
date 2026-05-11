@@ -1,9 +1,17 @@
-// This environment uses CommonJS
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+import { GoogleGenerativeAI } from '@google/generative-ai'
+import { requireAdmin, jsonResponse, handleCors } from './_lib/auth.js'
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
+    const corsResp = handleCors(event); if (corsResp) return corsResp
+
     if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
+        return jsonResponse(405, { error: 'Method Not Allowed' });
+    }
+
+    try {
+        await requireAdmin(event);
+    } catch (e) {
+        return jsonResponse(e.status, e.body);
     }
 
     try {

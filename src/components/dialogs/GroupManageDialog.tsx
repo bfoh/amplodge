@@ -113,22 +113,20 @@ export function GroupManageDialog({
         const loadData = async () => {
             setLoading(true)
             try {
-                const [bookings, roomsData, guestsData, roomTypesData, propertiesData] = await Promise.all([
+                const [bookings, guestsData, roomTypesData, propertiesData] = await Promise.all([
                     db.bookings.list({ limit: 500 }),
-                    db.rooms.list({ limit: 500 }),
                     db.guests.list({ limit: 500 }),
                     db.roomTypes.list({ limit: 100 }),
                     db.properties.list({ limit: 500 })
                 ])
 
-                setRooms(roomsData)
                 setGuests(guestsData)
                 setRoomTypes(roomTypesData)
                 setProperties(propertiesData)
 
                 // Create lookup maps
                 const guestMap = new Map(guestsData.map((g: any) => [g.id, g]))
-                const roomMap = new Map(roomsData.map((r: any) => [r.id, r]))
+                const propertyMap = new Map(propertiesData.map((p: any) => [p.id, p]))
                 const roomTypeMap = new Map(roomTypesData.map((rt: any) => [rt.id, rt]))
 
                 // Filter bookings for this group
@@ -147,8 +145,8 @@ export function GroupManageDialog({
                 // Map to members
                 const membersList: GroupMember[] = groupBookings.map((b: any) => {
                     const guest = guestMap.get(b.guestId) as any
-                    const room = roomMap.get(b.roomId) as any
-                    const roomType = room ? roomTypeMap.get(room?.roomTypeId) as any : null
+                    const property = propertyMap.get(b.roomId) as any
+                    const roomType = property ? roomTypeMap.get(property?.propertyTypeId) as any : null
 
                     let isPrimary = false
                     const specialReq = b.special_requests || b.specialRequests || ''
@@ -181,7 +179,7 @@ export function GroupManageDialog({
                         id: b.id,
                         guestName,
                         guestEmail,
-                        roomNumber: room?.roomNumber || 'N/A',
+                        roomNumber: property?.roomNumber || 'N/A',
                         roomType: roomType?.name || 'Standard Room',
                         checkIn: b.checkIn,
                         checkOut: b.checkOut,
@@ -237,18 +235,17 @@ export function GroupManageDialog({
         if (!groupDates) return []
 
         const usedRoomIds = new Set(members.map(m => {
-            const room = rooms.find((r: any) => r.roomNumber === m.roomNumber)
-            return room?.id
+            const property = properties.find((p: any) => p.roomNumber === m.roomNumber)
+            return property?.id
         }))
 
         return properties.filter((p: any) => {
             // Must be active and not already in group
             if (p.status !== 'active') return false
-            const room = rooms.find((r: any) => r.roomNumber === p.roomNumber)
-            if (room && usedRoomIds.has(room.id)) return false
+            if (usedRoomIds.has(p.id)) return false
             return true
         })
-    }, [properties, rooms, members, groupDates])
+    }, [properties, members, groupDates])
 
     // Get room price based on new member nights
     const getSelectedRoomPrice = () => {
@@ -290,7 +287,7 @@ export function GroupManageDialog({
 
             const roomType = roomTypes.find((rt: any) => rt.id === property.propertyTypeId)
 
-                const roomAmount = getRoomPricePerNight(property) * newMemberNights
+            const roomAmount = getRoomPricePerNight(property) * newMemberNights
             const splitsPaidTotal = newPaymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0)
             const validSplits = newPaymentSplits.filter(s => s.amount > 0)
             const primaryMethod: any = newPaymentType === 'pending'
@@ -336,7 +333,7 @@ export function GroupManageDialog({
                 source: 'reception' as const,
                 payment: {
                     method: primaryMethod,
-                    status: newPaymentType === 'full' ? 'completed' : 'pending',
+                    status: (newPaymentType === 'full' ? 'completed' : 'pending') as 'pending' | 'completed',
                     amount: amountPaid,
                     reference: `PAY-${Date.now()}`,
                     paidAt: newPaymentType !== 'pending' ? new Date().toISOString() : undefined
@@ -395,7 +392,7 @@ export function GroupManageDialog({
                 db.guests.list({ limit: 500 })
             ])
             const guestMap = new Map(freshGuests.map((g: any) => [g.id, g]))
-            const roomMap = new Map(rooms.map((r: any) => [r.id, r]))
+            const propertyMap = new Map(properties.map((p: any) => [p.id, p]))
             const roomTypeMap = new Map(roomTypes.map((rt: any) => [rt.id, rt]))
 
             const groupBookings = bookings.filter((b: any) => {
@@ -412,8 +409,8 @@ export function GroupManageDialog({
 
             const membersList: GroupMember[] = groupBookings.map((b: any) => {
                 const guest = guestMap.get(b.guestId) as any
-                const room = roomMap.get(b.roomId) as any
-                const roomType = room ? roomTypeMap.get(room?.roomTypeId) as any : null
+                const property = propertyMap.get(b.roomId) as any
+                const roomType = property ? roomTypeMap.get(property?.propertyTypeId) as any : null
 
                 let isPrimary = false
                 const specialReq = b.special_requests || b.specialRequests || ''

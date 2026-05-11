@@ -1,6 +1,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { sendMessageToGemini, startChatSession } from '../../services/gemini-service';
+import { callFunction } from '@/lib/api';
 
 // Define AudioContext type for TypeScript
 interface IWindow extends Window {
@@ -162,7 +163,7 @@ export const useVoiceAgent = () => {
             console.log('[VoiceAgent] Fetching TTS for:', text);
             setIsSpeaking(true);
 
-            const response = await fetch('/.netlify/functions/text-to-speech', {
+            const response = await callFunction('text-to-speech', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text })

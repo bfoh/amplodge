@@ -32,9 +32,11 @@ import {
   type BookingSummary,
   type StaffWeekResult,
 } from '@/services/revenue-service'
-import { standaloneSalesService, SALE_CATEGORIES, type StandaloneSale } from '@/services/standalone-sales-service'
+import { standaloneSalesService, SALE_CATEGORIES } from '@/services/standalone-sales-service'
+import type { StandaloneSale } from '@/types'
 import { LogSaleDialog } from '@/components/dialogs/LogSaleDialog'
 import { format } from 'date-fns'
+import { useSubscription } from '@/hooks/use-subscription'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -429,7 +431,10 @@ function StandaloneSalesTable({
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 export function MyRevenuePage() {
-  const { userId, staffRecord, loading: roleLoading } = useStaffRole()
+  const { userId, staffRecord, isLoading: roleLoading } = useStaffRole()
+  const bookingsUpdate = useSubscription('bookings')
+  const chargesUpdate = useSubscription('booking_charges')
+  const salesUpdate = useSubscription('standalone_sales')
 
   const [currentWeek] = useState<WeekBounds>(() => getWeekBounds())
   const [currentReport, setCurrentReport] = useState<WeeklyRevenueReport | null>(null)
@@ -484,9 +489,10 @@ export function MyRevenuePage() {
     }
   }, [userId, currentWeek])
 
-  // Auto-refresh every 60s while the current week report is still a draft
+  // Real-time refresh when data changes
   useEffect(() => {
     if (!userId || !staffRecord?.name || currentReport?.status !== 'draft') return
+    
     const refresh = async () => {
       try {
         const report = await getOrCreateWeekReport(userId, staffRecord.name, currentWeek)
@@ -499,9 +505,9 @@ export function MyRevenuePage() {
         // silently ignore background refresh errors
       }
     }
-    const id = setInterval(refresh, 60_000)
-    return () => clearInterval(id)
-  }, [userId, staffRecord?.name, currentReport?.status, currentWeek, currentWeekOpen])
+
+    refresh()
+  }, [userId, staffRecord?.name, currentReport?.status, currentWeek, currentWeekOpen, bookingsUpdate, chargesUpdate, salesUpdate])
 
   const handleCurrentWeekOpen = (v: boolean) => {
     setCurrentWeekOpen(v)

@@ -129,7 +129,7 @@ export function PropertiesPage() {
 
   const loadRoomTypes = async () => {
     try {
-      const types = await (db as any).roomTypes.list<RoomType>({ orderBy: { column: 'createdAt', ascending: true } })
+      const types = await (db as any).roomTypes.list({ orderBy: { column: 'createdAt', ascending: true } })
 
       // Ensure default types exist (robust check)
       const defaults = [
@@ -158,7 +158,7 @@ export function PropertiesPage() {
       if (seeded) {
         toast.info('Initializing missing room types...')
         // Reload if we added anything
-        const allTypes = await (db as any).roomTypes.list<RoomType>({ orderBy: { column: 'createdAt', ascending: true } })
+        const allTypes = await (db as any).roomTypes.list({ orderBy: { column: 'createdAt', ascending: true } })
         setRoomTypes(allTypes)
         if (!formData.propertyTypeId && allTypes.length > 0) {
           setFormData((prev) => ({ ...prev, propertyTypeId: allTypes[0].id }))
@@ -175,34 +175,6 @@ export function PropertiesPage() {
     }
   }
 
-  // Sync corresponding entry in rooms table so booking dropdown shows only created rooms
-  const syncRoomWithProperty = async (payload: { roomNumber: string; propertyTypeId: string; basePrice: number }) => {
-    const rn = (payload.roomNumber || '').toString().trim()
-    if (!rn) return
-    const rtId = payload.propertyTypeId
-    const price = Number(payload.basePrice) || 0
-    try {
-      const existing = (await db.rooms.list({ where: { roomNumber: rn }, limit: 1 }))?.[0]
-      if (existing) {
-        await db.rooms.update(existing.id, {
-          roomTypeId: rtId,
-          price,
-          status: existing.status || 'available'
-        })
-      } else {
-        await db.rooms.create({
-          id: crypto.randomUUID(),
-          roomNumber: rn,
-          roomTypeId: rtId,
-          status: 'available',
-          price,
-          imageUrls: ''
-        })
-      }
-    } catch (e) {
-      console.warn('Failed to sync room record:', e)
-    }
-  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -239,7 +211,13 @@ export function PropertiesPage() {
           updatedAt: new Date().toISOString()
         }
         await db.properties.update(editingId, payload)
-        await syncRoomWithProperty({ roomNumber: payload.roomNumber, propertyTypeId: payload.propertyTypeId, basePrice: payload.basePrice })
+        // Sync with rooms table (canonical for bookings)
+        await (db as any).rooms.update(editingId, {
+          roomNumber: payload.roomNumber,
+          status: (formData as any).status || 'active',
+          updatedAt: payload.updatedAt
+        }).catch((e: any) => console.warn('[PropertiesPage] Room sync failed:', e))
+        
         toast.success('Room updated')
 
         // Log room update
@@ -282,7 +260,16 @@ export function PropertiesPage() {
         }
         console.log('[PropertiesPage] Creating property with payload:', createPayload)
         await db.properties.create(createPayload)
-        await syncRoomWithProperty({ roomNumber: createPayload.roomNumber, propertyTypeId: createPayload.propertyTypeId, basePrice: createPayload.basePrice })
+        
+        // Sync with rooms table (canonical for bookings)
+        await (db as any).rooms.create({
+          id: createPayload.id,
+          roomNumber: createPayload.roomNumber,
+          status: createPayload.status,
+          createdAt: createPayload.createdAt,
+          updatedAt: createPayload.updatedAt
+        }).catch((e: any) => console.warn('[PropertiesPage] Room sync failed:', e))
+
         toast.success('Room added successfully')
 
         // Log room creation
@@ -343,19 +330,10 @@ export function PropertiesPage() {
     }
 
     try {
-      // Find property to know its roomNumber for room sync delete
-      const prop = (await db.properties.list({ where: { id: deleteId }, limit: 1 }))?.[0]
+      const propToDelete = properties.find(p => p.id === deleteId)
       await db.properties.delete(deleteId)
-      if (prop?.roomNumber) {
-        try {
-          const existing = (await (db as any).rooms.list({ where: { roomNumber: String(prop.roomNumber).trim() }, limit: 1 }))?.[0]
-          if (existing) {
-            await (db as any).rooms.delete(existing.id)
-          }
-        } catch (e) {
-          console.warn('Failed to delete synced room record:', e)
-        }
-      }
+      await (db as any).rooms.delete(deleteId).catch(() => null)
+      
       toast.success('Room deleted')
 
       // Log room deletion
@@ -366,8 +344,8 @@ export function PropertiesPage() {
           entityType: 'room',
           entityId: deleteId,
           details: {
-            roomNumber: prop?.roomNumber || 'unknown',
-            roomName: prop?.name || '',
+            roomNumber: propToDelete?.roomNumber || 'unknown',
+            roomName: propToDelete?.name || '',
             deletedAt: new Date().toISOString()
           },
           userId: user?.id || 'system'

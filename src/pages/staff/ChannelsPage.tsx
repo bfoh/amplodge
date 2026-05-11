@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Network, ExternalLink, RefreshCw, Loader2 } from 'lucide-react'
 import { channelService } from '@/services/channel-service'
+import { callFunction } from '@/lib/api'
 import { ChannelConnection } from '@/types'
 import { ChannelConnectDialog } from '@/components/dialogs/ChannelConnectDialog'
 import { toast } from 'sonner'
@@ -41,7 +42,7 @@ export function ChannelsPage() {
   const handleSyncAll = async () => {
     setSyncing(true)
     try {
-      const response = await fetch('/.netlify/functions/sync-channels', { method: 'POST' })
+      const response = await callFunction('sync-channels', { method: 'POST' })
       const result = await response.json()
 
       if (response.ok) {

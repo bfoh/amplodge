@@ -1,153 +1,137 @@
-import { ReactNode, useEffect, useState, useRef } from 'react'
+import { ReactNode, useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useStaffRole } from '@/hooks/use-staff-role'
-import { canAccessRoute, ROUTE_ACCESS } from '@/lib/rbac'
+import { canAccessRoute } from '@/lib/rbac'
 import { toast } from 'sonner'
-import { Loader2, WifiOff } from 'lucide-react'
-import { db, auth } from '@/lib/db'
-import { useNetworkStatus } from '@/lib/network-status'
+import { Loader2 } from 'lucide-react'
+import { auth } from '@/lib/db'
+import { getNetworkOnline } from '@/lib/network-status'
 
 interface ProtectedRouteProps {
   children: ReactNode
 }
 
+/**
+ * ProtectedRoute — gates staff portal access.
+ *
+ * CRITICAL PERF FIX: Previously this component reset `isAuthorized` to null
+ * on every `location.pathname` change, which forced the "Verifying access..."
+ * spinner to re-appear on every sidebar click. That caused multi-second delays
+ * on every page transition in Ghana (high-latency network).
+ *
+ * Now: once the user identity is verified, authorization persists across route
+ * changes within the same session. We only re-check when the user's identity
+ * or role actually changes (logout, role update, etc.).
+ */
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { role, loading, userId } = useStaffRole()
-  const { isOnline } = useNetworkStatus()
+  const { role, isLoading, userId } = useStaffRole()
   const navigate = useNavigate()
   const location = useLocation()
-  const [hasChecked, setHasChecked] = useState(false)
-  const [retryCount, setRetryCount] = useState(0)
-  const previousPathRef = useRef<string>('')
-  const isCheckingRef = useRef(false)
 
-  useEffect(() => {
-    // Reset hasChecked when location changes to a different path
-    if (previousPathRef.current !== location.pathname) {
-      previousPathRef.current = location.pathname
-      setHasChecked(false)
-      setRetryCount(0)
-      isCheckingRef.current = false
-    }
-  }, [location.pathname])
+  // `true` = authorized, `false` = denied (redirect already fired), `null` = pending first check
+  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null)
 
-  useEffect(() => {
-    // Prevent multiple simultaneous checks
-    if (isCheckingRef.current) {
-      return
-    }
+  // Track which userId+role combo we last authorized against so we don't
+  // re-run the (potentially async) check on every render.
+  const lastAuthKey = useRef<string | null>(null)
 
-    // Don't do anything while still loading
-    if (loading) {
-      console.log('⏳ [ProtectedRoute] Still loading auth state...')
-      return
-    }
+  const checkAccess = useCallback(async () => {
+    // Build a stable key from the identity facts that matter.
+    const authKey = `${userId ?? 'none'}:${role ?? 'none'}`
 
-    isCheckingRef.current = true
+    // If we already checked this exact identity, skip.
+    if (lastAuthKey.current === authKey) return
 
-    // If no userId at all — check if we have a cached session (offline mode)
+    // --- No user ID → redirect to login ---
     if (!userId) {
-      if (!isOnline) {
-        // We're offline — the cached auth session might still be valid
-        // The useStaffRole hook should have loaded from cache already
-        // If there's truly no cached session, show offline error instead of redirecting
-        console.log('📴 [ProtectedRoute] Offline with no userId — checking cached session...')
+      if (!getNetworkOnline()) {
         toast.error('Offline', {
           description: 'No cached session. Please connect to the internet and log in.',
-          duration: 5000,
         })
-        setHasChecked(true)
-        isCheckingRef.current = false
-        return
+      } else {
+        const returnTo = encodeURIComponent(location.pathname + location.search)
+        navigate(`/staff/login?returnTo=${returnTo}`, { replace: true })
       }
-
-      console.log('❌ [ProtectedRoute] No userId found, redirecting to login')
-      const returnTo = encodeURIComponent(location.pathname + location.search)
-      navigate(`/staff/login?returnTo=${returnTo}`, { replace: true })
-      setHasChecked(true)
-      isCheckingRef.current = false
+      lastAuthKey.current = authKey
+      setIsAuthorized(false)
       return
     }
 
-    // If we have a userId but no role yet, wait a bit more (role might be loading)
-    if (userId && !role && retryCount < 3) {
-      console.log(`🔄 [ProtectedRoute] User exists but role not loaded yet. Retry ${retryCount + 1}/3`)
-      const timer = setTimeout(() => {
-        isCheckingRef.current = false
-        setRetryCount(prev => prev + 1)
-      }, 500)
-      return () => clearTimeout(timer)
-    }
-
-    // If we have userId but still no role after retries, check if it's the admin user
-    if (userId && !role && retryCount >= 3) {
-      console.log('⚠️ [ProtectedRoute] No role found after retries, checking if admin user')
-      // For admin users, allow access even if role detection fails
-      auth.me().then(user => {
+    // --- User ID but no role → admin fallback, then deny ---
+    if (!role) {
+      try {
+        const user = await auth.me()
         if (user?.email === import.meta.env.VITE_ADMIN_EMAIL) {
-          console.log('✅ [ProtectedRoute] Admin user detected, allowing access without role')
-          setHasChecked(true)
-          isCheckingRef.current = false
-        } else {
-          console.log('❌ [ProtectedRoute] Non-admin user without role, redirecting to login')
-          toast.error('Access denied', {
-            description: 'No staff role found for your account. Please contact your administrator.'
-          })
-          navigate('/staff/login', { replace: true })
-          setHasChecked(true)
-          isCheckingRef.current = false
+          console.log('✅ [ProtectedRoute] Admin user detected (fallback)')
+          lastAuthKey.current = authKey
+          setIsAuthorized(true)
+          return
         }
-      }).catch(() => {
-        console.error('❌ [ProtectedRoute] Failed to verify user')
-        navigate('/staff/login', { replace: true })
-        setHasChecked(true)
-        isCheckingRef.current = false
-      })
+      } catch (e) {
+        console.error('❌ [ProtectedRoute] Auth verify failed:', e)
+      }
+
+      toast.error('Access denied', { description: 'No staff role found for your account.' })
+      navigate('/staff/login', { replace: true })
+      lastAuthKey.current = authKey
+      setIsAuthorized(false)
       return
     }
 
-    // If we have a role, check route access
-    if (role) {
-      const currentPath = location.pathname
+    // --- Has role → authorized for the staff portal ---
+    // Individual route-level RBAC (e.g. /staff/hr is owner-only) is checked
+    // per-navigation below in a separate lightweight effect, not here.
+    console.log(`✅ [ProtectedRoute] Identity verified: ${role} (userId: ${userId?.slice(0, 8)}…)`)
+    lastAuthKey.current = authKey
+    setIsAuthorized(true)
+  }, [userId, role, navigate, location.pathname, location.search])
 
-      // Debug logging for History route specifically
-      if (currentPath.includes('reservations/history')) {
-        console.log('🔍 [ProtectedRoute] Checking History route access:', {
-          currentPath,
-          userRole: role,
-          allowedRoles: ROUTE_ACCESS[currentPath],
-          canAccess: canAccessRoute(currentPath, role)
-        })
-      }
+  // Run the identity check whenever auth state settles.
+  useEffect(() => {
+    if (isLoading) return
+    checkAccess()
+  }, [isLoading, checkAccess])
 
-      // Check if route access is defined for this path
-      if (!canAccessRoute(currentPath, role)) {
-        console.log(`❌ [ProtectedRoute] Access denied for ${role} to ${currentPath}`)
-        toast.error('Access denied', {
-          description: 'You do not have permission to access this page.'
-        })
-        navigate('/staff/dashboard', { replace: true })
-        setHasChecked(true)
-        isCheckingRef.current = false
-        return
-      }
+  // Lightweight per-route RBAC check — runs synchronously, no spinners.
+  // If the user navigates to a route their role can't access, bounce them
+  // to dashboard immediately instead of showing a loading screen.
+  useEffect(() => {
+    if (!role || !isAuthorized) return
 
-      console.log(`✅ [ProtectedRoute] Access granted for ${role} to ${currentPath}`)
-      setHasChecked(true)
-      isCheckingRef.current = false
+    // The parent route is /staff — the ProtectedRoute wraps <AppLayout>.
+    // Child paths are /staff/dashboard, /staff/calendar, etc.
+    // canAccessRoute expects the full path.
+    const path = location.pathname
+    if (!canAccessRoute(path, role)) {
+      console.log(`❌ [ProtectedRoute] Route denied for ${role}: ${path}`)
+      toast.error('Access denied', { description: 'You do not have permission to access this page.' })
+      navigate('/staff/dashboard', { replace: true })
     }
-  }, [role, loading, userId, navigate, retryCount, location.pathname])
+  }, [location.pathname, role, isAuthorized, navigate])
 
-  // Show loading while checking auth
-  if (loading || !hasChecked) {
+  // Reset when user logs out (userId goes from something → null)
+  useEffect(() => {
+    if (!isLoading && !userId && lastAuthKey.current && lastAuthKey.current !== 'none:none') {
+      lastAuthKey.current = null
+      setIsAuthorized(null)
+    }
+  }, [userId, isLoading])
+
+  // --- Render ---
+
+  if (isLoading || isAuthorized === null) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-secondary/30">
         <div className="text-center">
           <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-primary" />
-          <p className="text-muted-foreground">Checking permissions...</p>
+          <p className="text-muted-foreground">Verifying access...</p>
         </div>
       </div>
     )
+  }
+
+  if (!isAuthorized) {
+    return null
   }
 
   return <>{children}</>

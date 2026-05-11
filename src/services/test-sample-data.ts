@@ -22,10 +22,6 @@ export async function testAndCreateSampleData() {
     const properties = await db.properties.list()
     console.log(`📊 Found ${properties.length} properties:`, properties.map((p: any) => `${p.name} (${p.roomNumber})`))
 
-    // Check if we have rooms
-    const rooms = await db.rooms.list()
-    console.log(`📊 Found ${rooms.length} rooms:`, rooms.map((r: any) => r.roomNumber))
-
     // If no data exists, create it
     if (roomTypes.length === 0 || properties.length === 0) {
       console.log('⚠️ Missing sample data, creating...')
@@ -80,33 +76,10 @@ export async function testAndCreateSampleData() {
           console.error('❌ Failed to create property:', error.message)
         }
       }
-
-      // Create corresponding room record
-      const room = {
-        id: 'room_101',
-        roomNumber: '101',
-        roomTypeId: 'room_type_standard',
-        status: 'available',
-        price: 100,
-        imageUrls: '',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }
-
-      try {
-        await db.rooms.create(room)
-        console.log('✅ Created room record: 101')
-      } catch (error: any) {
-        if (error.status === 409) {
-          console.log('ℹ️ Room already exists')
-        } else {
-          console.error('❌ Failed to create room:', error.message)
-        }
-      }
     }
 
     console.log('✅ Sample data test completed')
-    return { success: true, roomTypes: roomTypes.length, properties: properties.length, rooms: rooms.length }
+    return { success: true, roomTypes: roomTypes.length, properties: properties.length }
 
   } catch (error) {
     console.error('❌ Sample data test failed:', error)

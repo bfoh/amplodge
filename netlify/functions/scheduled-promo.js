@@ -1,5 +1,6 @@
-const { schedule } = require('@netlify/functions');
-const { createClient } = require('@supabase/supabase-js');
+import { schedule } from '@netlify/functions'
+import { createClient } from '@supabase/supabase-js'
+import { requireCron, jsonResponse, handleCors } from './_lib/auth.js'
 
 // Constants
 const SMS_MESSAGE = "Long time no see! We miss having you at AMP Lodge. Treat yourself to a well-deserved break in our serene environment. Book your stay today: https://amplodge.com";
@@ -64,8 +65,17 @@ async function sendEmail(to, subject, html, apiKey) {
     }
 }
 
-// Main Handler
-const handler = async (event) => {
+// Main Handler — wrapped in schedule() at end of file for cron, but also
+// callable manually via admin token (requireCron accepts both).
+const handlerImpl = async (event) => {
+    const corsResp = handleCors(event); if (corsResp) return corsResp
+
+    try {
+        await requireCron(event);
+    } catch (e) {
+        return jsonResponse(e.status, e.body);
+    }
+
     console.log('[Scheduled Promo] Starting execution...');
 
     // Environment Variables
@@ -136,4 +146,4 @@ const handler = async (event) => {
 
 // Schedule: Run at 9:00 AM on the 1st day of every month
 // Cron Syntax: "Minute Hour DayMonth Month DayWeek"
-exports.handler = schedule('0 9 1 * *', handler);
+export const handler = schedule('0 9 1 * *', handlerImpl);
