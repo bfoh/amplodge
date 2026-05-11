@@ -143,7 +143,20 @@ class ActivityLogService {
    */
   public async log(data: ActivityLogData): Promise<void> {
     try {
-      const userId = data.userId || this.currentUserId || 'system'
+      let userId = data.userId || this.currentUserId
+
+      // Fallback to active session if not provided
+      if (!userId || userId === 'system') {
+        try {
+          const user = await auth.me()
+          if (user?.id) userId = user.id
+        } catch (e) {
+          console.warn('[ActivityLog] Failed to resolve auth session for log:', e)
+        }
+      }
+
+      // Final fallback
+      if (!userId) userId = 'system'
 
       const logEntry = {
         id: crypto.randomUUID(),

@@ -101,20 +101,49 @@ export function StaffInvoiceManager() {
       const guestIds = [...new Set(allBookings.map((b: any) => b.guestId).filter(Boolean))] as string[]
       const roomIds = [...new Set(allBookings.map((b: any) => b.roomId).filter(Boolean))] as string[]
 
-      const [guests, properties] = await Promise.all([
+      const [guests, properties, legacyRooms] = await Promise.all([
         guestIds.length > 0 ? db.guests.list({ where: { id: { in: guestIds } } }) : Promise.resolve([]),
-        roomIds.length > 0 ? db.properties.list({ where: { id: { in: roomIds } } }) : Promise.resolve([])
+        roomIds.length > 0 ? db.properties.list({ where: { id: { in: roomIds } } }) : Promise.resolve([]),
+        roomIds.length > 0 ? (db as any).rooms.list({ where: { id: { in: roomIds } } }).catch(() => []) : Promise.resolve([])
       ])
 
       // Create maps for quick lookup
       const guestMap = new Map(guests.map((g: any) => [g.id, g]))
       const roomMap = new Map(properties.map((p: any) => [p.id, p]))
+      // Add legacy rooms to the same map (properties takes precedence if IDs overlap)
+      legacyRooms.forEach((r: any) => {
+        if (!roomMap.has(r.id)) {
+          roomMap.set(r.id, { 
+            ...r, 
+            roomNumber: r.room_number || r.roomNumber // Handle both naming conventions
+          })
+        }
+      })
 
       // Convert bookings to invoice records
       const invoiceRecords: InvoiceRecord[] = allBookings.map((booking: any) => {
         const guest = booking.guestId ? guestMap.get(booking.guestId) as any : undefined
-        const room = booking.roomId ? roomMap.get(booking.roomId) as any : undefined
+        let room = booking.roomId ? roomMap.get(booking.roomId) as any : undefined
         const isPreInvoice = booking.status === 'confirmed'
+
+        // 1. Resolve room number with multiple fallbacks
+        let roomNumber = room?.roomNumber || 'N/A'
+
+        // 2. Try ROOM_SNAPSHOT if database join failed
+        if (roomNumber === 'N/A' && booking.specialRequests && typeof booking.specialRequests === 'string') {
+          const snapMatch = booking.specialRequests.match(/<!-- ROOM_SNAPSHOT:(.*?) -->/)
+          if (snapMatch) {
+            try {
+              const snap = JSON.parse(snapMatch[1])
+              if (snap.roomNumber) roomNumber = snap.roomNumber
+            } catch {}
+          }
+        }
+
+        // 3. Try legacy snake_case if still N/A
+        if (roomNumber === 'N/A' && room?.room_number) {
+          roomNumber = room.room_number
+        }
 
         // Generate invoice number
         const baseInvoiceNumber = booking.invoiceNumber || `INV-${booking.createdAt ? new Date(booking.createdAt).getTime() : Date.now()}`
@@ -139,7 +168,7 @@ export function StaffInvoiceManager() {
           invoiceNumber: invoiceNumber,
           guestName: guest?.name || 'Unknown Guest',
           guestEmail: guest?.email || '',
-          roomNumber: room?.roomNumber || 'N/A',
+          roomNumber: roomNumber,
           checkIn: booking.checkIn,
           checkOut: booking.actualCheckOut || booking.checkOut,
           totalAmount: booking.totalPrice || 0,

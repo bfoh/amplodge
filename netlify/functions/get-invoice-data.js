@@ -47,7 +47,8 @@ export const handler = async (event, context) => {
             .select(`
                 *,
                 guests (*),
-                rooms (*, room_types (*))
+                rooms (*, room_types (*)),
+                properties (*, room_types (*))
             `);
 
         // Filter by invoice number or booking ID

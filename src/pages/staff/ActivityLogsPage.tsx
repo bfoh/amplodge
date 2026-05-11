@@ -11,6 +11,7 @@ import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { db, auth } from '@/lib/db'
 import { useSubscription } from '@/hooks/use-subscription'
+import { hotelSettingsService } from '@/services/hotel-settings'
 
 export function ActivityLogsPage() {
   const [logs, setLogs] = useState<ActivityLog[]>([])
@@ -106,14 +107,15 @@ export function ActivityLogsPage() {
     if (!userId || userId === 'system') return 'System'
     if (userId === 'guest') return 'Guest'
 
-    // Try to find in users list
-    const user = users.find(u => u.id === userId)
+    // 1. Try to find in the local users list (hydrated from staff table)
+    const user = users.find(u => u.id === userId || (u as any).userId === userId)
     if (user) return user.name
 
-    // Check if it looks like an email
+    // 2. Check if the ID itself looks like an email or human name
     if (userId.includes('@')) return userId
+    if (userId.length < 20 && !userId.includes('-')) return userId // Likely a legacy manual name
 
-    // Otherwise return a shortened version of the ID
+    // 3. Final fallback: Return a shortened ID
     return userId.length > 20 ? `${userId.slice(0, 8)}...` : userId
   }
 
@@ -194,194 +196,71 @@ export function ActivityLogsPage() {
 
   function convertDetailsToReadableMessage(details: Record<string, any>): string {
     if (!details) return 'No details available'
-    // Handle different types of details and create readable messages
-    if (details.guestName && details.roomNumber) {
-      // Booking-related details
-      const guestName = details.guestName
-      const roomNumber = details.roomNumber
-      const roomType = details.roomType || 'room'
-      const checkIn = details.checkIn
-      const checkOut = details.checkOut
-      const amount = details.amount
-      const status = details.status
 
-      let message = `Guest ${guestName} booked ${roomType} (Room ${roomNumber})`
-      if (checkIn && checkOut) {
-        message += ` from ${checkIn} to ${checkOut}`
-      }
-      if (amount) {
-        message += ` for GH₵${amount}`
-      }
-      if (status) {
-        message += ` - Status: ${status}`
-      }
-      return message
+    // 1. Booking-related details
+    if (details.guestName || details.roomNumber) {
+      const parts = []
+      if (details.guestName) parts.push(`Guest: ${details.guestName}`)
+      if (details.roomNumber) parts.push(`Room: ${details.roomNumber}${details.roomType ? ` (${details.roomType})` : ''}`)
+      if (details.checkIn && details.checkOut) parts.push(`Stay: ${details.checkIn} to ${details.checkOut}`)
+      if (details.amount) parts.push(`Amount: GHS ${details.amount}`)
+      if (details.status) parts.push(`Status: ${details.status}`)
+      if (details.reason) parts.push(`Reason: ${details.reason}`)
+      return parts.join(' | ') || 'Booking details updated'
     }
 
-    if (details.logoutAt) {
-      // Logout details
-      const logoutTime = new Date(details.logoutAt).toLocaleString()
-      return `Logged out at ${logoutTime}`
+    // 2. Financial transactions (Invoices/Payments)
+    if (details.invoiceNumber || details.paymentMethod || details.amount || details.totalAmount) {
+      const parts = []
+      if (details.invoiceNumber) parts.push(`Invoice: ${details.invoiceNumber}`)
+      if (details.paymentMethod) parts.push(`via ${details.paymentMethod}`)
+      const amt = details.amount || details.totalAmount
+      if (amt) parts.push(`Amount: GHS ${amt}`)
+      if (details.guestName) parts.push(`for ${details.guestName}`)
+      if (details.roomNumber) parts.push(`Room ${details.roomNumber}`)
+      if (details.reference) parts.push(`Ref: ${details.reference}`)
+      return parts.join(' ') || 'Financial transaction recorded'
     }
 
-    if (details.loginAt) {
-      // Login details
-      const loginTime = new Date(details.loginAt).toLocaleString()
-      return `Logged in at ${loginTime}`
-    }
+    // 3. Authentication details
+    if (details.loginAt) return `Logged in at ${new Date(details.loginAt).toLocaleString()}`
+    if (details.logoutAt) return `Logged out at ${new Date(details.logoutAt).toLocaleString()}`
+    if (details.email && details.role) return `User ${details.email} (${details.role})`
 
-    if (details.email && details.role) {
-      // User authentication details
-      const email = details.email
-      const role = details.role
-      return `User ${email} authenticated as ${role}`
-    }
-
-    if (details.ipAddress || details.userAgent) {
-      // Authentication with device info
-      const ipAddress = details.ipAddress
-      const userAgent = details.userAgent
-      let message = 'Authentication event'
-      if (ipAddress && ipAddress !== 'unknown') {
-        message += ` from IP ${ipAddress}`
-      }
-      return message
-    }
-
-    if (details.name && details.email) {
-      // Guest/Staff creation details
-      const name = details.name
-      const email = details.email
-      const role = details.role
-
-      let message = `Created ${role ? role.toLowerCase() : 'user'} ${name}`
-      if (email) {
-        message += ` (${email})`
-      }
-      return message
-    }
-
-    if (details.amount && details.method) {
-      // Payment details
-      const amount = details.amount
-      const method = details.method
-      const reference = details.reference
-
-      let message = `Payment of GH₵${amount} received via ${method}`
-      if (reference) {
-        message += ` (Reference: ${reference})`
-      }
-      return message
-    }
-
-    if (details.invoiceNumber) {
-      // Invoice details
-      const invoiceNumber = details.invoiceNumber
-      const totalAmount = details.totalAmount
-      const guestName = details.guestName
-
-      let message = `Invoice ${invoiceNumber}`
-      if (guestName) {
-        message += ` for ${guestName}`
-      }
-      if (totalAmount) {
-        message += ` - Amount: GH₵${totalAmount}`
-      }
-      return message
-    }
-
-    if (details.roomNumber && details.roomType) {
-      // Room details
-      const roomNumber = details.roomNumber
-      const roomType = details.roomType
-      const status = details.status
-
-      let message = `Room ${roomNumber} (${roomType})`
-      if (status) {
-        message += ` - Status: ${status}`
-      }
-      return message
-    }
-
+    // 4. Tasks & Maintenance
     if (details.title) {
-      // Task details
-      const title = details.title
-      const roomNumber = details.roomNumber
-      const completedBy = details.completedBy
-
-      let message = `Task: ${title}`
-      if (roomNumber) {
-        message += ` (Room ${roomNumber})`
-      }
-      if (completedBy) {
-        message += ` - Completed by ${completedBy}`
-      }
-      return message
+      const parts = [`Task: ${details.title}`]
+      if (details.roomNumber) parts.push(`Room ${details.roomNumber}`)
+      if (details.completedBy) parts.push(`by ${details.completedBy}`)
+      return parts.join(' ')
     }
 
-    if (details.changes) {
-      // Update details
-      const changes = details.changes
-      if (typeof changes === 'object') {
-        const changeKeys = Object.keys(changes)
-        if (changeKeys.length > 0) {
-          return `Updated: ${changeKeys.join(', ')}`
-        }
-      }
-      return 'Updated details'
+    // 5. Staff/Guest basic info
+    if (details.name && details.email) {
+      const roleText = details.role ? `${details.role.toLowerCase()} ` : ''
+      return `Created ${roleText}${details.name} (${details.email})`
     }
 
-    if (details.reason) {
-      // Cancellation details
-      let message = 'Cancelled'
-      if (details.guestName) message += ` - ${details.guestName}`
-      if (details.roomNumber) message += ` (Room ${details.roomNumber})`
-      message += `: ${details.reason}`
-      return message
-    }
-
-    if (details.message) {
-      // Generic message
-      return details.message
-    }
-
-    // Handle empty or simple details
-    if (Object.keys(details).length === 0) {
-      return 'No additional details'
-    }
-
-    // Handle single key-value pairs
-    const entries = Object.entries(details)
-    if (entries.length === 1) {
-      const [key, value] = entries[0]
-      if (typeof value === 'string' || typeof value === 'number') {
-        return `${key}: ${value}`
+    // 6. Generic update changes
+    if (details.changes && typeof details.changes === 'object') {
+      const changeKeys = Object.keys(details.changes)
+      if (changeKeys.length > 0) {
+        return `Updated: ${changeKeys.join(', ')}`
       }
     }
 
-    // Handle timestamp fields
-    if (details.timestamp) {
-      const timestamp = new Date(details.timestamp).toLocaleString()
-      return `Event occurred at ${timestamp}`
+    // 7. Generic device/IP info
+    if (details.ipAddress && details.ipAddress !== 'unknown') {
+      return `Action from IP ${details.ipAddress}`
     }
 
-    if (details.createdAt) {
-      const createdAt = new Date(details.createdAt).toLocaleString()
-      return `Created at ${createdAt}`
-    }
-
-    // Fallback: create a readable message from available details
-    const keyValuePairs = entries
-      .slice(0, 3)
-      .map(([key, value]) => {
-        if (typeof value === 'object') {
-          return `${key}: ${JSON.stringify(value)}`
-        }
-        return `${key}: ${value}`
-      })
+    // 8. Final fallback: Stringify relevant keys
+    const summary = Object.entries(details)
+      .filter(([key]) => !['timestamp', 'userId', 'id', 'userAgent'].includes(key))
+      .map(([key, val]) => `${key}: ${val}`)
       .join(', ')
 
-    return keyValuePairs || 'No details available'
+    return summary || 'Action recorded'
   }
 
   async function handleExportCSV() {

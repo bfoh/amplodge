@@ -85,7 +85,8 @@ export function InvoicePage() {
         console.log('✅ [InvoicePage] Secure Data Fetched:', data)
 
         const mapBooking = (b: any) => {
-          let roomNumber = b.rooms?.room_number || 'N/A'
+          let roomNumber = b.rooms?.room_number || b.rooms?.roomNumber || 
+                           b.properties?.room_number || b.properties?.roomNumber || 'N/A'
           
           // Fallback to ROOM_SNAPSHOT if database join failed
           if (roomNumber === 'N/A' && b.special_requests) {
