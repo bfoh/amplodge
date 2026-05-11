@@ -33,8 +33,16 @@ import {
   MoreVertical,
   Edit,
   Trash2,
-  Package2
+  Package2,
+  Users,
+  ChevronDown,
+  Calendar,
+  Wallet,
+  TrendingDown
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { revenueService } from '@/services/revenue-service'
+import { analyticsService } from '@/services/analytics-service'
 import { inventoryService } from '@/services/inventory-service'
 import { type InventoryItem } from '@/types'
 import { toast } from 'sonner'
@@ -80,10 +88,30 @@ export function InventoryPage() {
     unitPrice: 0,
   })
 
+  // Revenue Track State
+  const [activeTab, setActiveTab] = useState<'inventory' | 'revenue'>('inventory')
+  const [revPeriod, setRevPeriod] = useState<'weekly' | 'monthly' | 'yearly'>('weekly')
+  const [allCharges, setAllCharges] = useState<any[]>([])
+  const [allSales, setAllSales] = useState<any[]>([])
+  const [revBookings, setRevBookings] = useState<any[]>([])
+  const [isTableExpanded, setIsTableExpanded] = useState(false)
+
   useEffect(() => {
     loadInventory()
     fetchUser()
+    loadRevenueData()
   }, [inventoryUpdate])
+
+  const loadRevenueData = async () => {
+    try {
+      const { charges, standaloneSales, bookings } = await analyticsService.prefetchSharedData()
+      setAllCharges(charges)
+      setAllSales(standaloneSales)
+      setRevBookings(bookings)
+    } catch (e) {
+      console.error('Failed to load revenue data', e)
+    }
+  }
 
   const fetchUser = async () => {
     const user = await auth.me()
@@ -165,9 +193,115 @@ export function InventoryPage() {
   const lowStockItems = items.filter(i => i.stockQuantity <= i.minThreshold)
   const totalValue = items.reduce((sum, i) => sum + (i.stockQuantity * i.unitPrice), 0)
 
+  // ── Revenue Logic ───────────────────────────────────────────────────────
+  const getPeriodRange = (type: 'weekly' | 'monthly' | 'yearly') => {
+    const now = new Date()
+    const start = new Date()
+    if (type === 'weekly') {
+      const day = now.getDay()
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1)
+      start.setDate(diff)
+      start.setHours(0, 0, 0, 0)
+    } else if (type === 'monthly') {
+      start.setDate(1)
+      start.setHours(0, 0, 0, 0)
+    } else {
+      start.setMonth(0, 1)
+      start.setHours(0, 0, 0, 0)
+    }
+    return { start, end: now }
+  }
+
+  const period = getPeriodRange(revPeriod)
+  const filteredCharges = allCharges.filter(c => {
+    const d = new Date(c.createdAt || c.created_at)
+    return d >= period.start && d <= period.end
+  })
+  const filteredSales = allSales.filter(s => {
+    const d = new Date(s.saleDate || s.sale_date)
+    return d >= period.start && d <= period.end
+  })
+
+  const bookingsMap = new Map(revBookings.map(b => [b.id, b]))
+  const allEntries = [
+    ...filteredCharges.map(c => ({
+      id: c.id,
+      date: c.createdAt || c.created_at,
+      description: c.description || 'Charge',
+      category: c.category || 'other',
+      staffName: c.createdByName || c.created_by_name || 'System',
+      amount: Number(c.amount || 0),
+      paymentMethod: c.paymentMethod || c.payment_method || (c.notes?.toLowerCase().includes('cash') ? 'cash' : ''),
+      guestName: bookingsMap.get(c.bookingId || c.booking_id)?.guest?.fullName || c.guestName || '—'
+    })),
+    ...filteredSales.map(s => ({
+      id: s.id,
+      date: s.saleDate || s.sale_date,
+      description: s.description || 'Walk-in Sale',
+      category: s.category || 'other',
+      staffName: s.createdByName || s.created_by_name || 'System',
+      amount: Number(s.amount || 0),
+      paymentMethod: s.paymentMethod || s.payment_method || '',
+      guestName: 'Walk-in'
+    }))
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+  const totalRevenue = allEntries.reduce((s, e) => s + e.amount, 0)
+
+  const staffMap: Record<string, { name: string, amount: number }> = {}
+  allEntries.forEach(e => {
+    const name = e.staffName
+    if (!staffMap[name]) staffMap[name] = { name, amount: 0 }
+    staffMap[name].amount += e.amount
+  })
+  const staffEntries = Object.values(staffMap).sort((a, b) => b.amount - a.amount)
+
+  const normPay = (m: string) => {
+    const l = (m || '').toLowerCase()
+    if (l.includes('cash')) return 'cash'
+    if (l.includes('momo') || l.includes('mobile')) return 'mobile_money'
+    if (l.includes('card') || l.includes('pos')) return 'card'
+    return 'other'
+  }
+
+  const payAmounts = { cash: 0, momo: 0, card: 0, other: 0 }
+  allEntries.forEach(e => {
+    const m = normPay(e.paymentMethod)
+    if (m === 'cash') payAmounts.cash += e.amount
+    else if (m === 'mobile_money') payAmounts.momo += e.amount
+    else if (m === 'card') payAmounts.card += e.amount
+    else payAmounts.other += e.amount
+  })
+  const payTotal = Object.values(payAmounts).reduce((a, b) => a + b, 0)
+
   return (
     <div className="space-y-6 animate-fade-in pb-10">
-      {/* Header */}
+      {/* Tabs Switcher */}
+      <div className="flex p-1 bg-muted/50 rounded-xl w-fit">
+        <button
+          onClick={() => setActiveTab('inventory')}
+          className={cn(
+            "flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all",
+            activeTab === 'inventory' ? "bg-white shadow-sm text-primary" : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Package className="w-4 h-4" />
+          Product Management
+        </button>
+        <button
+          onClick={() => setActiveTab('revenue')}
+          className={cn(
+            "flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all",
+            activeTab === 'revenue' ? "bg-white shadow-sm text-primary" : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <TrendingUp className="w-4 h-4" />
+          Sales Performance
+        </button>
+      </div>
+
+      {activeTab === 'inventory' ? (
+        <>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Inventory Management</h1>
@@ -485,6 +619,198 @@ export function InventoryPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+        </>
+      ) : (
+        <div className="space-y-6 animate-fade-in">
+          {/* Revenue Track Header */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Sales Performance</h1>
+              <p className="text-muted-foreground text-sm">Monitor revenue from products, drinks, and other hotel services.</p>
+            </div>
+            <div className="flex items-center gap-1.5 p-1 bg-muted rounded-lg">
+              {(['weekly', 'monthly', 'yearly'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setRevPeriod(t)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-md text-xs font-semibold capitalize transition-all",
+                    revPeriod === t ? "bg-white shadow-sm text-primary" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Revenue Stats */}
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card className="bg-orange-50 border-orange-100">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-orange-800">Period Revenue</CardTitle>
+                <TrendingUp className="w-4 h-4 text-orange-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-orange-700">{formatCurrencySync(totalRevenue, currency)}</div>
+                <p className="text-xs text-orange-600/70 mt-1 capitalize">{revPeriod} total sales</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-emerald-50 border-emerald-100">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-emerald-800">Cash Collected</CardTitle>
+                <Wallet className="w-4 h-4 text-emerald-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-emerald-700">{formatCurrencySync(payAmounts.cash, currency)}</div>
+                <p className="text-xs text-emerald-600/70 mt-1">Physical cash on hand</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-blue-50 border-blue-100">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-blue-800">Total Transactions</CardTitle>
+                <History className="w-4 h-4 text-blue-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-blue-700">{allEntries.length}</div>
+                <p className="text-xs text-blue-600/70 mt-1">Charges & walk-in sales</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Staff Performance & Payment Methods */}
+          <div className="grid gap-6 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <Users className="w-4 h-4 text-primary" />
+                  Staff Sales Performance
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {staffEntries.length === 0 ? (
+                  <p className="text-sm text-muted-foreground italic text-center py-4">No staff sales recorded</p>
+                ) : (
+                  <div className="space-y-4">
+                    {staffEntries.map((s, i) => (
+                      <div key={i}>
+                        <div className="flex items-center justify-between text-xs mb-1">
+                          <span className="font-medium">{s.name}</span>
+                          <span className="font-bold">{formatCurrencySync(s.amount, currency)}</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-primary transition-all duration-1000" 
+                            style={{ width: `${totalRevenue > 0 ? (s.amount / totalRevenue) * 100 : 0}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <Wallet className="w-4 h-4 text-primary" />
+                  Payment Distribution
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {[
+                    { label: 'Cash', amount: payAmounts.cash, color: 'bg-emerald-500' },
+                    { label: 'Mobile Money', amount: payAmounts.momo, color: 'bg-blue-500' },
+                    { label: 'Card/POS', amount: payAmounts.card, color: 'bg-purple-500' },
+                    { label: 'Other', amount: payAmounts.other, color: 'bg-slate-400' }
+                  ].map((p, i) => (
+                    <div key={i}>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="flex items-center gap-2">
+                          <span className={cn("w-2 h-2 rounded-full", p.color)} />
+                          {p.label}
+                        </span>
+                        <span className="font-bold">{formatCurrencySync(p.amount, currency)}</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                        <div 
+                          className={cn("h-full transition-all duration-1000", p.color)}
+                          style={{ width: `${payTotal > 0 ? (p.amount / payTotal) * 100 : 0}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Detailed Entries Table */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-semibold">Recent Transactions</CardTitle>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="text-xs h-8 gap-1.5"
+                onClick={() => setIsTableExpanded(!isTableExpanded)}
+              >
+                {isTableExpanded ? 'Hide' : 'Show All'}
+                <ChevronDown className={cn("w-3 h-3 transition-transform", isTableExpanded && "rotate-180")} />
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-md border overflow-hidden">
+                <Table>
+                  <TableHeader className="bg-muted/50">
+                    <TableRow>
+                      <TableHead className="text-[10px] font-bold uppercase tracking-wider">Date</TableHead>
+                      <TableHead className="text-[10px] font-bold uppercase tracking-wider">Item/Service</TableHead>
+                      <TableHead className="text-[10px] font-bold uppercase tracking-wider">Guest</TableHead>
+                      <TableHead className="text-[10px] font-bold uppercase tracking-wider">Staff</TableHead>
+                      <TableHead className="text-[10px] font-bold uppercase tracking-wider">Payment</TableHead>
+                      <TableHead className="text-right text-[10px] font-bold uppercase tracking-wider">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {allEntries.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="h-24 text-center text-muted-foreground italic">No transactions found for this period</TableCell>
+                      </TableRow>
+                    ) : (
+                      (isTableExpanded ? allEntries : allEntries.slice(0, 10)).map((e, idx) => (
+                        <tr key={idx} className="text-xs hover:bg-muted/20 transition-colors border-b last:border-0">
+                          <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">
+                            {new Date(e.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                          </td>
+                          <td className="px-4 py-3 font-medium">{e.description}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{e.guestName}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{e.staffName}</td>
+                          <td className="px-4 py-3 capitalize text-[10px] font-semibold text-muted-foreground">
+                            {e.paymentMethod || '—'}
+                          </td>
+                          <td className="px-4 py-3 text-right font-bold tabular-nums">
+                            {formatCurrencySync(e.amount, currency)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+              {!isTableExpanded && allEntries.length > 10 && (
+                <div className="text-center mt-4">
+                  <Button variant="outline" size="sm" onClick={() => setIsTableExpanded(true)}>
+                    View All {allEntries.length} Transactions
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

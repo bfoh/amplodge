@@ -323,6 +323,7 @@ export function AnalyticsPage() {
         staffName: c.createdByName || c.created_by_name || 'System',
         amount: Number(c.amount || 0),
         type: 'Charge',
+        paymentMethod: c.paymentMethod || c.payment_method || decodeChargePaymentMethod(c.notes) || '',
         guestName: b?.guest?.fullName || c.guestName || '—'
       }
     }),
@@ -334,9 +335,26 @@ export function AnalyticsPage() {
       staffName: (s as any).createdByName || (s as any).created_by_name || 'System',
       amount: Number((s as any).amount || 0),
       type: 'Sale',
+      paymentMethod: (s as any).paymentMethod || (s as any).payment_method || '',
       guestName: 'Walk-in'
     }))
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+  const cpAmounts = { cash: 0, mobile_money: 0, card: 0 }
+  const cpCounts  = { cash: 0, mobile_money: 0, card: 0 }
+  for (const e of allAdditionalEntries) {
+    const m = normPay(e.paymentMethod)
+    if (m in cpAmounts) {
+      cpAmounts[m as keyof typeof cpAmounts] += e.amount
+      cpCounts[m as keyof typeof cpCounts]++
+    }
+  }
+  const cpMethods = [
+    { key: 'cash', label: 'Cash',  amount: cpAmounts.cash,         count: cpCounts.cash,         color: '#10b981', dot: 'bg-emerald-500' },
+    { key: 'momo', label: 'Momo',  amount: cpAmounts.mobile_money, count: cpCounts.mobile_money, color: '#3b82f6', dot: 'bg-blue-500' },
+    { key: 'card', label: 'Card',  amount: cpAmounts.card,         count: cpCounts.card,          color: '#8b5cf6', dot: 'bg-purple-500' },
+  ].filter(m => m.amount > 0 || m.count > 0)
+  const cpTotal = cpMethods.reduce((s, m) => s + m.amount, 0)
 
   // ── Page-computed Revenue Summary (uses same raw data as Booking Breakdown & Additional Revenue Sources) ──
   // This ensures the Revenue Summary is always consistent with the other two cards.
@@ -855,83 +873,54 @@ export function AnalyticsPage() {
               </div>
             </CardHeader>
 
-            <CardContent className="pt-4">
-              {catEntries.length === 0 ? (
-                <div className="h-24 flex flex-col items-center justify-center text-muted-foreground gap-1">
-                  <TrendingUp className="w-8 h-8 opacity-20" />
-                  <p className="text-sm">No charges or sales recorded for this period</p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {/* Category Breakdown */}
-                  <div>
-                    <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-3">Revenue by Category</h4>
-                    <div className="space-y-3">
-                      {catEntries.map(([cat, total]) => (
-                        <div key={cat}>
-                          <div className="flex items-center justify-between text-xs mb-1">
-                            <span className="flex items-center gap-1.5 text-muted-foreground">
-                              <span>{catIcons[cat] || '📦'}</span>
-                              <span>{catLabels[cat] || cat}</span>
-                            </span>
-                            <span className="font-semibold tabular-nums">{formatCurrencySync(total, currency)}</span>
-                          </div>
-                          <div className="h-2 rounded-full bg-secondary overflow-hidden">
-                            <div
-                              className="h-full rounded-full bg-orange-400 transition-all duration-700"
-                              style={{ width: `${maxVal > 0 ? (total / maxVal) * 100 : 0}%` }}
-                            />
-                          </div>
+                  {/* Payment Method Summary Bar (Matches Bookings Card) */}
+                  <div className="mb-4 rounded-xl bg-muted/30 px-4 py-3">
+                    <div className="h-2 w-full rounded-full overflow-hidden flex gap-px mb-3">
+                      {cpMethods.map(m => (
+                        <div key={m.key} className="h-full rounded-full transition-all duration-700"
+                          style={{ width: `${cpTotal > 0 ? (m.amount / cpTotal) * 100 : 0}%`, backgroundColor: m.color }} />
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                      {cpMethods.map(m => (
+                        <div key={m.key} className="flex items-center gap-1.5">
+                          <span className={`w-2 h-2 rounded-full ${m.dot} shrink-0`} />
+                          <span className="text-[11px] text-muted-foreground">{m.label}</span>
+                          <span className="text-[11px] font-bold tabular-nums">{formatCurrencySync(m.amount, currency)}</span>
+                          <span className="text-[10px] text-muted-foreground/70">({m.count})</span>
                         </div>
                       ))}
                     </div>
                   </div>
 
                   {/* Staff Breakdown */}
-                  <div className="pt-6 border-t">
-                    <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-3">Revenue by Staff</h4>
-                    {chargeStaffEntries.length > 0 ? (
-                      <div className="space-y-4">
-                        {/* Summary Bar */}
-                        <div className="h-2 w-full rounded-full overflow-hidden flex gap-px">
-                          {chargeStaffEntries.map((s, i) => (
-                            <div 
-                              key={i} 
-                              className="h-full transition-all duration-700"
-                              style={{ 
-                                width: `${grandTotal > 0 ? (s.amount / grandTotal) * 100 : 0}%`,
-                                backgroundColor: ROOM_COLORS[i % ROOM_COLORS.length]
-                              }}
-                            />
-                          ))}
+                  <div className="py-4 border-t border-b">
+                    <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-3">Revenue by Staff Member</h4>
+                    <div className="flex flex-wrap gap-x-6 gap-y-2">
+                      {chargeStaffEntries.map((s, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <div className="p-1 rounded-md bg-muted flex items-center justify-center">
+                            <Users className="w-3 h-3 text-muted-foreground" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-medium text-muted-foreground truncate">{s.name}</p>
+                            <p className="text-xs font-bold tabular-nums">{formatCurrencySync(s.amount, currency)}</p>
+                          </div>
                         </div>
-                        {/* Staff Chips */}
-                        <div className="flex flex-wrap gap-x-4 gap-y-2">
-                          {chargeStaffEntries.map((s, i) => (
-                            <div key={i} className="flex items-center gap-1.5">
-                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: ROOM_COLORS[i % ROOM_COLORS.length] }} />
-                              <span className="text-xs text-muted-foreground">{s.name}</span>
-                              <span className="text-xs font-bold tabular-nums">{formatCurrencySync(s.amount, currency)}</span>
-                              <span className="text-[10px] text-muted-foreground/70">({((s.amount / grandTotal) * 100).toFixed(0)}%)</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground italic">No staff attribution data</p>
-                    )}
+                      ))}
+                    </div>
                   </div>
 
                   {/* Expandable Table for Detailed Entries */}
-                  <div className="pt-4">
+                  <div className="pt-2">
                     <button
                       onClick={() => setIsChargeTableExpanded(v => !v)}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-medium text-orange-600 bg-orange-50 hover:bg-orange-100 transition-all group"
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all group"
                     >
                       <ChevronDown className={cn('w-4 h-4 transition-transform duration-300', isChargeTableExpanded && 'rotate-180')} />
                       {isChargeTableExpanded
-                        ? `Hide ${allAdditionalEntries.length} source entries`
-                        : `Show all ${allAdditionalEntries.length} source entries`}
+                        ? `Hide ${allAdditionalEntries.length} entries`
+                        : `Show ${allAdditionalEntries.length} entries`}
                       <ChevronDown className={cn('w-4 h-4 transition-transform duration-300', isChargeTableExpanded && 'rotate-180')} />
                     </button>
 
@@ -944,29 +933,36 @@ export function AnalyticsPage() {
                               <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Description</th>
                               <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Guest</th>
                               <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Staff</th>
-                              <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Category</th>
+                              <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Payment</th>
                               <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Amount</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border/50">
-                            {allAdditionalEntries.map((e, idx) => (
-                              <tr key={idx} className="hover:bg-muted/30 transition-colors">
-                                <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
-                                  {new Date(e.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                                </td>
-                                <td className="px-4 py-3 font-medium">{e.description}</td>
-                                <td className="px-4 py-3 text-xs">{e.guestName}</td>
-                                <td className="px-4 py-3 text-xs text-muted-foreground">{e.staffName}</td>
-                                <td className="px-4 py-3">
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-muted text-muted-foreground">
-                                    {catLabels[e.category] || e.category}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                                  {formatCurrencySync(e.amount, currency)}
-                                </td>
-                              </tr>
-                            ))}
+                            {allAdditionalEntries.map((e, idx) => {
+                              const m = normPay(e.paymentMethod)
+                              const payIcon = m === 'cash' ? '💵' : m === 'mobile_money' ? '📱' : m === 'card' ? '💳' : '💰'
+                              return (
+                                <tr key={idx} className="hover:bg-muted/30 transition-colors">
+                                  <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                                    {new Date(e.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm">{catIcons[e.category] || '📦'}</span>
+                                      <span className="font-medium">{e.description}</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 text-xs">{e.guestName}</td>
+                                  <td className="px-4 py-3 text-xs text-muted-foreground">{e.staffName}</td>
+                                  <td className="px-4 py-3 text-[10px] font-medium text-muted-foreground italic">
+                                    {payIcon} {e.paymentMethod || '—'}
+                                  </td>
+                                  <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                                    {formatCurrencySync(e.amount, currency)}
+                                  </td>
+                                </tr>
+                              )
+                            })}
                           </tbody>
                         </table>
                       </div>
