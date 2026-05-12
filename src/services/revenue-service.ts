@@ -234,6 +234,9 @@ export function calculateStaffWeekResultInternal(
   }
 
   const groupSubtotalMap = new Map<string, number>()
+  const groupDepositMap = new Map<string, number>()
+  const groupBookingsByGid = new Map<string, any[]>()
+
   for (const b of allBookings) {
     const specialReq = b.special_requests || b.specialRequests || ''
     if (specialReq.includes('GROUP_DATA')) {
@@ -244,6 +247,12 @@ export function calculateStaffWeekResultInternal(
           const gid = gd.groupId
           if (gid) {
             groupSubtotalMap.set(gid, (groupSubtotalMap.get(gid) || 0) + Number(b.totalPrice || 0))
+            if (!groupBookingsByGid.has(gid)) groupBookingsByGid.set(gid, [])
+            groupBookingsByGid.get(gid)!.push(b)
+            
+            const events = parsePaymentEvents(specialReq)
+            const dep = events.filter(e => e.stage === 'booking').reduce((s, e) => s + e.amount, 0)
+            if (dep > 0) groupDepositMap.set(gid, (groupDepositMap.get(gid) || 0) + dep)
           }
         } catch { /* ignore */ }
       }
@@ -281,31 +290,6 @@ export function calculateStaffWeekResultInternal(
     return false
   }
 
-  // Pre-calculate group totals to avoid O(N^2) inner loops
-  const groupSubtotalMap = new Map<string, number>()
-  const groupDepositMap = new Map<string, number>()
-  const groupBookingsByGid = new Map<string, any[]>()
-
-  for (const b of allBookings) {
-    const gsr = b.special_requests || b.specialRequests || ''
-    if (!gsr.includes('GROUP_DATA')) continue
-    const gdMatch = gsr.match(/<!-- GROUP_DATA:(.*?) -->/)
-    if (gdMatch?.[1]) {
-      try {
-        const gd = JSON.parse(gdMatch[1])
-        const gid = gd.groupId
-        if (gid) {
-          groupSubtotalMap.set(gid, (groupSubtotalMap.get(gid) || 0) + Number(b.totalPrice || 0))
-          if (!groupBookingsByGid.has(gid)) groupBookingsByGid.set(gid, [])
-          groupBookingsByGid.get(gid)!.push(b)
-          
-          const events = parsePaymentEvents(gsr)
-          const dep = events.filter(e => e.stage === 'booking').reduce((s, e) => s + e.amount, 0)
-          if (dep > 0) groupDepositMap.set(gid, (groupDepositMap.get(gid) || 0) + dep)
-        }
-      } catch { /* ignore */ }
-    }
-  }
 
   const matched: BookingSummary[] = allBookings
     .filter((b: any) => {
