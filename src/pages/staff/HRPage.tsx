@@ -2060,9 +2060,7 @@ function StaffRevenueRow({
                   )}
                 </>
               )
-            })() : (
-              <p className="text-xs text-muted-foreground py-2">No data for this week.</p>
-            )}
+            })()}
           </div>
         </CollapsibleContent>
       </div>
