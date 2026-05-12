@@ -18,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../../components/ui/alert-dialog"
-import { Plus, Calendar, User, Home, Search, Trash2, Users, QrCode, ExternalLink, Smartphone, Printer, BookOpen, X } from 'lucide-react'
+import { Plus, Calendar, User, Home, Search, Trash2, Users, QrCode, ExternalLink, Smartphone, Printer, BookOpen, X, Loader2 } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { QRCodeSVG } from 'qrcode.react'
 import { db, auth } from '@/lib/db'
@@ -76,6 +76,7 @@ export function BookingsPage() {
   const [roomTypes, setRoomTypes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [isCreating, setIsCreating] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [qrBooking, setQrBooking] = useState<BookingWithDetails | null>(null)
@@ -257,6 +258,8 @@ export function BookingsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
+    if (isCreating) return // ignore duplicate submits while in flight
+
     console.log('[BookingsPage] handleSubmit called with formData:', formData)
 
     if (!formData.propertyId || !formData.checkIn || !formData.checkOut) {
@@ -271,6 +274,7 @@ export function BookingsPage() {
       return
     }
 
+    setIsCreating(true)
     try {
       // Find the selected property (room from Rooms page)
       const selectedProperty = properties.find((p: any) => p.id === formData.propertyId)
@@ -365,41 +369,49 @@ export function BookingsPage() {
 
       console.log('[BookingsPage] Booking created successfully:', result)
 
-      // Log booking creation to activity logs
-      try {
-        const userId = await getCurrentUserId()
-        await activityLogService.log({
-          action: 'created',
-          entityType: 'booking',
-          entityId: result?._id || 'unknown',
-          details: {
-            guestName: formData.guestName,
-            guestEmail: formData.guestEmail,
-            roomNumber: selectedProperty.roomNumber,
-            checkIn: formData.checkIn,
-            checkOut: formData.checkOut,
-            amount: formData.totalPrice,
-            source: 'reception',
-            paymentMethod: bookingPayload.paymentMethod,
-            createdAt: new Date().toISOString()
-          },
-          userId
-        })
-        console.log('✅ [BookingsPage] Booking creation logged')
-      } catch (logError) {
-        console.error('⚠️ [BookingsPage] Activity logging failed:', logError)
-      }
-
+      // Close the dialog and reset form immediately — the booking is already
+      // persisted. Secondary work (activity log + data reload) runs in the
+      // background so the UI feels instant.
       toast.success('Booking created successfully')
       setDialogOpen(false)
       setEditingId(null)
       resetForm()
       loadData()
+
+      // Fire-and-forget activity log. A failed log entry should never block
+      // the user — the booking write has already succeeded above.
+      ;(async () => {
+        try {
+          const userId = await getCurrentUserId()
+          await activityLogService.log({
+            action: 'created',
+            entityType: 'booking',
+            entityId: result?._id || 'unknown',
+            details: {
+              guestName: formData.guestName,
+              guestEmail: formData.guestEmail,
+              roomNumber: selectedProperty.roomNumber,
+              checkIn: formData.checkIn,
+              checkOut: formData.checkOut,
+              amount: formData.totalPrice,
+              source: 'reception',
+              paymentMethod: bookingPayload.paymentMethod,
+              createdAt: new Date().toISOString()
+            },
+            userId
+          })
+          console.log('✅ [BookingsPage] Booking creation logged')
+        } catch (logError) {
+          console.error('⚠️ [BookingsPage] Activity logging failed:', logError)
+        }
+      })()
     } catch (error: any) {
       console.error('[BookingsPage] Failed to save booking:', error)
       console.error('[BookingsPage] Error message:', error?.message)
       console.error('[BookingsPage] Error stack:', error?.stack)
       toast.error(`Failed to save booking: ${error?.message || 'Unknown error'}`)
+    } finally {
+      setIsCreating(false)
     }
   }
 
@@ -887,10 +899,20 @@ export function BookingsPage() {
                 </div>
 
                 <div className="flex justify-end gap-3">
-                  <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setDialogOpen(false)}
+                    disabled={isCreating}
+                  >
                     Cancel
                   </Button>
-                  <Button type="submit">{editingId ? 'Save Changes' : 'Create Booking'}</Button>
+                  <Button type="submit" disabled={isCreating} className="gap-2">
+                    {isCreating && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {isCreating
+                      ? (editingId ? 'Saving changes…' : 'Creating booking…')
+                      : (editingId ? 'Save Changes' : 'Create Booking')}
+                  </Button>
                 </div>
               </form>
             </DialogContent>

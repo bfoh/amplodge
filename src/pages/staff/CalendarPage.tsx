@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
-import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, List, LayoutGrid, Filter, Users, X as XIcon } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, List, LayoutGrid, Filter, Users, X as XIcon, Loader2 } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { db, auth } from '@/lib/db'
 import { cn } from '../../lib/utils'
@@ -350,8 +350,9 @@ export function CalendarPage() {
         amountPaid: 0,
         paymentSplits: [{ method: 'cash', amount: 0 }]
       })
-      // Reload data to refresh calendar timeline with new booking
-      await loadData()
+      // Reload data in background — don't block UI on the second roundtrip.
+      // Realtime subscriptions will also refresh the calendar shortly.
+      loadData()
     } catch (error: any) {
       console.error('Failed to create booking:', error)
       toast.error(`Failed to save booking: ${error?.message || 'Unknown error'}`)
@@ -707,7 +708,10 @@ export function CalendarPage() {
 
                 <div className="flex justify-end gap-3 pt-2">
                   <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={submitting}>Cancel</Button>
-                  <Button type="submit" disabled={submitting}>{submitting ? 'Creating…' : 'Create Booking'}</Button>
+                  <Button type="submit" disabled={submitting} className="gap-2">
+                    {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {submitting ? 'Creating booking…' : 'Create Booking'}
+                  </Button>
                 </div>
               </form>
             </DialogContent>
