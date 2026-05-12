@@ -69,11 +69,6 @@ export function EmployeesPage() {
     defaultValues: { name: '', email: '', phone: '', role: 'staff' },
   })
 
-  // Fetch employees on mount
-  useEffect(() => {
-    loadEmployees()
-  }, [])
-
   const loadEmployees = async () => {
     try {
       console.log('🔄 [EmployeesPage] Loading employees from Supabase...')
@@ -117,6 +112,11 @@ export function EmployeesPage() {
       setIsLoading(false)
     }
   }
+
+  // Fetch employees on mount
+  useEffect(() => {
+    loadEmployees()
+  }, [])
 
   const handleOpen = () => {
     setEditingEmployee(null)

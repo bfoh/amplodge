@@ -38,6 +38,21 @@ function buildProxyFetch(directUrl: string) {
         }
 
         return fetch(fetchUrl, { ...init, signal: controller.signal })
+            .then(async (response) => {
+                // If we get an Invalid API Key error (401/403), it might be a transient proxy issue.
+                // Log it and allow the StaffLoginPage's retry logic (if any) or inform the user.
+                if (response.status === 401 || response.status === 403) {
+                    const body = await response.clone().text()
+                    if (body.toLowerCase().includes('invalid api key')) {
+                        console.error('⚠️ [Supabase Proxy] Invalid API Key returned from proxy:', {
+                            url: fetchUrl,
+                            status: response.status,
+                            hasApiKey: !!(init.headers as any)?.apikey
+                        })
+                    }
+                }
+                return response
+            })
             .finally(() => clearTimeout(timeout))
     }
 }

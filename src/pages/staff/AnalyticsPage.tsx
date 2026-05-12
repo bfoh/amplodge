@@ -122,9 +122,6 @@ export function AnalyticsPage() {
   const updatedAtProp = useSubscription('properties')
 
   const loadingRef = useRef(false)
-  useEffect(() => {
-    loadAnalytics()
-  }, [updatedAtBks, updatedAtChg, updatedAtSales, updatedAtProp])
 
   const loadAnalytics = async () => {
     if (loadingRef.current) return
@@ -182,6 +179,10 @@ export function AnalyticsPage() {
       loadingRef.current = false
     }
   }
+
+  useEffect(() => {
+    loadAnalytics()
+  }, [updatedAtBks, updatedAtChg, updatedAtSales, updatedAtProp])
 
   const handleExport = async (fmt: 'pdf' | 'csv' | 'screenshot') => {
     try {
@@ -1173,7 +1174,8 @@ export function AnalyticsPage() {
               <p className="text-xs text-muted-foreground mt-1">Try selecting a different {breakdownMode}</p>
             </div>
           ) : (
-            <div className="md:hidden space-y-3 p-4 bg-muted/20">
+            <>
+              <div className="md:hidden space-y-3 p-4 bg-muted/20">
               {breakdownBookings.map((b, i) => {
                 const sId = b.status === 'checked-out'
                   ? (b.checkOutBy || b.checkInBy || b.createdBy)
@@ -1355,7 +1357,8 @@ export function AnalyticsPage() {
                 </tfoot>
               </table>
             </div>
-          )}
+          </>
+        )}
         </CardContent>
         )}
       </Card>

@@ -28,12 +28,23 @@ exports.handler = async (event) => {
         const rawQuery = event.rawQuery || ''
         const sbpathMatch = rawQuery.match(/(?:^|&)_sbpath=([^&]*)/)
         const supabasePath = sbpathMatch ? decodeURIComponent(sbpathMatch[1]) : '/'
-
+        
         // Forward everything except _sbpath
         const forwardQuery = rawQuery
             .replace(/^_sbpath=[^&]*(&|$)/, '$1')
             .replace(/&_sbpath=[^&]*/, '')
             .replace(/^&/, '')
+
+        const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
+
+        if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+            console.error('[supabase-proxy] Missing configuration: URL or ANON_KEY not found in environment.')
+            return {
+                statusCode: 500,
+                headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ error: 'Server configuration error', message: 'Missing environment variables' }),
+            }
+        }
 
         const targetUrl = `${SUPABASE_URL}${supabasePath}${forwardQuery ? '?' + forwardQuery : ''}`
 
@@ -42,16 +53,17 @@ exports.handler = async (event) => {
         // Build forwarded headers
         const forwardHeaders = {}
         if (event.headers['content-type'])   forwardHeaders['content-type']   = event.headers['content-type']
-        if (event.headers['apikey'])          forwardHeaders['apikey']          = event.headers['apikey']
+        
+        // Forward the apikey from the client, or fallback to the server-side key.
+        // This fallback fixes the "Invalid API key" error when headers are stripped by middleboxes.
+        forwardHeaders['apikey'] = event.headers['apikey'] || event.headers['apiKey'] || SUPABASE_ANON_KEY
+        
         if (event.headers['authorization'])   forwardHeaders['authorization']   = event.headers['authorization']
         if (event.headers['x-client-info'])   forwardHeaders['x-client-info']   = event.headers['x-client-info']
         if (event.headers['prefer'])          forwardHeaders['prefer']          = event.headers['prefer']
         if (event.headers['x-upsert'])        forwardHeaders['x-upsert']        = event.headers['x-upsert']
 
         // Forward the real client IP so Supabase rate-limits per-user not per-proxy.
-        // Without this, every Ghana user shares the same Netlify function IP and a few
-        // retries/failed attempts from any user locks auth for everyone routing through
-        // this proxy.
         const clientIp = event.headers['x-nf-client-connection-ip']
             || event.headers['x-forwarded-for']?.split(',')[0]?.trim()
             || event.headers['client-ip']

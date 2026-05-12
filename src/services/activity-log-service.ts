@@ -575,7 +575,7 @@ class ActivityLogService {
       })
 
       // Apply filters
-      let filteredLogs = logs
+      let filteredLogs = logs || []
 
       if (options?.userId) {
         filteredLogs = filteredLogs.filter((log: any) => log.userId === options.userId)

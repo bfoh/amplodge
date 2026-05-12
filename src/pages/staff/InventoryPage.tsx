@@ -97,12 +97,6 @@ export function InventoryPage() {
   const [allStaff, setAllStaff] = useState<any[]>([])
   const [isTableExpanded, setIsTableExpanded] = useState(false)
 
-  useEffect(() => {
-    loadInventory()
-    fetchUser()
-    loadRevenueData()
-  }, [inventoryUpdate])
-
   const loadRevenueData = async () => {
     try {
       const shared = await analyticsService.prefetchSharedData() || {} as any
@@ -137,6 +131,12 @@ export function InventoryPage() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    loadInventory()
+    fetchUser()
+    loadRevenueData()
+  }, [inventoryUpdate])
 
   const handleSave = async () => {
     if (!form.name) return toast.error('Item name is required')

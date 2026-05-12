@@ -195,9 +195,14 @@ function createTableWrapper(tableName: string) {
       if (offlineCache.isTableCached(tableName)) {
         try {
           cached = await offlineCache.readAll(tableName)
+          // Ensure cached is an array
+          if (!Array.isArray(cached)) {
+            console.warn(`[SupabaseDB] Cache for ${tableName} is not an array, resetting to []`)
+            cached = []
+          }
 
           // Apply client-side filtering on cached data
-          if (cached && options.where) {
+          if (cached.length > 0 && options.where) {
             cached = cached.filter(row => {
               return Object.entries(options.where!).every(([key, value]) => {
                 const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase()
@@ -246,7 +251,7 @@ function createTableWrapper(tableName: string) {
           }
 
           // Apply limit
-          if (cached && options.limit) {
+          if (cached.length > 0 && options.limit) {
             cached = cached.slice(0, options.limit)
           }
         } catch (err) {
@@ -428,7 +433,14 @@ function createTableWrapper(tableName: string) {
       if (offlineCache.isTableCached(tableName)) {
         try {
           cached = await offlineCache.readAll(tableName)
-          if (cached && options.where) {
+          
+          // Ensure cached is an array
+          if (!Array.isArray(cached)) {
+            console.warn(`[SupabaseDB] Cache for ${tableName} (listAll) is not an array, resetting to []`)
+            cached = []
+          }
+
+          if (cached.length > 0 && options.where) {
             cached = cached.filter(row => {
               return Object.entries(options.where!).every(([key, value]) => {
                 const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase()

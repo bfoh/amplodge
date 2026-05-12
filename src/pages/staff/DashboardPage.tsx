@@ -40,10 +40,6 @@ export function DashboardPage() {
   const [recentBookings, setRecentBookings] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    loadDashboardData()
-  }, [bookingsUpdate, propertiesUpdate])
-
   const loadDashboardData = async () => {
     try {
       // Fetch data - load ALL properties (project-scoped, no user filtering needed)
@@ -105,14 +101,16 @@ export function DashboardPage() {
         return false
       })
 
-      // 3. Calculate Available by Type
-      const availableDetails = Object.keys(totalByType).map(name => ({
-        name,
-        count: Math.max(0, totalByType[name] - (occupiedByType[name] || 0))
-      })).filter(d => d.count > 0).sort((a, b) => a.name.localeCompare(b.name))
+      // 3. Compute Availability Breakdown
+      const availableDetails = Object.keys(totalByType).map(typeName => {
+        const total = totalByType[typeName]
+        const occupied = occupiedByType[typeName] || 0
+        return {
+          name: typeName,
+          count: Math.max(0, total - occupied)
+        }
+      }).sort((a, b) => b.count - a.count)
 
-
-      // Calculate active bookings (current and future confirmed bookings)
       const activeBookings = allBookings.filter((b: any) =>
         b.dates.checkOut >= todayIso &&
         (b.status === 'confirmed' || b.status === 'checked-in' || b.status === 'reserved')
@@ -226,6 +224,10 @@ export function DashboardPage() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    loadDashboardData()
+  }, [bookingsUpdate, propertiesUpdate])
 
   if (loading) {
     return (

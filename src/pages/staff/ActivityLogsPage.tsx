@@ -30,6 +30,81 @@ export function ActivityLogsPage() {
   const [autoRefresh, setAutoRefresh] = useState(false)
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  const loadLogs = useCallback(async () => {
+    try {
+      setLoading(true)
+      const options: any = { limit: 500 }
+
+      if (startDate) options.startDate = new Date(startDate)
+      if (endDate) options.endDate = new Date(endDate)
+      if (actionFilter !== 'all') options.action = actionFilter
+      if (entityTypeFilter !== 'all') options.entityType = entityTypeFilter
+      if (userFilter !== 'all') options.userId = userFilter
+
+      const data = await activityLogService.getActivityLogs(options)
+      setLogs(data)
+      console.log('[ActivityLogsPage] Loaded logs:', data)
+      if (data.length > 0) {
+        toast.success(`Loaded ${data.length} activity logs`)
+      } else {
+        console.log('[ActivityLogsPage] No logs found, table might not exist yet')
+      }
+    } catch (error) {
+      console.error('Failed to load activity logs:', error)
+      toast.error('Failed to load activity logs')
+    } finally {
+      setLoading(false)
+    }
+  }, [actionFilter, entityTypeFilter, startDate, endDate, userFilter])
+
+  async function loadUsers() {
+    try {
+      const [staffList, guestList, roomList, bookingList] = await Promise.all([
+        db.staff.list({ limit: 100 }),
+        db.guests.list({ limit: 500 }),
+        db.properties.list({ limit: 100 }),
+        db.bookings.list({ limit: 500, orderBy: { createdAt: 'desc' } })
+      ])
+      
+      setRooms(roomList)
+      setBookings(bookingList)
+
+      const mappedStaff = staffList.map((s: any) => ({
+        id: s.userId || s.id,
+        name: s.name || s.email || 'Staff member'
+      }))
+
+      const mappedGuests = guestList.map((g: any) => ({
+        id: g.id,
+        name: `Guest: ${g.name || 'Anonymous'}`
+      }))
+
+      setUsers([...mappedStaff, ...mappedGuests])
+    } catch (error) {
+      console.error('Failed to load users/guests/rooms:', error)
+    }
+  }
+
+  function applyFilters() {
+    let filtered = [...logs]
+
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase()
+      filtered = filtered.filter(log => {
+        const readableDetails = convertDetailsToReadableMessage(log.details).toLowerCase()
+        return (
+          log.entityType.toLowerCase().includes(query) ||
+          log.action.toLowerCase().includes(query) ||
+          log.entityId.toLowerCase().includes(query) ||
+          readableDetails.includes(query)
+        )
+      })
+    }
+
+    setFilteredLogs(filtered)
+  }
+
   useEffect(() => {
     loadUsers()
   }, [])
@@ -61,64 +136,7 @@ export function ActivityLogsPage() {
         clearInterval(refreshIntervalRef.current)
       }
     }
-  }, [autoRefresh])
-
-  const loadLogs = useCallback(async () => {
-    try {
-      setLoading(true)
-      const options: any = { limit: 500 }
-
-      if (startDate) options.startDate = new Date(startDate)
-      if (endDate) options.endDate = new Date(endDate)
-      if (actionFilter !== 'all') options.action = actionFilter
-      if (entityTypeFilter !== 'all') options.entityType = entityTypeFilter
-      if (userFilter !== 'all') options.userId = userFilter
-
-      const data = await activityLogService.getActivityLogs(options)
-      setLogs(data)
-      console.log('[ActivityLogsPage] Loaded logs:', data)
-      if (data.length > 0) {
-        toast.success(`Loaded ${data.length} activity logs`)
-      } else {
-        console.log('[ActivityLogsPage] No logs found, table might not exist yet')
-      }
-    } catch (error) {
-      console.error('Failed to load activity logs:', error)
-      toast.error('Failed to load activity logs')
-    } finally {
-      setLoading(false)
-    }
-  }, [actionFilter, entityTypeFilter, startDate, endDate, userFilter])
-
-  // Test function removed
-
-  async function loadUsers() {
-    try {
-      const [staffList, guestList, roomList, bookingList] = await Promise.all([
-        db.staff.list({ limit: 100 }),
-        db.guests.list({ limit: 500 }),
-        db.properties.list({ limit: 100 }),
-        db.bookings.list({ limit: 500, orderBy: { createdAt: 'desc' } })
-      ])
-      
-      setRooms(roomList)
-      setBookings(bookingList)
-
-      const mappedStaff = staffList.map((s: any) => ({
-        id: s.userId || s.id,
-        name: s.name || s.email || 'Staff member'
-      }))
-
-      const mappedGuests = guestList.map((g: any) => ({
-        id: g.id,
-        name: `Guest: ${g.name || 'Anonymous'}`
-      }))
-
-      setUsers([...mappedStaff, ...mappedGuests])
-    } catch (error) {
-      console.error('Failed to load users/guests/rooms:', error)
-    }
-  }
+  }, [autoRefresh, loadLogs])
 
   // Helper function to resolve userId to user name
   function resolveUserName(userId: string | undefined, details?: any): string {

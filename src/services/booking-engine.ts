@@ -1304,10 +1304,14 @@ class BookingEngine {
       db.guests.list(),
     ])
 
-    const roomMap = new Map(rooms.map((r: any) => [r.id, r]))
-    const guestMap = new Map(guests.map((g: any) => [g.id, g]))
+    const safeRooms = (rooms || []) as any[]
+    const safeGuests = (guests || []) as any[]
+    const safeBookings = (bookings || []) as any[]
 
-    const mappedBookings = bookings.map((b: any) => {
+    const roomMap = new Map(safeRooms.map((r: any) => [r.id, r]))
+    const guestMap = new Map(safeGuests.map((g: any) => [g.id, g]))
+
+    const mappedBookings = safeBookings.map((b: any) => {
       const room = roomMap.get(b.roomId) as any
       const guest = guestMap.get(b.guestId) as any
       const remoteId: string = b.id || ''
