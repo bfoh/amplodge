@@ -38,7 +38,7 @@ export class ErrorBoundary extends Component<Props, State> {
     // Detect chunk load failures (common after a new deployment)
     // "Failed to fetch dynamically imported module" or "Loading chunk X failed"
     const errorMsg = error?.message || ''
-    const isChunkLoadError = /failed to fetch dynamically imported module|loading chunk/i.test(errorMsg)
+    const isChunkLoadError = /failed to fetch dynamically imported module|loading chunk|valid JavaScript MIME type|Unexpected token '<'/i.test(errorMsg)
 
     if (isChunkLoadError) {
       console.warn('🔄 [ErrorBoundary] Chunk load failed detected. Forcing page refresh in 2 seconds...')

@@ -160,10 +160,11 @@ export function ActivityLogsPage() {
     if (booking && booking.guestName) return `Guest: ${booking.guestName}`
 
     // 4. Check if the ID itself looks like an email or human name
-    if (userId.includes('@')) return userId
-    if (userId.length < 20 && !userId.includes('-')) return userId // Likely a legacy manual name
+    if (typeof userId === 'string' && userId.includes('@')) return userId
+    if (typeof userId === 'string' && userId.length < 20 && !userId.includes('-')) return userId // Likely a legacy manual name
 
     // 5. Final fallback: Return a shortened ID
+    if (typeof userId !== 'string') return 'Unknown'
     return userId.length > 20 ? `${userId.slice(0, 8)}...` : userId
   }
 
@@ -329,8 +330,12 @@ export function ActivityLogsPage() {
 
     // 8. Final fallback: Stringify relevant keys
     const summary = Object.entries(d)
-      .filter(([key]) => !['timestamp', 'userId', 'id', 'userAgent'].includes(key))
-      .map(([key, val]) => `${key}: ${val}`)
+      .filter(([key]) => !['timestamp', 'userId', 'id', 'userAgent', 'bookingId', 'roomId', 'entityId', 'entityType', 'action'].includes(key))
+      .map(([key, val]) => {
+        if (val === null || val === undefined) return `${key}: N/A`
+        if (typeof val === 'object') return `${key}: [Data]`
+        return `${key}: ${val}`
+      })
       .join(', ')
 
     return summary || 'Action recorded'

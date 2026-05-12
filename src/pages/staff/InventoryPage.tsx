@@ -558,7 +558,6 @@ export function InventoryPage() {
                                   stockQuantity: item.stockQuantity,
                                   minThreshold: item.minThreshold,
                                   unitPrice: item.unitPrice,
-                                Lyn: item.Lyn || 0,
                                 })
                                 setIsAddOpen(true)
                               }}>

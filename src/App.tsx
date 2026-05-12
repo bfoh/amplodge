@@ -17,7 +17,7 @@ const lazyWithRetry = (componentImport: () => Promise<any>) =>
     componentImport().catch((error) => {
       const errorMsg = error?.message || '';
       // Only reload if it's a chunk load error (common after new deployments)
-      if (/failed to fetch dynamically imported module|loading chunk/i.test(errorMsg)) {
+      if (/failed to fetch dynamically imported module|loading chunk|valid JavaScript MIME type|Unexpected token '<'/i.test(errorMsg)) {
         console.warn('🔄 [App] Chunk load failed. Forcing refresh to get latest version...', errorMsg);
         window.location.reload();
         return { default: () => null }; // Return dummy to prevent crash while reloading

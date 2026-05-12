@@ -121,6 +121,13 @@ self.addEventListener('fetch', (event) => {
         const fetchPromise = fetch(event.request)
           .then((response) => {
             if (response && response.ok) {
+              // Prevent cache poisoning: don't cache HTML responses for JS/CSS assets
+              const contentType = response.headers.get('content-type') || ''
+              if (contentType.includes('text/html') && (url.pathname.endsWith('.js') || url.pathname.endsWith('.css'))) {
+                console.warn('[SW] 🛑 Refusing to cache HTML response for static asset:', url.pathname)
+                return response
+              }
+
               const clone = response.clone()
               caches.open(CACHE_NAME).then((cache) => {
                 cache.put(event.request, clone)
