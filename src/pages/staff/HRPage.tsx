@@ -1752,38 +1752,24 @@ const CATEGORY_ICONS_HR: Record<string, string> = {
 
 function StaffRevenueRow({
   report,
+  result,
   onReview,
-  onLiveData,
 }: {
   report: WeeklyRevenueReport
+  result?: StaffWeekResult
   onReview: (r: WeeklyRevenueReport) => void
-  onLiveData: (id: string, count: number, revenue: number, bookingIds: string[]) => void
 }) {
   const [open, setOpen] = useState(false)
-  const [weekResult, setWeekResult] = useState<StaffWeekResult | null>(null)
-  const [loadingBks, setLoadingBks] = useState(false)
-  const [liveCount, setLiveCount] = useState<number>(report.bookingCount)
-  const [liveGrandRevenue, setLiveGrandRevenue] = useState<number>(report.totalRevenue)
-
-  const loadBks = useCallback(async () => {
-    setLoadingBks(true)
-    try {
-      const result = await fetchBookingsForStaffWeek(report.staffId, report.weekStart, report.weekEnd)
-      setWeekResult(result)
-      setLiveCount(result.bookingCount)
-      setLiveGrandRevenue(result.grandRevenue)
-      onLiveData(report.id, result.bookingCount, result.grandRevenue, result.bookings.map(b => b.id))
-    } catch { /* silent */ } finally { setLoadingBks(false) }
-  }, [report.staffId, report.weekStart, report.weekEnd, report.id, onLiveData])
-
-  // Load bookings eagerly so header count/revenue is always accurate
-  useEffect(() => { loadBks() }, [loadBks])
 
   const handleOpen = (v: boolean) => { setOpen(v) }
 
-  const bookings = weekResult?.bookings ?? []
-  const chargeCatEntries = Object.entries(weekResult?.chargesByCategory ?? {}).filter(([, v]) => v > 0)
-  const standaloneSales = weekResult?.standaloneSales ?? []
+  const bookings = result?.bookings ?? []
+  const chargeCatEntries = Object.entries(result?.chargesByCategory ?? {}).filter(([, v]) => v > 0)
+  const standaloneSales = result?.standaloneSales ?? []
+
+  // Use pre-calculated totals if available, otherwise fall back to report fields
+  const displayCount = result ? result.bookingCount : report.bookingCount
+  const displayRevenue = result ? result.grandRevenue : report.totalRevenue
 
   return (
     <Collapsible open={open} onOpenChange={handleOpen}>
@@ -1801,14 +1787,14 @@ function StaffRevenueRow({
               <RevStatusBadge status={report.status} />
             </div>
             <div className="flex items-center gap-4 flex-shrink-0">
-              <span className="text-xs text-muted-foreground hidden sm:block">{liveCount} booking{liveCount !== 1 ? 's' : ''}</span>
-              <span className="font-semibold text-sm">{formatGHS(liveGrandRevenue)}</span>
+              <span className="text-xs text-muted-foreground hidden sm:block">{displayCount} booking{displayCount !== 1 ? 's' : ''}</span>
+              <span className="font-semibold text-sm">{formatGHS(displayRevenue)}</span>
               {report.status === 'submitted' && (
                 <Button
                   size="sm"
                   variant="outline"
                   className="text-xs h-7"
-                  onClick={(e) => { e.stopPropagation(); onReview({ ...report, bookingCount: liveCount, totalRevenue: liveGrandRevenue }) }}
+                  onClick={(e) => { e.stopPropagation(); onReview({ ...report, bookingCount: displayCount, totalRevenue: displayRevenue }) }}
                 >
                   <CheckCircle className="w-3 h-3 mr-1" /> Review
                 </Button>
@@ -1825,9 +1811,9 @@ function StaffRevenueRow({
             {report.adminNotes && (
               <p className="text-xs text-green-700 bg-green-50 rounded px-2 py-1"><span className="font-medium">Admin feedback:</span> {report.adminNotes}</p>
             )}
-            {loadingBks ? (
-              <div className="flex items-center gap-2 py-3 text-muted-foreground text-xs"><Loader2 className="w-3 h-3 animate-spin" /> Loading…</div>
-            ) : weekResult ? (() => {
+            {!result ? (
+              <div className="flex items-center gap-2 py-3 text-muted-foreground text-xs"><Loader2 className="w-3 h-3 animate-spin" /> Preparing details…</div>
+            ) : (() => {
               const payMethods = [
                 { key: 'cash',         label: '💵 Cash',         color: '#10b981' },
                 { key: 'mobile_money', label: '📱 Mobile Money', color: '#3b82f6' },
@@ -1854,15 +1840,15 @@ function StaffRevenueRow({
                   <div className="grid grid-cols-3 gap-2">
                     <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
                       <p className="text-[10px] text-blue-700 font-medium uppercase tracking-wide">Room Rev.</p>
-                      <p className="text-sm font-bold text-blue-800">{formatGHS(weekResult.totalRevenue)}</p>
+                      <p className="text-sm font-bold text-blue-800">{formatGHS(result.totalRevenue)}</p>
                     </div>
                     <div className="rounded-lg bg-orange-50 border border-orange-100 px-3 py-2">
                       <p className="text-[10px] text-orange-700 font-medium uppercase tracking-wide">Add. Charges</p>
-                      <p className="text-sm font-bold text-orange-700">{formatGHS(weekResult.additionalRevenue)}</p>
+                      <p className="text-sm font-bold text-orange-700">{formatGHS(result.additionalRevenue)}</p>
                     </div>
                     <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2">
                       <p className="text-[10px] text-emerald-700 font-medium uppercase tracking-wide">Grand Total</p>
-                      <p className="text-sm font-bold text-emerald-800">{formatGHS(weekResult.grandRevenue)}</p>
+                      <p className="text-sm font-bold text-emerald-800">{formatGHS(result.grandRevenue)}</p>
                     </div>
                   </div>
 
@@ -1894,7 +1880,6 @@ function StaffRevenueRow({
                           </div>
                         ))}
                       </div>
-                      {/* Individual charge lines with payment method */}
                       <div className="overflow-auto">
                         <Table>
                           <TableHeader>
@@ -1927,19 +1912,15 @@ function StaffRevenueRow({
                     </div>
                   )}
 
-                  {/* Orphan charges — charges added this week to bookings from earlier periods */}
-                  {(weekResult.orphanCharges ?? []).length > 0 && (
+                  {/* Orphan charges */}
+                  {(result.orphanCharges ?? []).length > 0 && (
                     <div className="rounded-xl border bg-amber-50/60 overflow-hidden">
                       <div className="px-3 py-2 bg-amber-100/60 border-b flex items-center justify-between">
                         <div>
-                          <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide">
-                            Charges on Earlier Bookings
-                          </p>
-                          <p className="text-[10px] text-amber-700 mt-0.5">
-                            Added this week to bookings checked-in before this period
-                          </p>
+                          <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Charges on Earlier Bookings</p>
+                          <p className="text-[10px] text-amber-700 mt-0.5">Added this week to bookings checked-in before this period</p>
                         </div>
-                        <span className="text-xs font-bold text-amber-800">{formatGHS(weekResult.orphanChargesTotal ?? 0)}</span>
+                        <span className="text-xs font-bold text-amber-800">{formatGHS(result.orphanChargesTotal ?? 0)}</span>
                       </div>
                       <div className="overflow-x-auto"><Table>
                         <TableHeader>
@@ -1953,7 +1934,7 @@ function StaffRevenueRow({
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {(weekResult.orphanCharges ?? []).map((c) => (
+                          {(result.orphanCharges ?? []).map((c) => (
                             <TableRow key={c.id}>
                               <TableCell className="text-xs">
                                 <span className="mr-1">{CATEGORY_ICONS_HR[c.category] || '📦'}</span>
@@ -1971,7 +1952,7 @@ function StaffRevenueRow({
                                   : '—'}
                               </TableCell>
                               <TableCell className="text-xs text-muted-foreground">
-                                {c.createdAt ? new Date(c.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                                {c.createdAt ? new Date(c.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—'}
                               </TableCell>
                             </TableRow>
                           ))}
@@ -2049,16 +2030,14 @@ function StaffRevenueRow({
                         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
                           <ShoppingBag className="w-3.5 h-3.5" /> Standalone Sales
                         </p>
-                        <span className="text-xs font-bold text-emerald-700">{formatGHS(weekResult.standaloneSalesRevenue)}</span>
+                        <span className="text-xs font-bold text-emerald-700">{formatGHS(result.standaloneSalesRevenue)}</span>
                       </div>
                       <div className="overflow-x-auto"><Table>
                         <TableHeader>
                           <TableRow>
                             <TableHead className="text-xs">Description</TableHead>
-                            <TableHead className="text-xs">Category</TableHead>
                             <TableHead className="text-xs text-right">Qty</TableHead>
                             <TableHead className="text-xs text-right">Amount</TableHead>
-                            <TableHead className="text-xs">Payment</TableHead>
                             <TableHead className="text-xs">Date</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -2066,12 +2045,8 @@ function StaffRevenueRow({
                           {standaloneSales.map((s) => (
                             <TableRow key={s.id}>
                               <TableCell className="text-xs">{s.description}</TableCell>
-                              <TableCell className="text-xs">{CATEGORY_ICONS_HR[s.category] || '📦'} {SALE_CATEGORIES[s.category]}</TableCell>
                               <TableCell className="text-xs text-right">{s.quantity}</TableCell>
                               <TableCell className="text-xs text-right font-medium text-emerald-700">{formatGHS(s.amount)}</TableCell>
-                              <TableCell className="text-xs">
-                                {s.paymentMethod === 'cash' ? '💵 Cash' : s.paymentMethod === 'mobile_money' ? '📱 Momo' : '💳 Card'}
-                              </TableCell>
                               <TableCell className="text-xs text-muted-foreground">{s.saleDate}</TableCell>
                             </TableRow>
                           ))}
@@ -2099,21 +2074,18 @@ function RevenueReportTab() {
   const [selectedWeek, setSelectedWeek] = useState<WeekBounds>(() => getWeekBounds())
   const [weekOptions] = useState<WeekBounds[]>(() => getPastWeeksBounds(12))
   const [reports, setReports] = useState<WeeklyRevenueReport[]>([])
+  const [weekResults, setWeekResults] = useState<Record<string, StaffWeekResult>>({})
   const [loading, setLoading] = useState(false)
   const [reviewTarget, setReviewTarget] = useState<WeeklyRevenueReport | null>(null)
   const [adminNotes, setAdminNotes] = useState('')
   const [reviewing, setReviewing] = useState(false)
-  const [liveData, setLiveData] = useState<Record<string, { count: number; revenue: number; bookingIds: string[] }>>({})
-
-  const handleLiveData = useCallback((id: string, count: number, revenue: number, bookingIds: string[]) => {
-    setLiveData(prev => ({ ...prev, [id]: { count, revenue, bookingIds } }))
-  }, [])
 
   const loadReports = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await getAllStaffReportsForWeek(selectedWeek.weekStart)
-      setReports(data)
+      const { reports, results } = await getAllStaffReportsForWeek(selectedWeek.weekStart)
+      setReports(reports)
+      setWeekResults(results)
     } catch (e) {
       console.error('[RevenueReportTab] loadReports error:', e)
       toast.error(`Revenue error: ${e instanceof Error ? e.message : String(e)}`)
@@ -2125,7 +2097,6 @@ function RevenueReportTab() {
   const updatedAtRev = useSubscription('hr_weekly_revenue')
 
   useEffect(() => {
-    setLiveData({})
     loadReports()
   }, [loadReports, updatedAtRev])
 
@@ -2145,16 +2116,15 @@ function RevenueReportTab() {
     }
   }
 
-  const totalRevenue = reports.reduce((s, r) => s + (liveData[r.id]?.revenue ?? r.totalRevenue), 0)
+  const totalRevenue = reports.reduce((s, r) => s + (weekResults[r.id]?.grandRevenue ?? r.totalRevenue), 0)
+  
   // Count UNIQUE booking IDs across all staff to avoid double-counting bookings
-  // attributed to multiple staff members (e.g., creator + checkInBy are different people).
   const allUniqueBookingIds = new Set<string>()
   for (const r of reports) {
-    const ids = liveData[r.id]?.bookingIds
-    if (ids) {
-      ids.forEach(id => allUniqueBookingIds.add(id))
+    const res = weekResults[r.id]
+    if (res) {
+      res.bookings.forEach(b => allUniqueBookingIds.add(b.id))
     } else {
-      // liveData not yet loaded — fall back to saved bookingIds JSON
       try {
         const saved: string[] = JSON.parse((r as any).bookingIds || '[]')
         saved.forEach(id => allUniqueBookingIds.add(id))
@@ -2220,7 +2190,12 @@ function RevenueReportTab() {
       ) : (
         <div className="space-y-2">
           {reports.map((r) => (
-            <StaffRevenueRow key={r.id} report={r} onReview={setReviewTarget} onLiveData={handleLiveData} />
+            <StaffRevenueRow
+              key={r.id}
+              report={r}
+              result={weekResults[r.id]}
+              onReview={setReviewTarget}
+            />
           ))}
         </div>
       )}

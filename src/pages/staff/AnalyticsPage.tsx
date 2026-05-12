@@ -1188,12 +1188,8 @@ export function AnalyticsPage() {
             <>
               <div className="md:hidden space-y-3 p-4 bg-muted/20">
               {breakdownBookings.map((b, i) => {
-                const sId = b.status === 'checked-out'
-                  ? (b.checkOutBy || b.checkInBy || b.createdBy)
-                  : (b.checkInBy || b.createdBy)
-                const staffName = resolveStaffName(sId, b.status === 'checked-out'
-                  ? (b.checkOutByName || b.checkInByName || b.createdByName)
-                  : (b.checkInByName || b.createdByName))
+                const sId = b.checkInBy || b.checkOutBy || b.createdBy || b.created_by
+                const staffName = resolveStaffName(sId, b.checkInByName || b.checkOutByName || b.createdByName || b.created_by_name)
                 
                 const rawPay = (b.paymentMethod || b.payment?.method || (b as any).payment_method || '').trim().toLowerCase()
                 const payMap: Record<string, { label: string; cls: string; icon: string }> = {
@@ -1287,12 +1283,8 @@ export function AnalyticsPage() {
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {breakdownBookings.map((b, i) => {
-                    const sId = b.status === 'checked-out'
-                      ? (b.checkOutBy || b.checkInBy || b.createdBy)
-                      : (b.checkInBy || b.createdBy)
-                    const staffName = resolveStaffName(sId, b.status === 'checked-out'
-                      ? (b.checkOutByName || b.checkInByName || b.createdByName)
-                      : (b.checkInByName || b.createdByName))
+                    const sId = b.checkInBy || b.checkOutBy || b.createdBy || b.created_by
+                    const staffName = resolveStaffName(sId, b.checkInByName || b.checkOutByName || b.createdByName || b.created_by_name)
                     const rawPay = (b.paymentMethod || b.payment?.method || (b as any).payment_method || '').trim().toLowerCase()
                     const payMap: Record<string, { label: string; cls: string }> = {
                       cash:         { label: '💵 Cash',         cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:ring-emerald-800' },

@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSubscription } from '../../hooks/use-subscription'
 import { AlertCircle, RefreshCw, CheckCircle2 } from 'lucide-react'
@@ -80,7 +80,10 @@ export function BookingsPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [qrBooking, setQrBooking] = useState<BookingWithDetails | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [displayLimit, setDisplayLimit] = useState(50)
   const [syncState, setSyncState] = useState(syncQueue.getSyncState())
+  const isRefreshing = useRef(false)
+
   const [formData, setFormData] = useState({
     propertyId: '',
     guestName: '',
@@ -146,8 +149,10 @@ export function BookingsPage() {
   }, [formData.propertyId, formData.checkIn, formData.checkOut, properties, roomTypes])
 
   useEffect(() => {
-    loadData()
+    if (loading) loadData()
+    else if (!isRefreshing.current) loadData()
   }, [bookingsUpdate, roomsUpdate])
+
 
   useEffect(() => {
     // Subscribe to sync state changes
@@ -158,7 +163,10 @@ export function BookingsPage() {
   }, [])
 
   const loadData = async () => {
+    if (isRefreshing.current) return
+    isRefreshing.current = true
     try {
+
       // Load bookings, properties (rooms), and room types
       const [allBookings, roomsData, roomTypesData, propertiesData] = await Promise.all([
         bookingEngine.getAllBookings(),
@@ -241,8 +249,10 @@ export function BookingsPage() {
       toast.error('Failed to load bookings')
     } finally {
       setLoading(false)
+      isRefreshing.current = false
     }
   }
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -501,15 +511,27 @@ export function BookingsPage() {
     }
   }
 
-  const filteredBookings = bookings.filter((booking) =>
-    booking.guestName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    booking.guestEmail?.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const { filteredBookings, stats } = useMemo(() => {
+    const filtered = bookings.filter((booking) =>
+      booking.guestName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      booking.guestEmail?.toLowerCase().includes(searchTerm.toLowerCase())
+    )
 
-  const confirmedCount = bookings.filter(b => b.status === 'confirmed').length
-  const checkedInCount = bookings.filter(b => b.status === 'checked-in').length
-  const checkedOutCount = bookings.filter(b => b.status === 'checked-out').length
-  const cancelledCount = bookings.filter(b => b.status === 'cancelled').length
+    return {
+      filteredBookings: filtered,
+      stats: {
+        confirmed: bookings.filter(b => b.status === 'confirmed').length,
+        checkedIn: bookings.filter(b => b.status === 'checked-in').length,
+        checkedOut: bookings.filter(b => b.status === 'checked-out').length,
+        cancelled: bookings.filter(b => b.status === 'cancelled').length
+      }
+    }
+  }, [bookings, searchTerm])
+
+  const displayedBookings = useMemo(() => {
+    return filteredBookings.slice(0, displayLimit)
+  }, [filteredBookings, displayLimit])
+
 
   if (loading) {
     return (
@@ -881,23 +903,24 @@ export function BookingsPage() {
         <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
           <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-emerald-400 to-emerald-600" />
           <p className="text-xs font-medium text-muted-foreground">Confirmed</p>
-          <p className="text-2xl font-bold mt-1">{confirmedCount}</p>
+          <p className="text-2xl font-bold mt-1">{stats.confirmed}</p>
         </div>
         <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
           <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-blue-400 to-blue-600" />
           <p className="text-xs font-medium text-muted-foreground">Checked In</p>
-          <p className="text-2xl font-bold mt-1">{checkedInCount}</p>
+          <p className="text-2xl font-bold mt-1">{stats.checkedIn}</p>
         </div>
         <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
           <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-slate-400 to-slate-600" />
           <p className="text-xs font-medium text-muted-foreground">Checked Out</p>
-          <p className="text-2xl font-bold mt-1">{checkedOutCount}</p>
+          <p className="text-2xl font-bold mt-1">{stats.checkedOut}</p>
         </div>
         <div className="relative overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
           <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-red-400 to-red-600" />
           <p className="text-xs font-medium text-muted-foreground">Cancelled</p>
-          <p className="text-2xl font-bold mt-1">{cancelledCount}</p>
+          <p className="text-2xl font-bold mt-1">{stats.cancelled}</p>
         </div>
+
       </div>
 
       <div className="flex items-center gap-2">
@@ -930,7 +953,7 @@ export function BookingsPage() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {filteredBookings.map((booking) => (
+          {displayedBookings.map((booking) => (
             <Card key={booking.id} className={`hover:shadow-md transition-shadow border-l-4 ${getStatusBorderColor(booking.status)} bg-white/50 backdrop-blur-sm`}>
               <CardContent className="p-3 sm:p-4">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
@@ -1012,8 +1035,20 @@ export function BookingsPage() {
               </CardContent>
             </Card>
           ))}
+          {filteredBookings.length > displayLimit && (
+            <div className="flex justify-center py-6">
+              <Button 
+                variant="outline" 
+                onClick={() => setDisplayLimit(prev => prev + 50)}
+                className="w-full max-w-xs shadow-sm"
+              >
+                Load More ({filteredBookings.length - displayLimit} remaining)
+              </Button>
+            </div>
+          )}
         </div>
       )}
+
 
       {/* QR Code Dialog */}
       <Dialog open={!!qrBooking} onOpenChange={(open) => !open && setQrBooking(null)}>

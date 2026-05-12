@@ -145,7 +145,8 @@ export function computeStaffAttributedRevenue(
   checkOutBy?: string,
   checkInBy?: string,
   amountPaidAtBooking?: number,
-  paymentStatus?: 'full' | 'part' | 'pending'
+  paymentStatus?: 'full' | 'part' | 'pending',
+  dateRange?: { from: Date; to: Date }
 ): number {
   if (events.length === 0) {
     // Legacy booking — derive from stored amountPaid / paymentStatus
@@ -161,13 +162,17 @@ export function computeStaffAttributedRevenue(
 
     // 2. Remaining balance is credited to the check-in staff
     const remainder = Math.max(0, effectivePrice - creatorAmount)
-    const checkInStaff = checkInBy || ''
+    const checkInStaff = checkInBy || checkOutBy || '' // Use checkout as fallback for checkin if missing
 
     let attributed = 0
+    
+    // For legacy bookings, we don't have event timestamps. 
+    // To ensure consistency, if a dateRange is provided, we only attribute if the booking falls in or near the range.
+    // However, the safest for reports is to attribute the full amount if no range, 
+    // or use the booking's presence in the week as a filter (handled in revenue-service).
     if (createdBy === staffId) attributed += creatorAmount
     if (remainder > 0 && checkInStaff === staffId) attributed += remainder
     
-    // Note: checkOutBy specifically gets 0 here per user requirement
     return attributed
   }
 
@@ -176,20 +181,32 @@ export function computeStaffAttributedRevenue(
   const coveredTotal = events.reduce((sum, e) => sum + e.amount, 0)
   
   for (const e of events) {
+    // If date range is provided, only count events in that range
+    if (dateRange) {
+      const eventDate = new Date(e.paidAt)
+      if (eventDate < dateRange.from || eventDate > dateRange.to) continue
+    }
+
     if (e.stage === 'booking') {
       // Booking stage events go to whoever recorded them (usually creator)
       if (e.staffId === staffId) attributed += e.amount
     } else {
-      // checkin or checkout stage events go to the check-in staff
-      const checkInStaff = checkInBy || e.staffId // fallback to event staff if checkInBy is missing
-      if (checkInStaff === staffId) attributed += e.amount
+      // checkin or checkout stage events go to the staff member who recorded the event
+      // If the event staff is missing, fallback to checkInBy or checkOutBy
+      const eventStaff = e.staffId || checkInBy || checkOutBy || ''
+      if (eventStaff === staffId) attributed += e.amount
     }
   }
 
   // Any remaining gap (unrecorded balance) is attributed to the check-in staff
   const gap = Math.max(0, effectivePrice - coveredTotal)
-  if (gap > 0 && checkInBy === staffId) {
-    attributed += gap
+  if (gap > 0) {
+    const gapStaff = checkInBy || checkOutBy || ''
+    if (gapStaff === staffId) {
+      // If dateRange is provided, we only count the gap if the booking was active this week.
+      // Since the gap is unattributed, we include it to avoid "losing" revenue in the grand total.
+      attributed += gap
+    }
   }
 
   return attributed

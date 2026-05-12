@@ -101,6 +101,16 @@ export interface StaffWeekResult {
   orphanChargesTotal: number
 }
 
+/** Pre-fetched shared data for staff revenue calculations — avoid redundant DB calls. */
+export interface StaffRevenueSharedData {
+  bookings: any[]
+  properties: any[]
+  guests: any[]
+  chargesRaw: any[]
+  staffRows: any[]
+  standaloneSales: any[]
+}
+
 // ─── Week Utilities ───────────────────────────────────────────────────────────
 
 export function getWeekBounds(date: Date = new Date()): WeekBounds {
@@ -165,75 +175,43 @@ function normalizePaymentMethod(raw: string): string {
 // ─── Booking Data ─────────────────────────────────────────────────────────────
 
 /**
- * Fetch all confirmed/checked-in/checked-out bookings created by a specific staff member
- * within a given week. Also fetches booking charges and standalone sales.
+ * Internal calculator that processes pre-fetched data for a specific staff member.
  */
-export async function fetchBookingsForStaffWeek(
+export function calculateStaffWeekResultInternal(
   staffId: string,
   weekStart: string,
-  weekEnd: string
-): Promise<StaffWeekResult> {
-  let allBookings: any = null, allRooms: any = null, allGuests: any = null, allChargesRaw: any = null
-  // Build a set of all IDs that identify this staff member across bookings.
-  // Some older bookings store the staff TABLE row ID instead of the auth user UUID.
-  // We resolve both so no bookings are missed.
+  weekEnd: string,
+  shared: StaffRevenueSharedData
+): StaffWeekResult {
   const staffIdSet = new Set<string>([staffId])
-  // staffNameSet: emails and display names for this staff member — used as a fallback
-  // when a booking has the staff member's name in checkInByName but an empty checkInBy ID.
   const staffNameSet = new Set<string>()
-  try {
-    // Look up the staff record — if staffId is an auth UUID, also grab the staff table row ID.
-    // If staffId IS the staff table row ID, also grab the auth userId.
-    const staffRows: any[] = await db.staff.list({ limit: 200 }).catch(() => [])
-    for (const s of staffRows) {
-      const sid = s.id || ''
-      const uid = s.userId || s.user_id || ''
-      // If this record matches by either field, add both to the set
-      if (sid === staffId || uid === staffId) {
-        if (sid) staffIdSet.add(sid)
-        if (uid) staffIdSet.add(uid)
-        // Also collect name/email for fallback name-based matching
-        const email = (s.email || '').trim().toLowerCase()
-        const name  = (s.name || s.staffName || s.staff_name || '').trim().toLowerCase()
-        if (email) staffNameSet.add(email)
-        if (name)  staffNameSet.add(name)
-      }
-    }
-    console.log(`[fetchBookingsForStaffWeek] staffId=${staffId} resolved set:`, [...staffIdSet], 'nameSet:', [...staffNameSet])
-  } catch (e) { console.warn('[fetchBookingsForStaffWeek] staff lookup failed:', e) }
-
-  try {
-    ;[allBookings, allRooms, allGuests, allChargesRaw] = await Promise.all([
-      db.bookings.list({ limit: 2000 }),
-      db.properties.list({ limit: 500 }),
-      db.guests.list({ limit: 1000 }),
-      db.bookingCharges.list({ limit: 5000 }).catch(() => []),
-    ])
-  } catch (e) {
-    console.warn('[fetchBookingsForStaffWeek] DB error:', e)
-    return {
-      bookings: [], totalRevenue: 0, additionalRevenue: 0,
-      standaloneSalesRevenue: 0, grandRevenue: 0, bookingCount: 0,
-      standaloneSales: [], chargesByCategory: {},
-      orphanCharges: [], orphanChargesTotal: 0,
+  
+  for (const s of shared.staffRows) {
+    const sid = s.id || ''
+    const uid = s.userId || s.user_id || ''
+    if (sid === staffId || uid === staffId) {
+      if (sid) staffIdSet.add(sid)
+      if (uid) staffIdSet.add(uid)
+      const email = (s.email || '').trim().toLowerCase()
+      const name  = (s.name || s.staffName || s.staff_name || '').trim().toLowerCase()
+      if (email) staffNameSet.add(email)
+      if (name)  staffNameSet.add(name)
     }
   }
 
-  // Build lookup maps
-  const roomMap = new Map(((allRooms || []) as any[]).map((r: any) => [r.id, r]))
-  const guestMap = new Map(((allGuests || []) as any[]).map((g: any) => [g.id, g]))
+  const roomMap = new Map((shared.properties as any[]).map((r: any) => [r.id, r]))
+  const guestMap = new Map((shared.guests as any[]).map((g: any) => [g.id, g]))
 
-  // Deduplicate raw bookings — same logic as bookingEngine.getAllBookings().
-  // Multiple DB rows can exist for the same guest+room+dates (e.g. confirmed then checked-in).
-  // Keep only the highest-status row to match the analytics count.
   const dedupPriority: Record<string, number> = {
     'checked-out': 5, 'checked-in': 4, 'confirmed': 3, 'reserved': 2, 'cancelled': 1,
   }
   const normDateStr = (d: string) => (d || '').split('T')[0]
+  
+  // Deduplicate bookings
+  let allBookings: any[] = []
   {
     const seen = new Map<string, { idx: number; status: string }>()
-    const deduped: any[] = []
-    for (const b of ((allBookings || []) as any[])) {
+    for (const b of (shared.bookings as any[])) {
       const roomId = b.roomId || b.room_id || ''
       const ci = normDateStr(b.checkIn || b.check_in || '')
       const co = normDateStr(b.checkOut || b.check_out || '')
@@ -245,21 +223,18 @@ export async function fetchBookingsForStaffWeek(
         const existingPri = dedupPriority[existing.status] || 0
         const currentPri = dedupPriority[b.status || ''] || 0
         if (currentPri > existingPri) {
-          deduped[existing.idx] = b
+          allBookings[existing.idx] = b
           seen.set(key, { idx: existing.idx, status: b.status || '' })
         }
       } else {
-        seen.set(key, { idx: deduped.length, status: b.status || '' })
-        deduped.push(b)
+        seen.set(key, { idx: allBookings.length, status: b.status || '' })
+        allBookings.push(b)
       }
     }
-    allBookings = deduped
   }
 
-  // Build a map of group totals — for group bookings, the group subtotal is needed
-  // to split the group deposit proportionally across all room rows in the report.
   const groupSubtotalMap = new Map<string, number>()
-  for (const b of ((allBookings || []) as any[])) {
+  for (const b of allBookings) {
     const specialReq = b.special_requests || b.specialRequests || ''
     if (specialReq.includes('GROUP_DATA')) {
       const gdMatch = specialReq.match(/<!-- GROUP_DATA:(.*?) -->/)
@@ -275,9 +250,8 @@ export async function fetchBookingsForStaffWeek(
     }
   }
 
-  // Group booking charges by booking ID
   const chargesByBookingId = new Map<string, any[]>()
-  for (const c of (allChargesRaw || [])) {
+  for (const c of (shared.chargesRaw || [])) {
     const key = c.bookingId || c.booking_id || ''
     if (!key) continue
     if (!chargesByBookingId.has(key)) chargesByBookingId.set(key, [])
@@ -287,141 +261,89 @@ export async function fetchBookingsForStaffWeek(
   const from = new Date(weekStart + 'T00:00:00')
   const to = new Date(weekEnd + 'T23:59:59')
 
-  // Debug: show sample booking fields to verify camelCase conversion
-  const sample = (allBookings || [])[0]
-  if (sample) {
-    console.log(`[fetchBookingsForStaffWeek] sample booking fields:`, {
-      id: sample.id, status: sample.status,
-      checkIn: sample.checkIn, check_in: sample.check_in,
-      createdBy: sample.createdBy, created_by: sample.created_by,
-      checkInBy: sample.checkInBy, check_in_by: sample.check_in_by,
-    })
-  }
-  // Count how many bookings match week range regardless of staffId
-  const inWeekBookings = ((allBookings || []) as any[]).filter((b: any) => {
-    if (!['checked-in', 'checked-out'].includes(b.status || '')) return false
-    const ci = new Date(b.checkIn || b.check_in || '')
-    return !isNaN(ci.getTime()) && ci >= from && ci <= to
-  })
-  console.log(`[fetchBookingsForStaffWeek] staffId=${staffId} week=${weekStart}→${weekEnd} totalBookings=${(allBookings||[]).length} inWeek=${inWeekBookings.length}`)
-  // Log every in-week booking's staff fields — one line each so they can't collapse
-  if (inWeekBookings.length > 0) {
-    const mySet = [...staffIdSet].join(', ')
-    inWeekBookings.forEach((b: any, i: number) => {
-      const cb = b.createdBy || b.created_by || '(empty)'
-      const ci = b.checkInBy || b.check_in_by || '(empty)'
-      const co = b.checkOutBy || b.check_out_by || '(empty)'
-      const matchCb = staffIdSet.has(cb) ? '✓' : '✗'
-      const matchCi = staffIdSet.has(ci) ? '✓' : '✗'
-      const matchCo = staffIdSet.has(co) ? '✓' : '✗'
-      console.log(`[revenue] ${i+1}/${inWeekBookings.length} staffId=${staffId.slice(0,8)} set=[${mySet.slice(0,40)}] bk=${b.id?.slice(0,8)} createdBy=${cb} ${matchCb} checkInBy=${ci} ${matchCi} checkOutBy=${co} ${matchCo}`)
-    })
-  }
-
-  // Build a set of booking IDs that have already progressed past 'confirmed' —
-  // used to exclude deposit rows for bookings that are now checked-in/out (avoid double-count)
   const checkedInOrOutIds = new Set(
-    ((allBookings || []) as any[])
+    allBookings
       .filter((b: any) => ['checked-in', 'checked-out'].includes(b.status || ''))
       .map((b: any) => b.id)
   )
 
-  // Build a set of "roomId|checkIn" keys for checked-in/out bookings.
-  // Used to exclude confirmed duplicate bookings for the same room+dates.
   const occupiedRoomDates = new Set(
-    ((allBookings || []) as any[])
+    allBookings
       .filter((b: any) => ['checked-in', 'checked-out'].includes(b.status || ''))
       .map((b: any) => `${b.roomId || b.room_id}|${b.checkIn || b.check_in}`)
   )
 
-  // Build a set of groupIds that already have their deposit accounted for.
-  // Group deposits are shown ONCE on the primary booking (isPrimaryBooking=true)
-  // with the full deposit amount — non-primary rooms are skipped for deposit rows.
-  // This prevents splitting GHS 600 into 4 × GHS 100 and showing partial amounts.
   const groupDepositAccountedFor = new Set<string>()
 
-  // Helper: check if a booking field belongs to this staff member.
-  // Matches by ID first; falls back to name/email when the ID field was not saved.
   const isThisStaff = (id: string, name: string): boolean => {
     if (id && staffIdSet.has(id)) return true
     if (!id && name && staffNameSet.has(name.trim().toLowerCase())) return true
     return false
   }
 
-  const matched: BookingSummary[] = ((allBookings || []) as any[])
+  // Pre-calculate group totals to avoid O(N^2) inner loops
+  const groupSubtotalMap = new Map<string, number>()
+  const groupDepositMap = new Map<string, number>()
+  const groupBookingsByGid = new Map<string, any[]>()
+
+  for (const b of allBookings) {
+    const gsr = b.special_requests || b.specialRequests || ''
+    if (!gsr.includes('GROUP_DATA')) continue
+    const gdMatch = gsr.match(/<!-- GROUP_DATA:(.*?) -->/)
+    if (gdMatch?.[1]) {
+      try {
+        const gd = JSON.parse(gdMatch[1])
+        const gid = gd.groupId
+        if (gid) {
+          groupSubtotalMap.set(gid, (groupSubtotalMap.get(gid) || 0) + Number(b.totalPrice || 0))
+          if (!groupBookingsByGid.has(gid)) groupBookingsByGid.set(gid, [])
+          groupBookingsByGid.get(gid)!.push(b)
+          
+          const events = parsePaymentEvents(gsr)
+          const dep = events.filter(e => e.stage === 'booking').reduce((s, e) => s + e.amount, 0)
+          if (dep > 0) groupDepositMap.set(gid, (groupDepositMap.get(gid) || 0) + dep)
+        }
+      } catch { /* ignore */ }
+    }
+  }
+
+  const matched: BookingSummary[] = allBookings
     .filter((b: any) => {
-      const creator      = b.createdBy      || b.created_by      || ''
-      const creatorName  = b.createdByName  || b.created_by_name || ''
-      const checker      = b.checkInBy      || b.check_in_by     || ''
-      const checkerName  = b.checkInByName  || b.check_in_by_name  || ''
-      const checkOuter   = b.checkOutBy     || b.check_out_by    || ''
-      const checkOutName = b.checkOutByName || b.check_out_by_name || ''
-
-      const bCharges = chargesByBookingId.get(b.id) || []
-      const hasMyCharge = bCharges.some((c: any) => isThisStaff(c.createdBy || c.created_by, ''))
-
-      if (!isThisStaff(creator, creatorName) &&
-          !isThisStaff(checker, checkerName) &&
-          !isThisStaff(checkOuter, checkOutName) &&
-          !hasMyCharge) return false
-
+      const creator = b.createdBy || b.created_by || ''
+      const creatorName = b.createdByName || b.created_by_name || ''
       const status = b.status || ''
+      const specialReq = b.special_requests || b.specialRequests || ''
+      const events = parsePaymentEvents(specialReq)
 
-      if (['checked-in', 'checked-out'].includes(status)) {
-        const checkIn = b.checkIn || b.check_in || ''
-        if (!checkIn) return false
-        const d = new Date(checkIn)
+      // 1. Check if ANY payment event happened in this week
+      const hasEventInWeek = events.some(e => {
+        const d = new Date(e.paidAt)
         return d >= from && d <= to
+      })
+      if (hasEventInWeek) return true
+
+      // 2. Check check-in/out dates
+      if (['checked-in', 'checked-out'].includes(status)) {
+        const ciStr = b.checkIn || b.check_in || ''
+        const coStr = b.checkOut || b.check_out || ''
+        const ci = ciStr ? new Date(ciStr) : null
+        const co = coStr ? new Date(coStr) : null
+        const inCi = ci && ci >= from && ci <= to
+        const inCo = co && co >= from && co <= to
+        if (inCi || inCo) return true
       }
 
+      // 3. Check deposits for confirmed bookings
       if (status === 'confirmed') {
         if (!isThisStaff(creator, creatorName)) return false
-        // Never show a deposit row for a booking that has since been checked-in/out
-        if (checkedInOrOutIds.has(b.id)) return false
-        // Exclude confirmed bookings where the same room+checkIn already has a checked-in/out booking
-        const roomDateKey = `${b.roomId || b.room_id}|${b.checkIn || b.check_in}`
-        if (occupiedRoomDates.has(roomDateKey)) return false
-        // Payment data is stored ONLY in specialRequests comments — not as direct DB columns
-        const specialReq = b.special_requests || b.specialRequests || ''
-        const hasPayEvent = specialReq.includes('PAYMENT_EVENTS')
-        const hasPayData = specialReq.includes('PAYMENT_DATA')
-        let paidFromComment = 0
-        let pStatusFromComment = 'pending'
-        if (hasPayData) {
-          const pdMatch = specialReq.match(/<!-- PAYMENT_DATA:(.*?) -->/)
-          if (pdMatch?.[1]) {
-            try {
-              const pd = JSON.parse(pdMatch[1])
-              paidFromComment = pd.amountPaid || 0
-              pStatusFromComment = pd.paymentStatus || 'pending'
-            } catch { /* ignore */ }
-          }
-        }
-        const hasAnyPayment = hasPayEvent || paidFromComment > 0 || pStatusFromComment !== 'pending'
-        if (!hasAnyPayment) return false
-
-        // For GROUP bookings: only let the PRIMARY booking through.
-        // The full group deposit is shown once on the primary booking — non-primary rooms are skipped.
-        const isGroupMember = specialReq.includes('GROUP_DATA')
-        if (isGroupMember) {
-          const gdMatch = specialReq.match(/<!-- GROUP_DATA:(.*?) -->/)
-          if (gdMatch?.[1]) {
-            try {
-              const gd = JSON.parse(gdMatch[1])
-              const gid = gd.groupId
-              if (gid) {
-                if (!gd.isPrimaryBooking) return false  // skip non-primary rooms
-                if (groupDepositAccountedFor.has(gid)) return false  // already handled
-                groupDepositAccountedFor.add(gid)
-              }
-            } catch { /* ignore */ }
-          }
-        }
-
         const createdAt = b.createdAt || b.created_at || ''
-        if (!createdAt) return false
-        const d = new Date(createdAt)
-        return d >= from && d <= to
+        if (createdAt) {
+          const d = new Date(createdAt)
+          if (d >= from && d <= to) {
+            const hasPayData = specialReq.includes('PAYMENT_DATA') || specialReq.includes('PAYMENT_EVENTS')
+            if (hasPayData) return true
+          }
+        }
       }
 
       return false
@@ -429,7 +351,6 @@ export async function fetchBookingsForStaffWeek(
     .map((b: any) => {
       const room = roomMap.get(b.roomId) as any
       const guest = guestMap.get(b.guestId) as any
-      // Parse guest name from snapshot (authoritative) then fall back to joined guest table
       const specialReq = b.special_requests || b.specialRequests || ''
       const snapshotMatch = (specialReq as string).match(/<!-- GUEST_SNAPSHOT:(.*?) -->/)
       let guestName = guest?.name || 'Guest'
@@ -438,12 +359,10 @@ export async function fetchBookingsForStaffWeek(
       }
       const rawMethod = b.paymentMethod || b.payment_method || b.payment?.method || ''
       const paymentSplits = parsePaymentSplits(b)
-      // If splits exist, derive the primary method from the largest split
       const primaryMethod = paymentSplits
         ? paymentSplits.reduce((a, s) => s.amount > a.amount ? s : a, paymentSplits[0]).method
         : rawMethod
 
-      // Additional charges for this booking — only include those created by THIS staff member
       const rawCharges = (chargesByBookingId.get(b.id) || [])
         .filter((c: any) => isThisStaff(c.createdBy || c.created_by, ''))
 
@@ -462,19 +381,11 @@ export async function fetchBookingsForStaffWeek(
       const rawPrice = Number(b.totalPrice || 0)
       const discountAmt = Number(b.discountAmount || b.discount_amount || 0)
       const storedFinal = b.finalAmount ?? b.final_amount
-      // Only use storedFinal when a discount was actually applied — prevents a DB default of 0
-      // on final_amount from being treated as an explicitly-set post-discount price
       const effectivePrice = (discountAmt > 0 && storedFinal != null && storedFinal !== '')
         ? Math.max(0, Number(storedFinal))
         : discountAmt > 0
           ? Math.max(0, rawPrice - discountAmt)
           : rawPrice
-
-      if (discountAmt > 0 || (storedFinal != null && storedFinal !== '')) {
-        console.log('[revenue-service] discount booking', b.id, {
-          rawPrice, discountAmt, storedFinal, effectivePrice,
-        })
-      }
 
       const creatorIdRaw    = b.createdBy      || b.created_by      || ''
       const creatorNameRaw  = b.createdByName  || b.created_by_name || ''
@@ -482,25 +393,15 @@ export async function fetchBookingsForStaffWeek(
       const checkInNameRaw  = b.checkInByName  || b.check_in_by_name  || ''
       const checkOutByIdRaw = b.checkOutBy     || b.check_out_by    || ''
       const checkOutNameRaw = b.checkOutByName || b.check_out_by_name || ''
-      // Normalize: if any stored ID (or name fallback) belongs to THIS staff member,
-      // substitute staffId so computeStaffAttributedRevenue can match correctly.
       const creatorId   = isThisStaff(creatorIdRaw,    creatorNameRaw)  ? staffId : creatorIdRaw
       const checkInById = isThisStaff(checkInByIdRaw,  checkInNameRaw)  ? staffId : checkInByIdRaw
       const checkOutById= isThisStaff(checkOutByIdRaw, checkOutNameRaw) ? staffId : checkOutByIdRaw
 
-      // --- For CONFIRMED bookings: only count what was actually collected as deposit ---
       const isConfirmed = b.status === 'confirmed'
       let depositAmount = 0
       let depositMethod = rawMethod
       if (isConfirmed) {
-        // Detect group booking — GROUP_DATA comment is present on group members
         const isGroupMember = specialReq.includes('GROUP_DATA')
-
-        // For group primary booking: show the FULL group deposit (not per-room split).
-        // The deposit was paid once by the group owner for all rooms.
-        // For single-room bookings: show the actual amount paid.
-
-        // 1. PAYMENT_EVENTS: sum all booking-stage events (covers both single and group)
         const events = parsePaymentEvents(specialReq)
         if (events.length > 0) {
           depositAmount = events
@@ -509,52 +410,34 @@ export async function fetchBookingsForStaffWeek(
           const bookingEvent = events.find((e) => e.stage === 'booking')
           if (bookingEvent) depositMethod = bookingEvent.method
 
-          // For group primary: PAYMENT_EVENTS only stored this room's proportional share.
-          // Multiply back up to get full group deposit by summing all rooms in the group.
           if (isGroupMember && depositAmount > 0) {
             const gdMatch = (specialReq as string).match(/<!-- GROUP_DATA:(.*?) -->/)
             if (gdMatch?.[1]) {
               try {
                 const gd = JSON.parse(gdMatch[1])
                 const gid = gd.groupId
-                if (gid) {
-                  // Sum all booking-stage PAYMENT_EVENTS across all group members
-                  let groupDepositTotal = 0
-                  for (const gb of (allBookings || []) as any[]) {
-                    const gsr = gb.special_requests || gb.specialRequests || ''
-                    if (!gsr.includes(gid)) continue
-                    const gevents = parsePaymentEvents(gsr)
-                    groupDepositTotal += gevents
-                      .filter((e) => e.stage === 'booking')
-                      .reduce((s, e) => s + e.amount, 0)
-                  }
-                  if (groupDepositTotal > 0) depositAmount = groupDepositTotal
-                }
+                const groupDep = gid ? (groupDepositMap.get(gid) || 0) : 0
+                if (groupDep > 0) depositAmount = groupDep
               } catch { /* ignore */ }
             }
           }
         }
 
-        // 2. PAYMENT_DATA fallback
         if (depositAmount === 0) {
           const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
           if (pdMatch?.[1]) {
             try {
               const pd = JSON.parse(pdMatch[1])
               if (pd.paymentMethod) depositMethod = pd.paymentMethod
-              // amountPaid in PAYMENT_DATA is the full group deposit total — use it directly
               if (pd.paymentStatus === 'full') {
-                depositAmount = isGroupMember
-                  ? Number(pd.amountPaid || rawPrice)  // full group deposit or room price
-                  : rawPrice
+                depositAmount = isGroupMember ? Number(pd.amountPaid || rawPrice) : rawPrice
               } else if (pd.amountPaid > 0) {
-                depositAmount = Number(pd.amountPaid)  // the exact amount collected
+                depositAmount = Number(pd.amountPaid)
               }
             } catch { /* ignore */ }
           }
         }
 
-        // For group primary: show "Group Deposit" with full amount and group reference in room field
         let displayRoomNumber = room?.roomNumber || '—'
         let displayTotalPrice = rawPrice
         if (isGroupMember) {
@@ -563,65 +446,31 @@ export async function fetchBookingsForStaffWeek(
             try {
               const gd = JSON.parse(gdMatch2[1])
               if (gd.groupReference) displayRoomNumber = `Group ${gd.groupReference}`
-              // Show full group total as the "room rate" context
               const gid = gd.groupId
-              if (gid) {
-                const groupTotal = ((allBookings || []) as any[])
-                  .filter((gb: any) => {
-                    const gsr = gb.special_requests || gb.specialRequests || ''
-                    if (!gsr.includes(gid)) return false
-                    const gdm = gsr.match(/<!-- GROUP_DATA:(.*?) -->/)
-                    if (!gdm?.[1]) return false
-                    try { return JSON.parse(gdm[1]).groupId === gid } catch { return false }
-                  })
-                  .reduce((s: number, gb: any) => s + Number(gb.totalPrice || 0), 0)
-                if (groupTotal > 0) displayTotalPrice = groupTotal
-              }
+              const groupTotal = gid ? (groupSubtotalMap.get(gid) || 0) : 0
+              if (groupTotal > 0) displayTotalPrice = groupTotal
             } catch { /* ignore */ }
           }
         }
 
         return {
-          id: b.id,
-          guestName,
-          roomNumber: displayRoomNumber,
-          checkIn: b.checkIn,
-          checkOut: b.checkOut,
-          totalPrice: displayTotalPrice,
-          discountAmount: 0,
-          effectivePrice: displayTotalPrice,
-          staffAttributedRevenue: depositAmount,
-          isDeposit: true,
-          depositAmount,
-          status: b.status,
-          createdAt: b.createdAt || b.created_at || '',
-          createdBy: creatorId,
-          checkInBy: '',
-          checkInByName: '',
-          checkOutBy: '',
-          checkOutByName: '',
-          paymentMethod: normalizePaymentMethod(depositMethod),
-          paymentSplits,
-          additionalCharges: [],
-          additionalChargesTotal: 0,
-          grandTotal: depositAmount,
+          id: b.id, guestName, roomNumber: displayRoomNumber,
+          checkIn: b.checkIn, checkOut: b.checkOut, totalPrice: displayTotalPrice,
+          discountAmount: 0, effectivePrice: displayTotalPrice,
+          staffAttributedRevenue: depositAmount, isDeposit: true, depositAmount,
+          status: b.status, createdAt: b.createdAt || b.created_at || '',
+          createdBy: creatorId, checkInBy: '', checkInByName: '', checkOutBy: '', checkOutByName: '',
+          paymentMethod: normalizePaymentMethod(depositMethod), paymentSplits,
+          additionalCharges: [], additionalChargesTotal: 0, grandTotal: depositAmount,
         }
       }
 
-      // --- Payment event attribution for checked-in / checked-out bookings ---
       const rawPaymentEvents = parsePaymentEvents(specialReq)
-      // Normalize payment event staffIds: if an event was recorded with a different variant of this
-      // staff member's ID (e.g., auth UUID vs staff-table row ID), replace it with the canonical
-      // staffId so computeStaffAttributedRevenue can match correctly.
       const paymentEvents = rawPaymentEvents.map((e) => ({
         ...e,
         staffId: staffIdSet.has(e.staffId) ? staffId : e.staffId,
       }))
 
-      // Read amountPaid / paymentStatus from PAYMENT_DATA comment (amountPaid is NOT a direct DB column).
-      // IMPORTANT: for group bookings, PAYMENT_DATA.amountPaid stores the full group total — not the
-      // per-room amount. Only use it for single-room bookings; treat group members as 'pending' so
-      // the full effectivePrice is attributed to whoever collected it (check-in/out staff).
       let legacyAmountPaid: number | undefined
       let legacyPaymentStatus: 'full' | 'part' | 'pending' | undefined
       if (paymentEvents.length === 0) {
@@ -632,7 +481,6 @@ export async function fetchBookingsForStaffWeek(
             const pd = JSON.parse(pdMatch[1])
             legacyPaymentStatus = (pd.paymentStatus || 'pending') as 'full' | 'part' | 'pending'
             if (isGroupMember) {
-              // Distribute group deposit proportionally using groupSubtotalMap
               const gdMatch = (specialReq as string).match(/<!-- GROUP_DATA:(.*?) -->/)
               if (gdMatch?.[1]) {
                 try {
@@ -654,78 +502,46 @@ export async function fetchBookingsForStaffWeek(
         if (!legacyPaymentStatus) legacyPaymentStatus = (b.paymentStatus || b.payment_status || 'pending') as 'full' | 'part' | 'pending'
       }
 
-      // Fallback for completed bookings (checked-in/out) with no payment events,
-      // no PAYMENT_DATA, and no collector recorded (checkInBy/checkOutBy both empty).
-      // The booking is done — someone received payment. If we have no collector info,
-      // attribute the full amount to the creator rather than leaving it unattributed.
-      if (
-        paymentEvents.length === 0 &&
-        legacyPaymentStatus === 'pending' &&
-        !legacyAmountPaid &&
-        !checkInById &&
-        !checkOutById &&
-        (b.status === 'checked-out' || b.status === 'checked-in')
-      ) {
+      if (paymentEvents.length === 0 && legacyPaymentStatus === 'pending' && !legacyAmountPaid && !checkInById && !checkOutById && (b.status === 'checked-out' || b.status === 'checked-in')) {
         legacyPaymentStatus = 'full'
       }
 
       const staffAttributedRevenue = computeStaffAttributedRevenue(
         paymentEvents, staffId, effectivePrice, creatorId,
-        checkOutById, checkInById, legacyAmountPaid, legacyPaymentStatus
+        checkOutById, checkInById, legacyAmountPaid, legacyPaymentStatus,
+        { from, to }
       )
 
       return {
-        id: b.id,
-        guestName,
-        roomNumber: room?.roomNumber || '—',
-        checkIn: b.checkIn,
-        checkOut: b.checkOut,
-        totalPrice: rawPrice,
-        discountAmount: discountAmt,
-        effectivePrice,
-        staffAttributedRevenue,
-        isDeposit: false,
-        depositAmount: 0,
-        status: b.status,
-        createdAt: b.createdAt || b.created_at || '',
-        createdBy: creatorId,
-        checkInBy: checkInById,
-        checkInByName: b.checkInByName || b.check_in_by_name || '',
-        checkOutBy: checkOutById,
-        checkOutByName: b.checkOutByName || b.check_out_by_name || '',
-        paymentMethod: normalizePaymentMethod(primaryMethod),
-        paymentSplits,
-        additionalCharges,
-        additionalChargesTotal,
+        id: b.id, guestName, roomNumber: room?.roomNumber || '—',
+        checkIn: b.checkIn, checkOut: b.checkOut, totalPrice: rawPrice,
+        discountAmount: discountAmt, effectivePrice, staffAttributedRevenue,
+        isDeposit: false, depositAmount: 0, status: b.status,
+        createdAt: b.createdAt || b.created_at || '', createdBy: creatorId,
+        checkInBy: checkInById, checkInByName: b.checkInByName || b.check_in_by_name || '',
+        checkOutBy: checkOutById, checkOutByName: b.checkOutByName || b.check_out_by_name || '',
+        paymentMethod: normalizePaymentMethod(primaryMethod), paymentSplits,
+        additionalCharges, additionalChargesTotal,
         grandTotal: effectivePrice + additionalChargesTotal,
       }
     })
-    // Exclude non-deposit bookings where this staff has zero attributed revenue.
-    // Always keep deposit (confirmed) rows — they passed the filter so payment was made.
     .filter((b) => b.isDeposit || b.staffAttributedRevenue > 0 || b.effectivePrice === 0)
 
   const matchedIds = new Set(matched.map((b) => b.id))
   const orphanCharges: ChargeLineSummary[] = []
   for (const [bookingId, charges] of chargesByBookingId.entries()) {
-    if (matchedIds.has(bookingId)) continue  // already counted in matched
+    if (matchedIds.has(bookingId)) continue
     for (const c of charges) {
-      // Only include charges created by this staff member
       if (!isThisStaff(c.createdBy || c.created_by, '')) continue
-
       const createdAt = c.createdAt || c.created_at || ''
       if (!createdAt) continue
       const d = new Date(createdAt)
       if (d >= from && d <= to) {
         orphanCharges.push({
-          id: c.id,
-          description: c.description || '',
-          category: c.category || 'other',
-          quantity: Number(c.quantity || 1),
-          unitPrice: Number(c.unitPrice || c.unit_price || 0),
+          id: c.id, description: c.description || '', category: c.category || 'other',
+          quantity: Number(c.quantity || 1), unitPrice: Number(c.unitPrice || c.unit_price || 0),
           amount: Number(c.amount || 0),
-          paymentMethod: normalizePaymentMethod(
-            c.paymentMethod || c.payment_method || decodeChargePaymentMethod(c.notes)
-          ),
+          paymentMethod: normalizePaymentMethod(c.paymentMethod || c.payment_method || decodeChargePaymentMethod(c.notes)),
           createdAt,
         })
       }
@@ -733,15 +549,17 @@ export async function fetchBookingsForStaffWeek(
   }
   const orphanChargesTotal = orphanCharges.reduce((s, c) => s + c.amount, 0)
 
-  // Standalone sales for this staff member this week
-  const standaloneSales = await standaloneSalesService.getSalesForStaff(staffId, weekStart, weekEnd)
+  const standaloneSales = (shared.standaloneSales || []).filter(s => {
+    const sid = s.staffId || (s as any).staffId || (s as any).staff_id || ''
+    const sd = s.saleDate || (s as any).sale_date || ''
+    return staffIdSet.has(sid) && sd >= weekStart && sd <= weekEnd
+  })
   const standaloneSalesRevenue = standaloneSales.reduce((s, sale) => s + sale.amount, 0)
 
-  const totalRevenue = matched.reduce((s, b) => s + b.staffAttributedRevenue, 0)  // after-discount, per-staff attributed room revenue
+  const totalRevenue = matched.reduce((s, b) => s + b.staffAttributedRevenue, 0)
   const additionalRevenue = matched.reduce((s, b) => s + b.additionalChargesTotal, 0) + orphanChargesTotal
   const grandRevenue = totalRevenue + additionalRevenue + standaloneSalesRevenue
 
-  // Build charges-by-category summary (includes orphan charges)
   const chargesByCategory: Record<string, number> = {}
   for (const b of matched) {
     for (const c of b.additionalCharges) {
@@ -753,19 +571,41 @@ export async function fetchBookingsForStaffWeek(
   }
 
   return {
-    bookings: matched,
-    totalRevenue,
-    additionalRevenue,
-    standaloneSalesRevenue,
-    grandRevenue,
-    bookingCount: matched.length,
-    standaloneSales,
-    chargesByCategory,
-    orphanCharges,
-    orphanChargesTotal,
+    bookings: matched, totalRevenue, additionalRevenue, standaloneSalesRevenue,
+    grandRevenue, bookingCount: matched.length, standaloneSales, chargesByCategory,
+    orphanCharges, orphanChargesTotal,
   }
 }
 
+/**
+ * Fetch all confirmed/checked-in/checked-out bookings created by a specific staff member
+ * within a given week. Also fetches booking charges and standalone sales.
+ */
+export async function fetchBookingsForStaffWeek(
+  staffId: string,
+  weekStart: string,
+  weekEnd: string
+): Promise<StaffWeekResult> {
+  try {
+    const [bookings, properties, guests, chargesRaw, staffRows, standaloneSales] = await Promise.all([
+      db.bookings.list({ limit: 2000 }),
+      db.properties.list({ limit: 500 }),
+      db.guests.list({ limit: 1000 }),
+      db.bookingCharges.list({ limit: 5000 }).catch(() => []),
+      db.staff.list({ limit: 200 }).catch(() => []),
+      standaloneSalesService.getAllSales().catch(() => []),
+    ])
+    const shared: StaffRevenueSharedData = { bookings, properties, guests, chargesRaw, staffRows, standaloneSales }
+    return calculateStaffWeekResultInternal(staffId, weekStart, weekEnd, shared)
+  } catch (e) {
+    console.warn('[fetchBookingsForStaffWeek] error:', e)
+    return {
+      bookings: [], totalRevenue: 0, additionalRevenue: 0, standaloneSalesRevenue: 0,
+      grandRevenue: 0, bookingCount: 0, standaloneSales: [], chargesByCategory: {},
+      orphanCharges: [], orphanChargesTotal: 0,
+    }
+  }
+}
 // ─── Report CRUD ──────────────────────────────────────────────────────────────
 
 /**
@@ -891,50 +731,58 @@ export async function reviewWeekReport(
   })
 }
 
+export interface HRWeekData {
+  reports: WeeklyRevenueReport[]
+  results: Record<string, StaffWeekResult>
+}
+
 /** Get all staff reports for a specific week (admin view). */
-export async function getAllStaffReportsForWeek(weekStart: string): Promise<WeeklyRevenueReport[]> {
-  // weekEnd = Sunday of that ISO week (weekStart is Monday).
-  // Use date-fns addDays + parseISO to avoid timezone-driven off-by-one from toISOString().
+export async function getAllStaffReportsForWeek(weekStart: string): Promise<HRWeekData> {
   const weekEnd = format(addDays(parseISO(weekStart), 6), 'yyyy-MM-dd')
-
-  const from = new Date(weekStart + 'T00:00:00')
-  const to   = new Date(weekEnd   + 'T23:59:59')
-
   try {
-    const [rows, allBookings, allStaff] = await Promise.all([
-      db.hr_weekly_revenue.list({ limit: 500 }),
-      db.bookings.list({ limit: 2000 }),
-      db.staff.list({ limit: 200 }).catch(() => [] as any[]),
+    const from = new Date(weekStart + 'T00:00:00')
+    const to = new Date(weekEnd + 'T23:59:59')
+
+    const [rows, bookings, properties, guests, chargesRaw, allStaff, standaloneSales] = await Promise.all([
+      db.hr_weekly_revenue.list({ limit: 1000 }),
+      db.bookings.list({ limit: 5000 }), // Increased limit for data parity
+      db.properties.list({ limit: 500 }),
+      db.guests.list({ limit: 2000 }),
+      db.bookingCharges.list({ limit: 5000 }).catch(() => []),
+      db.staff.list({ limit: 200 }).catch(() => []),
+      standaloneSalesService.getAllSales().catch(() => []),
     ])
 
-    // Build maps from staff table:
-    //   anyIdToCanonical:   any known ID (row ID or auth UUID) → canonical ID (prefer auth UUID)
-    //   anyNameToCanonical: email or display name (lowercase) → canonical ID (fallback for empty ID fields)
-    //   canonicalToName:    canonical ID → staff display name
-    const anyIdToCanonical   = new Map<string, string>()
+    const shared: StaffRevenueSharedData = {
+      bookings, properties, guests, chargesRaw, staffRows: allStaff, standaloneSales
+    }
+
+    // Map IDs to canonical staff IDs
+    const anyIdToCanonical = new Map<string, string>()
     const anyNameToCanonical = new Map<string, string>()
-    const canonicalToName    = new Map<string, string>()
-    for (const s of (allStaff || []) as any[]) {
-      const rowId    = s.id || ''
-      const authId   = s.userId || s.user_id || ''
-      const canonical = authId || rowId   // prefer auth UUID as canonical
-      const sname    = s.name || s.staffName || s.staff_name || ''
-      const semail   = s.email || ''
+    const canonicalToName = new Map<string, string>()
+
+    for (const s of (allStaff || [])) {
+      const canonical = s.id || ''
       if (!canonical) continue
-      if (rowId)  anyIdToCanonical.set(rowId, canonical)
+      const rowId = s.id
+      const authId = s.userId || s.user_id
+      const semail = s.email || ''
+      const sname = s.name || s.staffName || s.staff_name || ''
+
+      if (rowId) anyIdToCanonical.set(rowId, canonical)
       if (authId) anyIdToCanonical.set(authId, canonical)
-      // Name-based fallback (case-insensitive)
       if (semail) anyNameToCanonical.set(semail.trim().toLowerCase(), canonical)
       if (sname)  anyNameToCanonical.set(sname.trim().toLowerCase(),  canonical)
       if (sname)  canonicalToName.set(canonical, sname)
     }
 
-    // Saved reports for this week — deduplicate by canonical staff ID so the same
-    // person never appears twice (e.g. when two DB rows exist with different ID variants).
+    // Saved reports for this week
     const rawSavedReports: WeeklyRevenueReport[] = ((rows || []) as WeeklyRevenueReport[]).filter((r) => {
       const ws = (r as any).weekStart || (r as any).week_start || ''
       return ws === weekStart && r.status !== 'init'
     })
+
     const statusPriority: Record<string, number> = { reviewed: 3, submitted: 2, draft: 1 }
     const savedByCanonical = new Map<string, WeeklyRevenueReport>()
     for (const r of rawSavedReports) {
@@ -945,25 +793,39 @@ export async function getAllStaffReportsForWeek(weekStart: string): Promise<Week
         savedByCanonical.set(canonical, r)
       }
     }
-    const savedReports = Array.from(savedByCanonical.values())
     const savedStaffIds = new Set(savedByCanonical.keys())
 
-    // Scan bookings to find staff with activity in this week but no saved report.
-    // Normalize every found ID to its canonical form to prevent one person getting two cards.
+    // Find unsaved staff with activity
     const unsavedStaff = new Map<string, string>() // canonical staffId → staffName
-    for (const b of (allBookings || []) as any[]) {
+    for (const b of (bookings || []) as any[]) {
       const status = b.status || ''
+      const specialReq = b.special_requests || b.specialRequests || ''
+      const events = parsePaymentEvents(specialReq)
       let inWeek = false
 
-      if (['checked-in', 'checked-out'].includes(status)) {
-        const ci = new Date(b.checkIn || b.check_in || '')
-        inWeek = !isNaN(ci.getTime()) && ci >= from && ci <= to
-      } else if (status === 'confirmed') {
-        const sr = b.special_requests || b.specialRequests || ''
-        const hasPayment = sr.includes('PAYMENT_EVENTS') || sr.includes('PAYMENT_DATA')
-        if (hasPayment) {
-          const ca = new Date(b.createdAt || b.created_at || '')
-          inWeek = !isNaN(ca.getTime()) && ca >= from && ca <= to
+      // 1. Payment events in week
+      if (events.some(e => {
+        const d = new Date(e.paidAt)
+        return d >= from && d <= to
+      })) {
+        inWeek = true
+      } 
+      // 2. Check-in or check-out in week
+      else if (['checked-in', 'checked-out'].includes(status)) {
+        const ciStr = b.checkIn || b.check_in || ''
+        const coStr = b.checkOut || b.check_out || ''
+        const ci = ciStr ? new Date(ciStr) : null
+        const co = coStr ? new Date(coStr) : null
+        inWeek = (ci && ci >= from && ci <= to) || (co && co >= from && co <= to)
+      }
+      // 3. Deposits for confirmed bookings
+      else if (status === 'confirmed') {
+        const createdAt = b.createdAt || b.created_at || ''
+        if (createdAt) {
+          const d = new Date(createdAt)
+          if (d >= from && d <= to && (specialReq.includes('PAYMENT_DATA') || specialReq.includes('PAYMENT_EVENTS'))) {
+            inWeek = true
+          }
         }
       }
 
@@ -975,7 +837,6 @@ export async function getAllStaffReportsForWeek(weekStart: string): Promise<Week
         { id: b.checkOutBy || b.check_out_by || '', name: b.checkOutByName || b.check_out_by_name || '' },
       ]
       for (const { id, name } of staffFields) {
-        // Resolve to canonical ID: try ID first, then name/email fallback for empty-ID bookings
         let canonical: string | undefined
         if (id) {
           canonical = anyIdToCanonical.get(id) || id
@@ -989,23 +850,41 @@ export async function getAllStaffReportsForWeek(weekStart: string): Promise<Week
       }
     }
 
-    // Build synthetic (in-memory only) reports for staff with activity but no saved record.
-    // bookingCount/totalRevenue start at 0 — StaffWeekCard.loadBks() populates them via liveData.
     const now = new Date().toISOString()
-    const syntheticReports: WeeklyRevenueReport[] = []
+    const allFinalReports: WeeklyRevenueReport[] = []
+    const results: Record<string, StaffWeekResult> = {}
+
+    // Process SAVED reports
+    for (const r of savedByCanonical.values()) {
+      const live = calculateStaffWeekResultInternal(r.staffId, weekStart, weekEnd, shared)
+      results[r.id] = live
+      if (r.status === 'draft') {
+        allFinalReports.push({
+          ...r,
+          totalRevenue: live.grandRevenue,
+          bookingCount: live.bookingCount,
+        })
+      } else {
+        allFinalReports.push(r)
+      }
+    }
+
+    // Process SYNTHETIC reports
     for (const [staffId, staffName] of unsavedStaff) {
-      // Prefer the staff table name; fall back to booking name; last resort: truncated UUID
+      const live = calculateStaffWeekResultInternal(staffId, weekStart, weekEnd, shared)
       const resolvedName = canonicalToName.get(staffId)
         || (staffName !== staffId ? staffName : '')
         || `Staff (${staffId.slice(0, 8)}…)`
-      syntheticReports.push({
-        id: `synthetic_${staffId}_${weekStart}`,
+      const id = `synthetic_${staffId}_${weekStart}`
+      results[id] = live
+      allFinalReports.push({
+        id,
         staffId,
         staffName: resolvedName,
         weekStart,
         weekEnd,
-        totalRevenue: 0,
-        bookingCount: 0,
+        totalRevenue: live.grandRevenue,
+        bookingCount: live.bookingCount,
         bookingIds: '[]',
         status: 'draft',
         notes: '',
@@ -1018,10 +897,13 @@ export async function getAllStaffReportsForWeek(weekStart: string): Promise<Week
       })
     }
 
-    return [...savedReports, ...syntheticReports].sort((a, b) => b.totalRevenue - a.totalRevenue)
+    return {
+      reports: allFinalReports.sort((a, b) => b.totalRevenue - a.totalRevenue),
+      results
+    }
   } catch (e) {
     console.warn('[getAllStaffReportsForWeek] failed:', e)
-    return []
+    return { reports: [], results: {} }
   }
 }
 

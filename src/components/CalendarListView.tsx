@@ -31,6 +31,7 @@ interface CalendarListViewProps {
   monthNames: string[]
   weekDays: string[]
   onBookingUpdate?: () => void
+  user?: any
 }
 
 export function CalendarListView({
@@ -40,6 +41,7 @@ export function CalendarListView({
   monthNames,
   weekDays,
   onBookingUpdate,
+  user
 }: CalendarListViewProps) {
   const [checkInDialog, setCheckInDialog] = useState<any>(null)
   const [checkOutDialog, setCheckOutDialog] = useState<any>(null)
@@ -453,6 +455,7 @@ export function CalendarListView({
           email: checkInDialog.guestEmail,
           phone: checkInDialog.guestPhone
         } : null}
+        user={user}
         onSuccess={() => {
           setCheckInDialog(null)
           onBookingUpdate?.()

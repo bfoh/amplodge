@@ -41,6 +41,7 @@ export function CalendarPage() {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>(window.innerWidth < 768 ? 'list' : 'grid')
+  const [user, setUser] = useState<any>(null)
 
   // Booking form (aligned with Staff Bookings page)
   const [formData, setFormData] = useState({
@@ -68,7 +69,8 @@ export function CalendarPage() {
 
   const loadData = async () => {
     try {
-      const user = await auth.me()
+      const authUser = await auth.me()
+      setUser(authUser)
 
       const [roomsData, propertiesData, roomTypesData, localBookings] = await Promise.all([
         (db as any).rooms.list({ limit: 500 }),
@@ -420,6 +422,7 @@ export function CalendarPage() {
               monthNames={monthNames}
               weekDays={weekDays}
               onBookingUpdate={loadData}
+              user={user}
             />
           ) : viewMode === 'grid' ? (
             <CalendarGridView
@@ -429,6 +432,7 @@ export function CalendarPage() {
               monthNames={monthNames}
               weekDays={weekDays}
               onBookingUpdate={loadData}
+              user={user}
             />
           ) : (
             <CalendarListView
@@ -438,6 +442,7 @@ export function CalendarPage() {
               monthNames={monthNames}
               weekDays={weekDays}
               onBookingUpdate={loadData}
+              user={user}
             />
           )}
         </CardContent>

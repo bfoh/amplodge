@@ -34,6 +34,7 @@ interface CalendarGridViewProps {
   monthNames: string[]
   weekDays: string[]
   onBookingUpdate?: () => void
+  user?: any
 }
 
 export function CalendarGridView({
@@ -43,6 +44,7 @@ export function CalendarGridView({
   monthNames,
   weekDays,
   onBookingUpdate,
+  user
 }: CalendarGridViewProps) {
   const [checkInDialog, setCheckInDialog] = useState<any>(null)
   const [checkOutDialog, setCheckOutDialog] = useState<any>(null)
@@ -450,6 +452,7 @@ export function CalendarGridView({
           email: checkInDialog.guestEmail,
           phone: checkInDialog.guestPhone
         } : null}
+        user={user}
         onSuccess={() => {
           setCheckInDialog(null)
           onBookingUpdate?.()

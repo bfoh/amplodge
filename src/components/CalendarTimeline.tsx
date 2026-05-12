@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useMemo } from 'react'
 import { cn } from '../lib/utils'
 import { getRoomDisplayName, calculateNights } from '../lib/display'
 import { Users, CalendarIcon, Mail, Phone, DollarSign, MessageSquare, LogIn, LogOut, CheckCircle2, CalendarPlus } from 'lucide-react'
@@ -35,6 +35,7 @@ interface CalendarTimelineProps {
   monthNames: string[]
   weekDays: string[]
   onBookingUpdate?: () => void
+  user?: any
 }
 
 export function CalendarTimeline({
@@ -44,11 +45,42 @@ export function CalendarTimeline({
   monthNames,
   weekDays,
   onBookingUpdate,
+  user
 }: CalendarTimelineProps) {
   const { currency } = useCurrency()
   const [checkInDialog, setCheckInDialog] = useState<any>(null)
   const [checkOutDialog, setCheckOutDialog] = useState<any>(null)
   const [extendStayDialog, setExtendStayDialog] = useState<any>(null)
+
+  // OPTIMIZATION: Pre-calculate bookings into a map for O(1) lookup during cell rendering.
+  // Map structure: propertyId -> dateKey -> booking
+  const bookingsMap = useMemo(() => {
+    const map = new Map<string, Map<string, any>>()
+    
+    for (const booking of bookings) {
+      if (booking.status === 'checked-out') continue
+      
+      const propertyId = booking.propertyId ?? booking.roomId
+      if (!propertyId) continue
+      
+      if (!map.has(propertyId)) {
+        map.set(propertyId, new Map())
+      }
+      
+      const propMap = map.get(propertyId)!
+      
+      // We only care about bookings that overlap with our timelineDates.
+      // But specifically, the current findBookingStartingAtIndex logic looks for 
+      // the booking whose startIdx (relative to timelineDates) is the current cell index.
+      
+      const { startIdx, span } = getBookingSpan(booking, timelineDates[0])
+      if (span > 0 && startIdx >= 0 && startIdx < timelineDates.length) {
+        const startDateKey = dateKey(timelineDates[startIdx])
+        propMap.set(startDateKey, booking)
+      }
+    }
+    return map
+  }, [bookings, timelineDates])
   const [processing, setProcessing] = useState(false)
   const timelineRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
@@ -196,15 +228,9 @@ export function CalendarTimeline({
   // This ensures bookings that began before the current viewport are still rendered
   // exactly from the first visible day. Check-out is treated as exclusive.
   const findBookingStartingAtIndex = (propertyId: string, columnIndex: number) => {
-    for (const booking of bookings) {
-      // Hide bookings after checkout; keep visible for confirmed/reserved/checked-in
-      if (booking.status === 'checked-out') continue
-      const bRoomId = booking.propertyId ?? booking.roomId
-      if (bRoomId !== propertyId) continue
-      const { startIdx, span } = getBookingSpan(booking, timelineDates[0])
-      if (span > 0 && startIdx === columnIndex) return booking
-    }
-    return null
+    if (columnIndex < 0 || columnIndex >= timelineDates.length) return null
+    const dKey = dateKey(timelineDates[columnIndex])
+    return bookingsMap.get(propertyId)?.get(dKey) || null
   }
 
   const getBookingSpan = (booking: any, _startDate: Date) => {
@@ -493,6 +519,7 @@ export function CalendarTimeline({
           email: checkInDialog.guestEmail,
           phone: checkInDialog.guestPhone
         } : null}
+        user={user}
         onSuccess={() => {
           setCheckInDialog(null)
           onBookingUpdate?.()

@@ -1299,7 +1299,7 @@ class BookingEngine {
 
   private async _fetchAllBookings(): Promise<LocalBooking[]> {
     const [bookings, rooms, guests] = await Promise.all([
-      db.bookings.list(),
+      db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 5000 }),
       (db as any).rooms.list(),
       db.guests.list(),
     ])
@@ -1307,6 +1307,7 @@ class BookingEngine {
     const safeRooms = (rooms || []) as any[]
     const safeGuests = (guests || []) as any[]
     const safeBookings = (bookings || []) as any[]
+
 
     const roomMap = new Map(safeRooms.map((r: any) => [r.id, r]))
     const guestMap = new Map(safeGuests.map((g: any) => [g.id, g]))
