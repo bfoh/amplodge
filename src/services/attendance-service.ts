@@ -418,3 +418,305 @@ export function downloadCsv(records: AttendanceRecord[], filename = 'attendance.
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
+
+// ─── Server-RPC-backed flow (v2) ──────────────────────────────────────────────
+// Hardened clock-in path. Goes through Supabase RPCs so token, geofence, and
+// device-binding checks are server-authoritative. Old client-side helpers above
+// are kept for backward compatibility (display of historical records, QR
+// generation, manual logging).
+
+import { supabase } from '@/lib/supabase'
+
+export type ClockError =
+  | 'invalid_token'
+  | 'no_location'
+  | 'outside_geofence'
+  | 'device_mismatch'
+  | 'no_open_record'
+  | 'network'
+  | 'unknown'
+
+export interface ClockSuccess {
+  ok: true
+  recordId: string
+  flags: string[]
+  distance: number | null
+}
+
+export interface ClockFailure {
+  ok: false
+  error: ClockError
+  distance?: number
+  accuracy?: number
+}
+
+export interface GpsSample {
+  lat: number
+  lng: number
+  acc: number
+  t: number
+}
+
+/**
+ * Hard-block radius. Must match server `_amp_hotel()` radius in
+ * `supabase/migrations/20260512_attendance_security_v2.sql`.
+ */
+export const MAX_DISTANCE_METERS_V2 = 150
+
+/**
+ * Try up to `count` GPS reads within `timeoutMs`. Returns the best (lowest
+ * accuracy value) reading plus all samples for audit. Aborts early if the
+ * first reading is precise enough (< 20 m).
+ */
+export async function resolveLocationMultiSample(
+  count = 3,
+  timeoutMs = 5000
+): Promise<{ best: LocationData; samples: GpsSample[] } | 'denied' | null> {
+  if (!navigator.geolocation) return null
+  const samples: GpsSample[] = []
+  const start = Date.now()
+
+  const readOnce = (): Promise<GpsSample | 'denied' | null> =>
+    new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          acc: pos.coords.accuracy,
+          t: Date.now(),
+        }),
+        (err) => resolve(err.code === 1 ? 'denied' : null),
+        { enableHighAccuracy: true, timeout: Math.max(1500, Math.floor(timeoutMs / count)), maximumAge: 0 }
+      )
+    })
+
+  for (let i = 0; i < count; i++) {
+    if (Date.now() - start > timeoutMs) break
+    const r = await readOnce()
+    if (r === 'denied') return 'denied'
+    if (r) {
+      samples.push(r)
+      if (r.acc < 20) break // good enough, stop early
+    }
+  }
+  if (samples.length === 0) return null
+
+  const best = samples.reduce((a, b) => (b.acc < a.acc ? b : a))
+  const distance = distanceFromHotel(best.lat, best.lng)
+  return {
+    best: {
+      lat: best.lat,
+      lng: best.lng,
+      accuracy: best.acc,
+      distance,
+      inside: distance <= MAX_DISTANCE_METERS_V2,
+    },
+    samples,
+  }
+}
+
+/** Server-authoritative clock-in. Calls the `clock_in_attendance` RPC. */
+export async function clockInServer(opts: {
+  token: string
+  staffId: string
+  staffName: string
+  location: LocationData | null
+  samples: GpsSample[]
+  device: { fp: string; label: string }
+  overrideRequestId?: string
+}): Promise<ClockSuccess | ClockFailure> {
+  try {
+    const { data, error } = await supabase.rpc('clock_in_attendance', {
+      p_token: opts.token,
+      p_staff_id: opts.staffId,
+      p_staff_name: opts.staffName,
+      p_lat: opts.location?.lat ?? null,
+      p_lng: opts.location?.lng ?? null,
+      p_accuracy: opts.location?.accuracy ?? null,
+      p_samples: opts.samples,
+      p_device_fp: opts.device.fp,
+      p_device_label: opts.device.label,
+      p_override_request_id: opts.overrideRequestId ?? null,
+    })
+    if (error) return { ok: false, error: 'network' }
+    const d = data as any
+    if (!d?.ok) {
+      return {
+        ok: false,
+        error: (d?.error as ClockError) ?? 'unknown',
+        distance: d?.distance,
+        accuracy: d?.accuracy,
+      }
+    }
+    return {
+      ok: true,
+      recordId: d.record_id,
+      flags: d.flags ?? [],
+      distance: d.distance ?? null,
+    }
+  } catch {
+    return { ok: false, error: 'network' }
+  }
+}
+
+export async function clockOutServer(opts: {
+  token: string
+  staffId: string
+}): Promise<{ ok: true; recordId: string; hours: number } | { ok: false; error: ClockError }> {
+  try {
+    const { data, error } = await supabase.rpc('clock_out_attendance', {
+      p_token: opts.token,
+      p_staff_id: opts.staffId,
+    })
+    if (error) return { ok: false, error: 'network' }
+    const d = data as any
+    if (!d?.ok) return { ok: false, error: (d?.error as ClockError) ?? 'unknown' }
+    return { ok: true, recordId: d.record_id, hours: d.hours }
+  } catch {
+    return { ok: false, error: 'network' }
+  }
+}
+
+export type OverrideReason = 'gps_drift' | 'new_device' | 'other'
+
+export interface OverrideRequest {
+  id: string
+  staffId: string
+  staffName: string
+  reason: OverrideReason
+  reasonNote: string | null
+  distance: number | null
+  accuracy: number | null
+  deviceLabel: string | null
+  status: 'pending' | 'approved' | 'rejected' | 'consumed' | 'expired'
+  requestedAt: string
+}
+
+export async function requestOverride(opts: {
+  staffId: string
+  staffName: string
+  reason: OverrideReason
+  reasonNote?: string
+  location: LocationData | null
+  device: { fp: string; label: string }
+}): Promise<{ id: string } | { error: string }> {
+  try {
+    const { data, error } = await supabase.rpc('request_attendance_override', {
+      p_staff_id: opts.staffId,
+      p_staff_name: opts.staffName,
+      p_reason: opts.reason,
+      p_reason_note: opts.reasonNote ?? null,
+      p_lat: opts.location?.lat ?? null,
+      p_lng: opts.location?.lng ?? null,
+      p_accuracy: opts.location?.accuracy ?? null,
+      p_distance: opts.location?.distance ?? null,
+      p_device_fp: opts.device.fp,
+      p_device_label: opts.device.label,
+    })
+    const d = data as any
+    if (error || !d?.ok) return { error: error?.message ?? d?.error ?? 'unknown' }
+    return { id: d.id }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+function rowToOverride(r: any): OverrideRequest {
+  return {
+    id: r.id,
+    staffId: r.staff_id,
+    staffName: r.staff_name,
+    reason: r.reason,
+    reasonNote: r.reason_note,
+    distance: r.gps_distance ?? null,
+    accuracy: r.gps_accuracy ?? null,
+    deviceLabel: r.device_label ?? null,
+    status: r.status,
+    requestedAt: r.requested_at,
+  }
+}
+
+export async function listPendingOverrides(): Promise<OverrideRequest[]> {
+  const { data } = await supabase
+    .from('attendance_override_requests')
+    .select('*')
+    .eq('status', 'pending')
+    .order('requested_at', { ascending: false })
+  return (data ?? []).map(rowToOverride)
+}
+
+export async function getOverride(id: string): Promise<OverrideRequest | null> {
+  const { data } = await supabase
+    .from('attendance_override_requests')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
+  return data ? rowToOverride(data) : null
+}
+
+export async function approveOverride(id: string, adminId: string, note?: string): Promise<void> {
+  const { data, error } = await supabase.rpc('approve_attendance_override', {
+    p_request_id: id, p_admin_id: adminId, p_note: note ?? null,
+  })
+  const d = data as any
+  if (error || !d?.ok) throw new Error(error?.message ?? d?.error ?? 'approve_failed')
+}
+
+export async function rejectOverride(id: string, adminId: string, note?: string): Promise<void> {
+  const { data, error } = await supabase.rpc('reject_attendance_override', {
+    p_request_id: id, p_admin_id: adminId, p_note: note ?? null,
+  })
+  const d = data as any
+  if (error || !d?.ok) throw new Error(error?.message ?? d?.error ?? 'reject_failed')
+}
+
+export async function resetDeviceBinding(staffId: string, adminId: string): Promise<void> {
+  const { data, error } = await supabase.rpc('reset_device_binding', {
+    p_staff_id: staffId, p_admin_id: adminId,
+  })
+  const d = data as any
+  if (error || !d?.ok) throw new Error(error?.message ?? 'reset_failed')
+}
+
+// ─── Reporting ────────────────────────────────────────────────────────────────
+
+export interface AttendanceReportTotals {
+  hours: number
+  present_days: number
+  late: number
+  absent: number
+  overrides: number
+  outside_geofence: number
+}
+
+export interface AttendanceReportStaff {
+  staff_id: string
+  name: string
+  days: number
+  hours: number
+  late: number
+  avg_per_day: number | null
+}
+
+export interface AttendanceReportDay {
+  date: string
+  count: number
+  hours: number
+}
+
+export interface AttendanceReport {
+  totals: AttendanceReportTotals
+  per_staff: AttendanceReportStaff[]
+  daily: AttendanceReportDay[]
+}
+
+export async function getAttendanceReport(
+  startDate: string,
+  endDate: string
+): Promise<AttendanceReport> {
+  const { data, error } = await supabase.rpc('get_attendance_report', {
+    p_start: startDate, p_end: endDate,
+  })
+  if (error) throw error
+  return data as AttendanceReport
+}
