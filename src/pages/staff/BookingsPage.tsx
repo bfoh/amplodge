@@ -18,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../../components/ui/alert-dialog"
-import { Plus, Calendar, User, Home, Search, Trash2, Users, QrCode, ExternalLink, Smartphone, Printer, BookOpen, X, Loader2 } from 'lucide-react'
+import { Plus, Calendar, User, Home, Search, Trash2, Users, QrCode, ExternalLink, Smartphone, Printer, BookOpen, X, Loader2, Pencil } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { QRCodeSVG } from 'qrcode.react'
 import { db, auth } from '@/lib/db'
@@ -40,6 +40,15 @@ async function getCurrentUserId(): Promise<string> {
     console.error('Failed to get current user:', error)
     return 'system'
   }
+}
+
+/**
+ * Validates that a guest name contains at least two non-empty tokens
+ * (first + last, or first + middle + last, etc). Tokens are split on
+ * whitespace; punctuation in a single token (e.g. "O'Neil") counts as one.
+ */
+function hasAtLeastTwoNames(rawName: string): boolean {
+  return rawName.trim().split(/\s+/).filter(Boolean).length >= 2
 }
 
 interface BookingWithDetails {
@@ -78,6 +87,14 @@ export function BookingsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  // Captured at the time we open the edit dialog so we know the remote uuid
+  // for the booking row and the guest row, plus the original property id for
+  // overlap checks during update.
+  const [editingContext, setEditingContext] = useState<{
+    remoteBookingId: string
+    guestId: string | null
+    originalPropertyId: string
+  } | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [qrBooking, setQrBooking] = useState<BookingWithDetails | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -274,6 +291,11 @@ export function BookingsPage() {
       return
     }
 
+    if (!hasAtLeastTwoNames(formData.guestName)) {
+      toast.error('Please enter the guest\'s full name (first and last name).')
+      return
+    }
+
     setIsCreating(true)
     try {
       // Find the selected property (room from Rooms page)
@@ -286,8 +308,11 @@ export function BookingsPage() {
         return
       }
 
-      // Check if the room is available for the selected dates
+      // Check if the room is available for the selected dates.
+      // When editing, exclude the booking being edited so its own row doesn't
+      // count as an overlap against itself.
       const isRoomBooked = bookings.some((b: any) => {
+        if (editingId && b.id === editingId) return false
         // Skip cancelled bookings
         if (b.status === 'cancelled') return false
 
@@ -364,7 +389,73 @@ export function BookingsPage() {
       console.log('[BookingsPage] Staff data:', staffData)
       console.log('[BookingsPage] CreatedBy field:', createdBy)
 
-      // Create booking using booking engine
+      // ─── Edit branch ─────────────────────────────────────────────────────
+      if (editingId && editingContext) {
+        // Update the guest row first so guest details propagate to anywhere
+        // that joins on guest_id (revenue, history, calendar, etc).
+        if (editingContext.guestId) {
+          try {
+            await db.guests.update(editingContext.guestId, {
+              name: formData.guestName,
+              email: formData.guestEmail,
+              phone: formData.guestPhone,
+              address: formData.guestAddress,
+            } as any)
+          } catch (e) {
+            console.error('[BookingsPage] Guest update failed:', e)
+          }
+        }
+
+        // Update the booking row. Use the new property id to remap room.
+        const updatePayload: any = {
+          roomId: selectedProperty.id,
+          checkIn: formData.checkIn,
+          checkOut: formData.checkOut,
+          totalPrice: formData.totalPrice,
+          numGuests: formData.adults + formData.children,
+          paymentMethod: primaryPaymentMethod,
+          paymentStatus: bookingPayload.paymentStatus,
+          notes: formData.notes,
+        }
+
+        await db.bookings.update(editingContext.remoteBookingId, updatePayload)
+
+        toast.success('Booking updated successfully')
+        setDialogOpen(false)
+        setEditingId(null)
+        setEditingContext(null)
+        resetForm()
+        loadData()
+        bookingEngine.invalidateCache?.()
+
+        // Fire-and-forget edit log
+        ;(async () => {
+          try {
+            const userId = await getCurrentUserId()
+            await activityLogService.log({
+              action: 'updated',
+              entityType: 'booking',
+              entityId: editingContext.remoteBookingId,
+              details: {
+                guestName: formData.guestName,
+                guestEmail: formData.guestEmail,
+                roomNumber: selectedProperty.roomNumber,
+                checkIn: formData.checkIn,
+                checkOut: formData.checkOut,
+                amount: formData.totalPrice,
+                paymentMethod: primaryPaymentMethod,
+                updatedAt: new Date().toISOString(),
+              },
+              userId,
+            })
+          } catch (logError) {
+            console.error('⚠️ [BookingsPage] Edit log failed:', logError)
+          }
+        })()
+        return
+      }
+
+      // ─── Create branch ───────────────────────────────────────────────────
       const result = await bookingEngine.createBooking(bookingPayload)
 
       console.log('[BookingsPage] Booking created successfully:', result)
@@ -375,6 +466,7 @@ export function BookingsPage() {
       toast.success('Booking created successfully')
       setDialogOpen(false)
       setEditingId(null)
+      setEditingContext(null)
       resetForm()
       loadData()
 
@@ -412,6 +504,93 @@ export function BookingsPage() {
       toast.error(`Failed to save booking: ${error?.message || 'Unknown error'}`)
     } finally {
       setIsCreating(false)
+    }
+  }
+
+  /**
+   * Open the booking dialog in "edit" mode pre-filled from an existing
+   * booking + its guest row. Restricted to admin/owner roles by the caller
+   * (the edit icon is conditionally rendered).
+   */
+  const handleEditClick = async (booking: BookingWithDetails) => {
+    try {
+      // Strip the local "booking_" prefix to recover the raw uuid the
+      // database uses, matching the deleteBooking() pattern.
+      const remoteId = booking.id.replace(/^booking_/, '').replace(/^booking-/, '')
+
+      const raw: any = await db.bookings.get(remoteId).catch(() => null)
+      if (!raw) {
+        toast.error('Could not load booking details.')
+        return
+      }
+
+      // Pull current guest details
+      let guestName = booking.guestName
+      let guestEmail = booking.guestEmail
+      let guestPhone = booking.guestPhone
+      let guestAddress = ''
+      const guestId: string | null = raw.guestId || raw.guest_id || null
+      if (guestId) {
+        const g: any = await db.guests.get(guestId).catch(() => null)
+        if (g) {
+          guestName = g.name || guestName
+          guestEmail = g.email || guestEmail
+          guestPhone = g.phone || guestPhone
+          guestAddress = g.address || ''
+        }
+      }
+
+      // Map the booking's roomNumber back to a property id for the room
+      // dropdown (the form keys off property id, not room number).
+      const matchedProperty = properties.find((p: any) => p.roomNumber === booking.roomNumber)
+      const propertyId = matchedProperty?.id || ''
+
+      // Derive payment type from current paymentMethod + status
+      const rawPaymentStatus = raw.paymentStatus || raw.payment_status || 'pending'
+      const paymentType: 'full' | 'part' | 'later' =
+        rawPaymentStatus === 'full' ? 'full'
+        : rawPaymentStatus === 'part' ? 'part'
+        : 'later'
+
+      // Notes — strip our embedded metadata comments so the user sees the
+      // human-readable portion only.
+      const rawNotes: string = raw.specialRequests || raw.special_requests || raw.notes || ''
+      const cleanNotes = rawNotes
+        .replace(/<!--[\s\S]*?-->/g, '')
+        .trim()
+
+      setEditingId(booking.id)
+      setEditingContext({
+        remoteBookingId: remoteId,
+        guestId,
+        originalPropertyId: propertyId,
+      })
+      setFormData({
+        propertyId,
+        guestName,
+        guestEmail,
+        guestPhone,
+        guestAddress,
+        checkIn: booking.checkIn,
+        checkOut: booking.checkOut,
+        adults: Math.max(1, booking.numGuests || 1),
+        children: 0,
+        totalPrice: booking.totalPrice,
+        notes: cleanNotes,
+        paymentMethod: booking.paymentMethod || 'cash',
+        paymentType,
+        amountPaid: paymentType === 'full' ? booking.totalPrice : 0,
+        paymentSplits: [{
+          method: (booking.paymentMethod && booking.paymentMethod !== 'Not paid')
+            ? booking.paymentMethod.toLowerCase()
+            : 'cash',
+          amount: paymentType === 'full' ? booking.totalPrice : 0,
+        }],
+      })
+      setDialogOpen(true)
+    } catch (e) {
+      console.error('[BookingsPage] handleEditClick failed:', e)
+      toast.error('Failed to open booking for edit.')
     }
   }
 
@@ -621,10 +800,20 @@ export function BookingsPage() {
             <Users className="w-4 h-4 mr-2" />
             Group / Walk-in
           </Button>
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <Dialog
+            open={dialogOpen}
+            onOpenChange={(open) => {
+              setDialogOpen(open)
+              if (!open) {
+                setEditingId(null)
+                setEditingContext(null)
+              }
+            }}
+          >
             <DialogTrigger asChild>
               <Button onClick={() => {
                 setEditingId(null)
+                setEditingContext(null)
                 resetForm()
               }}>
                 <Plus className="w-4 h-4 mr-2" />
@@ -1044,6 +1233,17 @@ export function BookingsPage() {
                         {booking.paymentMethod?.replace('_', ' ') || 'Not paid'}
                       </p>
                     </div>
+                    {(role === 'admin' || role === 'owner') && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleEditClick(booking)}
+                        title="Edit booking"
+                        className="text-muted-foreground hover:text-primary"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"
