@@ -47,6 +47,8 @@ import {
   Printer,
   MapPin,
   ShoppingBag,
+  Smartphone,
+  ShieldCheck,
 } from 'lucide-react'
 import { generateEmploymentApplicationPDF } from '@/lib/hr-form-pdf'
 import {
@@ -70,8 +72,11 @@ import {
   downloadCsv,
   parseLocationFromNotes,
   getNotesLabel,
+  resetDeviceBinding,
   type AttendanceRecord as LiveAttendanceRecord,
 } from '@/services/attendance-service'
+import { OverridePanel } from '@/components/hr/OverridePanel'
+import { ReportsPanel } from '@/components/hr/ReportsPanel'
 import { QRCodeSVG } from 'qrcode.react'
 import {
   Collapsible,
@@ -93,6 +98,15 @@ interface AttendanceRecord {
   status: 'late' | 'init' | 'present' | 'absent'
   notes: string
   createdAt: string
+  // v2 columns (nullable — old rows pre-date them)
+  deviceFingerprint?: string | null
+  gpsLat?: number | null
+  gpsLng?: number | null
+  gpsAccuracy?: number | null
+  gpsDistance?: number | null
+  overrideReason?: string | null
+  overrideApprovedBy?: string | null
+  flags?: string[] | null
 }
 
 interface LeaveRequest {
@@ -426,6 +440,7 @@ function LiveNowPanel() {
 // ─── Attendance Tab ───────────────────────────────────────────────────────────
 
 function AttendanceTab({ currentStaff }: { currentStaff: any }) {
+  const { userId: adminId } = useStaffRole()
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [staffList, setStaffList] = useState<StaffMember[]>([])
   const [loading, setLoading] = useState(true)
@@ -527,8 +542,14 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
       {/* QR Code Panel */}
       <QRPanel />
 
+      {/* Pending overrides (auto-hides when empty) */}
+      {adminId && <OverridePanel adminId={adminId} />}
+
       {/* Live Now */}
       <LiveNowPanel />
+
+      {/* Reports */}
+      <ReportsPanel />
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -561,7 +582,7 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
                 <tr>
-                  {['Staff Name', 'Date', 'Clock In', 'Clock Out', 'Hours', 'Status', 'Notes', ''].map(h => (
+                  {['Staff Name', 'Date', 'Clock In', 'Clock Out', 'Hours', 'Status', 'Location', 'Device', 'Flags', ''].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -637,6 +658,28 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
                           <span className="text-muted-foreground truncate block text-xs">{r.notes || '—'}</span>
                         )
                       })()}
+                    </td>
+                    <td className="px-4 py-3 max-w-[160px]">
+                      {r.deviceFingerprint ? (
+                        <DeviceCell
+                          staffId={r.staffId}
+                          staffName={r.staffName}
+                          fp={r.deviceFingerprint}
+                          onReset={async () => {
+                            if (!adminId) return
+                            if (!confirm(`Reset device binding for ${r.staffName}? Next clock-in will register a new device.`)) return
+                            try {
+                              await resetDeviceBinding(r.staffId, adminId)
+                              toast.success('Device binding reset.')
+                            } catch (e) {
+                              toast.error((e as Error).message)
+                            }
+                          }}
+                        />
+                      ) : <span className="text-muted-foreground text-xs">—</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <FlagsCell flags={r.flags ?? null} />
                     </td>
                     <td className="px-4 py-3">
                       <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(r.id)}>
@@ -733,6 +776,19 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
                     return null
                   })()}
                 </div>
+
+                {((r.flags?.length ?? 0) > 0) && (
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {r.flags!.map(f => (
+                      <span
+                        key={f}
+                        className="text-[10px] px-2 py-0.5 rounded-full bg-stone-100 text-stone-700 border border-stone-200"
+                      >
+                        {f.replace(/_/g, ' ')}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -2233,4 +2289,58 @@ function RevenueReportTab() {
       </Dialog>
     </div>
   )
+}
+
+// ─── Device + Flags cell helpers (Attendance Records table) ───────────────────
+
+function DeviceCell({
+  staffId: _staffId,
+  staffName,
+  fp,
+  onReset,
+}: {
+  staffId: string
+  staffName: string
+  fp: string
+  onReset: () => void | Promise<void>
+}) {
+  return (
+    <div className="flex items-center gap-1.5 text-xs">
+      <Smartphone className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+      <span className="truncate flex-1" title={`${staffName} · ${fp}`}>{fp.slice(0, 8)}</span>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6"
+        title="Reset device binding"
+        onClick={onReset}
+      >
+        <ShieldCheck className="w-3.5 h-3.5 text-muted-foreground" />
+      </Button>
+    </div>
+  )
+}
+
+function FlagsCell({ flags }: { flags: string[] | null }) {
+  if (!flags || flags.length === 0) return <span className="text-muted-foreground text-xs">—</span>
+  return (
+    <div className="flex flex-wrap gap-1">
+      {flags.map(f => (
+        <span
+          key={f}
+          className={`text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap ${flagStyle(f)}`}
+        >
+          {f.replace(/_/g, ' ')}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function flagStyle(f: string): string {
+  if (f === 'outside_geofence' || f === 'device_mismatch') return 'bg-red-50 text-red-700 border-red-200'
+  if (f === 'override_approved') return 'bg-amber-50 text-amber-700 border-amber-200'
+  if (f === 'device_first_bind') return 'bg-blue-50 text-blue-700 border-blue-200'
+  if (f === 'low_gps_accuracy' || f === 'no_location') return 'bg-amber-50 text-amber-700 border-amber-200'
+  return 'bg-stone-50 text-stone-700 border-stone-200'
 }
