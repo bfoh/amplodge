@@ -56,7 +56,10 @@ exports.handler = async (event) => {
         
         // Forward the apikey from the client, or fallback to the server-side key.
         // This fallback fixes the "Invalid API key" error when headers are stripped by middleboxes.
-        forwardHeaders['apikey'] = event.headers['apikey'] || event.headers['apiKey'] || SUPABASE_ANON_KEY
+        // We also check for 'null' or 'undefined' strings which can happen if client-side extraction fails.
+        const providedKey = event.headers['apikey'] || event.headers['apiKey']
+        const isValidKey = providedKey && providedKey !== 'undefined' && providedKey !== 'null'
+        forwardHeaders['apikey'] = isValidKey ? providedKey : SUPABASE_ANON_KEY
         
         if (event.headers['authorization'])   forwardHeaders['authorization']   = event.headers['authorization']
         if (event.headers['x-client-info'])   forwardHeaders['x-client-info']   = event.headers['x-client-info']

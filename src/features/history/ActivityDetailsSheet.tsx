@@ -530,7 +530,7 @@ export default function ActivityDetailsSheet({ open, onOpenChange, activity }: P
                   <div>
                     <div className="font-medium">{activity.performedBy.name}</div>
                     <div className="text-sm text-muted-foreground">
-                      {activity.performedBy.role} • ID: {activity.performedBy.id.slice(0, 8)}...
+                      {activity.performedBy.role} • ID: {activity.performedBy.id?.slice(0, 8) || '---'}...
                     </div>
                   </div>
                 </div>

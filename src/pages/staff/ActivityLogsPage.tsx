@@ -672,8 +672,8 @@ export function ActivityLogsPage() {
                           {log.entityType}
                         </span>
                       </TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {log.entityId.slice(0, 12)}...
+                      <TableCell className="font-mono text-xs text-muted-foreground">
+                        {log.entityId?.slice(0, 12) || '---'}...
                       </TableCell>
                       <TableCell>
                         {formatDetails(log.details)}
@@ -731,8 +731,8 @@ export function ActivityLogsPage() {
                 </div>
                 
                 <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono bg-stone-50 px-2 py-1 rounded">
-                  <span>REF: {log.id.slice(0, 8)}</span>
-                  <span>ENT: {log.entityId.slice(0, 8)}</span>
+                  <span>REF: {log.id?.slice(0, 8) || '---'}</span>
+                  <span>ENT: {log.entityId?.slice(0, 8) || '---'}</span>
                 </div>
               </CardContent>
             </Card>

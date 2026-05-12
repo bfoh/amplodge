@@ -88,11 +88,20 @@ export function StaffLoginPage() {
           authError.message?.toLowerCase().includes('signal') ||
           authError.name === 'AuthRetryableFetchError' ||
           authError.name === 'AbortError'
-        toast.error(
-          isNetworkError
-            ? 'Cannot reach the server. The service may be temporarily unavailable — please try again in a moment.'
-            : authError.message || 'Login failed'
-        )
+        const isInvalidKey = authError.message?.toLowerCase().includes('invalid api key')
+        
+        if (isInvalidKey) {
+          toast.error(
+            'Authentication service issue (Invalid API Key). This is usually temporary — please refresh the page and try again.',
+            { duration: 6000 }
+          )
+        } else {
+          toast.error(
+            isNetworkError
+              ? 'Cannot reach the server. The service may be temporarily unavailable — please try again in a moment.'
+              : authError.message || 'Login failed'
+          )
+        }
         setLoading(false)
         return
       }
