@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Building2, Calendar, Users, DollarSign, TrendingUp, Clock, BarChart2 } from 'lucide-react'
+import { Building2, Calendar, Users, DollarSign, TrendingUp, Clock, BarChart2, Home } from 'lucide-react'
 import { db, auth } from '@/lib/db'
 import { bookingEngine } from '../../services/booking-engine'
 import { format, parseISO } from 'date-fns'
