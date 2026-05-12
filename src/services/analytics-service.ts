@@ -568,7 +568,8 @@ class AnalyticsService {
         revenueBySource,
         averageDailyRate,
         revenuePerAvailableRoom,
-        dailyRevenueHistory
+        dailyRevenueHistory,
+        bookings: revenueBookings
       }
     } catch (error) {
       console.error('Failed to calculate revenue analytics:', error)

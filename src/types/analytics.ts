@@ -52,6 +52,7 @@ export interface RevenueAnalytics {
   roomRevenueTotal?: number
   servicesRevenueTotal?: number
   roomExtensionRevenueTotal?: number
+  bookings?: any[]
 }
 
 export interface OccupancyAnalytics {

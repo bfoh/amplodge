@@ -35,6 +35,7 @@ import {
   startOfWeek, endOfWeek, format,
   subWeeks, subMonths, startOfMonth, endOfMonth,
   subYears, startOfYear, endOfYear,
+  parseISO
 } from 'date-fns'
 import {
   DropdownMenu,
@@ -238,10 +239,20 @@ export function AnalyticsPage() {
 
   const breakdownBookings = [
     ...allRevenueBookings
-      .filter(b => { const d = new Date(b.dates.checkIn); return d >= activePeriod.start && d <= activePeriod.end })
+      .filter(b => { 
+        const ci = b.dates?.checkIn || b.checkIn
+        if (!ci) return false
+        const d = typeof ci === 'string' ? parseISO(ci) : new Date(ci)
+        return d >= activePeriod.start && d <= activePeriod.end 
+      })
       .map(b => ({ ...b, _isDeposit: false, _displayAmount: Number(b.amount || b.totalPrice || 0) })),
     ...allDepositBookings
-      .filter(b => { const d = new Date(b.createdAt || ''); return !isNaN(d.getTime()) && d >= activePeriod.start && d <= activePeriod.end })
+      .filter(b => { 
+        const ca = b.createdAt || b.created_at || ''
+        if (!ca) return false
+        const d = typeof ca === 'string' ? parseISO(ca) : new Date(ca)
+        return !isNaN(d.getTime()) && d >= activePeriod.start && d <= activePeriod.end 
+      })
       .map(b => ({ ...b, _isDeposit: true, _displayAmount: Number(b.amountPaid || 0) })),
   ]
   const breakdownTotal = breakdownBookings.reduce((s, b) => s + (b as any)._displayAmount, 0)

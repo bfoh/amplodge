@@ -1,8 +1,0 @@
-BarChart2
-Building2
-Calendar
-Clock
-DollarSign
-Home
-Stats
-TrendingUp
