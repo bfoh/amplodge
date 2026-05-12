@@ -11,8 +11,8 @@
 
 // Bump these on every meaningful SW change so stale clients pick up the
 // new fetch strategy and existing caches drop on activate.
-const CACHE_NAME = 'amplodge-v2'
-const SHELL_CACHE = 'amplodge-shell-v2'
+const CACHE_NAME = 'amplodge-v3'
+const SHELL_CACHE = 'amplodge-shell-v3'
 
 // Assets to pre-cache on install
 const PRECACHE_URLS = [
