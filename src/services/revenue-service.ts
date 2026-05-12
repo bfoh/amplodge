@@ -306,15 +306,16 @@ export function calculateStaffWeekResultInternal(
       })
       if (hasEventInWeek) return true
 
-      // 2. Check check-in/out dates
+      // 2. Check check-in date only.
+      //
+      // Revenue is attributed to the week the guest checked in (hotel-night
+      // accounting). Previously we also matched when check-out fell in the
+      // week, which double-counted bookings spanning a week boundary in both
+      // the prior and current weeks.
       if (['checked-in', 'checked-out'].includes(status)) {
         const ciStr = b.checkIn || b.check_in || ''
-        const coStr = b.checkOut || b.check_out || ''
         const ci = ciStr ? new Date(ciStr) : null
-        const co = coStr ? new Date(coStr) : null
-        const inCi = ci && ci >= from && ci <= to
-        const inCo = co && co >= from && co <= to
-        if (inCi || inCo) return true
+        if (ci && ci >= from && ci <= to) return true
       }
 
       // 3. Check deposits for confirmed bookings
@@ -794,13 +795,13 @@ export async function getAllStaffReportsForWeek(weekStart: string): Promise<HRWe
       })) {
         inWeek = true
       } 
-      // 2. Check-in or check-out in week
+      // 2. Check-in in week (revenue attribution by hotel-night).
+      // Mirrors the same rule used in calculateStaffWeekResultInternal — see
+      // that function for the rationale (avoid double-counting boundary stays).
       else if (['checked-in', 'checked-out'].includes(status)) {
         const ciStr = b.checkIn || b.check_in || ''
-        const coStr = b.checkOut || b.check_out || ''
         const ci = ciStr ? new Date(ciStr) : null
-        const co = coStr ? new Date(coStr) : null
-        inWeek = (ci && ci >= from && ci <= to) || (co && co >= from && co <= to)
+        inWeek = !!(ci && ci >= from && ci <= to)
       }
       // 3. Deposits for confirmed bookings
       else if (status === 'confirmed') {
