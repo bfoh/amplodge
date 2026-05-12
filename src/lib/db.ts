@@ -64,6 +64,8 @@ export type TypedDB = {
   hr_performance_reviews: TableWrapper<any>
   hr_job_applications: TableWrapper<any>
   hr_weekly_revenue: TableWrapper<any>
+  staff_device_bindings: TableWrapper<any>
+  attendance_override_requests: TableWrapper<any>
   standaloneSales: TableWrapper<T.StandaloneSale>
   inventory: TableWrapper<T.InventoryItem>
   inventoryTransactions: TableWrapper<T.InventoryTransaction>
