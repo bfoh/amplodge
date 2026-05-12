@@ -28,7 +28,7 @@ import {
 } from "../../components/ui/alert-dialog"
 import { usePermissions } from '@/hooks/use-permissions'
 import { Permission } from '@/components/Permission'
-import { formatCurrencySync } from '@/lib/utils'
+import { cn, formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 
 export function PropertiesPage() {
