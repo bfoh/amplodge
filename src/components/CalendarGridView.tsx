@@ -84,8 +84,12 @@ export function CalendarGridView({
     const dateStr = date.toISOString().split('T')[0]
 
     return bookings.filter(booking => {
-      const checkIn = new Date(booking.checkIn).toISOString().split('T')[0]
-      const checkOut = new Date(booking.checkOut).toISOString().split('T')[0]
+      if (!booking.checkIn || !booking.checkOut) return false
+      const ci = new Date(booking.checkIn)
+      const co = new Date(booking.checkOut)
+      if (isNaN(ci.getTime()) || isNaN(co.getTime())) return false
+      const checkIn = ci.toISOString().split('T')[0]
+      const checkOut = co.toISOString().split('T')[0]
 
       return dateStr >= checkIn && dateStr < checkOut
     })

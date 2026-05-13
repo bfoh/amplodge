@@ -5,6 +5,7 @@ import { formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { toast } from 'sonner'
 import { format, parseISO, differenceInDays } from 'date-fns'
+import { safeFormatDate, safeParseISO, safeToISODate } from '@/lib/safe-date'
 import { sendGroupMemberAddedNotification, sendGroupMemberUpdatedNotification } from '@/services/notifications'
 import { buildBookingPaymentEvent, appendPaymentEvent } from '@/lib/payment-events'
 import {
@@ -201,33 +202,40 @@ export function GroupManageDialog({
         loadData()
     }, [open, groupId])
 
-    // Get group date range from first member
+    // Get group date range from first member. Returns null when the dates
+    // are missing or empty so downstream parseISO calls never see undefined.
     const groupDates = useMemo(() => {
         if (members.length === 0) return null
-        return {
-            checkIn: members[0].checkIn,
-            checkOut: members[0].checkOut
-        }
+        const ci = members[0].checkIn
+        const co = members[0].checkOut
+        if (!ci || !co) return null
+        return { checkIn: ci, checkOut: co }
     }, [members])
 
     // Set default dates when group dates are available
     useEffect(() => {
         if (groupDates && !newCheckIn && !newCheckOut) {
-            setNewCheckIn(groupDates.checkIn.split('T')[0])
-            setNewCheckOut(groupDates.checkOut.split('T')[0])
+            setNewCheckIn(safeToISODate(groupDates.checkIn))
+            setNewCheckOut(safeToISODate(groupDates.checkOut))
         }
     }, [groupDates])
 
     // Calculate nights for display purposes
     const nights = useMemo(() => {
         if (!groupDates) return 0
-        return differenceInDays(parseISO(groupDates.checkOut), parseISO(groupDates.checkIn))
+        const ci = safeParseISO(groupDates.checkIn)
+        const co = safeParseISO(groupDates.checkOut)
+        if (!ci || !co) return 0
+        return differenceInDays(co, ci)
     }, [groupDates])
 
     // Calculate nights for new member (based on selected dates)
     const newMemberNights = useMemo(() => {
         if (!newCheckIn || !newCheckOut) return 0
-        return differenceInDays(parseISO(newCheckOut), parseISO(newCheckIn))
+        const ci = safeParseISO(newCheckIn)
+        const co = safeParseISO(newCheckOut)
+        if (!ci || !co) return 0
+        return differenceInDays(co, ci)
     }, [newCheckIn, newCheckOut])
 
     // Available rooms (not already in group and available for dates)
@@ -378,8 +386,8 @@ export function GroupManageDialog({
             setNewPaymentType('pending')
             setNewPaymentSplits([{ method: 'cash', amount: 0 }])
             if (groupDates) {
-                setNewCheckIn(groupDates.checkIn.split('T')[0])
-                setNewCheckOut(groupDates.checkOut.split('T')[0])
+                setNewCheckIn(safeToISODate(groupDates.checkIn))
+                setNewCheckOut(safeToISODate(groupDates.checkOut))
             }
             setShowAddForm(false)
 
@@ -499,7 +507,7 @@ export function GroupManageDialog({
                             {groupReference} • {members.length} room{members.length !== 1 ? 's' : ''}
                             {groupDates && (
                                 <span className="ml-2">
-                                    • {format(parseISO(groupDates.checkIn), 'MMM d')} - {format(parseISO(groupDates.checkOut), 'MMM d, yyyy')}
+                                    • {safeFormatDate(groupDates.checkIn, 'MMM d')} - {safeFormatDate(groupDates.checkOut, 'MMM d, yyyy')}
                                     ({nights} night{nights !== 1 ? 's' : ''})
                                 </span>
                             )}
@@ -777,7 +785,7 @@ export function GroupManageDialog({
                                                     </TableCell>
                                                     <TableCell>
                                                         <div className="text-sm">
-                                                            {format(parseISO(member.checkIn), 'MMM d')} - {format(parseISO(member.checkOut), 'MMM d')}
+                                                            {safeFormatDate(member.checkIn, 'MMM d')} - {safeFormatDate(member.checkOut, 'MMM d')}
                                                         </div>
                                                     </TableCell>
                                                     <TableCell>
@@ -798,8 +806,8 @@ export function GroupManageDialog({
                                                                     setEditMember(member)
                                                                     setEditGuestName(member.guestName)
                                                                     setEditGuestEmail(member.guestEmail || '')
-                                                                    setEditCheckIn(member.checkIn.split('T')[0])
-                                                                    setEditCheckOut(member.checkOut.split('T')[0])
+                                                                    setEditCheckIn(safeToISODate(member.checkIn))
+                                                                    setEditCheckOut(safeToISODate(member.checkOut))
                                                                 }}
                                                                 title="Edit member"
                                                             >
@@ -960,10 +968,10 @@ export function GroupManageDialog({
 
                                     // Update booking dates if changed
                                     const bookingUpdates: any = {}
-                                    if (editCheckIn && editCheckIn !== editMember.checkIn.split('T')[0]) {
+                                    if (editCheckIn && editCheckIn !== safeToISODate(editMember.checkIn)) {
                                         bookingUpdates.checkIn = editCheckIn
                                     }
-                                    if (editCheckOut && editCheckOut !== editMember.checkOut.split('T')[0]) {
+                                    if (editCheckOut && editCheckOut !== safeToISODate(editMember.checkOut)) {
                                         bookingUpdates.checkOut = editCheckOut
                                     }
 
@@ -973,9 +981,11 @@ export function GroupManageDialog({
                                         if (room) {
                                             const roomType = roomTypes.find((rt: any) => rt.id === room.roomTypeId)
                                             const pricePerNight = roomType?.basePrice || 0
-                                            const checkInDate = parseISO(bookingUpdates.checkIn || editMember.checkIn)
-                                            const checkOutDate = parseISO(bookingUpdates.checkOut || editMember.checkOut)
-                                            const nights = differenceInDays(checkOutDate, checkInDate)
+                                            const checkInDate = safeParseISO(bookingUpdates.checkIn || editMember.checkIn)
+                                            const checkOutDate = safeParseISO(bookingUpdates.checkOut || editMember.checkOut)
+                                            const nights = (checkInDate && checkOutDate)
+                                                ? differenceInDays(checkOutDate, checkInDate)
+                                                : 0
                                             bookingUpdates.totalPrice = pricePerNight * nights
                                         }
                                         await db.bookings.update(editMember.id, bookingUpdates)
@@ -1005,11 +1015,11 @@ export function GroupManageDialog({
                                     if (editGuestEmail.trim() && editGuestEmail.trim() !== (editMember.guestEmail || '')) {
                                         changes.push({ field: 'Email', oldValue: editMember.guestEmail || 'Not set', newValue: editGuestEmail.trim() })
                                     }
-                                    if (editCheckIn && editCheckIn !== editMember.checkIn.split('T')[0]) {
-                                        changes.push({ field: 'Check-in', oldValue: format(parseISO(editMember.checkIn), 'MMM d, yyyy'), newValue: format(parseISO(editCheckIn), 'MMM d, yyyy') })
+                                    if (editCheckIn && editCheckIn !== safeToISODate(editMember.checkIn)) {
+                                        changes.push({ field: 'Check-in', oldValue: safeFormatDate(editMember.checkIn, 'MMM d, yyyy'), newValue: safeFormatDate(editCheckIn, 'MMM d, yyyy') })
                                     }
-                                    if (editCheckOut && editCheckOut !== editMember.checkOut.split('T')[0]) {
-                                        changes.push({ field: 'Check-out', oldValue: format(parseISO(editMember.checkOut), 'MMM d, yyyy'), newValue: format(parseISO(editCheckOut), 'MMM d, yyyy') })
+                                    if (editCheckOut && editCheckOut !== safeToISODate(editMember.checkOut)) {
+                                        changes.push({ field: 'Check-out', oldValue: safeFormatDate(editMember.checkOut, 'MMM d, yyyy'), newValue: safeFormatDate(editCheckOut, 'MMM d, yyyy') })
                                     }
 
                                     if (changes.length > 0) {

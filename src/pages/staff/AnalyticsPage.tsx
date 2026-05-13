@@ -1314,7 +1314,7 @@ export function AnalyticsPage() {
                                 const splitEntry = splitKey ? payMap[splitKey] : null
                                 return splitEntry ? (
                                   <span key={si} className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${splitEntry.cls}`}>
-                                    {splitEntry.label.split(' ')[0]} {formatCurrencySync(Number(s.amount) || 0, currency)}
+                                    {(splitEntry.label || '').split(' ')[0]} {formatCurrencySync(Number(s.amount) || 0, currency)}
                                   </span>
                                 ) : null
                               })}

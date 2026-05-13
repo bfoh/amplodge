@@ -260,7 +260,10 @@ export function CalendarListView({
     const today = new Date().toISOString().split('T')[0]
 
     return filteredBookings.filter(booking => {
-      const checkOutDate = new Date(booking.checkOut).toISOString().split('T')[0]
+      if (!booking.checkOut) return false
+      const d = new Date(booking.checkOut)
+      if (isNaN(d.getTime())) return false
+      const checkOutDate = d.toISOString().split('T')[0]
       return checkOutDate === today && booking.status === 'checked-in'
     })
   }, [filteredBookings])

@@ -5,7 +5,8 @@ import { Booking, Room } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Calendar, DollarSign, Users, Bed, LogOut, AlertTriangle } from 'lucide-react'
-import { format, isToday, parseISO } from 'date-fns'
+import { isToday } from 'date-fns'
+import { safeFormatDate, safeParseISO } from '@/lib/safe-date'
 import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { useSubscription } from '@/hooks/use-subscription'
@@ -73,12 +74,21 @@ export function StaffDashboardPage() {
     )
   }
 
-  const todayCheckIns = bookings.filter((b) => isToday(parseISO(b.checkIn)))
-  const todayCheckOuts = bookings.filter((b) => isToday(parseISO(b.checkOut)))
+  const todayCheckIns = bookings.filter((b) => {
+    const d = safeParseISO(b.checkIn)
+    return d ? isToday(d) : false
+  })
+  const todayCheckOuts = bookings.filter((b) => {
+    const d = safeParseISO(b.checkOut)
+    return d ? isToday(d) : false
+  })
   const occupiedRooms = rooms.filter((r) => r.status === 'occupied').length
   const occupancyRate = rooms.length > 0 ? ((occupiedRooms / rooms.length) * 100).toFixed(1) : '0.0'
   const todayRevenue = bookings
-    .filter((b) => isToday(parseISO(b.checkIn)))
+    .filter((b) => {
+      const d = safeParseISO(b.checkIn)
+      return d ? isToday(d) : false
+    })
     .reduce((sum, b) => sum + b.totalPrice, 0)
 
   return (
@@ -230,8 +240,8 @@ export function StaffDashboardPage() {
                       <div>
                         <p className="font-medium">Booking #{booking.id.slice(-8)}</p>
                         <p className="text-sm text-muted-foreground">
-                          {format(parseISO(booking.checkIn), 'MMM dd')} -{' '}
-                          {format(parseISO(booking.checkOut), 'MMM dd, yyyy')}
+                          {safeFormatDate(booking.checkIn, 'MMM dd')} -{' '}
+                          {safeFormatDate(booking.checkOut, 'MMM dd, yyyy')}
                         </p>
                       </div>
                       <div className="text-right">
