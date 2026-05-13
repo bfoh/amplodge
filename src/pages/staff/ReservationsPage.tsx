@@ -111,12 +111,16 @@ export function ReservationsPage() {
   const [rooms, setRooms] = useState<Room[]>([])
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
   const [guests, setGuests] = useState<Guest[]>([])
+  // Pending/in-progress housekeeping tasks, keyed by propertyId / roomNumber
+  // so resolveRoomStatus can tell whether a 'cleaning' badge is justified.
+  const [openTaskRoomKeys, setOpenTaskRoomKeys] = useState<Set<string>>(new Set())
 
   // Subscriptions
   const updatedAtBks = useSubscription('bookings')
   const updatedAtProp = useSubscription('properties')
   const updatedAtGuests = useSubscription('guests')
   const updatedAtChg = useSubscription('booking_charges')
+  const updatedAtTasks = useSubscription('housekeeping_tasks')
 
   const [isPending, startTransition] = useTransition()
 
@@ -218,14 +222,28 @@ export function ReservationsPage() {
       if (inFlight) return
       inFlight = true
       try {
-        const [b, r, g, rt, charges, roomsTable] = await Promise.all([
+        const [b, r, g, rt, charges, roomsTable, tasks] = await Promise.all([
           db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
           db.properties.listAll(),
           db.guests.listAll(),
           db.roomTypes.list({ limit: 100 }),
           db.bookingCharges.listAll() || Promise.resolve([]),
-          (db as any).rooms.listAll().catch(() => [])
+          (db as any).rooms.listAll().catch(() => []),
+          db.housekeepingTasks.list({ limit: 1000 }).catch(() => [])
         ])
+
+        // Build the set of room keys that have at least one OPEN (pending /
+        // in_progress) housekeeping task. Used by resolveRoomStatus to be
+        // strict: 'cleaning' is shown only when an actual task is pending,
+        // not just because property.status was never flipped back to
+        // available in the DB.
+        const openKeys = new Set<string>()
+        for (const t of (tasks as any[])) {
+          if (!t || t.status === 'completed') continue
+          if (t.propertyId) openKeys.add(`id:${t.propertyId}`)
+          if (t.roomNumber) openKeys.add(`num:${String(t.roomNumber)}`)
+        }
+        setOpenTaskRoomKeys(openKeys)
 
         // Store charges for calculating totals
         setAllCharges(charges || [])
@@ -265,7 +283,7 @@ export function ReservationsPage() {
       }
     }
     load()
-  }, [user, updatedAtBks, updatedAtProp, updatedAtGuests, updatedAtChg])
+  }, [user, updatedAtBks, updatedAtProp, updatedAtGuests, updatedAtChg, updatedAtTasks])
 
   const roomMap = useMemo(() => new Map(rooms.map(r => [r.id, r])), [rooms])
   const guestMap = useMemo(() => new Map(guests.map(g => [g.id, g])), [guests])
@@ -359,7 +377,14 @@ export function ReservationsPage() {
     if (booking.status === 'checked-out') {
       const recentId = booking.roomId ? mostRecentCheckoutByRoom.get(booking.roomId) : undefined
       const isMostRecent = recentId === booking.id
-      if (isMostRecent && room?.status === 'cleaning') return 'cleaning'
+      // Only show 'cleaning' when an actual open housekeeping task still
+      // targets this room. property.status alone is unreliable — older
+      // rooms may have been left at 'cleaning' before the lifecycle
+      // transition was wired, even though their task is long done.
+      const hasOpenTask =
+        (room && openTaskRoomKeys.has(`id:${room.id}`)) ||
+        (room?.roomNumber && openTaskRoomKeys.has(`num:${String(room.roomNumber)}`))
+      if (isMostRecent && hasOpenTask) return 'cleaning'
       return 'available'
     }
 
