@@ -344,7 +344,7 @@ export function ReservationHistoryPage() {
         else if (log.action === 'payment_received') type = 'payment'
 
         // Create a readable title and details
-        let title = `${log.action.replace('_', ' ')}: ${log.entityType}`
+        let title = `${(log.action || '').replace('_', ' ')}: ${log.entityType || ''}`
         let details = `Entity ID: ${log.entityId}`
 
         if (log.action === 'deleted' && log.entityType === 'booking') {

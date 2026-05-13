@@ -39,7 +39,7 @@ export function RequestHistory({ requests, loading }: RequestHistoryProps) {
                             <CardContent className="p-4">
                                 <div className="flex justify-between items-start mb-2">
                                     <div className="font-medium capitalize flex items-center gap-2">
-                                        {req.type.replace('_', ' ')}
+                                        {(req.type || '').replace('_', ' ')}
                                     </div>
                                     <StatusBadge status={req.status} />
                                 </div>

@@ -399,7 +399,7 @@ export default function HousekeepingPage() {
                         <h3 className="text-xl font-semibold">Room {task.roomNumber}</h3>
                         <Badge className={getStatusColor(task.status)}>
                           {getStatusIcon(task.status)}
-                          <span className="ml-1.5">{task.status.replace('_', ' ')}</span>
+                          <span className="ml-1.5">{(task.status || '').replace('_', ' ')}</span>
                         </Badge>
                       </div>
 

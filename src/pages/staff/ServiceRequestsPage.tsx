@@ -259,7 +259,7 @@ function RequestCard({ request, onUpdateStatus, onDelete, showDelete }: { reques
                 </div>
                 <CardTitle className="text-lg flex items-center gap-2">
                     <span className="text-2xl">{request.type === 'housekeeping' ? '🧹' : request.type === 'food' ? '🍽️' : request.type === 'transport' ? '🚕' : '🛎️'}</span>
-                    <span className="capitalize">{request.type.replace('_', ' ')}</span>
+                    <span className="capitalize">{(request.type || '').replace('_', ' ')}</span>
                 </CardTitle>
             </CardHeader>
             <CardContent className="pt-4 space-y-4">

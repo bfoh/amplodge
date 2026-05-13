@@ -387,7 +387,7 @@ export function CalendarGridView({
                                     "px-2 py-1 rounded-full text-xs font-medium",
                                     getStatusColor(booking.status)
                                   )}>
-                                    {booking.status.replace('-', ' ')}
+                                    {(booking.status || '').replace('-', ' ')}
                                   </span>
 
                                   <div className="flex gap-1">
