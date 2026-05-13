@@ -1,7 +1,7 @@
 // Arkesel SMS Integration
 // Documentation: https://arkesel.com/developers
 
-import { requireAdmin, jsonResponse, handleCors } from './_lib/auth.js'
+import { requireStaff, jsonResponse, handleCors } from './_lib/auth.js'
 
 export const handler = async (event) => {
     const corsResp = handleCors(event); if (corsResp) return corsResp
@@ -10,8 +10,12 @@ export const handler = async (event) => {
         return jsonResponse(405, { error: 'Method not allowed' });
     }
 
+    // Any authenticated staff member can trigger transactional SMS:
+    // booking confirmation, check-in/out, stay extension, task assignment.
+    // These are part of normal hotel operations. Admin-only gating here
+    // previously caused silent 403s for non-admin staff doing routine work.
     try {
-        await requireAdmin(event);
+        await requireStaff(event);
     } catch (e) {
         return jsonResponse(e.status, e.body);
     }

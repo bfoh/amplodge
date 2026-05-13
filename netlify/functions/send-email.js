@@ -1,6 +1,6 @@
 import { Resend } from 'resend';
 import { Buffer } from 'node:buffer';
-import { requireAdmin, jsonResponse, handleCors } from './_lib/auth.js';
+import { requireStaff, jsonResponse, handleCors } from './_lib/auth.js';
 
 export const handler = async (event) => {
     const corsResp = handleCors(event); if (corsResp) return corsResp
@@ -9,8 +9,13 @@ export const handler = async (event) => {
         return jsonResponse(405, { error: 'Method not allowed' });
     }
 
+    // Any authenticated staff member can trigger transactional emails:
+    // booking confirmation, check-in/out receipt, stay-extension, task
+    // assignment, etc. These are part of normal hotel operations, not
+    // admin-only actions. Admin-only gating here previously caused
+    // silent 403s for non-admin staff doing routine work.
     try {
-        await requireAdmin(event);
+        await requireStaff(event);
     } catch (e) {
         return jsonResponse(e.status, e.body);
     }

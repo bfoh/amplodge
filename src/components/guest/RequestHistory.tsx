@@ -3,6 +3,7 @@ import { Card, CardContent } from "../ui/card";
 import { ScrollArea } from "../ui/scroll-area";
 import { Clock, CheckCircle2, AlertCircle, XCircle, MoreHorizontal } from "lucide-react";
 import { format } from "date-fns";
+import { safeFormatAny } from "@/lib/safe-date";
 
 export type RequestStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
 
@@ -47,7 +48,7 @@ export function RequestHistory({ requests, loading }: RequestHistoryProps) {
                                 </p>
                                 <div className="text-xs text-muted-foreground flex items-center gap-1">
                                     <Clock className="w-3 h-3" />
-                                    {format(new Date(req.created_at), "MMM d, h:mm a")}
+                                    {safeFormatAny(req.created_at, "MMM d, h:mm a")}
                                 </div>
                             </CardContent>
                         </Card>

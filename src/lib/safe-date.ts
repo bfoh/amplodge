@@ -52,6 +52,54 @@ export function safeFormatDate(
 }
 
 /**
+ * Format a `Date | string | number | undefined` value with a date-fns pattern.
+ * Mirrors `safeFormatDate` but accepts already-constructed `Date` objects and
+ * raw timestamps so the many `format(new Date(x), ...)` call sites can swap
+ * in without restructuring their inputs.
+ */
+export function safeFormatAny(
+  value: Date | string | number | null | undefined,
+  pattern: string,
+  fallback: string = '—'
+): string {
+  if (value == null || value === '') return fallback
+  try {
+    let d: Date
+    if (value instanceof Date) d = value
+    else if (typeof value === 'number') d = new Date(value)
+    else d = parseISO(value)
+    if (isNaN(d.getTime())) return fallback
+    return format(d, pattern)
+  } catch {
+    return fallback
+  }
+}
+
+/**
+ * Format a `Date | string | number | undefined` with native
+ * `toLocaleDateString`. Returns `fallback` (default `'TBD'`) when the input
+ * yields Invalid Date. Used by email/SMS templates that prefer the locale
+ * native format over a date-fns pattern.
+ */
+export function safeLocaleDate(
+  value: Date | string | number | null | undefined,
+  options?: Intl.DateTimeFormatOptions,
+  fallback: string = 'TBD'
+): string {
+  if (value == null || value === '') return fallback
+  try {
+    let d: Date
+    if (value instanceof Date) d = value
+    else if (typeof value === 'number') d = new Date(value)
+    else d = new Date(value)
+    if (isNaN(d.getTime())) return fallback
+    return options ? d.toLocaleDateString('en-US', options) : d.toLocaleDateString()
+  } catch {
+    return fallback
+  }
+}
+
+/**
  * Return a yyyy-MM-dd ISO date string from a Date | string | undefined input.
  * Empty string on failure — matches the legacy ad-hoc `(d || '').split('T')[0]`
  * idiom littered across the code, but rejects bad Date objects too.

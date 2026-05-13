@@ -24,6 +24,7 @@ import { db, auth } from '@/lib/db'
 import { toast } from 'sonner'
 import { activityLogService } from '@/services/activity-log-service'
 import { format } from 'date-fns'
+import { safeFormatAny } from '@/lib/safe-date'
 import { sendTaskAssignmentEmail } from '@/services/task-notification-service'
 
 import { housekeepingService } from '@/services/housekeeping-service'
@@ -407,12 +408,12 @@ export default function HousekeepingPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <Calendar className="w-4 h-4" />
-                          <span>Created: {format(new Date(task.createdAt), 'MMM dd, yyyy HH:mm')}</span>
+                          <span>Created: {safeFormatAny(task.createdAt, 'MMM dd, yyyy HH:mm')}</span>
                         </div>
                         {task.completedAt && (
                           <div className="flex items-center gap-2">
                             <CheckCircle2 className="w-4 h-4 text-green-600" />
-                            <span>Completed: {format(new Date(task.completedAt), 'MMM dd, yyyy HH:mm')}</span>
+                            <span>Completed: {safeFormatAny(task.completedAt, 'MMM dd, yyyy HH:mm')}</span>
                           </div>
                         )}
                       </div>

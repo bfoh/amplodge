@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toast } from 'sonner'
 import { format } from 'date-fns'
+import { safeFormatAny } from '@/lib/safe-date'
 import { createInvoiceData, downloadInvoicePDF, printInvoice, createPreInvoiceData, downloadPreInvoicePDF, printPreInvoice, PreInvoiceData, createGroupInvoiceData, downloadGroupInvoicePDF } from '@/services/invoice-service'
 import { db, auth } from '@/lib/db'
 import { cn } from '@/lib/utils'
@@ -532,12 +533,12 @@ export function StaffInvoiceManager() {
                         <TableCell>
                           <div className="flex flex-col">
                             <span className="font-medium">
-                              {invoice.checkIn ? format(new Date(invoice.checkIn), 'MMM dd') : 'N/A'} 
-                              <span className="text-muted-foreground mx-1">-</span> 
-                              {invoice.checkOut ? format(new Date(invoice.checkOut), 'MMM dd') : 'N/A'}
+                              {safeFormatAny(invoice.checkIn, 'MMM dd', 'N/A')}
+                              <span className="text-muted-foreground mx-1">-</span>
+                              {safeFormatAny(invoice.checkOut, 'MMM dd', 'N/A')}
                             </span>
                             {invoice.checkOut && (
-                              <span className="text-xs text-muted-foreground">{format(new Date(invoice.checkOut), 'yyyy')}</span>
+                              <span className="text-xs text-muted-foreground">{safeFormatAny(invoice.checkOut, 'yyyy', '')}</span>
                             )}
                           </div>
                         </TableCell>
@@ -626,7 +627,7 @@ export function StaffInvoiceManager() {
                         <div className="col-span-2 space-y-1">
                           <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Stay Dates</p>
                           <p className="text-sm text-stone-600 font-medium">
-                            {invoice.checkIn ? format(new Date(invoice.checkIn), 'MMM dd') : 'N/A'} - {invoice.checkOut ? format(new Date(invoice.checkOut), 'MMM dd, yyyy') : 'N/A'}
+                            {safeFormatAny(invoice.checkIn, 'MMM dd', 'N/A')} - {safeFormatAny(invoice.checkOut, 'MMM dd, yyyy', 'N/A')}
                           </p>
                         </div>
                       </div>

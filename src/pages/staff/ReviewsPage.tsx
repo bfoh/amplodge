@@ -9,6 +9,7 @@ import { toast } from '@/hooks/use-toast'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { format } from 'date-fns'
+import { safeFormatAny } from '@/lib/safe-date'
 
 interface Review {
     id: string
@@ -213,7 +214,7 @@ export function ReviewsPage() {
                                         filteredReviews.map((review) => (
                                             <TableRow key={review.id}>
                                                 <TableCell className="whitespace-nowrap">
-                                                    {format(new Date(review.createdAt), 'MMM d, yyyy')}
+                                                    {safeFormatAny(review.createdAt, 'MMM d, yyyy')}
                                                 </TableCell>
                                                 <TableCell>
                                                     <div className="font-medium">{review.guest_name || guests[review.guestId]?.name || 'Unknown Guest'}</div>
