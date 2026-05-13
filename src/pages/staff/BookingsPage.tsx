@@ -423,6 +423,11 @@ export function BookingsPage() {
         }
         const composedSpecialRequests = preservedMeta + (formData.notes || '')
 
+        // Only columns that actually exist on the bookings table — see
+        // src/services/booking-engine.ts createBooking for the canonical list.
+        // paymentStatus / amountPaid / paymentSplits live INSIDE specialRequests
+        // metadata, not as table columns; writing them as top-level fields
+        // raises "column not found in schema cache" from Supabase.
         const updatePayload: any = {
           roomId: selectedProperty.id,
           checkIn: formData.checkIn,
@@ -430,9 +435,6 @@ export function BookingsPage() {
           totalPrice: formData.totalPrice,
           numGuests: formData.adults + formData.children,
           paymentMethod: primaryPaymentMethod,
-          paymentStatus: bookingPayload.paymentStatus,
-          // Bookings table has no `notes` column. The schema uses
-          // `special_requests` (snake_case in DB, surfaced as specialRequests).
           specialRequests: composedSpecialRequests,
         }
 
