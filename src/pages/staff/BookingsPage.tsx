@@ -407,6 +407,22 @@ export function BookingsPage() {
         }
 
         // Update the booking row. Use the new property id to remap room.
+        // Build specialRequests preserving existing HTML-comment metadata
+        // (<!-- PAYMENT_DATA:... -->, <!-- GROUP_DATA:... -->, etc) so the
+        // edit doesn't blow away payment events, group attribution, or guest
+        // snapshots. The visible portion is replaced with the user's new notes.
+        let preservedMeta = ''
+        try {
+          const existing: any = await db.bookings.get(editingContext.remoteBookingId)
+          const raw: string = existing?.specialRequests || existing?.special_requests || ''
+          // Capture all <!-- ... --> comment blocks and re-emit them at the top.
+          const meta = raw.match(/<!--[\s\S]*?-->/g) || []
+          preservedMeta = meta.join('')
+        } catch {
+          // Ignore lookup failure — write notes-only is fine as fallback.
+        }
+        const composedSpecialRequests = preservedMeta + (formData.notes || '')
+
         const updatePayload: any = {
           roomId: selectedProperty.id,
           checkIn: formData.checkIn,
@@ -415,7 +431,9 @@ export function BookingsPage() {
           numGuests: formData.adults + formData.children,
           paymentMethod: primaryPaymentMethod,
           paymentStatus: bookingPayload.paymentStatus,
-          notes: formData.notes,
+          // Bookings table has no `notes` column. The schema uses
+          // `special_requests` (snake_case in DB, surfaced as specialRequests).
+          specialRequests: composedSpecialRequests,
         }
 
         await db.bookings.update(editingContext.remoteBookingId, updatePayload)
