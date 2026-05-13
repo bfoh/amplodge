@@ -93,11 +93,11 @@ export function ActivityLogsPage() {
     if (searchQuery) {
       const query = searchQuery.toLowerCase()
       filtered = filtered.filter(log => {
-        const readableDetails = convertDetailsToReadableMessage(log.details).toLowerCase()
+        const readableDetails = convertDetailsToReadableMessage(log.details || '').toLowerCase()
         return (
-          log.entityType.toLowerCase().includes(query) ||
-          log.action.toLowerCase().includes(query) ||
-          log.entityId.toLowerCase().includes(query) ||
+          (log.entityType || '').toLowerCase().includes(query) ||
+          (log.action || '').toLowerCase().includes(query) ||
+          (log.entityId || '').toLowerCase().includes(query) ||
           readableDetails.includes(query)
         )
       })
@@ -178,11 +178,11 @@ export function ActivityLogsPage() {
     if (searchQuery) {
       const query = searchQuery.toLowerCase()
       filtered = filtered.filter(log => {
-        const readableDetails = convertDetailsToReadableMessage(log.details).toLowerCase()
+        const readableDetails = convertDetailsToReadableMessage(log.details || '').toLowerCase()
         return (
-          log.entityType.toLowerCase().includes(query) ||
-          log.action.toLowerCase().includes(query) ||
-          log.entityId.toLowerCase().includes(query) ||
+          (log.entityType || '').toLowerCase().includes(query) ||
+          (log.action || '').toLowerCase().includes(query) ||
+          (log.entityId || '').toLowerCase().includes(query) ||
           readableDetails.includes(query)
         )
       })

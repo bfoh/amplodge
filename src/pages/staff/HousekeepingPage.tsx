@@ -245,8 +245,10 @@ export default function HousekeepingPage() {
   }
 
   const filteredTasks = tasks.filter(task => {
-    const matchesSearch = task.roomNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      getStaffName(task.assignedTo).toLowerCase().includes(searchTerm.toLowerCase())
+    const q = (searchTerm || '').toLowerCase()
+    const matchesSearch =
+      String(task.roomNumber ?? '').toLowerCase().includes(q) ||
+      (getStaffName(task.assignedTo) || '').toLowerCase().includes(q)
     const matchesStatus = statusFilter === 'all' || task.status === statusFilter
     return matchesSearch && matchesStatus
   })

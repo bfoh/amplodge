@@ -788,7 +788,8 @@ class AnalyticsService {
       // Repeat guest rate
       const guestBookingCount = new Map<string, number>()
       bookings.forEach(b => {
-        const guestEmail = b.guest.email.toLowerCase().trim()
+        const guestEmail = (b.guest?.email || '').toLowerCase().trim()
+        if (!guestEmail) return
         guestBookingCount.set(
           guestEmail,
           (guestBookingCount.get(guestEmail) || 0) + 1
@@ -827,7 +828,8 @@ class AnalyticsService {
       bookings
         .filter(b => ['checked-in', 'checked-out'].includes(b.status))
         .forEach(b => {
-          const email = b.guest.email.toLowerCase().trim()
+          const email = (b.guest?.email || '').toLowerCase().trim()
+          if (!email) return
           const existing = guestRevenueMap.get(email)
 
           const checkIn = new Date(b.dates.checkIn)

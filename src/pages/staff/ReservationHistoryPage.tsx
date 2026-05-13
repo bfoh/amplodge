@@ -393,9 +393,11 @@ export function ReservationHistoryPage() {
     if (to && new Date(to) < activityDate) return false
     
     // Search filter
-    if (query && !activity.title.toLowerCase().includes(query.toLowerCase()) && 
-        !activity.details.toLowerCase().includes(query.toLowerCase())) {
-      return false
+    if (query) {
+      const q = query.toLowerCase()
+      const titleMatch = (activity.title || '').toLowerCase().includes(q)
+      const detailsMatch = (activity.details || '').toLowerCase().includes(q)
+      if (!titleMatch && !detailsMatch) return false
     }
     
     // Today filter

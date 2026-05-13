@@ -703,9 +703,10 @@ export function BookingsPage() {
   }
 
   const { filteredBookings, stats } = useMemo(() => {
+    const q = (searchTerm || '').toLowerCase()
     const filtered = bookings.filter((booking) =>
-      booking.guestName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      booking.guestEmail?.toLowerCase().includes(searchTerm.toLowerCase())
+      (booking.guestName || '').toLowerCase().includes(q) ||
+      (booking.guestEmail || '').toLowerCase().includes(q)
     )
 
     return {

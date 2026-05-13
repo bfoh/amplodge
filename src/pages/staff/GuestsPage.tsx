@@ -297,10 +297,11 @@ export function GuestsPage() {
     }
   }
 
-  const filteredGuests = guests.filter((guest: any) =>
-    guest.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    guest.email?.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const filteredGuests = guests.filter((guest: any) => {
+    const q = (searchTerm || '').toLowerCase()
+    return (guest.name || '').toLowerCase().includes(q) ||
+      (guest.email || '').toLowerCase().includes(q)
+  })
 
   const getHandlerDisplay = (userId?: string) => {
     // We can't access staffMap here easily without refactoring, 

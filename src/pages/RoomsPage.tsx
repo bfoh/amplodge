@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Users, DollarSign } from 'lucide-react'
 import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
+import { useSubscription } from '@/hooks/use-subscription'
 import { bookingEngine } from '@/services/booking-engine'
 
 export function RoomsPage() {
@@ -32,9 +33,16 @@ export function RoomsPage() {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
   }, [])
 
+  // Realtime: re-fetch whenever room types, properties, or bookings change so
+  // price edits made by admin propagate to the guest-facing rooms page without
+  // requiring a manual page reload.
+  const roomTypesUpdated = useSubscription('room_types')
+  const propertiesUpdated = useSubscription('properties')
+  const bookingsUpdated = useSubscription('bookings')
+
   useEffect(() => {
     loadRooms()
-  }, [])
+  }, [roomTypesUpdated, propertiesUpdated, bookingsUpdated])
 
   const loadRooms = async () => {
     setLoading(true)
@@ -46,10 +54,25 @@ export function RoomsPage() {
         bookingEngine.getAllBookings()
       ])
 
-      // Add fallback images to room types that don't have them
+      // Add fallback images + ensure each room type has a usable basePrice.
+      // Older room-type rows may have a null/undefined basePrice; fall back to
+      // the first matching property's basePrice/price so the public rooms
+      // page never shows 0 when a price exists on the rooms themselves.
+      const propertyPriceByType = new Map<string, number>()
+      ;(propertiesData as any[]).forEach((p: any) => {
+        const typeId = p.propertyTypeId || p.roomTypeId
+        const price = Number(p.basePrice ?? p.price ?? 0)
+        if (typeId && price > 0 && !propertyPriceByType.has(typeId)) {
+          propertyPriceByType.set(typeId, price)
+        }
+      })
+
       const typesWithImages = (typesData as RoomType[]).map(rt => ({
         ...rt,
-        imageUrl: rt.imageUrl || defaultRoomImages[rt.name.toLowerCase()] || defaultImage
+        imageUrl: rt.imageUrl || defaultRoomImages[(rt.name || '').toLowerCase()] || defaultImage,
+        basePrice: Number(rt.basePrice ?? 0) > 0
+          ? rt.basePrice
+          : (propertyPriceByType.get(rt.id) ?? rt.basePrice ?? 0),
       }))
 
       // Debug: Log raw data to verify basePrice is being fetched
@@ -60,11 +83,11 @@ export function RoomsPage() {
       const propertiesWithPrices = propertiesData.map((prop: any) => {
         const matchingType =
           typesWithImages.find((rt) => rt.id === prop.propertyTypeId) ||
-          typesWithImages.find((rt) => rt.name.toLowerCase() === (prop.propertyType || '').toLowerCase())
+          typesWithImages.find((rt) => (rt.name || '').toLowerCase() === (prop.propertyType || '').toLowerCase())
         return {
           ...prop,
           roomTypeName: matchingType?.name || prop.propertyType || '',
-          displayPrice: matchingType?.basePrice ?? 0
+          displayPrice: matchingType?.basePrice ?? prop.basePrice ?? prop.price ?? 0
         }
       })
 
@@ -92,7 +115,7 @@ export function RoomsPage() {
     // Use properties data to match backend data source
     const propertiesOfType = properties.filter(prop => {
       const matchingType = roomTypes.find(rt => rt.id === prop.propertyTypeId) ||
-        roomTypes.find(rt => rt.name.toLowerCase() === (prop.propertyType || '').toLowerCase())
+        roomTypes.find(rt => (rt.name || '').toLowerCase() === (prop.propertyType || '').toLowerCase())
       return matchingType?.id === typeId
     })
 

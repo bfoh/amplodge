@@ -210,13 +210,17 @@ export function StaffInvoiceManager() {
     setRefreshing(false)
   }
 
-  // Filter invoices by search term AND status filter
+  // Filter invoices by search term AND status filter.
+  // Defensive: legacy invoice rows may have any of these fields as null,
+  // which would crash the page with 'Cannot read properties of undefined
+  // (reading toLowerCase)'.
   const filteredInvoices = invoices.filter(invoice => {
+    const q = (searchTerm || '').toLowerCase()
     const matchesSearch =
-      invoice.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      invoice.guestName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      invoice.guestEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      invoice.roomNumber.toLowerCase().includes(searchTerm.toLowerCase())
+      (invoice.invoiceNumber || '').toLowerCase().includes(q) ||
+      (invoice.guestName || '').toLowerCase().includes(q) ||
+      (invoice.guestEmail || '').toLowerCase().includes(q) ||
+      String(invoice.roomNumber ?? '').toLowerCase().includes(q)
 
     const matchesFilter = filter === 'all' || invoice.status === filter
 
