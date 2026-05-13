@@ -98,7 +98,7 @@ function StatusBadge({ status }: { status: string }) {
 
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ring-1 ring-inset ${style} capitalize shadow-sm`}>
-      {status.replace('-', ' ')}
+      {(status || '').replace('-', ' ')}
     </span>
   )
 }
@@ -1235,7 +1235,7 @@ export function ReservationsPage() {
                             <TableCell>
                               <div className="flex flex-col">
                                 <span className="font-medium text-sm">Room {roomNumber}</span>
-                                <span className="text-[10px] text-muted-foreground capitalize">{resolveRoomStatus(b, liveRoom).replace('-', ' ')}</span>
+                                <span className="text-[10px] text-muted-foreground capitalize">{(resolveRoomStatus(b, liveRoom) || '').replace('-', ' ')}</span>
                               </div>
                             </TableCell>
                             <TableCell>
