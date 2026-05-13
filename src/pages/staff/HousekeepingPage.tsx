@@ -859,7 +859,8 @@ export default function HousekeepingPage() {
             </div>
           ) : diagResult ? (
             <div className="space-y-3">
-              <ProviderRow name="Resend (email)" data={diagResult.resend} />
+              <ProviderRow name="Brevo (email — primary)" data={diagResult.brevo} />
+              <ProviderRow name="Resend (email — fallback)" data={diagResult.resend} />
               <ProviderRow name="Arkesel (SMS)" data={diagResult.arkesel} />
               {diagResult.networkError && (
                 <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -911,6 +912,8 @@ function ProviderRow({ name, data }: { name: string; data: any }) {
         {data?.keyCount != null && <p>API keys on file: {data.keyCount}</p>}
         {data?.balance != null && <p>Balance: {data.balance} {data.currency || ''}</p>}
         {data?.senderId && <p>Sender ID: {data.senderId}</p>}
+        {data?.email && <p>Account: {data.email}</p>}
+        {data?.plan && <p>Plan: {data.plan}</p>}
       </div>
     </div>
   )
