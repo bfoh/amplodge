@@ -83,34 +83,53 @@ If you have any questions, please contact your supervisor.
 AMP Lodge Hotel Management System
     `
 
-    const result = await sendTransactionalEmail({
-      to: data.employeeEmail,
-      subject: `🏨 New Housekeeping Task - Room ${data.roomNumber}`,
-      html: htmlContent,
-      text: textContent
-    })
-
-    if (result.success) {
-      console.log('✅ [TaskAssignmentEmail] Email sent successfully')
-
-      // Also send SMS if phone number is provided
-      if (data.employeePhone) {
-        sendTaskAssignmentSMS({
+    // Fire email and SMS independently. Either channel can reach the staff
+    // member; both should be attempted regardless of the other's outcome.
+    // Returning before SMS would silently drop the SMS whenever email rejected.
+    const smsPromise = data.employeePhone
+      ? sendTaskAssignmentSMS({
           phone: data.employeePhone,
           staffName: data.employeeName,
           roomNumber: data.roomNumber,
           taskType: 'Housekeeping',
-          completionUrl: data.completionUrl
-        }).catch(err => console.error('[TaskAssignmentEmail] SMS failed:', err))
-      }
+          completionUrl: data.completionUrl,
+        }).catch(err => {
+          console.error('[TaskAssignmentEmail] SMS failed:', err)
+          return { success: false, error: String(err) }
+        })
+      : Promise.resolve({ success: false, error: 'no_phone' })
 
-      return { success: true, result }
+    const emailPromise = sendTransactionalEmail({
+      to: data.employeeEmail,
+      subject: `🏨 New Housekeeping Task - Room ${data.roomNumber}`,
+      html: htmlContent,
+      text: textContent,
+    })
+
+    const [emailResult, smsResult] = await Promise.all([emailPromise, smsPromise])
+
+    const emailOk = !!emailResult?.success
+    const smsOk = !!(smsResult as any)?.success
+
+    if (emailOk) console.log('✅ [TaskAssignmentEmail] Email sent successfully')
+    else console.warn('⚠️ [TaskAssignmentEmail] Email failed:', emailResult?.error)
+
+    if (smsOk) console.log('✅ [TaskAssignmentEmail] SMS sent successfully')
+    else if (data.employeePhone) console.warn('⚠️ [TaskAssignmentEmail] SMS failed:', (smsResult as any)?.error)
+
+    // Success if EITHER channel reached the staff member.
+    const success = emailOk || smsOk
+    return {
+      success,
+      emailOk,
+      smsOk,
+      hasPhone: !!data.employeePhone,
+      error: success
+        ? undefined
+        : (emailResult?.error || (smsResult as any)?.error || 'unknown'),
     }
-
-    console.error('❌ [TaskAssignmentEmail] Email send reported failure:', result.error)
-    return { success: false, error: result.error }
   } catch (error: any) {
-    console.error('❌ [TaskAssignmentEmail] Failed to send email:', error)
+    console.error('❌ [TaskAssignmentEmail] Failed to send notifications:', error)
     return { success: false, error: error.message }
   }
 }
