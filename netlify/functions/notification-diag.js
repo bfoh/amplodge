@@ -26,12 +26,48 @@ export const handler = async (event) => {
   }
 
   const result = {
+    brevo: await checkBrevo(),
     resend: await checkResend(),
     arkesel: await checkArkesel(),
     serverTime: new Date().toISOString(),
   }
 
   return jsonResponse(200, result)
+}
+
+async function checkBrevo() {
+  const key = process.env.BREVO_API_KEY
+  if (!key) {
+    return { ok: false, error: 'BREVO_API_KEY env var not set on the server', keyConfigured: false }
+  }
+  try {
+    // GET /v3/account returns 200 with account info on a valid key; 401 otherwise.
+    const r = await fetch('https://api.brevo.com/v3/account', {
+      headers: { 'api-key': key.trim(), 'Accept': 'application/json' },
+    })
+    const body = await r.text()
+    let parsed = null
+    try { parsed = JSON.parse(body) } catch { /* ignore */ }
+
+    if (r.ok) {
+      const planName = Array.isArray(parsed?.plan) ? parsed.plan[0]?.type : parsed?.plan?.type
+      return {
+        ok: true,
+        keyConfigured: true,
+        status: r.status,
+        email: parsed?.email,
+        plan: planName,
+      }
+    }
+    return {
+      ok: false,
+      keyConfigured: true,
+      status: r.status,
+      error: parsed?.message || parsed?.error || body.slice(0, 200) || 'Brevo rejected the key',
+    }
+  } catch (e) {
+    return { ok: false, keyConfigured: true, error: e.message || 'Network error reaching Brevo' }
+  }
 }
 
 async function checkResend() {
