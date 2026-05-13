@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSubscription } from '@/hooks/use-subscription'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
@@ -57,9 +58,16 @@ export function PropertiesPage() {
     loadRoomTypes()
   }, [])
 
+  // Realtime: refresh whenever room/property rows, bookings, or
+  // housekeeping tasks change so admins see status transitions
+  // (occupied -> cleaning -> available) without a manual reload.
+  const propertiesUpdated = useSubscription('properties')
+  const bookingsUpdated = useSubscription('bookings')
+  const tasksUpdated = useSubscription('housekeeping_tasks')
+
   useEffect(() => {
     loadProperties()
-  }, [roomTypes])
+  }, [roomTypes, propertiesUpdated, bookingsUpdated, tasksUpdated])
 
   const loadProperties = async () => {
     try {
@@ -97,34 +105,46 @@ export function PropertiesPage() {
     }
   }
 
-  // Helper to check room status
-  const getRoomStatus = (property: any): { status: 'available' | 'occupied' | 'maintenance', booking?: any } => {
+  // Helper to check room status.
+  //
+  // Lifecycle source of truth:
+  //   property.status = 'occupied' | 'cleaning' | 'maintenance' | 'available' | 'active' | null
+  //
+  // Transitions (driven by other parts of the app):
+  //   - Check-in     -> 'occupied'   (src/hooks/use-check-in.ts)
+  //   - Check-out    -> 'cleaning'   (src/services/booking-engine.ts updateBookingStatus)
+  //   - Task done    -> 'available'  (src/services/housekeeping-service.ts + HousekeepingPage)
+  //   - Task deleted -> 'available'  (HousekeepingPage confirmDelete / bulk delete)
+  //
+  // 'available' and the legacy 'active' both mean "free"; either is fine.
+  const getRoomStatus = (property: any): { status: 'available' | 'occupied' | 'maintenance' | 'cleaning', booking?: any } => {
     if (!property.roomNumber) return { status: 'unknown' as any }
-    if (property.status === 'maintenance') return { status: 'maintenance' }
+
+    const dbStatus = String(property.status || '').toLowerCase()
+
+    // Direct DB states win first — they reflect explicit lifecycle moves.
+    if (dbStatus === 'maintenance') return { status: 'maintenance' }
+    if (dbStatus === 'cleaning')    return { status: 'cleaning' }
 
     // Normalize today
     const todayIso = new Date().toISOString().split('T')[0]
 
     const activeBooking = bookings.find((b: any) => {
-      // Check status
       if (b.status === 'cancelled' || !['reserved', 'confirmed', 'checked-in'].includes(b.status)) {
         return false
       }
-
-      // Match room (handle both Room Number strings/numbers)
-      // Note: bookingEngine returns bookings with normalized roomNumber usually
       if (String(b.roomNumber) !== String(property.roomNumber)) return false
-
-      // Check date overlap with TODAY
       const checkIn = (b.dates?.checkIn || b.checkIn || '').split('T')[0]
       const checkOut = (b.dates?.checkOut || b.checkOut || '').split('T')[0]
-
       return checkIn <= todayIso && checkOut > todayIso
     })
 
-    return activeBooking
-      ? { status: 'occupied', booking: activeBooking }
-      : { status: 'available' }
+    // DB says occupied OR a checked-in/confirmed booking covers today -> occupied.
+    if (dbStatus === 'occupied' || activeBooking) {
+      return { status: 'occupied', booking: activeBooking }
+    }
+
+    return { status: 'available' }
   }
 
   const loadRoomTypes = async () => {
@@ -557,6 +577,11 @@ export function PropertiesPage() {
                 const checkOut = (booking.dates?.checkOut || booking.checkOut || '').split('T')[0]
                 tooltipText = `Occupied by ${guestName} until ${checkOut}`
               }
+            } else if (status === 'cleaning') {
+              statusColor = 'bg-sky-500'
+              statusBg = 'bg-sky-50 text-sky-700 border-sky-100'
+              statusText = 'Cleaning'
+              tooltipText = 'Awaiting housekeeping — room becomes available when the cleaning task is completed.'
             } else if (status === 'maintenance') {
               statusColor = 'bg-amber-500'
               statusBg = 'bg-amber-50 text-amber-700 border-amber-100'
