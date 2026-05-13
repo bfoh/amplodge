@@ -307,34 +307,64 @@ export function ReservationsPage() {
     return roomCost + additionalCharges
   }
 
+  // Pre-compute: for each roomId, the id of the MOST RECENT checked-out
+  // booking. Used so the "Cleaning" label only paints the booking that
+  // actually caused the room's current cleaning state — not every historical
+  // checkout that ever used the room.
+  const mostRecentCheckoutByRoom = useMemo(() => {
+    const map = new Map<string, string>() // roomId -> booking.id
+    const byRoom = new Map<string, Booking[]>()
+    for (const b of bookings) {
+      if (b.status !== 'checked-out') continue
+      const rid = b.roomId
+      if (!rid) continue
+      if (!byRoom.has(rid)) byRoom.set(rid, [])
+      byRoom.get(rid)!.push(b)
+    }
+    byRoom.forEach((list, rid) => {
+      // Pick the booking with the latest checkOut (fall back to checkIn).
+      const latest = list.reduce((a, b) => {
+        const ka = (a.checkOut || a.checkIn || '')
+        const kb = (b.checkOut || b.checkIn || '')
+        return kb > ka ? b : a
+      })
+      map.set(rid, latest.id)
+    })
+    return map
+  }, [bookings])
+
   // Compute the room-status secondary label rendered under the room number
-  // in each reservation row. This is INTENTIONALLY booking-scoped, not a
-  // mirror of the room's live state, because the live state describes the
-  // ROOM right now — not what happened during a past stay.
+  // in each reservation row.
   //
-  // Previously a past checked-out booking displayed "Cleaning" whenever the
-  // ROOM happened to currently be in 'cleaning' state (because someone else
-  // had just checked out). That cascaded to every historical row sharing
-  // the same room number and was deeply misleading.
-  //
-  // New rule:
-  //   - reserved/confirmed -> show room's live operational state if it
-  //     matters to the upcoming stay (maintenance/cleaning), else 'available'
-  //   - checked-in         -> 'occupied'
-  //   - checked-out        -> empty string. The STATUS column already shows
-  //                           "Checked Out" — adding a stale room status here
-  //                           is redundant and inaccurate for historical rows.
-  //   - cancelled          -> empty string. Same reasoning.
-  //   - anything else      -> empty string.
+  // Rules:
+  //   - reserved / confirmed -> 'available'. A future booking shows what the
+  //     room WILL be at check-in time. Current cleaning/occupancy is for the
+  //     guest in the room right now, not the next arrival. Only 'maintenance'
+  //     stays surfaced because that's an open-ended block.
+  //   - checked-in           -> 'occupied'.
+  //   - checked-out          -> 'cleaning' ONLY if this is the most recent
+  //     checkout for the room AND the room is still in 'cleaning' state.
+  //     Otherwise the cleaning has been completed (or the task deleted) and
+  //     this booking's stay is fully closed -> 'available'.
+  //   - cancelled            -> 'available'. The booking never used the room.
+  //   - anything else        -> empty.
   const resolveRoomStatus = (booking: Booking, room?: Room): string => {
     if (booking.status === 'checked-in') return 'occupied'
+
     if (booking.status === 'confirmed' || booking.status === 'reserved') {
-      if (room?.status && ['maintenance', 'cleaning'].includes(room.status)) {
-        return room.status
-      }
+      if (room?.status === 'maintenance') return 'maintenance'
       return 'available'
     }
-    // Closed/historical rows — suppress the secondary label.
+
+    if (booking.status === 'checked-out') {
+      const recentId = booking.roomId ? mostRecentCheckoutByRoom.get(booking.roomId) : undefined
+      const isMostRecent = recentId === booking.id
+      if (isMostRecent && room?.status === 'cleaning') return 'cleaning'
+      return 'available'
+    }
+
+    if (booking.status === 'cancelled') return 'available'
+
     return ''
   }
 
