@@ -82,16 +82,17 @@ export function ActivityLogViewer({
     if (searchQuery) {
       const query = searchQuery.toLowerCase()
       filtered = filtered.filter(log => {
+        const entityType = (log.entityType || '').toLowerCase()
+        const action = (log.action || '').toLowerCase()
         try {
-          const details = JSON.parse(log.details)
+          const details = JSON.parse(log.details || '{}')
           return (
-            log.entityType.toLowerCase().includes(query) ||
-            log.action.toLowerCase().includes(query) ||
+            entityType.includes(query) ||
+            action.includes(query) ||
             JSON.stringify(details).toLowerCase().includes(query)
           )
         } catch {
-          return log.entityType.toLowerCase().includes(query) ||
-            log.action.toLowerCase().includes(query)
+          return entityType.includes(query) || action.includes(query)
         }
       })
     }

@@ -726,8 +726,8 @@ export function EmployeesPage() {
     const lowerQuery = query.toLowerCase()
     return employees.filter(
       (emp) =>
-        emp.name.toLowerCase().includes(lowerQuery) ||
-        emp.email.toLowerCase().includes(lowerQuery) ||
+        (emp.name || '').toLowerCase().includes(lowerQuery) ||
+        (emp.email || '').toLowerCase().includes(lowerQuery) ||
         (emp.phone && emp.phone.includes(lowerQuery))
     )
   }, [employees, query])

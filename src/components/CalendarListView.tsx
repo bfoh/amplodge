@@ -59,10 +59,10 @@ export function CalendarListView({
     if (searchTerm) {
       const term = searchTerm.toLowerCase()
       filtered = filtered.filter(booking =>
-        booking.guestName.toLowerCase().includes(term) ||
-        booking.guestEmail.toLowerCase().includes(term) ||
-        booking.guestPhone?.toLowerCase().includes(term) ||
-        getRoomForBooking(booking)?.roomNumber?.toString().includes(term)
+        (booking.guestName || '').toLowerCase().includes(term) ||
+        (booking.guestEmail || '').toLowerCase().includes(term) ||
+        (booking.guestPhone || '').toLowerCase().includes(term) ||
+        String(getRoomForBooking(booking)?.roomNumber ?? '').toLowerCase().includes(term)
       )
     }
 
