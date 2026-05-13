@@ -25,10 +25,10 @@ export const handler = async (event) => {
 
     if (!resendApiKey) {
         console.error('[send-email] Neither RESEND_API_KEY nor VITE_RESEND_API_KEY configured');
-        return {
-            statusCode: 500,
-            body: JSON.stringify({ error: 'Email service not configured - missing API key' })
-        };
+        return jsonResponse(500, {
+            success: false,
+            error: 'Email service not configured (missing RESEND_API_KEY on the server)'
+        });
     }
 
     console.log('[send-email] API key found, processing request...');
@@ -38,10 +38,22 @@ export const handler = async (event) => {
 
         // Validate required fields
         if (!payload.to || !payload.subject || !payload.html) {
-            return {
-                statusCode: 400,
-                body: JSON.stringify({ error: 'Missing required fields: to, subject, html' })
-            };
+            return jsonResponse(400, {
+                success: false,
+                error: 'Missing required fields: to, subject, html'
+            });
+        }
+
+        // Validate recipient looks like an email — Resend rejects empty/garbage
+        // recipients with a 400 that bubbles up as "Email notification failed"
+        // without telling the operator what went wrong.
+        const recipients = Array.isArray(payload.to) ? payload.to : [payload.to];
+        const invalid = recipients.find(r => !r || !String(r).includes('@'));
+        if (invalid !== undefined) {
+            return jsonResponse(400, {
+                success: false,
+                error: `Invalid recipient email: ${JSON.stringify(invalid)}`
+            });
         }
 
         const resend = new Resend(resendApiKey);
@@ -79,34 +91,25 @@ export const handler = async (event) => {
 
         if (error) {
             console.error('[send-email] Resend error:', error);
-            return {
-                statusCode: 400,
-                body: JSON.stringify({ success: false, error: error.message })
-            };
+            return jsonResponse(400, {
+                success: false,
+                error: error.message || error.name || 'Resend rejected the email'
+            });
         }
 
         console.log('[send-email] Email sent successfully, ID:', data?.id);
 
-        return {
-            statusCode: 200,
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                success: true,
-                id: data?.id,
-                message: 'Email sent successfully'
-            })
-        };
+        return jsonResponse(200, {
+            success: true,
+            id: data?.id,
+            message: 'Email sent successfully'
+        });
 
     } catch (error) {
         console.error('[send-email] Error:', error);
-        return {
-            statusCode: 500,
-            body: JSON.stringify({
-                success: false,
-                error: error.message || 'Failed to send email'
-            })
-        };
+        return jsonResponse(500, {
+            success: false,
+            error: error.message || 'Failed to send email'
+        });
     }
 };

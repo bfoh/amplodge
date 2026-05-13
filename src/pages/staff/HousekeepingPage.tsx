@@ -155,28 +155,43 @@ export default function HousekeepingPage() {
         // Generate completion URL
         const completionUrl = `${window.location.origin}/task-complete/${taskId}`
 
-        // Send email notification
-        console.log('📧 [HousekeepingPage] Sending task assignment email...', {
-          taskId,
-          roomNumber: task.roomNumber,
-          staffEmail: assignedStaff.email
-        })
-
-        const emailResult = await sendTaskAssignmentEmail({
-          employeeName: assignedStaff.name,
-          employeeEmail: assignedStaff.email,
-          employeePhone: assignedStaff.phone,
-          roomNumber: task.roomNumber,
-          taskNotes: task.notes || '',
-          taskId: task.id,
-          completionUrl: completionUrl
-        })
-
-        if (emailResult.success) {
-          toast.success(`Task assigned to ${assignedStaff.name}. Email notification sent!`)
+        // Validate the assigned staff has a usable email BEFORE making the
+        // round-trip; otherwise the user sees a generic "email failed" toast
+        // with no clue why. Most failures land here on staff rows that were
+        // imported/seeded without an email.
+        if (!assignedStaff.email || !assignedStaff.email.includes('@')) {
+          toast.success(
+            `Task assigned to ${assignedStaff.name}. No email on file — notify them in person.`
+          )
+          console.warn('[HousekeepingPage] Skipped email — no valid address for staff', assignedStaff)
         } else {
-          toast.success(`Task assigned to ${assignedStaff.name}. Email notification failed.`)
-          console.warn('Email notification failed:', emailResult.error)
+          console.log('📧 [HousekeepingPage] Sending task assignment email...', {
+            taskId,
+            roomNumber: task.roomNumber,
+            staffEmail: assignedStaff.email
+          })
+
+          const emailResult = await sendTaskAssignmentEmail({
+            employeeName: assignedStaff.name,
+            employeeEmail: assignedStaff.email,
+            employeePhone: assignedStaff.phone,
+            roomNumber: task.roomNumber,
+            taskNotes: task.notes || '',
+            taskId: task.id,
+            completionUrl: completionUrl
+          })
+
+          if (emailResult.success) {
+            toast.success(`Task assigned to ${assignedStaff.name}. Email notification sent!`)
+          } else {
+            // Surface the actual error message so it's actionable, not just a
+            // generic "failed" stub.
+            const reason = emailResult.error || 'unknown error'
+            toast.error(
+              `Task assigned to ${assignedStaff.name}, but email failed: ${reason}`
+            )
+            console.warn('[HousekeepingPage] Email notification failed:', emailResult.error)
+          }
         }
       } else {
         toast.success('Task assigned successfully')
