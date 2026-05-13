@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { db, auth } from '@/lib/db'
 import { CalendarPlus, UserPlus, Loader2, FileText, Users, Mail, CreditCard, CheckCircle, XCircle } from 'lucide-react'
 import { format, parseISO, isToday } from 'date-fns'
+import { safeFormatDate, safeParseISO } from '@/lib/safe-date'
 import { toast } from 'sonner'
 import { useStaffRole } from '@/hooks/use-staff-role'
 import { useSubscription } from '@/hooks/use-subscription'
@@ -384,8 +385,9 @@ export function ReservationHistoryPage() {
 
   // Filter activities
   const filteredActivities = activities.filter(activity => {
-    const activityDate = parseISO(activity.timestamp)
-    
+    const activityDate = safeParseISO(activity.timestamp)
+    if (!activityDate) return false
+
     // Date range filter
     if (from && new Date(from) > activityDate) return false
     if (to && new Date(to) < activityDate) return false
@@ -405,7 +407,7 @@ export function ReservationHistoryPage() {
   // Group activities by date
   const groupedActivities: Record<string, Activity[]> = {}
   filteredActivities.forEach(activity => {
-    const date = format(parseISO(activity.timestamp), 'yyyy-MM-dd')
+    const date = safeFormatDate(activity.timestamp, 'yyyy-MM-dd', 'unknown')
     if (!groupedActivities[date]) {
       groupedActivities[date] = []
     }
@@ -491,7 +493,10 @@ export function ReservationHistoryPage() {
           {Object.entries(groupedActivities).map(([date, dateActivities]) => (
             <div key={date} className="space-y-4">
               <div className="inline-block bg-blue-600 text-white px-4 py-2 rounded-full text-sm font-medium">
-                {isToday(parseISO(date)) ? 'Today' : format(parseISO(date), 'yyyy-MM-dd')}
+                {(() => {
+                  const d = safeParseISO(date)
+                  return d && isToday(d) ? 'Today' : (d ? format(d, 'yyyy-MM-dd') : date)
+                })()}
               </div>
               
               <div className="space-y-4 pl-4 border-l-2 border-gray-200">
@@ -510,7 +515,7 @@ export function ReservationHistoryPage() {
                     <div className="flex-1 pb-4">
                       <div className="font-medium">{activity.title}</div>
                       <div className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
-                        <span>{format(parseISO(activity.timestamp), 'HH:mm')}</span>
+                        <span>{safeFormatDate(activity.timestamp, 'HH:mm', '')}</span>
                         <span>•</span>
                         <button className="text-blue-600 hover:underline" onClick={() => handleOpenDetails(activity)}>Details</button>
                       </div>

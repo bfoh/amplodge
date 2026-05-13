@@ -3,6 +3,7 @@ import { Building2, Calendar, Users, DollarSign, TrendingUp, Clock, BarChart2, H
 import { db, auth } from '@/lib/db'
 import { bookingEngine } from '../../services/booking-engine'
 import { format, parseISO } from 'date-fns'
+import { safeFormatDate } from '@/lib/safe-date'
 import { formatCurrencySync, cn } from '../../lib/utils'
 import { useCurrency } from '../../hooks/use-currency'
 import { useSubscription } from '../../hooks/use-subscription'
@@ -386,7 +387,7 @@ export function DashboardPage() {
                       <div className="flex items-center gap-3 text-[11px] text-muted-foreground font-medium">
                         <div className="flex items-center gap-1">
                           <Calendar className="w-3 h-3" />
-                          <span>{format(parseISO(booking.checkIn), 'MMM dd')} - {format(parseISO(booking.checkOut), 'MMM dd')}</span>
+                          <span>{safeFormatDate(booking.checkIn, 'MMM dd')} - {safeFormatDate(booking.checkOut, 'MMM dd')}</span>
                         </div>
                         <div className="flex items-center gap-1">
                           <Home className="w-3 h-3" />

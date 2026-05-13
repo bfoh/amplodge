@@ -287,7 +287,7 @@ export async function sendStayExtensionSMS(params: {
     const { phone, guestName, newCheckout, additionalNights, extensionCost } = params
 
     const message = `✅ STAY EXTENDED
-Hi ${guestName.split(' ')[0]},
+Hi ${(guestName || 'Guest').split(' ')[0]},
 
 Your stay has been extended!
 

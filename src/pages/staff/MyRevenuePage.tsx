@@ -66,7 +66,7 @@ function PaymentMethodBadge({ method, splits }: { method: string; splits?: Array
           const entry = map[s.method]
           return entry ? (
             <span key={i} className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${entry.className}`}>
-              {entry.label.split(' ')[0]} {formatGHS(s.amount)}
+              {(entry.label || '').split(' ')[0]} {formatGHS(s.amount)}
             </span>
           ) : null
         })}

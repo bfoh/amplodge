@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { format, parseISO } from 'date-fns'
+import { safeFormatDate } from '@/lib/safe-date'
 import { useSubscription } from '@/hooks/use-subscription'
 import { toast } from 'sonner'
 import { db, auth } from '@/lib/db'
@@ -702,7 +703,7 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <p className="font-bold text-stone-800 text-sm">{r.staffName}</p>
-                    <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">{format(parseISO(r.date), 'MMM dd, yyyy')}</p>
+                    <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">{safeFormatDate(r.date, 'MMM dd, yyyy')}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <StatusBadge status={r.status} />
@@ -1021,11 +1022,11 @@ function LeaveTab({ currentStaff }: { currentStaff: any }) {
                 <div className="grid grid-cols-2 gap-4 bg-stone-50 rounded-lg p-3">
                   <div className="space-y-0.5">
                     <p className="text-[9px] uppercase tracking-tighter font-bold text-stone-400">Start Date</p>
-                    <p className="text-xs font-bold text-stone-700">{format(parseISO(r.startDate), 'MMM dd, yyyy')}</p>
+                    <p className="text-xs font-bold text-stone-700">{safeFormatDate(r.startDate, 'MMM dd, yyyy')}</p>
                   </div>
                   <div className="space-y-0.5 border-l border-stone-200 pl-4">
                     <p className="text-[9px] uppercase tracking-tighter font-bold text-stone-400">End Date</p>
-                    <p className="text-xs font-bold text-stone-700">{format(parseISO(r.endDate), 'MMM dd, yyyy')}</p>
+                    <p className="text-xs font-bold text-stone-700">{safeFormatDate(r.endDate, 'MMM dd, yyyy')}</p>
                   </div>
                 </div>
 
@@ -1781,7 +1782,7 @@ function RevPaymentBadge({ method, splits }: { method: string; splits?: Array<{ 
           const entry = map[s.method]
           return entry ? (
             <span key={i} className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${entry.className}`}>
-              {entry.label.split(' ')[0]} GHS {s.amount.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {(entry.label || '').split(' ')[0]} GHS {s.amount.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           ) : null
         })}

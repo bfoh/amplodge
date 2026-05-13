@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Download, Loader2, Calendar } from 'lucide-react'
 import { format, parseISO, isBefore, isAfter } from 'date-fns'
+import { safeFormatDate, safeParseISO } from '@/lib/safe-date'
 import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { toast } from 'sonner'
@@ -1466,7 +1467,7 @@ export function ReservationsPage() {
                        <div className="space-y-0.5">
                          <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground">Dates</p>
                          <p className="text-[11px] font-medium text-stone-600">
-                           {format(parseISO(b.checkIn), 'MMM dd')} - {format(parseISO(b.checkOut), 'MMM dd')}
+                           {safeFormatDate(b.checkIn, 'MMM dd')} - {safeFormatDate(b.checkOut, 'MMM dd')}
                          </p>
                        </div>
                        <div className="space-y-0.5">

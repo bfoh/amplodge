@@ -279,6 +279,7 @@ export function CalendarTimeline({
   }
 
   const getLastName = (fullName: string) => {
+    if (!fullName || typeof fullName !== 'string') return ''
     const parts = fullName.trim().split(' ')
     return parts.length > 1 ? parts[parts.length - 1] : fullName
   }

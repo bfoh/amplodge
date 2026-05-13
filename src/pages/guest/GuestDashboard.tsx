@@ -47,7 +47,7 @@ export default function GuestDashboard() {
   
         {/* Welcome Card */}
         <section className="text-center space-y-2 py-6 sm:py-10">
-          <h1 className="text-3xl sm:text-4xl font-serif font-bold tracking-tight text-foreground">Welcome, {guest.name.split(' ')[0]}!</h1>
+          <h1 className="text-3xl sm:text-4xl font-serif font-bold tracking-tight text-foreground">Welcome, {(guest.name || 'Guest').split(' ')[0]}!</h1>
           <p className="text-sm sm:text-base text-muted-foreground font-medium">We hope you enjoy your stay at <span className="text-primary">AMP Lodge</span></p>
         </section>
 
