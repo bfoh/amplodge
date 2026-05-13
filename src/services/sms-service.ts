@@ -14,8 +14,9 @@ interface SMSResult {
  * Handles Ghana numbers and international formats
  */
 function formatPhoneNumber(phone: string): string {
-    // Remove all non-digit characters except +
-    let cleaned = phone.replace(/[^\d+]/g, '')
+    // Remove all non-digit characters except +. Guard against undefined/null
+    // — callers occasionally pass guest.phone which is nullable in the schema.
+    let cleaned = (phone || '').replace(/[^\d+]/g, '')
 
     // If starts with 0, assume Ghana number
     if (cleaned.startsWith('0')) {
