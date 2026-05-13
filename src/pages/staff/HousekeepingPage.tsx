@@ -5,6 +5,7 @@ import { Calendar, CheckCircle2, Clock, Search, User, AlertCircle, Trash2, Loade
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -41,6 +42,11 @@ export default function HousekeepingPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [completionNotes, setCompletionNotes] = useState('')
   const [isPending, startTransition] = useTransition()
+  // Bulk selection state — Set of task ids that are checked. Bulk action bar
+  // renders when size > 0 and offers complete / delete on the whole set.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkConfirm, setBulkConfirm] = useState<'complete' | 'delete' | null>(null)
+  const [bulkBusy, setBulkBusy] = useState(false)
 
   const tasksUpdate = useSubscription('housekeeping_tasks')
   const propertiesUpdate = useSubscription('properties')
@@ -171,7 +177,7 @@ export default function HousekeepingPage() {
             staffEmail: assignedStaff.email
           })
 
-          const emailResult = await sendTaskAssignmentEmail({
+          const notif = await sendTaskAssignmentEmail({
             employeeName: assignedStaff.name,
             employeeEmail: assignedStaff.email,
             employeePhone: assignedStaff.phone,
@@ -179,18 +185,24 @@ export default function HousekeepingPage() {
             taskNotes: task.notes || '',
             taskId: task.id,
             completionUrl: completionUrl
-          })
+          }) as any
 
-          if (emailResult.success) {
-            toast.success(`Task assigned to ${assignedStaff.name}. Email notification sent!`)
-          } else {
-            // Surface the actual error message so it's actionable, not just a
-            // generic "failed" stub.
-            const reason = emailResult.error || 'unknown error'
-            toast.error(
-              `Task assigned to ${assignedStaff.name}, but email failed: ${reason}`
+          // Both channels are attempted independently. Show what landed.
+          if (notif.emailOk && notif.smsOk) {
+            toast.success(`Task assigned to ${assignedStaff.name}. Email + SMS sent.`)
+          } else if (notif.emailOk) {
+            toast.success(
+              `Task assigned to ${assignedStaff.name}. Email sent` +
+              (notif.hasPhone ? ' (SMS failed).' : ' (no phone on file).')
             )
-            console.warn('[HousekeepingPage] Email notification failed:', emailResult.error)
+          } else if (notif.smsOk) {
+            toast.success(`Task assigned to ${assignedStaff.name}. SMS sent (email failed).`)
+          } else {
+            const reason = notif.error || 'unknown error'
+            toast.error(
+              `Task assigned to ${assignedStaff.name}, but notifications failed: ${reason}`
+            )
+            console.warn('[HousekeepingPage] Both channels failed:', notif)
           }
         }
       } else {
@@ -267,6 +279,135 @@ export default function HousekeepingPage() {
     const matchesStatus = statusFilter === 'all' || task.status === statusFilter
     return matchesSearch && matchesStatus
   })
+
+  // ─── Bulk selection ──────────────────────────────────────────────────────
+  // Whenever the filter narrows, prune selections that fell out of view so
+  // the bulk-action count never refers to invisible items.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      const visible = new Set(filteredTasks.map(t => t.id))
+      const next = new Set(Array.from(prev).filter(id => visible.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm, statusFilter, tasks])
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  const allFilteredSelected = filteredTasks.length > 0 && filteredTasks.every(t => selectedIds.has(t.id))
+
+  const toggleSelectAll = () => {
+    setSelectedIds(prev => {
+      if (allFilteredSelected) return new Set()
+      const next = new Set(prev)
+      filteredTasks.forEach(t => next.add(t.id))
+      return next
+    })
+  }
+
+  const clearSelection = () => setSelectedIds(new Set())
+
+  /**
+   * Bulk-complete every selected task that isn't already completed.
+   * Skips already-completed rows silently so the user can run the action
+   * on a mixed selection without it failing.
+   */
+  const handleBulkComplete = async () => {
+    setBulkBusy(true)
+    try {
+      const ids = Array.from(selectedIds)
+      const targets = tasks.filter(t => ids.includes(t.id) && t.status !== 'completed')
+      const completedAt = new Date().toISOString()
+      const user = await auth.me().catch(() => null)
+
+      let okCount = 0
+      let failCount = 0
+      await Promise.all(targets.map(async (t) => {
+        try {
+          await db.housekeepingTasks.update(t.id, {
+            status: 'completed',
+            completedAt,
+            completionNotes: 'Bulk completion',
+          } as any)
+          // Mirror status on the property row so it shows available again
+          if (t.propertyId) {
+            await db.properties.update(t.propertyId, { status: 'active' }).catch(() => null)
+          }
+          activityLogService.log({
+            action: 'completed',
+            entityType: 'task',
+            entityId: t.id,
+            userId: user?.id || 'system',
+            details: {
+              title: `Room ${t.roomNumber} Cleaning`,
+              roomNumber: t.roomNumber,
+              completedBy: user?.email || 'staff',
+              bulk: true,
+            },
+          }).catch(() => null)
+          okCount++
+        } catch (err) {
+          console.error('[HousekeepingPage] Bulk complete failed for', t.id, err)
+          failCount++
+        }
+      }))
+
+      if (okCount > 0) toast.success(`Completed ${okCount} task${okCount === 1 ? '' : 's'}.`)
+      if (failCount > 0) toast.error(`${failCount} task${failCount === 1 ? '' : 's'} failed to complete.`)
+      clearSelection()
+      await loadData()
+    } finally {
+      setBulkBusy(false)
+      setBulkConfirm(null)
+    }
+  }
+
+  /** Bulk-delete every selected task. */
+  const handleBulkDelete = async () => {
+    setBulkBusy(true)
+    try {
+      const ids = Array.from(selectedIds)
+      const user = await auth.me().catch(() => null)
+
+      let okCount = 0
+      let failCount = 0
+      await Promise.all(ids.map(async (id) => {
+        const target = tasks.find(t => t.id === id)
+        try {
+          await db.housekeepingTasks.delete(id)
+          activityLogService.log({
+            action: 'deleted',
+            entityType: 'task',
+            entityId: id,
+            userId: user?.id || 'system',
+            details: {
+              title: target ? `Room ${target.roomNumber} Cleaning` : 'Cleaning task',
+              roomNumber: target?.roomNumber || '',
+              bulk: true,
+            },
+          }).catch(() => null)
+          okCount++
+        } catch (err) {
+          console.error('[HousekeepingPage] Bulk delete failed for', id, err)
+          failCount++
+        }
+      }))
+
+      if (okCount > 0) toast.success(`Deleted ${okCount} task${okCount === 1 ? '' : 's'}.`)
+      if (failCount > 0) toast.error(`${failCount} task${failCount === 1 ? '' : 's'} failed to delete.`)
+      clearSelection()
+      await loadData()
+    } finally {
+      setBulkBusy(false)
+      setBulkConfirm(null)
+    }
+  }
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -390,6 +531,61 @@ export default function HousekeepingPage() {
         </div>
       </div>
 
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="sticky top-2 z-30 flex flex-wrap items-center justify-between gap-2 rounded-xl border-2 border-primary/40 bg-primary/5 px-4 py-3 shadow-sm">
+          <div className="flex items-center gap-3 text-sm">
+            <Checkbox
+              checked={allFilteredSelected}
+              onCheckedChange={toggleSelectAll}
+              aria-label="Select all visible tasks"
+            />
+            <span className="font-semibold">{selectedIds.size} selected</span>
+            <button
+              type="button"
+              className="text-xs text-muted-foreground underline hover:text-foreground"
+              onClick={clearSelection}
+            >
+              Clear
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-green-700 hover:bg-green-50"
+              disabled={bulkBusy}
+              onClick={() => setBulkConfirm('complete')}
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              Complete {selectedIds.size}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-red-700 hover:bg-red-50"
+              disabled={bulkBusy}
+              onClick={() => setBulkConfirm('delete')}
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete {selectedIds.size}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Select-all helper above the list (visible only when some tasks exist) */}
+      {filteredTasks.length > 0 && (
+        <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+          <Checkbox
+            checked={allFilteredSelected}
+            onCheckedChange={toggleSelectAll}
+            aria-label="Select all"
+          />
+          <span>{allFilteredSelected ? 'All selected' : 'Select all'}</span>
+        </div>
+      )}
+
       {/* Tasks List */}
       <div className="grid grid-cols-1 gap-4">
         {filteredTasks.length === 0 ? (
@@ -406,11 +602,16 @@ export default function HousekeepingPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3 }}
             >
-              <Card>
+              <Card className={selectedIds.has(task.id) ? 'ring-2 ring-primary/40' : ''}>
                 <CardContent className="pt-6">
                   <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                     <div className="flex-1 space-y-3">
                       <div className="flex items-center gap-3">
+                        <Checkbox
+                          checked={selectedIds.has(task.id)}
+                          onCheckedChange={() => toggleSelected(task.id)}
+                          aria-label={`Select task for Room ${task.roomNumber}`}
+                        />
                         <h3 className="text-xl font-semibold">Room {task.roomNumber}</h3>
                         <Badge className={getStatusColor(task.status)}>
                           {getStatusIcon(task.status)}
@@ -567,6 +768,37 @@ export default function HousekeepingPage() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!bulkConfirm} onOpenChange={(open) => !open && !bulkBusy && setBulkConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {bulkConfirm === 'delete'
+                ? `Delete ${selectedIds.size} task${selectedIds.size === 1 ? '' : 's'}?`
+                : `Mark ${selectedIds.size} task${selectedIds.size === 1 ? '' : 's'} complete?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {bulkConfirm === 'delete'
+                ? 'This permanently removes the selected housekeeping tasks. This cannot be undone.'
+                : 'Selected tasks are marked completed. Already-completed tasks are skipped.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={bulkBusy}
+              onClick={bulkConfirm === 'delete' ? handleBulkDelete : handleBulkComplete}
+              className={bulkConfirm === 'delete'
+                ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                : ''}
+            >
+              {bulkBusy
+                ? <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Working…</span>
+                : bulkConfirm === 'delete' ? 'Delete' : 'Complete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
