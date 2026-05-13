@@ -8,6 +8,7 @@ import { Loader2, Download, Filter, Search, Calendar, User, FileText, RefreshCw 
 import { activityLogService } from '@/services/activity-log-service'
 import type { ActivityLog, ActivityAction, EntityType } from '@/types'
 import { format } from 'date-fns'
+import { safeFormatAny } from '@/lib/safe-date'
 import { toast } from 'sonner'
 import { db, auth } from '@/lib/db'
 import { useSubscription } from '@/hooks/use-subscription'
@@ -346,7 +347,7 @@ export function ActivityLogsPage() {
       const csv = [
         ['Timestamp', 'Action', 'Entity Type', 'Entity ID', 'User ID', 'Details'].join(','),
         ...filteredLogs.map(log => [
-          format(new Date(log.createdAt), 'yyyy-MM-dd HH:mm:ss'),
+          safeFormatAny(log.createdAt, 'yyyy-MM-dd HH:mm:ss'),
           log.action,
           log.entityType,
           log.entityId,
@@ -411,7 +412,7 @@ export function ActivityLogsPage() {
             <tbody>
               ${filteredLogs.map(log => `
                 <tr>
-                  <td class="timestamp">${format(new Date(log.createdAt), 'yyyy-MM-dd HH:mm:ss')}</td>
+                  <td class="timestamp">${safeFormatAny(log.createdAt, 'yyyy-MM-dd HH:mm:ss')}</td>
                   <td>${log.action}</td>
                   <td>${log.entityType}</td>
                   <td>${log.entityId}</td>

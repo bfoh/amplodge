@@ -19,6 +19,7 @@ import { sendStayExtensionNotification } from '@/services/notifications'
 import { formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { format, addDays } from 'date-fns'
+import { safeFormatAny, safeParseISO } from '@/lib/safe-date'
 
 const DISCOUNT_REASONS = [
     { value: 'loyalty', label: 'Loyalty Discount' },
@@ -86,9 +87,12 @@ export function ExtendStayDialog({
     const [paymentType, setPaymentType] = useState<'full' | 'part' | 'later'>('later')
     const [paymentSplits, setPaymentSplits] = useState<Array<{ method: string; amount: number }>>([{ method: 'cash', amount: 0 }])
 
-    // Calculate minimum date (day after current checkout)
-    const minDate = format(addDays(new Date(booking.checkOut), 1), 'yyyy-MM-dd')
-    const currentCheckout = format(new Date(booking.checkOut), 'MMM dd, yyyy')
+    // Calculate minimum date (day after current checkout). Guard against
+    // missing/invalid booking.checkOut so the dialog renders rather than
+    // crashing the parent when called against legacy rows.
+    const currentCheckoutDate = safeParseISO(booking.checkOut) ?? new Date()
+    const minDate = format(addDays(currentCheckoutDate, 1), 'yyyy-MM-dd')
+    const currentCheckout = safeFormatAny(booking.checkOut, 'MMM dd, yyyy')
 
     // Fetch room rate on open - use booking rate if available (to match current stay), otherwise room.price
     useEffect(() => {
@@ -239,7 +243,7 @@ export function ExtendStayDialog({
                     console.error('Failed to send extension notification:', notifError)
                 }
 
-                toast.success(`Stay extended to ${format(new Date(newCheckoutDate), 'MMM dd, yyyy')}!`)
+                toast.success(`Stay extended to ${safeFormatAny(newCheckoutDate, 'MMM dd, yyyy')}!`)
                 onOpenChange(false)
                 onExtensionComplete?.()
             } else {

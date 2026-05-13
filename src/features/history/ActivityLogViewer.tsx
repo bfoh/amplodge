@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { db, auth } from '@/lib/db'
 import { Loader2, Search, FileEdit, Trash2, UserPlus, Shield, Clock } from 'lucide-react'
 import { format } from 'date-fns'
+import { safeFormatAny } from '@/lib/safe-date'
 
 interface ActivityLog {
   id: string
@@ -237,10 +238,10 @@ export function ActivityLogViewer({
                     <TableCell className="text-muted-foreground">
                       <div className="flex flex-col">
                         <span className="text-sm">
-                          {format(new Date(log.createdAt), 'MMM d, yyyy')}
+                          {safeFormatAny(log.createdAt, 'MMM d, yyyy')}
                         </span>
                         <span className="text-xs">
-                          {format(new Date(log.createdAt), 'h:mm a')}
+                          {safeFormatAny(log.createdAt, 'h:mm a')}
                         </span>
                       </div>
                     </TableCell>

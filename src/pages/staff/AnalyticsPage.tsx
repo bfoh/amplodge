@@ -37,6 +37,7 @@ import {
   subYears, startOfYear, endOfYear,
   parseISO
 } from 'date-fns'
+import { safeFormatAny } from '@/lib/safe-date'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -668,7 +669,7 @@ export function AnalyticsPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                   <XAxis
                     dataKey="date"
-                    tickFormatter={v => format(new Date(v), 'MMM d')}
+                    tickFormatter={v => safeFormatAny(v, 'MMM d', '')}
                     tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
                     axisLine={false}
                     tickLine={false}
@@ -712,7 +713,7 @@ export function AnalyticsPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                   <XAxis
                     dataKey="date"
-                    tickFormatter={v => format(new Date(v), 'MMM d')}
+                    tickFormatter={v => safeFormatAny(v, 'MMM d', '')}
                     tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
                     axisLine={false}
                     tickLine={false}
