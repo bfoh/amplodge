@@ -58,12 +58,20 @@ export function PropertiesPage() {
     loadRoomTypes()
   }, [])
 
-  // Realtime: refresh whenever room/property rows, bookings, or
-  // housekeeping tasks change so admins see status transitions
-  // (occupied -> cleaning -> available) without a manual reload.
+  // Realtime: refresh whenever room/property rows, bookings, housekeeping
+  // tasks, or room-type prices change so admins see status transitions
+  // (occupied -> cleaning -> available) AND price edits without a manual
+  // reload.
   const propertiesUpdated = useSubscription('properties')
   const bookingsUpdated = useSubscription('bookings')
   const tasksUpdated = useSubscription('housekeeping_tasks')
+  const roomTypesUpdated = useSubscription('room_types')
+
+  useEffect(() => {
+    // Re-pull room types when the table emits a realtime update so the
+    // matching loop downstream sees the new prices on the next render.
+    loadRoomTypes()
+  }, [roomTypesUpdated])
 
   useEffect(() => {
     loadProperties()
@@ -84,15 +92,28 @@ export function PropertiesPage() {
 
       setBookings(allBookings)
 
-      // Derive room type by id first, fallback to name, and compute display fields
+      // Derive room type by id first, then by name (case-insensitive), and
+      // compute the display price with a robust fallback chain so the cards
+      // never show GHC0 when a real price exists somewhere in the row.
+      //
+      // Price source priority:
+      //   1. matching room type's basePrice  (canonical, edited via SetPrices)
+      //   2. property's own basePrice        (per-room override)
+      //   3. property's legacy `price` field (older rows pre-rename)
+      //   4. 0                                (genuinely unpriced)
       const propertiesWithPrices = data.map((prop: any) => {
         const matchingType =
           roomTypes.find((rt) => rt.id === prop.propertyTypeId) ||
-          roomTypes.find((rt) => rt.name.toLowerCase() === (prop.propertyType || '').toLowerCase())
+          roomTypes.find((rt) => (rt.name || '').toLowerCase() === (prop.propertyType || '').toLowerCase())
+
+        const typePrice = Number(matchingType?.basePrice ?? 0)
+        const ownPrice = Number(prop.basePrice ?? prop.price ?? 0)
+        const displayPrice = typePrice > 0 ? typePrice : ownPrice
+
         return {
           ...prop,
           roomTypeName: matchingType?.name || prop.propertyType || '',
-          displayPrice: matchingType?.basePrice ?? 0
+          displayPrice,
         }
       })
 
