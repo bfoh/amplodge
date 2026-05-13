@@ -117,16 +117,21 @@ AMP Lodge Hotel Management System
     if (smsOk) console.log('✅ [TaskAssignmentEmail] SMS sent successfully')
     else if (data.employeePhone) console.warn('⚠️ [TaskAssignmentEmail] SMS failed:', (smsResult as any)?.error)
 
-    // Success if EITHER channel reached the staff member.
+    // Success if EITHER channel reached the staff member. Expose per-channel
+    // errors so the UI can show why a specific channel failed even when the
+    // other one succeeded (e.g. "Email sent, SMS failed: invalid number").
     const success = emailOk || smsOk
+    const emailError = emailOk ? undefined : (emailResult?.error || 'unknown email error')
+    const smsError = smsOk ? undefined : (data.employeePhone ? ((smsResult as any)?.error || 'unknown SMS error') : 'no phone on file')
     return {
       success,
       emailOk,
       smsOk,
       hasPhone: !!data.employeePhone,
-      error: success
-        ? undefined
-        : (emailResult?.error || (smsResult as any)?.error || 'unknown'),
+      emailError,
+      smsError,
+      // Aggregate error for the all-failed case.
+      error: success ? undefined : (emailError || smsError || 'unknown'),
     }
   } catch (error: any) {
     console.error('❌ [TaskAssignmentEmail] Failed to send notifications:', error)

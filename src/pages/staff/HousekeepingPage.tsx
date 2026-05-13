@@ -211,16 +211,25 @@ export default function HousekeepingPage() {
             completionUrl: completionUrl
           }) as any
 
-          // Both channels are attempted independently. Show what landed.
+          // Both channels are attempted independently. Show what landed and
+          // include the per-channel error message when one side fails so the
+          // operator can act on it (invalid number, suspended key, etc).
           if (notif.emailOk && notif.smsOk) {
             toast.success(`Task assigned to ${assignedStaff.name}. Email + SMS sent.`)
           } else if (notif.emailOk) {
-            toast.success(
-              `Task assigned to ${assignedStaff.name}. Email sent` +
-              (notif.hasPhone ? ' (SMS failed).' : ' (no phone on file).')
-            )
+            if (notif.hasPhone) {
+              toast.error(
+                `Task assigned to ${assignedStaff.name}. Email sent. SMS failed: ${notif.smsError || 'unknown'}`
+              )
+            } else {
+              toast.success(
+                `Task assigned to ${assignedStaff.name}. Email sent (no phone on file).`
+              )
+            }
           } else if (notif.smsOk) {
-            toast.success(`Task assigned to ${assignedStaff.name}. SMS sent (email failed).`)
+            toast.error(
+              `Task assigned to ${assignedStaff.name}. SMS sent. Email failed: ${notif.emailError || 'unknown'}`
+            )
           } else {
             const reason = notif.error || 'unknown error'
             toast.error(
