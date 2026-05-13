@@ -1,7 +1,9 @@
 import { useState, useEffect, useTransition } from 'react'
 import { useSubscription } from '@/hooks/use-subscription'
 import { motion } from 'framer-motion'
-import { Calendar, CheckCircle2, Clock, Search, User, AlertCircle, Trash2, Loader2 } from 'lucide-react'
+import { Calendar, CheckCircle2, Clock, Search, User, AlertCircle, Trash2, Loader2, Activity, X } from 'lucide-react'
+import { callFunction } from '@/lib/api'
+import { useStaffRole } from '@/hooks/use-staff-role'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -47,6 +49,28 @@ export default function HousekeepingPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkConfirm, setBulkConfirm] = useState<'complete' | 'delete' | null>(null)
   const [bulkBusy, setBulkBusy] = useState(false)
+
+  // Notification-diagnostic state
+  const { role } = useStaffRole()
+  const isAdmin = role === 'admin' || role === 'owner'
+  const [diagOpen, setDiagOpen] = useState(false)
+  const [diagBusy, setDiagBusy] = useState(false)
+  const [diagResult, setDiagResult] = useState<any | null>(null)
+  const runDiagnostics = async () => {
+    setDiagBusy(true)
+    setDiagResult(null)
+    try {
+      const res = await callFunction('notification-diag', { method: 'GET' })
+      const text = await res.text()
+      let parsed: any = null
+      try { parsed = JSON.parse(text) } catch { /* keep raw */ }
+      setDiagResult(parsed ?? { rawStatus: res.status, rawBody: text })
+    } catch (e: any) {
+      setDiagResult({ networkError: e?.message || 'Network failure' })
+    } finally {
+      setDiagBusy(false)
+    }
+  }
 
   const tasksUpdate = useSubscription('housekeeping_tasks')
   const propertiesUpdate = useSubscription('properties')
@@ -459,6 +483,17 @@ export default function HousekeepingPage() {
           </div>
           <p className="text-sm text-muted-foreground">Manage cleaning tasks and room maintenance</p>
         </div>
+        {isAdmin && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => { setDiagOpen(true); runDiagnostics() }}
+          >
+            <Activity className="w-4 h-4" />
+            Diagnose notifications
+          </Button>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -803,6 +838,80 @@ export default function HousekeepingPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={diagOpen} onOpenChange={(open) => !open && setDiagOpen(false)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Activity className="w-5 h-5 text-primary" />
+              Notification provider diagnostics
+            </DialogTitle>
+            <DialogDescription>
+              Verifies that Resend (email) and Arkesel (SMS) API keys configured on
+              the server are accepted. Doesn't spend any send credits.
+            </DialogDescription>
+          </DialogHeader>
+
+          {diagBusy ? (
+            <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+              <Loader2 className="w-5 h-5 animate-spin mr-2" />
+              Running checks…
+            </div>
+          ) : diagResult ? (
+            <div className="space-y-3">
+              <ProviderRow name="Resend (email)" data={diagResult.resend} />
+              <ProviderRow name="Arkesel (SMS)" data={diagResult.arkesel} />
+              {diagResult.networkError && (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                  Network error: {diagResult.networkError}
+                </div>
+              )}
+              {diagResult.rawBody && (
+                <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs font-mono overflow-x-auto">
+                  HTTP {diagResult.rawStatus}: {diagResult.rawBody.slice(0, 300)}
+                </div>
+              )}
+              {diagResult.serverTime && (
+                <p className="text-[10px] text-muted-foreground">
+                  Server time: {diagResult.serverTime}
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground py-4">No result yet.</p>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDiagOpen(false)}>Close</Button>
+            <Button onClick={runDiagnostics} disabled={diagBusy}>
+              {diagBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Re-run'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+function ProviderRow({ name, data }: { name: string; data: any }) {
+  const ok = !!data?.ok
+  return (
+    <div className={`rounded-lg border p-3 ${ok ? 'border-green-200 bg-green-50/50' : 'border-red-200 bg-red-50/50'}`}>
+      <div className="flex items-center justify-between">
+        <span className="font-semibold text-sm">{name}</span>
+        <span className={`inline-flex items-center gap-1 text-xs font-medium ${ok ? 'text-green-700' : 'text-red-700'}`}>
+          {ok ? <CheckCircle2 className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
+          {ok ? 'OK' : 'Failed'}
+        </span>
+      </div>
+      <div className="mt-1 text-xs text-muted-foreground space-y-0.5">
+        {data?.keyConfigured === false && <p className="text-red-700">Env var not set on the server.</p>}
+        {data?.status != null && <p>HTTP status: {data.status}</p>}
+        {data?.error && <p className="text-red-700 break-words">{data.error}</p>}
+        {data?.keyCount != null && <p>API keys on file: {data.keyCount}</p>}
+        {data?.balance != null && <p>Balance: {data.balance} {data.currency || ''}</p>}
+        {data?.senderId && <p>Sender ID: {data.senderId}</p>}
+      </div>
     </div>
   )
 }
