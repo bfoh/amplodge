@@ -307,19 +307,35 @@ export function ReservationsPage() {
     return roomCost + additionalCharges
   }
 
-  const resolveRoomStatus = (booking: Booking, room?: Room) => {
+  // Compute the room-status secondary label rendered under the room number
+  // in each reservation row. This is INTENTIONALLY booking-scoped, not a
+  // mirror of the room's live state, because the live state describes the
+  // ROOM right now — not what happened during a past stay.
+  //
+  // Previously a past checked-out booking displayed "Cleaning" whenever the
+  // ROOM happened to currently be in 'cleaning' state (because someone else
+  // had just checked out). That cascaded to every historical row sharing
+  // the same room number and was deeply misleading.
+  //
+  // New rule:
+  //   - reserved/confirmed -> show room's live operational state if it
+  //     matters to the upcoming stay (maintenance/cleaning), else 'available'
+  //   - checked-in         -> 'occupied'
+  //   - checked-out        -> empty string. The STATUS column already shows
+  //                           "Checked Out" — adding a stale room status here
+  //                           is redundant and inaccurate for historical rows.
+  //   - cancelled          -> empty string. Same reasoning.
+  //   - anything else      -> empty string.
+  const resolveRoomStatus = (booking: Booking, room?: Room): string => {
     if (booking.status === 'checked-in') return 'occupied'
-    // For checked-out bookings, use actual room status from database
-    // Room can be 'cleaning' or 'available' depending on housekeeping task completion
-    if (booking.status === 'checked-out') return room?.status || 'cleaning'
-    if (booking.status === 'cancelled') return room?.status || 'cancelled'
     if (booking.status === 'confirmed' || booking.status === 'reserved') {
       if (room?.status && ['maintenance', 'cleaning'].includes(room.status)) {
         return room.status
       }
       return 'available'
     }
-    return room?.status || 'available'
+    // Closed/historical rows — suppress the secondary label.
+    return ''
   }
 
   const filtered = useMemo(() => {
