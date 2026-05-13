@@ -277,6 +277,26 @@ export default function HousekeepingPage() {
     try {
       await db.housekeepingTasks.delete(deleteId)
 
+      // Release the room if it was sitting in 'cleaning' for this task and
+      // no other pending/in-progress task targets the same room. Deleting a
+      // task is treated as "cleaning was handled / no longer needed", so the
+      // room should rejoin the available pool.
+      if (task?.propertyId) {
+        const otherOpenForRoom = tasks.some(t =>
+          t.id !== task.id &&
+          t.propertyId === task.propertyId &&
+          t.status !== 'completed'
+        )
+        if (!otherOpenForRoom) {
+          try {
+            const room: any = await db.properties.get(task.propertyId).catch(() => null)
+            if (room && (room.status === 'cleaning' || !room.status)) {
+              await db.properties.update(task.propertyId, { status: 'available' }).catch(() => null)
+            }
+          } catch { /* non-fatal */ }
+        }
+      }
+
       // Log the task deletion
       if (task) {
         const user = await auth.me()
@@ -368,9 +388,20 @@ export default function HousekeepingPage() {
             completedAt,
             completionNotes: 'Bulk completion',
           } as any)
-          // Mirror status on the property row so it shows available again
+          // Mirror status on the property row so it shows available again.
+          // Use 'available' consistently — see lifecycle notes in
+          // PropertiesPage.getRoomStatus. Skip if another non-completed task
+          // still targets this room (rare with bulk but harmless to check).
           if (t.propertyId) {
-            await db.properties.update(t.propertyId, { status: 'active' }).catch(() => null)
+            const stillOpen = tasks.some(other =>
+              other.id !== t.id &&
+              other.propertyId === t.propertyId &&
+              other.status !== 'completed' &&
+              !ids.includes(other.id)
+            )
+            if (!stillOpen) {
+              await db.properties.update(t.propertyId, { status: 'available' }).catch(() => null)
+            }
           }
           activityLogService.log({
             action: 'completed',
@@ -414,6 +445,24 @@ export default function HousekeepingPage() {
         const target = tasks.find(t => t.id === id)
         try {
           await db.housekeepingTasks.delete(id)
+
+          // Release the room if it was in 'cleaning' state and no other
+          // open task in or out of the bulk batch still targets it.
+          if (target?.propertyId) {
+            const stillOpen = tasks.some(other =>
+              other.id !== target.id &&
+              other.propertyId === target.propertyId &&
+              other.status !== 'completed' &&
+              !ids.includes(other.id)
+            )
+            if (!stillOpen) {
+              const room: any = await db.properties.get(target.propertyId).catch(() => null)
+              if (room && (room.status === 'cleaning' || !room.status)) {
+                await db.properties.update(target.propertyId, { status: 'available' }).catch(() => null)
+              }
+            }
+          }
+
           activityLogService.log({
             action: 'deleted',
             entityType: 'task',

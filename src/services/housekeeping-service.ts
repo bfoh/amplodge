@@ -86,8 +86,11 @@ class HousekeepingService {
 
             if (property) {
                 if (property.status?.toLowerCase() === 'cleaning') {
-                    console.log(`[HousekeepingService] Updating property ${property.roomNumber} status to active`)
-                    await db.properties.update(property.id, { status: 'active' })
+                    // Use 'available' so admins on the rooms page see the
+                    // canonical free-state badge. PropertiesPage treats both
+                    // 'active' and 'available' as free for backward compat.
+                    console.log(`[HousekeepingService] Updating property ${property.roomNumber} status to available`)
+                    await db.properties.update(property.id, { status: 'available' })
                 }
             } else {
                 console.warn(`[HousekeepingService] Property not found for number: ${roomNumber}`)
