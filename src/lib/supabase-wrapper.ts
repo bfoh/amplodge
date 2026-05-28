@@ -320,18 +320,25 @@ function createTableWrapper(tableName: string) {
       // --- SWR: cache hit + online → return cached now, refresh in background ---
       if (cached && getNetworkOnline()) {
         const cachedSnapshot = cached.map(convertToCamelCase)
-        // Capture pre-refresh row count so we can decide whether to emit.
-        // Emitting on every refresh — even when nothing changed — would loop:
-        // a subscriber re-runs its loader, which calls list() again, which
-        // triggers another refresh, which emits, ad infinitum.
+        // Capture a fingerprint (row count + max updated_at) so we can detect
+        // both inserts/deletes and in-place row updates (e.g. booking status
+        // flipping confirmed → checked-in). Emitting only on count change
+        // missed those status updates entirely, which left analytics pages
+        // showing stale revenue figures. The cache write after fetch ensures
+        // a follow-up list() returns the new snapshot, so no emit-loop.
+        const maxUpdatedAt = (rows: any[]) => {
+          let m = ''
+          for (const r of rows) {
+            const t = r?.updated_at || r?.updatedAt || ''
+            if (t && t > m) m = t
+          }
+          return m
+        }
         const cachedCount = cached.length
+        const cachedMaxTs = maxUpdatedAt(cached)
         fetchFromSupabase()
           .then(freshData => {
-            // Only signal subscribers if the row count actually changed.
-            // In-place updates without a count change are picked up by the
-            // page's own polling interval; the cost of missing them is far
-            // smaller than the cost of an emit-loop.
-            if (freshData.length !== cachedCount) {
+            if (freshData.length !== cachedCount || maxUpdatedAt(freshData) !== cachedMaxTs) {
               emitTableUpdated(tableName)
             }
           })

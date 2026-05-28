@@ -35,7 +35,6 @@ import {
   startOfWeek, endOfWeek, format,
   subWeeks, subMonths, startOfMonth, endOfMonth,
   subYears, startOfYear, endOfYear,
-  parseISO
 } from 'date-fns'
 import { safeFormatAny } from '@/lib/safe-date'
 import {
@@ -130,6 +129,11 @@ export function AnalyticsPage() {
     loadingRef.current = true
     setLoading(true)
     try {
+      // Force-refresh booking-engine cache. Without this, status changes made
+      // elsewhere (e.g. another tab checking a guest in) sit unseen for 30s
+      // because the supabase-wrapper SWR layer only emits on row-count change.
+      bookingEngine.invalidateCache()
+
       // Fetch all shared data ONCE, then pass to each analytics method — no redundant DB calls
       // Timeout after 15s to prevent infinite hang from IndexedDB/network issues
       const shared = await Promise.race([
@@ -238,21 +242,26 @@ export function AnalyticsPage() {
   const activePeriod = breakdownMode === 'week' ? weekOptions[selectedWeekIdx]
     : breakdownMode === 'month' ? monthOptions[selectedMonthIdx] : yearOptions[selectedYearIdx]
 
+  // Use YYYY-MM-DD string comparison to avoid timezone ambiguity between
+  // Postgres DATE (e.g. "2026-05-28" → UTC midnight when fed to new Date)
+  // and date-fns startOfWeek/endOfWeek (local midnight). Both sides are
+  // sliced to a date-only string before comparing.
+  const periodStartStr = format(activePeriod.start, 'yyyy-MM-dd')
+  const periodEndStr   = format(activePeriod.end,   'yyyy-MM-dd')
+
   const breakdownBookings = [
     ...allRevenueBookings
-      .filter(b => { 
-        const ci = b.dates?.checkIn || b.checkIn
+      .filter(b => {
+        const ci = (b.dates?.checkIn || b.checkIn || '').slice(0, 10)
         if (!ci) return false
-        const d = typeof ci === 'string' ? parseISO(ci) : new Date(ci)
-        return d >= activePeriod.start && d <= activePeriod.end 
+        return ci >= periodStartStr && ci <= periodEndStr
       })
       .map(b => ({ ...b, _isDeposit: false, _displayAmount: Number(b.amount || b.totalPrice || 0) })),
     ...allDepositBookings
-      .filter(b => { 
-        const ca = b.createdAt || b.created_at || ''
+      .filter(b => {
+        const ca = (b.createdAt || b.created_at || '').slice(0, 10)
         if (!ca) return false
-        const d = typeof ca === 'string' ? parseISO(ca) : new Date(ca)
-        return !isNaN(d.getTime()) && d >= activePeriod.start && d <= activePeriod.end 
+        return ca >= periodStartStr && ca <= periodEndStr
       })
       .map(b => ({ ...b, _isDeposit: true, _displayAmount: Number(b.amountPaid || 0) })),
   ]
@@ -297,15 +306,18 @@ export function AnalyticsPage() {
   const chargeSelectedIdx = chargePeriodMode === 'week' ? chargeWeekIdx
     : chargePeriodMode === 'month' ? chargeMonthIdx : chargeYearIdx
 
+  const chargePeriodStartStr = format(chargeActivePeriod.start, 'yyyy-MM-dd')
+  const chargePeriodEndStr   = format(chargeActivePeriod.end,   'yyyy-MM-dd')
+
   const filteredCharges = allChargesRaw.filter(c => {
-    const d = new Date(c.createdAt || c.created_at || '')
-    return !isNaN(d.getTime()) && d >= chargeActivePeriod.start && d <= chargeActivePeriod.end
+    const cd = (c.createdAt || c.created_at || '').slice(0, 10)
+    if (!cd) return false
+    return cd >= chargePeriodStartStr && cd <= chargePeriodEndStr
   })
   const filteredSales = allSalesRaw.filter((s: any) => {
-    const sd = s.saleDate || s.sale_date || ''
+    const sd = ((s.saleDate || s.sale_date || '') as string).slice(0, 10)
     if (!sd) return false
-    const d = new Date(sd)
-    return d >= chargeActivePeriod.start && d <= chargeActivePeriod.end
+    return sd >= chargePeriodStartStr && sd <= chargePeriodEndStr
   })
   const chargeCatMap: Record<string, number> = {}
   for (const c of filteredCharges) {
@@ -399,25 +411,25 @@ export function AnalyticsPage() {
 
   // ── Page-computed Revenue Summary (uses same raw data as Booking Breakdown & Additional Revenue Sources) ──
   // This ensures the Revenue Summary is always consistent with the other two cards.
+  // YYYY-MM-DD string compare keeps results stable across timezones (see breakdownBookings).
   const computeRevForPeriod = (period: { start: Date; end: Date }) => {
+    const fromStr = format(period.start, 'yyyy-MM-dd')
+    const toStr   = format(period.end,   'yyyy-MM-dd')
+    const inRange = (raw: string) => {
+      const d = (raw || '').slice(0, 10)
+      return !!d && d >= fromStr && d <= toStr
+    }
     const roomRev = allRevenueBookings
-      .filter(b => { const d = new Date(b.dates.checkIn); return d >= period.start && d <= period.end })
+      .filter(b => inRange(b.dates?.checkIn || b.checkIn || ''))
       .reduce((s: number, b: any) => s + Number(b.amount || b.totalPrice || 0), 0)
     const depositRev = allDepositBookings
-      .filter(b => { const d = new Date(b.createdAt || ''); return !isNaN(d.getTime()) && d >= period.start && d <= period.end })
+      .filter(b => inRange(b.createdAt || b.created_at || ''))
       .reduce((s: number, b: any) => s + Number(b.amountPaid || 0), 0)
     const chargesRev = allChargesRaw
-      .filter(c => {
-        const d = new Date(c.createdAt || c.created_at || '')
-        return !isNaN(d.getTime()) && d >= period.start && d <= period.end
-      })
+      .filter(c => inRange(c.createdAt || c.created_at || ''))
       .reduce((s: number, c: any) => s + Number(c.amount || 0), 0)
     const salesRev = allSalesRaw
-      .filter((s: any) => {
-        const sd = s.saleDate || s.sale_date || ''
-        const d = new Date(sd)
-        return !isNaN(d.getTime()) && d >= period.start && d <= period.end
-      })
+      .filter((s: any) => inRange(s.saleDate || s.sale_date || ''))
       .reduce((s: number, sale: any) => s + Number(sale.amount || 0), 0)
     return roomRev + depositRev + chargesRev + salesRev
   }
