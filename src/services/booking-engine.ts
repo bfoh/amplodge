@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { activityLogService } from './activity-log-service'
 import { sendBookingConfirmation } from './notifications'
 import { createPreInvoiceData, generateInvoicePDF, blobToBase64 } from './invoice-service'
-import { parsePaymentEvents } from '@/lib/payment-events'
+import { parsePaymentEvents, type PaymentEvent } from '@/lib/payment-events'
 
 export interface LocalBooking {
   _id: string
@@ -50,6 +50,10 @@ export interface LocalBooking {
   payment_method?: string
   paymentMethod?: string
   paymentSplits?: Array<{ method: string; amount: number }>
+  // Parsed PAYMENT_EVENTS — per-stage payments carrying their own paidAt timestamp.
+  // Required for period-accurate revenue (attributing money to the period it was
+  // collected in, not the booking's checkIn/createdAt). Mirrors revenue-service R1.
+  paymentEvents?: PaymentEvent[]
   discountAmount?: number   // Discount applied at check-in (0 if none)
 
   // Group Booking Fields
@@ -1338,11 +1342,15 @@ class BookingEngine {
           console.warn('[BookingEngine] Failed to parse payment data from specialRequests')
         }
       }
+      // Parse per-stage payment events once. Used both for the amountPaid fallback
+      // below AND attached to the booking so consumers can attribute revenue by the
+      // period a payment was actually collected (paidAt) — see revenue-service R1.
+      const paymentEvents = parsePaymentEvents(specialReq)
       // Fallback: if PAYMENT_DATA didn't provide amountPaid, check PAYMENT_EVENTS
       // (newer bookings may record events without a separate PAYMENT_DATA comment)
       let paymentEventMethod: string | undefined
       if (amountPaid <= 0 && paymentStatus === 'pending') {
-        const events = parsePaymentEvents(specialReq)
+        const events = paymentEvents
         if (events.length > 0) {
           const bookingStageEvents = events.filter(e => e.stage === 'booking')
           const bookingStageTotal = bookingStageEvents.reduce((s, e) => s + (e.amount || 0), 0)
@@ -1468,6 +1476,7 @@ class BookingEngine {
         checkOutBy: b.checkOutBy || b.check_out_by || undefined,
         checkOutByName: b.checkOutByName || b.check_out_by_name || undefined,
         paymentSplits,
+        paymentEvents,
       }
       return local
     })

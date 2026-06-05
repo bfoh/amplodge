@@ -102,6 +102,9 @@ export function AnalyticsPage() {
   const [performance, setPerformance] = useState<PerformanceMetrics | null>(null)
   const [allRevenueBookings, setAllRevenueBookings] = useState<any[]>([])
   const [allDepositBookings, setAllDepositBookings] = useState<any[]>([])
+  // All bookings (every status) — needed to attribute revenue by the period a
+  // payment was actually collected (paidAt), matching the HR revenue-service.
+  const [allRawBookings, setAllRawBookings] = useState<any[]>([])
   const [breakdownMode, setBreakdownMode] = useState<'week' | 'month' | 'year'>('week')
   const [selectedWeekIdx, setSelectedWeekIdx] = useState(0)
   const [selectedMonthIdx, setSelectedMonthIdx] = useState(0)
@@ -155,6 +158,7 @@ export function AnalyticsPage() {
       const staffRaw = shared.staff || []
       
       setAllRevenueBookings(revenueData.bookings || [])
+      setAllRawBookings(allBookings)
       setAllChargesRaw(chargesRaw)
       setAllSalesRaw(salesRaw)
       setAllStaff(staffRaw)
@@ -249,7 +253,26 @@ export function AnalyticsPage() {
   const periodStartStr = format(activePeriod.start, 'yyyy-MM-dd')
   const periodEndStr   = format(activePeriod.end,   'yyyy-MM-dd')
 
-  const breakdownBookings = [
+  // Sum of payment events whose paidAt falls inside the active period. This is the
+  // cash actually collected in the period for a booking — the basis the HR
+  // revenue-service uses (rule R1). See computeStaffAttributedRevenue / R1.
+  const eventInPeriodSum = (b: any): number =>
+    ((b.paymentEvents as any[]) || []).reduce((s: number, e: any) => {
+      const d = (e?.paidAt || '').slice(0, 10)
+      if (!d || d < periodStartStr || d > periodEndStr) return s
+      return s + (Number(e?.amount) || 0)
+    }, 0)
+  // Payment method for an event booking: the in-period booking-stage event's method.
+  const eventInPeriodMethod = (b: any): string => {
+    const inP = ((b.paymentEvents as any[]) || []).filter((e: any) => {
+      const d = (e?.paidAt || '').slice(0, 10)
+      return d && d >= periodStartStr && d <= periodEndStr
+    })
+    const ev = inP.find((e: any) => e?.stage === 'booking') || inP[0]
+    return ev?.method || b.paymentMethod || b.payment?.method || ''
+  }
+
+  const breakdownBase = [
     ...allRevenueBookings
       .filter(b => {
         const ci = (b.dates?.checkIn || b.checkIn || '').slice(0, 10)
@@ -265,6 +288,24 @@ export function AnalyticsPage() {
       })
       .map(b => ({ ...b, _isDeposit: true, _displayAmount: Number(b.amountPaid || 0) })),
   ]
+  // R1: bookings whose payment landed in the period but aren't already counted
+  // above (e.g. money taken on a reserved booking, or a deposit collected in a
+  // different period than the booking was created). Deduped by booking id so a
+  // booking already valued above is never double-counted.
+  const breakdownSeen = new Set(breakdownBase.map((b: any) => b._id || b.remoteId || b.id))
+  const breakdownEventBookings = allRawBookings
+    .filter((b: any) => !breakdownSeen.has(b._id || b.remoteId || b.id))
+    .map((b: any) => ({ b, amt: eventInPeriodSum(b) }))
+    .filter((x: any) => x.amt > 0)
+    .map((x: any) => ({
+      ...x.b,
+      _isDeposit: true,
+      _isEvent: true,
+      _displayAmount: x.amt,
+      paymentMethod: eventInPeriodMethod(x.b),
+      paymentSplits: undefined, // value is the in-period collected amount, attribute to one method
+    }))
+  const breakdownBookings = [...breakdownBase, ...breakdownEventBookings]
   const breakdownTotal = breakdownBookings.reduce((s, b) => s + (b as any)._displayAmount, 0)
 
   const normPay = (raw: string) => {
@@ -419,19 +460,32 @@ export function AnalyticsPage() {
       const d = (raw || '').slice(0, 10)
       return !!d && d >= fromStr && d <= toStr
     }
+    const bookingKey = (b: any) => b._id || b.remoteId || b.id
+    const countedIds = new Set<string>()
     const roomRev = allRevenueBookings
       .filter(b => inRange(b.dates?.checkIn || b.checkIn || ''))
-      .reduce((s: number, b: any) => s + Number(b.amount || b.totalPrice || 0), 0)
+      .reduce((s: number, b: any) => { countedIds.add(bookingKey(b)); return s + Number(b.amount || b.totalPrice || 0) }, 0)
     const depositRev = allDepositBookings
       .filter(b => inRange(b.createdAt || b.created_at || ''))
-      .reduce((s: number, b: any) => s + Number(b.amountPaid || 0), 0)
+      .reduce((s: number, b: any) => { countedIds.add(bookingKey(b)); return s + Number(b.amountPaid || 0) }, 0)
+    // R1: payments collected in the period on bookings not counted above (mirrors
+    // the HR revenue-service so the summary matches the Booking Breakdown card).
+    const eventRev = allRawBookings
+      .filter((b: any) => !countedIds.has(bookingKey(b)))
+      .reduce((s: number, b: any) => {
+        const amt = ((b.paymentEvents as any[]) || []).reduce((a: number, e: any) => {
+          const d = (e?.paidAt || '').slice(0, 10)
+          return (d && d >= fromStr && d <= toStr) ? a + (Number(e?.amount) || 0) : a
+        }, 0)
+        return s + amt
+      }, 0)
     const chargesRev = allChargesRaw
       .filter(c => inRange(c.createdAt || c.created_at || ''))
       .reduce((s: number, c: any) => s + Number(c.amount || 0), 0)
     const salesRev = allSalesRaw
       .filter((s: any) => inRange(s.saleDate || s.sale_date || ''))
       .reduce((s: number, sale: any) => s + Number(sale.amount || 0), 0)
-    return roomRev + depositRev + chargesRev + salesRev
+    return roomRev + depositRev + eventRev + chargesRev + salesRev
   }
   const pageRevThisWeek  = computeRevForPeriod(weekOptions[0])
   const pageRevThisMonth = computeRevForPeriod(monthOptions[0])
