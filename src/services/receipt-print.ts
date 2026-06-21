@@ -1,4 +1,3 @@
-import { toast } from 'sonner'
 import {
   printReceipt80mm,
   printGroupReceipt80mm,
@@ -10,46 +9,49 @@ import {
 type InvoiceData = Awaited<ReturnType<typeof createInvoiceData>>
 type GroupInvoiceData = Awaited<ReturnType<typeof buildOnsiteGroupReceiptData>>
 
-/**
- * Show a non-blocking "Print receipt?" toast. The print itself is best-effort:
- * a failure (popup blocked, no printer) only surfaces a warning toast.
- */
-function showPrintPrompt(print: () => Promise<void>): void {
-  toast('Payment recorded', {
-    description: 'Print an 80mm receipt for the guest?',
-    duration: 15000,
-    action: {
-      label: 'Print receipt',
-      onClick: () => {
-        print().catch((err: any) => {
-          console.error('❌ [ReceiptPrint] Failed to print receipt:', err)
-          toast.warning(err?.message || 'Could not print receipt. Check the printer / allow pop-ups.')
-        })
-      },
-    },
-  })
+/** A pending request for the global "Print receipt?" confirmation dialog. */
+export interface ReceiptPromptRequest {
+  print: () => Promise<void>
+}
+
+// Single subscriber: the <ReceiptPrintDialog/> mounted once at the app root.
+// Service-layer call sites (booking/check-in handlers) cannot render React, so
+// they emit a request here and the mounted dialog shows a persistent modal.
+let opener: ((req: ReceiptPromptRequest) => void) | null = null
+
+export function subscribeReceiptPrompt(fn: ((req: ReceiptPromptRequest) => void) | null): void {
+  opener = fn
+}
+
+function emit(print: () => Promise<void>): void {
+  if (opener) {
+    opener({ print })
+  } else {
+    // No dialog mounted (shouldn't happen) — fail safe by printing directly.
+    print().catch(err => console.error('❌ [ReceiptPrint] print failed (no dialog mounted):', err))
+  }
 }
 
 /**
- * Offer to print an 80mm receipt for a single booking after a payment is
- * recorded (at check-in, or an onsite single-room booking with a deposit).
+ * Open the global "Print receipt?" confirmation for a single booking after a
+ * payment is recorded (check-in, or a single-room booking with payment).
  */
 export function promptPrintReceipt(
   invoiceData: InvoiceData | null | undefined,
   payment?: ReceiptPayment
 ): void {
   if (!invoiceData) return
-  showPrintPrompt(() => printReceipt80mm(invoiceData, payment))
+  emit(() => printReceipt80mm(invoiceData, payment))
 }
 
 /**
- * Offer to print an 80mm group receipt after a payment is recorded
- * (an onsite multi-room booking with a deposit).
+ * Open the global "Print receipt?" confirmation for a group (multi-room)
+ * booking after a payment is recorded.
  */
 export function promptPrintGroupReceipt(
   groupData: GroupInvoiceData | null | undefined,
   payment?: ReceiptPayment
 ): void {
   if (!groupData) return
-  showPrintPrompt(() => printGroupReceipt80mm(groupData, payment))
+  emit(() => printGroupReceipt80mm(groupData, payment))
 }
