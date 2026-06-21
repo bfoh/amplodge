@@ -4,6 +4,7 @@ import { useCurrency } from '../hooks/use-currency'
 import { getRoomDisplayName, calculateNights } from '../lib/display'
 import { Users, CalendarIcon, Mail, Phone, DollarSign, MessageSquare, LogIn, LogOut, CheckCircle2, CalendarPlus } from 'lucide-react'
 import { createInvoiceData, generateInvoicePDF, blobToBase64 } from '@/services/invoice-service'
+import { finalizeCheckoutReceipt } from '@/services/checkout-receipt'
 import { sendCheckInNotification, sendCheckOutNotification } from '@/services/notifications'
 import { bookingEngine } from '../services/booking-engine'
 import {
@@ -175,6 +176,8 @@ export function CalendarGridView({
         console.log('📊 [CalendarGridView] Creating invoice data...')
         // Generate invoice data
         const invoiceData = await createInvoiceData(bookingWithDetails, getRoomForBooking(booking))
+        // Best-effort 80mm thermal receipt (never blocks checkout)
+        void finalizeCheckoutReceipt(invoiceData)
         console.log('✅ [CalendarGridView] Invoice data created:', invoiceData.invoiceNumber)
 
         // IMPORTANT: Save the invoice number to the booking record for consistency

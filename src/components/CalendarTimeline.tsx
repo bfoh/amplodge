@@ -3,6 +3,7 @@ import { cn } from '../lib/utils'
 import { getRoomDisplayName, calculateNights } from '../lib/display'
 import { Users, CalendarIcon, Mail, Phone, DollarSign, MessageSquare, LogIn, LogOut, CheckCircle2, CalendarPlus } from 'lucide-react'
 import { createInvoiceData, generateInvoicePDF, blobToBase64 } from '@/services/invoice-service'
+import { finalizeCheckoutReceipt } from '@/services/checkout-receipt'
 import { bookingEngine } from '../services/booking-engine'
 import { sendCheckInNotification, sendCheckOutNotification } from '@/services/notifications'
 import { activityLogService } from '@/services/activity-log-service'
@@ -374,6 +375,8 @@ export function CalendarTimeline({
         console.log('📊 [CalendarTimeline] Creating invoice data...')
         // Generate invoice data
         const invoiceData = await createInvoiceData(bookingWithDetails, room)
+        // Best-effort 80mm thermal receipt (never blocks checkout)
+        void finalizeCheckoutReceipt(invoiceData)
         console.log('✅ [CalendarTimeline] Invoice data created:', invoiceData.invoiceNumber)
 
         // IMPORTANT: Save the invoice number to the booking record for consistency
