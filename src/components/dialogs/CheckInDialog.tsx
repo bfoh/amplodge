@@ -15,6 +15,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { useCheckIn } from '@/hooks/use-check-in'
+import { createInvoiceData } from '@/services/invoice-service'
+import { promptPrintReceipt } from '@/services/receipt-print'
 import { Tag, Plus, X } from 'lucide-react'
 import type { PaymentSplit } from '@/types'
 
@@ -137,6 +139,41 @@ export function CheckInDialog({
         if (success) {
             onSuccess?.()
             onOpenChange(false)
+
+            // Payment is taken at check-in — offer to print an 80mm receipt.
+            // Best-effort: never blocks the completed check-in.
+            if (checkInPaidAmount > 0) {
+                try {
+                    const roomType = room?.roomType || room?.name || 'Standard Room'
+                    const bookingWithDetails = {
+                        id: booking.remoteId || booking.id,
+                        guestId: booking.guestId || '',
+                        roomId: booking.propertyId || booking.roomId || room?.id || '',
+                        checkIn: checkInDate,
+                        checkOut: checkOutDate,
+                        status: 'checked-in',
+                        totalPrice: totalAmount,
+                        numGuests: booking.numGuests || 1,
+                        createdAt: booking.createdAt || new Date().toISOString(),
+                        discountAmount: discount > 0 ? discount : undefined,
+                        guest: {
+                            name: guest.name || booking.guestName || 'Guest',
+                            email: guest.email || '',
+                            phone: guest.phone,
+                            address: guest.address
+                        },
+                        room: { roomNumber, roomType }
+                    }
+                    const invoiceData = await createInvoiceData(bookingWithDetails as any, { roomNumber, roomType })
+                    const amountPaidTotal = priorAmountPaid + checkInPaidAmount
+                    promptPrintReceipt(invoiceData, {
+                        amountPaid: amountPaidTotal,
+                        balanceDue: invoiceData.charges.total - amountPaidTotal
+                    })
+                } catch (err) {
+                    console.error('❌ [CheckInDialog] Failed to prepare receipt:', err)
+                }
+            }
         }
     }
 

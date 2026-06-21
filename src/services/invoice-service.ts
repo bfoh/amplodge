@@ -75,15 +75,22 @@ interface BookingWithDetails {
   }
 }
 
-export async function createInvoiceData(booking: BookingWithDetails, roomDetails: any): Promise<InvoiceData> {
+export async function createInvoiceData(
+  booking: BookingWithDetails,
+  roomDetails: any,
+  options?: { additionalCharges?: BookingCharge[] }
+): Promise<InvoiceData> {
   console.log('📊 [InvoiceData] Creating invoice data with real hotel information...')
 
   try {
     // Get real hotel settings from database
     const hotelSettings = await hotelSettingsService.getHotelSettings()
 
-    // Fetch additional charges for this booking
-    const additionalCharges = await bookingChargesService.getChargesForBooking(booking.id)
+    // Fetch additional charges for this booking. When the caller already has the
+    // charges (e.g. an onsite booking that is not yet persisted), use those and
+    // skip the DB lookup that would otherwise return nothing.
+    const additionalCharges = options?.additionalCharges
+      ?? await bookingChargesService.getChargesForBooking(booking.id)
     const additionalChargesTotal = additionalCharges.reduce((sum, c) => sum + (c.amount || 0), 0)
 
     const invoiceNumber = `INV-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
@@ -391,17 +398,33 @@ table.tt .disc td{color:#dc2626}
   }
 }
 
+export interface ReceiptPayment {
+  amountPaid: number
+  balanceDue: number
+}
+
 /**
  * Generate an 80mm thermal-printer receipt (72mm printable width).
  * Used ONLY for the printed paper copy. Email/PDF keep the A4 template.
+ * When `payment` is supplied, the receipt is a payment/deposit receipt and
+ * shows Paid / Balance Due plus a PAID or DEPOSIT stamp.
  */
-export async function generateReceipt80mmHTML(invoiceData: InvoiceData): Promise<string> {
+export async function generateReceipt80mmHTML(invoiceData: InvoiceData, payment?: ReceiptPayment): Promise<string> {
   const settings = await hotelSettingsService.getHotelSettings()
   const currency = settings.currency || 'GHS'
   const logoUrl = `${window.location.origin}/amp.png`
   const fmt = (n: number) => formatCurrencySync(n, currency)
   const d = (s: string) =>
     new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+
+  // Payment block: show Paid/Balance when payment info is provided; otherwise
+  // fall back to a plain PAID stamp (full settlement).
+  const paid = payment ? payment.amountPaid : invoiceData.charges.total
+  const balanceDue = payment ? Math.max(0, payment.balanceDue) : 0
+  const stamp = balanceDue > 0 ? '*** DEPOSIT ***' : '*** PAID ***'
+  const paymentRows = payment
+    ? `<tr><td>Paid</td><td class="r">${fmt(paid)}</td></tr><tr${balanceDue > 0 ? ' class="bal"' : ''}><td>Balance Due</td><td class="r">${fmt(balanceDue)}</td></tr>`
+    : ''
 
   const roomLineTotal = invoiceData.charges.roomRate * invoiceData.charges.nights
   const addRows = invoiceData.charges.additionalCharges
@@ -435,6 +458,7 @@ td.r{text-align:right;white-space:nowrap;padding-left:6px}
 .sec-lbl{font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin:2px 0}
 .tot td{font-size:13px;font-weight:800;padding-top:4px}
 .disc td{font-weight:600}
+.bal td{font-weight:800}
 .paid{text-align:center;font-size:13px;font-weight:800;letter-spacing:2px;margin:6px 0}
 .ty{text-align:center;font-size:10px;font-weight:700;margin-top:2px}
 .fsub{text-align:center;font-size:9px;color:#000;margin-top:2px}
@@ -471,8 +495,9 @@ td.r{text-align:right;white-space:nowrap;padding-left:6px}
     <tr><td>VAT (15%)</td><td class="r">${fmt(invoiceData.charges.vat)}</td></tr>
     <tr><td>Tourism Levy (1%)</td><td class="r">${fmt(invoiceData.charges.tourismLevy)}</td></tr>
     <tr class="tot"><td>TOTAL</td><td class="r">${fmt(invoiceData.charges.total)}</td></tr>
+    ${paymentRows}
   </table>
-  <div class="paid">*** PAID ***</div>
+  <div class="paid">${stamp}</div>
   <div class="div"></div>
   <div class="ty">Thank you for choosing ${invoiceData.hotel.name}!</div>
   <div class="fsub">${invoiceData.hotel.website || invoiceData.hotel.email}</div>
@@ -485,8 +510,8 @@ td.r{text-align:right;white-space:nowrap;padding-left:6px}
  * Open a print window with the 80mm receipt and trigger printing.
  * Mirrors printInvoice() but uses the thermal template. Throws if popup blocked.
  */
-export async function printReceipt80mm(invoiceData: InvoiceData): Promise<void> {
-  const htmlContent = await generateReceipt80mmHTML(invoiceData)
+export async function printReceipt80mm(invoiceData: InvoiceData, payment?: ReceiptPayment): Promise<void> {
+  const htmlContent = await generateReceipt80mmHTML(invoiceData, payment)
   const printWindow = window.open('', '_blank')
   if (!printWindow) {
     throw new Error('Could not open print window. Please allow pop-ups.')

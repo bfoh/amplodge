@@ -17,7 +17,6 @@ import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { toast } from 'sonner'
 import { createInvoiceData, downloadInvoicePDF, generateInvoicePDF, sendInvoiceEmail, createGroupInvoiceData, downloadGroupInvoicePDF, createPreInvoiceData, downloadPreInvoicePDF, generatePreInvoicePDF } from '@/services/invoice-service'
-import { finalizeCheckoutReceipt } from '@/services/checkout-receipt'
 import { activityLogService } from '@/services/activity-log-service'
 import { housekeepingService } from '@/services/housekeeping-service'
 import { bookingChargesService, CHARGE_CATEGORIES } from '@/services/booking-charges-service'
@@ -713,8 +712,6 @@ export function ReservationsPage() {
           console.log('📊 [ReservationsPage] Creating invoice data...')
           // Generate invoice data (this includes additional charges in the total!)
           const invoiceData = await createInvoiceData(bookingWithDetails, room)
-          // Best-effort 80mm thermal receipt (never blocks checkout)
-          void finalizeCheckoutReceipt(invoiceData)
           console.log('✅ [ReservationsPage] Invoice data created:', {
             invoiceNumber: invoiceData.invoiceNumber,
             roomTotal: (booking as any).totalPrice || (booking as any).amount || 0,
