@@ -481,6 +481,22 @@ td.r{text-align:right;white-space:nowrap;padding-left:6px}
 </html>`
 }
 
+/**
+ * Open a print window with the 80mm receipt and trigger printing.
+ * Mirrors printInvoice() but uses the thermal template. Throws if popup blocked.
+ */
+export async function printReceipt80mm(invoiceData: InvoiceData): Promise<void> {
+  const htmlContent = await generateReceipt80mmHTML(invoiceData)
+  const printWindow = window.open('', '_blank')
+  if (!printWindow) {
+    throw new Error('Could not open print window. Please allow pop-ups.')
+  }
+  printWindow.document.write(htmlContent)
+  printWindow.document.close()
+  // Small delay so styles render before the print dialog opens.
+  setTimeout(() => printWindow.print(), 300)
+}
+
 export async function generateInvoicePDF(invoiceData: InvoiceData): Promise<Blob> {
   try {
     console.log('📄 [InvoicePDF] Generating PDF...', {
