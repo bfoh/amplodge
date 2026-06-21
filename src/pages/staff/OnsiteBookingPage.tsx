@@ -19,6 +19,8 @@ import { sendTransactionalEmail } from '@/services/email-service'
 import { sendBookingConfirmationSMS } from '@/services/sms-service'
 import { activityLogService } from '@/services/activity-log-service'
 import { buildBookingPaymentEvent, appendPaymentEvent } from '@/lib/payment-events'
+import { createInvoiceData, buildOnsiteGroupReceiptData } from '@/services/invoice-service'
+import { promptPrintReceipt, promptPrintGroupReceipt } from '@/services/receipt-print'
 
 export function OnsiteBookingPage() {
   const { currency } = useCurrency()
@@ -402,6 +404,59 @@ export function OnsiteBookingPage() {
           ...(discountValue > 0 ? { discount: { type: discountType, value: discountValue, amount: discountAmount } } : {})
         } as any)
 
+        // A deposit/payment was taken at booking time — offer to print an 80mm
+        // receipt. Best-effort: never blocks the completed booking. (Group/
+        // multi-room bookings are not handled here — they use a different bill.)
+        if (paymentType !== 'pending') {
+          try {
+            const item = cart[0]
+            const roomType = item.roomTypeName
+            const itemNights = differenceInDays(item.checkOut, item.checkIn)
+            const roomSubtotal = Number(item.price) * itemNights
+            const amountPaidTotal = paymentType === 'full' ? grandTotal : splitsPaidTotal
+            const receiptCharges = additionalCharges.map(c => ({
+              id: c.id,
+              bookingId: '',
+              description: c.description,
+              category: 'other',
+              quantity: 1,
+              unitPrice: c.amount,
+              amount: c.amount,
+              createdAt: new Date().toISOString()
+            })) as any
+            const bookingWithDetails = {
+              id: `onsite-${Date.now()}`,
+              guestId: '',
+              roomId: item.roomNumber || '',
+              checkIn: format(item.checkIn, "yyyy-MM-dd'T'HH:mm:ss"),
+              checkOut: format(item.checkOut, "yyyy-MM-dd'T'HH:mm:ss"),
+              status: 'confirmed',
+              totalPrice: roomSubtotal,
+              numGuests: item.numGuests,
+              createdAt: new Date().toISOString(),
+              discountAmount: discountAmount > 0 ? discountAmount : undefined,
+              guest: {
+                name: guestInfo.name,
+                email: guestInfo.email || '',
+                phone: guestInfo.phone,
+                address: guestInfo.address
+              },
+              room: { roomNumber: item.roomNumber, roomType }
+            }
+            const invoiceData = await createInvoiceData(
+              bookingWithDetails as any,
+              { roomNumber: item.roomNumber, roomType },
+              { additionalCharges: receiptCharges }
+            )
+            promptPrintReceipt(invoiceData, {
+              amountPaid: amountPaidTotal,
+              balanceDue: invoiceData.charges.total - amountPaidTotal
+            })
+          } catch (err) {
+            console.error('❌ [OnsiteBooking] Failed to prepare receipt:', err)
+          }
+        }
+
         // Booking engine sends its own confirmation email for single bookings
 
         // Log single-room walk-in booking
@@ -447,6 +502,39 @@ export function OnsiteBookingPage() {
           value: discountValue,
           amount: discountAmount
         })
+
+        // A deposit/payment was taken at booking time — offer to print an 80mm
+        // group receipt. Best-effort: never blocks the completed booking.
+        if (paymentType !== 'pending') {
+          try {
+            const rooms = cart.map(item => {
+              const itemNights = differenceInDays(item.checkOut, item.checkIn)
+              const assigned = guestAssignments[item.id] || { name: guestInfo.name }
+              return {
+                roomNumber: item.roomNumber,
+                roomType: item.roomTypeName,
+                nights: itemNights,
+                subtotal: Number(item.price) * itemNights,
+                guestName: assigned.name,
+                checkIn: format(item.checkIn, "yyyy-MM-dd'T'HH:mm:ss"),
+                checkOut: format(item.checkOut, "yyyy-MM-dd'T'HH:mm:ss")
+              }
+            })
+            const groupData = await buildOnsiteGroupReceiptData({
+              rooms,
+              additionalCharges: additionalCharges.map(c => ({ description: c.description, amount: c.amount })),
+              discount: discountValue > 0 ? { type: discountType, value: discountValue, amount: discountAmount } : undefined,
+              billingContact
+            })
+            const amountPaidTotal = paymentType === 'full' ? grandTotal : amountPaid
+            promptPrintGroupReceipt(groupData, {
+              amountPaid: amountPaidTotal,
+              balanceDue: groupData.summary.total - amountPaidTotal
+            })
+          } catch (err) {
+            console.error('❌ [OnsiteBooking] Failed to prepare group receipt:', err)
+          }
+        }
 
         if (bookingEngine.getOnlineStatus()) {
           // Build payment status section for the group summary email

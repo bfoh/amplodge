@@ -5,9 +5,19 @@
 
 ## Goal
 
-Automatically print a finalized receipt to an 80mm USB thermal printer the moment a guest
-checkout completes. The receipt must be formatted for the 80mm paper roll. The existing A4
-invoice (email + PDF download) is unchanged.
+Print an 80mm thermal receipt at the point of payment — at **check-in** (where payment is
+usually taken) and at **onsite booking** when a deposit/payment is recorded — via a "Print
+receipt?" confirm prompt. Receipt is formatted for the 80mm paper roll. The existing A4 invoice
+(email + PDF download) is unchanged.
+
+> **Revision (2026-06-21):** Original design auto-printed at checkout. Changed because payments
+> are made at booking/check-in, not checkout. Trigger moved to check-in + onsite-booking-with-
+> deposit, behavior changed from silent auto-print to a confirm prompt, and the receipt now shows
+> Paid / Balance Due (PAID vs DEPOSIT stamp). Checkout trigger removed.
+>
+> **Group bookings (2026-06-21):** Onsite multi-room bookings with a deposit also print, via a
+> dedicated 72mm group receipt (one line per room) built from form data
+> (`buildOnsiteGroupReceiptData` → `printGroupReceipt80mm`).
 
 ## Decisions (confirmed with user)
 
