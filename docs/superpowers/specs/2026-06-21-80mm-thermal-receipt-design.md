@@ -14,6 +14,10 @@ receipt?" confirm prompt. Receipt is formatted for the 80mm paper roll. The exis
 > are made at booking/check-in, not checkout. Trigger moved to check-in + onsite-booking-with-
 > deposit, behavior changed from silent auto-print to a confirm prompt, and the receipt now shows
 > Paid / Balance Due (PAID vs DEPOSIT stamp). Checkout trigger removed.
+>
+> **Group bookings (2026-06-21):** Onsite multi-room bookings with a deposit also print, via a
+> dedicated 72mm group receipt (one line per room) built from form data
+> (`buildOnsiteGroupReceiptData` → `printGroupReceipt80mm`).
 
 ## Decisions (confirmed with user)
 
