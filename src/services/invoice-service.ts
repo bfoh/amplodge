@@ -391,6 +391,96 @@ table.tt .disc td{color:#dc2626}
   }
 }
 
+/**
+ * Generate an 80mm thermal-printer receipt (72mm printable width).
+ * Used ONLY for the printed paper copy. Email/PDF keep the A4 template.
+ */
+export async function generateReceipt80mmHTML(invoiceData: InvoiceData): Promise<string> {
+  const settings = await hotelSettingsService.getHotelSettings()
+  const currency = settings.currency || 'GHS'
+  const logoUrl = `${window.location.origin}/amp.png`
+  const fmt = (n: number) => formatCurrencySync(n, currency)
+  const d = (s: string) =>
+    new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+
+  const roomLineTotal = invoiceData.charges.roomRate * invoiceData.charges.nights
+  const addRows = invoiceData.charges.additionalCharges
+    .map(ch => `<tr><td>${ch.description}${ch.quantity > 1 ? ` x${ch.quantity}` : ''}</td><td class="r">${fmt(ch.amount)}</td></tr>`)
+    .join('')
+  const discRow = invoiceData.charges.discountTotal > 0
+    ? `<tr class="disc"><td>Discount</td><td class="r">-${fmt(invoiceData.charges.discountTotal)}</td></tr>`
+    : ''
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Receipt ${invoiceData.invoiceNumber}</title>
+<style>
+@page{size:72mm auto;margin:0}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:72mm}
+body{font-family:'Segoe UI',-apple-system,Arial,sans-serif;font-size:11px;line-height:1.35;color:#000;background:#fff}
+.r{width:72mm;padding:4mm 3mm 6mm}
+.ctr{text-align:center}
+.logo{height:40px;width:auto;max-width:60mm;object-fit:contain;margin-bottom:3px}
+.hn{font-size:15px;font-weight:800;letter-spacing:.3px}
+.hsub{font-size:9px;color:#000;line-height:1.4;margin-top:2px}
+.div{border-top:1px dashed #000;margin:6px 0}
+.meta{font-size:10px}
+.meta p{margin:1.5px 0}
+table{width:100%;border-collapse:collapse;font-size:10.5px}
+td{padding:2px 0;vertical-align:top}
+td.r{text-align:right;white-space:nowrap;padding-left:6px}
+.sec-lbl{font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin:2px 0}
+.tot td{font-size:13px;font-weight:800;padding-top:4px}
+.disc td{font-weight:600}
+.paid{text-align:center;font-size:13px;font-weight:800;letter-spacing:2px;margin:6px 0}
+.ty{text-align:center;font-size:10px;font-weight:700;margin-top:2px}
+.fsub{text-align:center;font-size:9px;color:#000;margin-top:2px}
+@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+</style>
+</head>
+<body>
+<div class="r">
+  <div class="ctr">
+    <img class="logo" src="${logoUrl}" alt="" onerror="this.style.display='none'"/>
+    <div class="hn">${invoiceData.hotel.name}</div>
+    <div class="hsub">${invoiceData.hotel.address}<br>Tel: ${invoiceData.hotel.phone}<br>TIN: 71786161-3</div>
+  </div>
+  <div class="div"></div>
+  <div class="meta">
+    <p><strong>RECEIPT</strong> &nbsp; ${invoiceData.invoiceNumber}</p>
+    <p>Date: ${d(invoiceData.invoiceDate)}</p>
+    <p>Guest: ${invoiceData.guest.name}</p>
+    <p>Room: ${invoiceData.booking.roomNumber} (${invoiceData.booking.roomType})</p>
+    <p>In ${d(invoiceData.booking.checkIn)} &rarr; Out ${d(invoiceData.booking.checkOut)}</p>
+    <p>${invoiceData.booking.nights} night${invoiceData.booking.nights !== 1 ? 's' : ''} &middot; ${invoiceData.booking.numGuests} guest${invoiceData.booking.numGuests !== 1 ? 's' : ''}</p>
+  </div>
+  <div class="div"></div>
+  <table>
+    <tr><td>Room ${invoiceData.booking.roomNumber} x${invoiceData.charges.nights} @ ${fmt(invoiceData.charges.roomRate)}</td><td class="r">${fmt(roomLineTotal)}</td></tr>
+    ${addRows}
+    ${discRow}
+  </table>
+  <div class="div"></div>
+  <div class="sec-lbl">Tax Breakdown</div>
+  <table>
+    <tr><td>Sales Total</td><td class="r">${fmt(invoiceData.charges.salesTotal)}</td></tr>
+    <tr><td>GF/NHIL (5%)</td><td class="r">${fmt(invoiceData.charges.gfNhil)}</td></tr>
+    <tr><td>VAT (15%)</td><td class="r">${fmt(invoiceData.charges.vat)}</td></tr>
+    <tr><td>Tourism Levy (1%)</td><td class="r">${fmt(invoiceData.charges.tourismLevy)}</td></tr>
+    <tr class="tot"><td>TOTAL</td><td class="r">${fmt(invoiceData.charges.total)}</td></tr>
+  </table>
+  <div class="paid">*** PAID ***</div>
+  <div class="div"></div>
+  <div class="ty">Thank you for choosing ${invoiceData.hotel.name}!</div>
+  <div class="fsub">${invoiceData.hotel.website || invoiceData.hotel.email}</div>
+</div>
+</body>
+</html>`
+}
+
 export async function generateInvoicePDF(invoiceData: InvoiceData): Promise<Blob> {
   try {
     console.log('📄 [InvoicePDF] Generating PDF...', {
