@@ -19,6 +19,8 @@ import {
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { toast } from 'sonner'
+import { createInvoiceData } from '@/services/invoice-service'
+import { promptPrintReceipt } from '@/services/receipt-print'
 import { bookingEngine } from '../../services/booking-engine'
 import { CalendarTimeline } from '../../components/CalendarTimeline'
 import { CalendarGridView } from '../../components/CalendarGridView'
@@ -332,6 +334,43 @@ export function CalendarPage() {
       })
 
       toast.success('Booking created successfully')
+
+      // A payment was taken at booking time — offer to print an 80mm receipt.
+      // Best-effort: never blocks the completed booking. ('later' = no payment.)
+      if (formData.paymentType !== 'later') {
+        try {
+          const amountPaidTotal = formData.paymentType === 'full' ? formData.totalPrice : splitsPaidTotal
+          const bookingWithDetails = {
+            id: `booking-${Date.now()}`,
+            guestId: '',
+            roomId: selectedProperty.id || '',
+            checkIn: formData.checkIn,
+            checkOut: formData.checkOut,
+            status: 'confirmed',
+            totalPrice: formData.totalPrice,
+            numGuests: formData.adults + formData.children,
+            createdAt: new Date().toISOString(),
+            guest: {
+              name: formData.guestName,
+              email: formData.guestEmail || '',
+              phone: formData.guestPhone,
+              address: formData.guestAddress
+            },
+            room: { roomNumber: selectedProperty.roomNumber, roomType: roomTypeName }
+          }
+          const invoiceData = await createInvoiceData(
+            bookingWithDetails as any,
+            { roomNumber: selectedProperty.roomNumber, roomType: roomTypeName },
+            { additionalCharges: [] }
+          )
+          promptPrintReceipt(invoiceData, {
+            amountPaid: amountPaidTotal,
+            balanceDue: invoiceData.charges.total - amountPaidTotal
+          })
+        } catch (err) {
+          console.error('❌ [CalendarPage] Failed to prepare receipt:', err)
+        }
+      }
       setDialogOpen(false)
       setFormData({
         propertyId: '',
