@@ -19,8 +19,8 @@ import { sendTransactionalEmail } from '@/services/email-service'
 import { sendBookingConfirmationSMS } from '@/services/sms-service'
 import { activityLogService } from '@/services/activity-log-service'
 import { buildBookingPaymentEvent, appendPaymentEvent } from '@/lib/payment-events'
-import { createInvoiceData } from '@/services/invoice-service'
-import { promptPrintReceipt } from '@/services/receipt-print'
+import { createInvoiceData, buildOnsiteGroupReceiptData } from '@/services/invoice-service'
+import { promptPrintReceipt, promptPrintGroupReceipt } from '@/services/receipt-print'
 
 export function OnsiteBookingPage() {
   const { currency } = useCurrency()
@@ -502,6 +502,39 @@ export function OnsiteBookingPage() {
           value: discountValue,
           amount: discountAmount
         })
+
+        // A deposit/payment was taken at booking time — offer to print an 80mm
+        // group receipt. Best-effort: never blocks the completed booking.
+        if (paymentType !== 'pending') {
+          try {
+            const rooms = cart.map(item => {
+              const itemNights = differenceInDays(item.checkOut, item.checkIn)
+              const assigned = guestAssignments[item.id] || { name: guestInfo.name }
+              return {
+                roomNumber: item.roomNumber,
+                roomType: item.roomTypeName,
+                nights: itemNights,
+                subtotal: Number(item.price) * itemNights,
+                guestName: assigned.name,
+                checkIn: format(item.checkIn, "yyyy-MM-dd'T'HH:mm:ss"),
+                checkOut: format(item.checkOut, "yyyy-MM-dd'T'HH:mm:ss")
+              }
+            })
+            const groupData = await buildOnsiteGroupReceiptData({
+              rooms,
+              additionalCharges: additionalCharges.map(c => ({ description: c.description, amount: c.amount })),
+              discount: discountValue > 0 ? { type: discountType, value: discountValue, amount: discountAmount } : undefined,
+              billingContact
+            })
+            const amountPaidTotal = paymentType === 'full' ? grandTotal : amountPaid
+            promptPrintGroupReceipt(groupData, {
+              amountPaid: amountPaidTotal,
+              balanceDue: groupData.summary.total - amountPaidTotal
+            })
+          } catch (err) {
+            console.error('❌ [OnsiteBooking] Failed to prepare group receipt:', err)
+          }
+        }
 
         if (bookingEngine.getOnlineStatus()) {
           // Build payment status section for the group summary email
