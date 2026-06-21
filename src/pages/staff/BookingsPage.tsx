@@ -27,6 +27,8 @@ import { Badge } from '../../components/ui/badge'
 import { useStaffRole } from '../../hooks/use-staff-role'
 import { bookingEngine } from '../../services/booking-engine'
 import { calculateNights } from '../../lib/display'
+import { createInvoiceData } from '@/services/invoice-service'
+import { promptPrintReceipt } from '@/services/receipt-print'
 import { activityLogService } from '../../services/activity-log-service'
 import { cn, formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
@@ -484,6 +486,44 @@ export function BookingsPage() {
       // persisted. Secondary work (activity log + data reload) runs in the
       // background so the UI feels instant.
       toast.success('Booking created successfully')
+
+      // A payment was taken at booking time — offer to print an 80mm receipt.
+      // Best-effort: never blocks the completed booking. ('later' = no payment.)
+      if (formData.paymentType !== 'later') {
+        try {
+          const amountPaidTotal = formData.paymentType === 'full' ? formData.totalPrice : splitsPaidTotal
+          const bookingWithDetails = {
+            id: `booking-${Date.now()}`,
+            guestId: '',
+            roomId: selectedProperty.id || '',
+            checkIn: formData.checkIn,
+            checkOut: formData.checkOut,
+            status: 'confirmed',
+            totalPrice: formData.totalPrice,
+            numGuests: formData.adults + formData.children,
+            createdAt: new Date().toISOString(),
+            guest: {
+              name: formData.guestName,
+              email: formData.guestEmail || '',
+              phone: formData.guestPhone,
+              address: formData.guestAddress
+            },
+            room: { roomNumber: selectedProperty.roomNumber, roomType: roomTypeName }
+          }
+          const invoiceData = await createInvoiceData(
+            bookingWithDetails as any,
+            { roomNumber: selectedProperty.roomNumber, roomType: roomTypeName },
+            { additionalCharges: [] }
+          )
+          promptPrintReceipt(invoiceData, {
+            amountPaid: amountPaidTotal,
+            balanceDue: invoiceData.charges.total - amountPaidTotal
+          })
+        } catch (err) {
+          console.error('❌ [BookingsPage] Failed to prepare receipt:', err)
+        }
+      }
+
       setDialogOpen(false)
       setEditingId(null)
       setEditingContext(null)
