@@ -43,6 +43,7 @@ const CleanupToolPage = lazyWithRetry(() => import('./pages/staff/CleanupToolPag
 const OnsiteBookingPage = lazyWithRetry(() => import('./pages/staff/OnsiteBookingPage').then(m => ({ default: m.OnsiteBookingPage })))
 const TaskCompletionPage = lazyWithRetry(() => import('./pages/TaskCompletionPage').then(m => ({ default: m.TaskCompletionPage })))
 const InvoicePage = lazyWithRetry(() => import('./pages/InvoicePage').then(m => ({ default: m.InvoicePage })))
+const ReceiptPreviewPage = lazyWithRetry(() => import('./pages/ReceiptPreviewPage').then(m => ({ default: m.ReceiptPreviewPage })))
 const InvoicesPage = lazyWithRetry(() => import('./pages/staff/InvoicesPage').then(m => ({ default: m.InvoicesPage })))
 const ReviewSubmissionPage = lazyWithRetry(() => import('./pages/ReviewSubmissionPage').then(m => ({ default: m.ReviewSubmissionPage })))
 const AnalyticsPage = lazyWithRetry(() => import('./pages/staff/AnalyticsPage').then(m => ({ default: m.AnalyticsPage })))
@@ -238,6 +239,9 @@ function App() {
 
               {/* Invoice debug route */}
               <Route path="/invoice-debug" element={<InvoicePage />} />
+
+              {/* 80mm receipt preview (dev verification) */}
+              <Route path="/receipt-preview" element={<ReceiptPreviewPage />} />
 
               {/* External task completion route */}
               <Route path="/task-complete/:taskId" element={<TaskCompletionPage />} />
