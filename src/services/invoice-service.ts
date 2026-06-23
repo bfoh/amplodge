@@ -422,6 +422,7 @@ export async function generateReceipt80mmHTML(invoiceData: InvoiceData, payment?
   const paid = payment ? payment.amountPaid : invoiceData.charges.total
   const balanceDue = payment ? Math.max(0, payment.balanceDue) : 0
   const stamp = balanceDue <= 0 ? '*** PAID ***' : (paid > 0 ? '*** DEPOSIT ***' : '*** AMOUNT DUE ***')
+  const noRefund = paid > 0 ? '<div class="norefund">This payment is not refundable</div>' : ''
   const paymentRows = payment
     ? `<tr><td>Paid</td><td class="r">${fmt(paid)}</td></tr><tr${balanceDue > 0 ? ' class="bal"' : ''}><td>Balance Due</td><td class="r">${fmt(balanceDue)}</td></tr>`
     : ''
@@ -460,6 +461,7 @@ td.r{text-align:right;white-space:nowrap;padding-left:6px}
 .disc td{font-weight:600}
 .bal td{font-weight:800}
 .paid{text-align:center;font-size:13px;font-weight:800;letter-spacing:2px;margin:6px 0}
+.norefund{text-align:center;font-size:9px;font-style:italic;margin-top:1px}
 .ty{text-align:center;font-size:10px;font-weight:700;margin-top:2px}
 .fsub{text-align:center;font-size:9px;color:#000;margin-top:2px}
 @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
@@ -498,6 +500,7 @@ td.r{text-align:right;white-space:nowrap;padding-left:6px}
     ${paymentRows}
   </table>
   <div class="paid">${stamp}</div>
+  ${noRefund}
   <div class="div"></div>
   <div class="ty">Thank you for choosing ${invoiceData.hotel.name}!</div>
   <div class="fsub">${invoiceData.hotel.website || invoiceData.hotel.email}</div>
@@ -604,6 +607,7 @@ export async function generateGroupReceipt80mmHTML(data: GroupInvoiceData, payme
   const paid = payment ? payment.amountPaid : data.summary.total
   const balanceDue = payment ? Math.max(0, payment.balanceDue) : 0
   const stamp = balanceDue <= 0 ? '*** PAID ***' : (paid > 0 ? '*** DEPOSIT ***' : '*** AMOUNT DUE ***')
+  const noRefund = paid > 0 ? '<div class="norefund">This payment is not refundable</div>' : ''
   const paymentRows = payment
     ? `<tr><td>Paid</td><td class="r">${fmt(paid)}</td></tr><tr${balanceDue > 0 ? ' class="bal"' : ''}><td>Balance Due</td><td class="r">${fmt(balanceDue)}</td></tr>`
     : ''
@@ -644,6 +648,7 @@ td.r{text-align:right;white-space:nowrap;padding-left:6px}
 .disc td{font-weight:600}
 .bal td{font-weight:800}
 .paid{text-align:center;font-size:13px;font-weight:800;letter-spacing:2px;margin:6px 0}
+.norefund{text-align:center;font-size:9px;font-style:italic;margin-top:1px}
 .ty{text-align:center;font-size:10px;font-weight:700;margin-top:2px}
 .fsub{text-align:center;font-size:9px;color:#000;margin-top:2px}
 @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
@@ -681,6 +686,7 @@ td.r{text-align:right;white-space:nowrap;padding-left:6px}
     ${paymentRows}
   </table>
   <div class="paid">${stamp}</div>
+  ${noRefund}
   <div class="div"></div>
   <div class="ty">Thank you for choosing ${data.hotel.name}!</div>
   <div class="fsub">${data.hotel.website || data.hotel.email}</div>
