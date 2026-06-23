@@ -97,12 +97,34 @@ export async function createInvoiceData(
     const invoiceDate = new Date().toISOString()
     const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30 days from now
 
-    // Validate and parse dates safely
-    const checkInDate = new Date(booking.checkIn)
-    const checkOutDate = new Date(booking.actualCheckOut || booking.checkOut)
+    // Validate and parse dates safely. Bookings store dates in several shapes
+    // depending on creation flow: top-level checkIn/checkOut, snake_case
+    // check_in/check_out, or a nested `dates` object (which itself may be a
+    // JSON string with camel- or snake-case keys). Try them all.
+    const b: any = booking
+    let datesObj: any = b.dates
+    if (typeof datesObj === 'string') {
+      try { datesObj = JSON.parse(datesObj) } catch { datesObj = undefined }
+    }
+    const firstValidDate = (...vals: any[]): Date | null => {
+      for (const v of vals) {
+        if (!v) continue
+        const d = new Date(v)
+        if (!isNaN(d.getTime())) return d
+      }
+      return null
+    }
+    const checkInDate = firstValidDate(b.checkIn, b.check_in, datesObj?.checkIn, datesObj?.check_in)
+    const checkOutDate = firstValidDate(
+      b.actualCheckOut, b.actual_check_out, b.checkOut, b.check_out, datesObj?.checkOut, datesObj?.check_out
+    )
 
     // Check if dates are valid
-    if (isNaN(checkInDate.getTime()) || isNaN(checkOutDate.getTime())) {
+    if (!checkInDate || !checkOutDate) {
+      console.error('❌ [InvoiceData] Invalid/missing dates. Raw fields:', {
+        checkIn: b.checkIn, check_in: b.check_in, checkOut: b.checkOut, check_out: b.check_out,
+        actualCheckOut: b.actualCheckOut, dates: b.dates
+      })
       throw new Error('Invalid date values in booking data')
     }
 
@@ -201,8 +223,8 @@ export async function createInvoiceData(
           return (booking as any).roomNumber || 'N/A'
         })(),
         roomType: roomDetails?.roomType || 'Standard Room',
-        checkIn: booking.checkIn,
-        checkOut: booking.actualCheckOut || booking.checkOut,
+        checkIn: checkInDate.toISOString(),
+        checkOut: checkOutDate.toISOString(),
         nights,
         numGuests: booking.numGuests
       },
