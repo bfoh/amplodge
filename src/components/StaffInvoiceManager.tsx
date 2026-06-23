@@ -353,11 +353,20 @@ export function StaffInvoiceManager() {
     const checkOut = booking.checkOut || dateObj.checkOut || dateObj.check_out || booking.check_out
     const actualCheckOut = booking.actualCheckOut || booking.actual_check_out
 
+    // Amount/guests: prefer the booking row, but fall back to the invoice record
+    // (already computed correctly for the list) and snake_case, so the receipt
+    // never shows ₵0.00 or "undefined guests".
+    const totalPrice = booking.totalPrice ?? booking.total_price ?? invoice.totalAmount ?? 0
+    const numGuests = booking.numGuests ?? booking.num_guests ?? 1
+
     const bookingWithDetails = {
       ...booking,
       checkIn,
       checkOut,
       actualCheckOut,
+      totalPrice,
+      numGuests,
+      specialRequests: booking.specialRequests || booking.special_requests,
       guest: guest || {
         name: invoice.guestName || 'Guest',
         email: invoice.guestEmail || '',
