@@ -372,6 +372,7 @@ table.tt .disc td{color:#dc2626}
     <tr><td>VAT (15%)</td><td class="r">${formatCurrencySync(invoiceData.charges.vat, currency)}</td></tr>
     <tr><td>Tourism Levy (1%)</td><td class="r">${formatCurrencySync(invoiceData.charges.tourismLevy, currency)}</td></tr>
     <tr class="gtot"><td>Grand Total</td><td class="r">${formatCurrencySync(invoiceData.charges.total, currency)}</td></tr>
+    <tr><td colspan="2" style="padding-top:6px;font-style:italic;color:#555;font-size:9px">This payment is not refundable</td></tr>
   </table>
 </div>
 <div class="footer">
@@ -868,8 +869,11 @@ export async function sendInvoiceEmail(invoiceData: InvoiceData, pdfBlob: Blob):
               <span class="summary-label">Total Amount:</span>
               <span class="summary-value">${formatCurrencySync(invoiceData.charges.total, currency)}</span>
             </div>
+            <div class="summary-row">
+              <span style="font-style:italic;color:#555;font-size:13px;">This payment is not refundable</span>
+            </div>
           </div>
-          
+
           <div class="download-section">
             <h3>📄 Download Your Invoice</h3>
             <p>Your detailed invoice is available for download:</p>
@@ -1124,9 +1128,9 @@ export async function generatePreInvoiceHTML(preInvoiceData: PreInvoiceData): Pr
     const statusText = preInvoiceData.paymentStatus === 'full' ? 'PAID IN FULL' : preInvoiceData.paymentStatus === 'part' ? 'PART PAID' : 'PAYMENT DUE'
     const remaining = Math.max(0, preInvoiceData.charges.total - (preInvoiceData.amountPaid || 0))
     const paymentContent = preInvoiceData.paymentStatus === 'full'
-      ? `<p><strong style="color:#16a34a">&#10003; Fully paid.</strong> Thank you for your payment of <strong>${formatCurrencySync(preInvoiceData.charges.total, currency)}</strong>.</p>`
+      ? `<p><strong style="color:#16a34a">&#10003; Fully paid.</strong> Thank you for your payment of <strong>${formatCurrencySync(preInvoiceData.charges.total, currency)}</strong>.</p><p style="margin-top:3px;font-style:italic;color:#555">This payment is not refundable</p>`
       : preInvoiceData.paymentStatus === 'part'
-        ? `<p>Paid: <strong style="color:#16a34a">${formatCurrencySync(preInvoiceData.amountPaid || 0, currency)}</strong></p><p style="margin-top:3px">Balance: <strong style="color:#c9542a">${formatCurrencySync(remaining, currency)}</strong> due at check-in.</p><p style="margin-top:5px;color:#bbb;font-size:9px">Cash &middot; Mobile Money &middot; Bank Transfer</p>`
+        ? `<p>Paid: <strong style="color:#16a34a">${formatCurrencySync(preInvoiceData.amountPaid || 0, currency)}</strong></p><p style="margin-top:3px">Balance: <strong style="color:#c9542a">${formatCurrencySync(remaining, currency)}</strong> due at check-in.</p><p style="margin-top:3px;font-style:italic;color:#555">This payment is not refundable</p><p style="margin-top:5px;color:#bbb;font-size:9px">Cash &middot; Mobile Money &middot; Bank Transfer</p>`
         : `<p>Full amount of <strong>${formatCurrencySync(preInvoiceData.charges.total, currency)}</strong> due at check-in.</p><p style="margin-top:5px;color:#bbb;font-size:9px">Cash &middot; Mobile Money &middot; Bank Transfer</p>`
 
     const discountRow = preInvoiceData.charges.discountTotal > 0
@@ -1815,6 +1819,9 @@ export async function generateGroupInvoiceHTML(data: GroupInvoiceData): Promise<
           <tr class="total-row">
             <td>Grand Total</td>
             <td class="text-right">${formatCurrencySync(data.summary.total, currency)}</td>
+          </tr>
+          <tr>
+            <td colspan="2" style="font-style:italic;color:#555;font-size:9px;padding-top:6px">This payment is not refundable</td>
           </tr>
         </table>
       </div>

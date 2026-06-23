@@ -173,7 +173,7 @@ export async function sendCheckInSMS(params: {
     const message = `Welcome ${guestName}!
 You are checked in to Room ${roomNumber}.
 Checkout: ${new Date(checkOutDate).toLocaleDateString()} @ 11AM
-${totalAmount && paymentMethod ? `Paid: ${totalAmount} (${paymentMethod})` : ''}
+${totalAmount && paymentMethod ? `Paid: ${totalAmount} (${paymentMethod})\nThis payment is not refundable.` : ''}
 WiFi password at front desk.
 BFast: 7-10AM
 Dial +233555009697 for help.
@@ -201,7 +201,8 @@ export async function sendCheckOutSMS(params: {
     if (invoiceNumber && totalAmount) {
         message += `
 Inv: ${invoiceNumber}
-Total: ${totalAmount}`
+Total: ${totalAmount}
+This payment is not refundable.`
     }
 
     message += `

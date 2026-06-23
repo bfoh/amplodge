@@ -539,12 +539,13 @@ export function OnsiteBookingPage() {
         if (bookingEngine.getOnlineStatus()) {
           // Build payment status section for the group summary email
           const paymentStatusHtml = paymentType === 'full'
-            ? `<p style="color: #16a34a; font-weight: bold;">✅ Full payment of ${formatCurrencySync(grandTotal, currency)} has been received. Thank you!</p>`
+            ? `<p style="color: #16a34a; font-weight: bold;">✅ Full payment of ${formatCurrencySync(grandTotal, currency)} has been received. Thank you!</p><p style="color: #555; font-style: italic;">This payment is not refundable</p>`
             : paymentType === 'part'
               ? `<div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 12px; margin: 10px 0;">
                 <p style="margin: 0; color: #92400e; font-weight: bold;">💰 Part Payment Received</p>
                 <p style="margin: 4px 0 0; color: #78350f;">Amount Paid: <strong>${formatCurrencySync(amountPaid, currency)}</strong></p>
                 <p style="margin: 4px 0 0; color: #dc2626;">Remaining Balance: <strong>${formatCurrencySync(Math.max(0, grandTotal - amountPaid), currency)}</strong> — due at check-in</p>
+                <p style="margin: 4px 0 0; color: #555; font-style: italic;">This payment is not refundable</p>
               </div>`
               : `<p style="color: #78350f;">⏳ Full payment of <strong>${formatCurrencySync(grandTotal, currency)}</strong> is due upon check-in.</p>`
 
@@ -572,7 +573,7 @@ export function OnsiteBookingPage() {
                   <p>We look forward to welcoming your group!</p>
                 </div>
               `,
-            text: `Group Booking Confirmed for ${cart.length} rooms.\nTotal: ${formatCurrencySync(grandTotal, currency)}${paymentType === 'part' ? `\nPaid: ${formatCurrencySync(amountPaid, currency)} | Remaining: ${formatCurrencySync(Math.max(0, grandTotal - amountPaid), currency)}` : ''}`
+            text: `Group Booking Confirmed for ${cart.length} rooms.\nTotal: ${formatCurrencySync(grandTotal, currency)}${paymentType === 'part' ? `\nPaid: ${formatCurrencySync(amountPaid, currency)} | Remaining: ${formatCurrencySync(Math.max(0, grandTotal - amountPaid), currency)}` : ''}${paymentType !== 'pending' ? `\nThis payment is not refundable.` : ''}`
           }
 
           await sendTransactionalEmail(onsiteEmailPayload, 'Onsite group booking confirmation')

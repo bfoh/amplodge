@@ -57,15 +57,16 @@ export async function sendBookingConfirmation(
     let paymentNote = ''
     if (paymentInfo) {
       if (paymentInfo.paymentStatus === 'full') {
-        paymentBullet = `<li style="color: #16a34a; font-weight: bold;">✅ Your payment of ${formatCurrencySync(paymentInfo.totalPrice, currency)} has been received in full</li>`
+        paymentBullet = `<li style="color: #16a34a; font-weight: bold;">✅ Your payment of ${formatCurrencySync(paymentInfo.totalPrice, currency)} has been received in full</li><li style="font-style: italic; color: #555;">This payment is not refundable</li>`
       } else if (paymentInfo.paymentStatus === 'part') {
         const remaining = Math.max(0, paymentInfo.totalPrice - paymentInfo.amountPaid)
-        paymentBullet = `<li style="color: #d97706; font-weight: bold;">💰 Part payment of ${formatCurrencySync(paymentInfo.amountPaid, currency)} received</li>`
+        paymentBullet = `<li style="color: #d97706; font-weight: bold;">💰 Part payment of ${formatCurrencySync(paymentInfo.amountPaid, currency)} received</li><li style="font-style: italic; color: #555;">This payment is not refundable</li>`
         paymentNote = `
           <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 15px; margin-top: 20px;">
             <p style="margin: 0; color: #92400e; font-weight: bold;">💳 Payment Summary</p>
             <p style="margin: 5px 0 0; color: #78350f;">Amount Paid: <strong>${formatCurrencySync(paymentInfo.amountPaid, currency)}</strong></p>
             <p style="margin: 5px 0 0; color: #dc2626;">Remaining Balance: <strong>${formatCurrencySync(remaining, currency)}</strong> — due at check-in</p>
+            <p style="margin: 5px 0 0; color: #555; font-style: italic;">This payment is not refundable</p>
           </div>
         `
       }
@@ -111,9 +112,9 @@ export async function sendBookingConfirmation(
 
     // Build text version
     const paymentTextLine = paymentInfo?.paymentStatus === 'full'
-      ? `- Payment of ${formatCurrencySync(paymentInfo.totalPrice, currency)} received in full`
+      ? `- Payment of ${formatCurrencySync(paymentInfo.totalPrice, currency)} received in full\n- This payment is not refundable`
       : paymentInfo?.paymentStatus === 'part'
-        ? `- Part payment of ${formatCurrencySync(paymentInfo.amountPaid, currency)} received. Remaining: ${formatCurrencySync(Math.max(0, paymentInfo.totalPrice - paymentInfo.amountPaid), currency)} due at check-in`
+        ? `- Part payment of ${formatCurrencySync(paymentInfo.amountPaid, currency)} received. Remaining: ${formatCurrencySync(Math.max(0, paymentInfo.totalPrice - paymentInfo.amountPaid), currency)} due at check-in\n- This payment is not refundable`
         : '- Full payment is due upon check-in'
 
     // Send email notification
@@ -245,6 +246,13 @@ export async function sendCheckInNotification(
           </div>
       `
     }
+    if (paymentHtml) {
+      paymentHtml += `
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="font-style: italic; color: #555;">This payment is not refundable</span>
+          </div>
+      `
+    }
 
     const htmlContent = generateEmailHtml({
       title: 'Welcome to AMP Lodge',
@@ -306,6 +314,7 @@ Booking Details:
 - Booking ID: ${booking.id}
 ${priorPayment && priorPayment.amountPaid > 0 ? `- Prior Payment: ${formatCurrencySync(priorPayment.amountPaid, currency)}` : ''}
 ${paymentDetails ? `- Payment at Check-in: ${typeof paymentDetails.amount === 'number' ? formatCurrencySync(paymentDetails.amount, currency) : paymentDetails.amount} via ${paymentDetails.method}` : ''}
+${paymentDetails || (priorPayment && priorPayment.amountPaid > 0) ? '- This payment is not refundable' : ''}
 
 Important Information:
 - WiFi password available at the front desk
@@ -379,6 +388,7 @@ export async function sendCheckOutNotification(
             ${formatCurrencySync(invoiceData.totalAmount, currency)}
           </p>
           <p style="margin: 0; color: #666; font-size: 14px;">Invoice #: ${invoiceData.invoiceNumber}</p>
+          <p style="margin: 8px 0 0; color: #555; font-size: 13px; font-style: italic;">This payment is not refundable</p>
         </div>
       `
 
@@ -445,6 +455,7 @@ ${invoiceData ? `
 Invoice Details:
 - Invoice #: ${invoiceData.invoiceNumber}
 - Total Amount: ${formatCurrencySync(invoiceData.totalAmount, currency)}
+- This payment is not refundable
 
 Download your invoice here:
 ${invoiceData.downloadUrl}
