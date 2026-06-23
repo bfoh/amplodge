@@ -121,11 +121,14 @@ export async function createInvoiceData(
 
     // Check if dates are valid
     if (!checkInDate || !checkOutDate) {
-      console.error('❌ [InvoiceData] Invalid/missing dates. Raw fields:', {
-        checkIn: b.checkIn, check_in: b.check_in, checkOut: b.checkOut, check_out: b.check_out,
-        actualCheckOut: b.actualCheckOut, dates: b.dates
-      })
-      throw new Error('Invalid date values in booking data')
+      const rawDates = {
+        id: b.id, checkIn: b.checkIn, check_in: b.check_in, checkOut: b.checkOut,
+        check_out: b.check_out, actualCheckOut: b.actualCheckOut, dates: b.dates,
+        keys: Object.keys(b)
+      }
+      console.error('❌ [InvoiceData] Invalid/missing dates. Raw fields:', rawDates)
+      // Surface the raw values in the message so they show in the toast for diagnosis.
+      throw new Error('Invalid date values in booking data :: ' + JSON.stringify(rawDates))
     }
 
     // Normalize to midnight UTC for consistent night calculation
