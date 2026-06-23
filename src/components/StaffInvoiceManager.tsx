@@ -302,47 +302,75 @@ export function StaffInvoiceManager() {
     }
   }
 
+  // Safely build the booking + room details an invoice needs for print/download.
+  // Bookings may have no guestId/roomId (room resolved from a ROOM_SNAPSHOT),
+  // so we guard every id before querying — passing `undefined` to a uuid column
+  // is what caused "invalid input syntax for type uuid: undefined". Missing
+  // guest/property fall back to the invoice row instead of throwing.
+  const buildBookingDetailsForInvoice = async (invoice: InvoiceRecord) => {
+    const booking: any = await db.bookings.get(invoice.id)
+    if (!booking) throw new Error('Booking not found')
+
+    const guestId = booking.guestId
+    const roomId = booking.roomId || booking.propertyId
+
+    const [guest, property] = await Promise.all([
+      guestId ? db.guests.get(guestId).catch(() => null) : Promise.resolve(null),
+      roomId ? db.properties.get(roomId).catch(() => null) : Promise.resolve(null)
+    ])
+
+    // Room number/type: live property → ROOM_SNAPSHOT metadata → invoice row.
+    let roomNumber: string | undefined = (property as any)?.roomNumber
+    let roomType: string | undefined = (property as any)?.name
+    if (!roomNumber) {
+      const specialReq = booking.special_requests || booking.specialRequests
+      if (specialReq && typeof specialReq === 'string') {
+        const snap = specialReq.match(/<!-- ROOM_SNAPSHOT:(.*?) -->/)
+        if (snap) {
+          try {
+            const s = JSON.parse(snap[1])
+            roomNumber = s.roomNumber || s.room_number
+            roomType = roomType || s.roomType || s.room_type
+          } catch { /* ignore */ }
+        }
+      }
+    }
+    const roomDetails = {
+      roomNumber: roomNumber || invoice.roomNumber || 'N/A',
+      roomType: roomType || 'Standard Room'
+    }
+
+    const bookingWithDetails = {
+      ...booking,
+      guest: guest || {
+        name: invoice.guestName || 'Guest',
+        email: invoice.guestEmail || '',
+        phone: booking.guestPhone,
+        address: booking.guestAddress
+      },
+      room: roomDetails
+    } as any
+
+    return { bookingWithDetails, roomDetails }
+  }
+
   const handleDownloadInvoice = async (invoice: InvoiceRecord) => {
     setDownloading(invoice.id)
     try {
       console.log('📥 [StaffInvoiceManager] Downloading invoice for booking:', invoice.id, 'isPreInvoice:', invoice.isPreInvoice)
 
-      // Fetch the actual booking data
-      const booking = await db.bookings.get(invoice.id)
-      if (!booking) {
-        throw new Error('Booking not found')
-      }
-
-      // Fetch guest and property data
-      const [guest, property] = await Promise.all([
-        db.guests.get(booking.guestId),
-        db.properties.get(booking.roomId)
-      ])
-
-      if (!guest || !property) {
-        throw new Error('Guest or property data not found')
-      }
-
-      // Create booking with details for invoice
-      const bookingWithDetails = {
-        ...booking,
-        guest: guest,
-        room: {
-          roomNumber: property.roomNumber,
-          roomType: property.name || 'Standard Room'
-        }
-      } as any
+      const { bookingWithDetails, roomDetails } = await buildBookingDetailsForInvoice(invoice)
 
       if (invoice.isPreInvoice || invoice.invoiceNumber.startsWith('PRE-')) {
         // Use pre-invoice generation for confirmed bookings
         console.log('📋 [StaffInvoiceManager] Using PRE-INVOICE template')
-        const preInvoiceData = await createPreInvoiceData(bookingWithDetails, property)
+        const preInvoiceData = await createPreInvoiceData(bookingWithDetails, roomDetails)
         preInvoiceData.invoiceNumber = invoice.invoiceNumber
         await downloadPreInvoicePDF(preInvoiceData)
         toast.success(`Pre-Invoice ${invoice.invoiceNumber} downloaded successfully!`)
       } else {
         // Use regular invoice for paid/checked-out bookings
-        const invoiceData = await createInvoiceData(bookingWithDetails, property)
+        const invoiceData = await createInvoiceData(bookingWithDetails, roomDetails)
         invoiceData.invoiceNumber = invoice.invoiceNumber
         await downloadInvoicePDF(invoiceData)
         toast.success(`Invoice ${invoice.invoiceNumber} downloaded successfully!`)
@@ -360,42 +388,18 @@ export function StaffInvoiceManager() {
     try {
       console.log('🖨️ [StaffInvoiceManager] Printing invoice for booking:', invoice.id, 'isPreInvoice:', invoice.isPreInvoice)
 
-      // Fetch the actual booking data
-      const booking = await db.bookings.get(invoice.id)
-      if (!booking) {
-        throw new Error('Booking not found')
-      }
-
-      // Fetch guest and property data
-      const [guest, property] = await Promise.all([
-        db.guests.get(booking.guestId),
-        db.properties.get(booking.roomId)
-      ])
-
-      if (!guest || !property) {
-        throw new Error('Guest or property data not found')
-      }
-
-      // Create booking with details for invoice
-      const bookingWithDetails = {
-        ...booking,
-        guest: guest,
-        room: {
-          roomNumber: property.roomNumber,
-          roomType: property.name || 'Standard Room'
-        }
-      } as any
+      const { bookingWithDetails, roomDetails } = await buildBookingDetailsForInvoice(invoice)
 
       if (invoice.isPreInvoice || invoice.invoiceNumber.startsWith('PRE-')) {
         // Use same pre-invoice template as download
         console.log('📋 [StaffInvoiceManager] Using PRE-INVOICE template for printing')
-        const preInvoiceData = await createPreInvoiceData(bookingWithDetails, property)
+        const preInvoiceData = await createPreInvoiceData(bookingWithDetails, roomDetails)
         preInvoiceData.invoiceNumber = invoice.invoiceNumber
         await printPreInvoice(preInvoiceData)
         toast.success(`Pre-Invoice ${invoice.invoiceNumber} sent to printer!`)
       } else {
         // Use regular invoice template for paid invoices
-        const invoiceData = await createInvoiceData(bookingWithDetails, property)
+        const invoiceData = await createInvoiceData(bookingWithDetails, roomDetails)
         invoiceData.invoiceNumber = invoice.invoiceNumber
         await printInvoice(invoiceData)
         toast.success(`Invoice ${invoice.invoiceNumber} sent to printer!`)
