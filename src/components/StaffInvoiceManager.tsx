@@ -340,8 +340,19 @@ export function StaffInvoiceManager() {
       roomType: roomType || 'Standard Room'
     }
 
+    // Dates can live top-level (checkIn) or in a nested `dates` object, in camel
+    // or snake case depending on the booking's creation flow. Normalize so
+    // createInvoiceData never sees an undefined/invalid date.
+    const dateObj = booking.dates || {}
+    const checkIn = booking.checkIn || dateObj.checkIn || dateObj.check_in || booking.check_in
+    const checkOut = booking.checkOut || dateObj.checkOut || dateObj.check_out || booking.check_out
+    const actualCheckOut = booking.actualCheckOut || booking.actual_check_out
+
     const bookingWithDetails = {
       ...booking,
+      checkIn,
+      checkOut,
+      actualCheckOut,
       guest: guest || {
         name: invoice.guestName || 'Guest',
         email: invoice.guestEmail || '',
