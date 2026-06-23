@@ -308,7 +308,12 @@ export function StaffInvoiceManager() {
   // is what caused "invalid input syntax for type uuid: undefined". Missing
   // guest/property fall back to the invoice row instead of throwing.
   const buildBookingDetailsForInvoice = async (invoice: InvoiceRecord) => {
-    const booking: any = await db.bookings.get(invoice.id)
+    let booking: any = await db.bookings.get(invoice.id)
+    // Defensive: some get() paths hand back the row wrapped in an array (or a
+    // { "0": row } object). Unwrap so we read real fields, not array indices —
+    // this is what produced the "0" key and the undefined dates.
+    if (Array.isArray(booking)) booking = booking[0]
+    else if (booking && booking['0'] && booking.id === undefined && booking.checkIn === undefined) booking = booking['0']
     if (!booking) throw new Error('Booking not found')
 
     const guestId = booking.guestId
