@@ -421,7 +421,7 @@ export async function generateReceipt80mmHTML(invoiceData: InvoiceData, payment?
   // fall back to a plain PAID stamp (full settlement).
   const paid = payment ? payment.amountPaid : invoiceData.charges.total
   const balanceDue = payment ? Math.max(0, payment.balanceDue) : 0
-  const stamp = balanceDue > 0 ? '*** DEPOSIT ***' : '*** PAID ***'
+  const stamp = balanceDue <= 0 ? '*** PAID ***' : (paid > 0 ? '*** DEPOSIT ***' : '*** AMOUNT DUE ***')
   const paymentRows = payment
     ? `<tr><td>Paid</td><td class="r">${fmt(paid)}</td></tr><tr${balanceDue > 0 ? ' class="bal"' : ''}><td>Balance Due</td><td class="r">${fmt(balanceDue)}</td></tr>`
     : ''
@@ -446,7 +446,7 @@ html,body{width:72mm}
 body{font-family:'Segoe UI',-apple-system,Arial,sans-serif;font-size:11px;line-height:1.35;color:#000;background:#fff}
 .r{width:72mm;padding:4mm 3mm 6mm}
 .ctr{text-align:center}
-.logo{height:40px;width:auto;max-width:60mm;object-fit:contain;margin-bottom:3px}
+.logo{height:40px;width:auto;max-width:60mm;object-fit:contain;margin-bottom:3px;filter:grayscale(100%)}
 .hn{font-size:15px;font-weight:800;letter-spacing:.3px}
 .hsub{font-size:9px;color:#000;line-height:1.4;margin-top:2px}
 .div{border-top:1px dashed #000;margin:6px 0}
@@ -603,7 +603,7 @@ export async function generateGroupReceipt80mmHTML(data: GroupInvoiceData, payme
 
   const paid = payment ? payment.amountPaid : data.summary.total
   const balanceDue = payment ? Math.max(0, payment.balanceDue) : 0
-  const stamp = balanceDue > 0 ? '*** DEPOSIT ***' : '*** PAID ***'
+  const stamp = balanceDue <= 0 ? '*** PAID ***' : (paid > 0 ? '*** DEPOSIT ***' : '*** AMOUNT DUE ***')
   const paymentRows = payment
     ? `<tr><td>Paid</td><td class="r">${fmt(paid)}</td></tr><tr${balanceDue > 0 ? ' class="bal"' : ''}><td>Balance Due</td><td class="r">${fmt(balanceDue)}</td></tr>`
     : ''
@@ -630,7 +630,7 @@ html,body{width:72mm}
 body{font-family:'Segoe UI',-apple-system,Arial,sans-serif;font-size:11px;line-height:1.35;color:#000;background:#fff}
 .r{width:72mm;padding:4mm 3mm 6mm}
 .ctr{text-align:center}
-.logo{height:40px;width:auto;max-width:60mm;object-fit:contain;margin-bottom:3px}
+.logo{height:40px;width:auto;max-width:60mm;object-fit:contain;margin-bottom:3px;filter:grayscale(100%)}
 .hn{font-size:15px;font-weight:800;letter-spacing:.3px}
 .hsub{font-size:9px;color:#000;line-height:1.4;margin-top:2px}
 .div{border-top:1px dashed #000;margin:6px 0}
@@ -994,14 +994,16 @@ export async function printInvoice(invoiceData: InvoiceData): Promise<void> {
       guestName: invoiceData.guest.name
     })
 
-    const htmlContent = await generateInvoiceHTML(invoiceData)
+    // Print on the 80mm thermal template (the front desk uses an 80mm roll).
+    // Email/PDF download still use the A4 generateInvoiceHTML elsewhere.
+    const htmlContent = await generateReceipt80mmHTML(invoiceData)
 
     // Open print window
     const printWindow = window.open('', '_blank')
     if (printWindow) {
       printWindow.document.write(htmlContent)
       printWindow.document.close()
-      printWindow.print()
+      setTimeout(() => printWindow.print(), 300)
     } else {
       throw new Error('Could not open print window. Please allow pop-ups.')
     }
@@ -1024,7 +1026,13 @@ export async function printPreInvoice(preInvoiceData: PreInvoiceData): Promise<v
       paymentStatus: preInvoiceData.paymentStatus
     })
 
-    const htmlContent = await generatePreInvoiceHTML(preInvoiceData)
+    // Print on the 80mm thermal template. Pass the pre-invoice payment state
+    // so the stamp reads AMOUNT DUE (nothing paid), DEPOSIT (part), or PAID.
+    const paidSoFar = preInvoiceData.amountPaid || 0
+    const htmlContent = await generateReceipt80mmHTML(preInvoiceData, {
+      amountPaid: paidSoFar,
+      balanceDue: preInvoiceData.charges.total - paidSoFar
+    })
 
     // Open print window
     const printWindow = window.open('', '_blank')
