@@ -47,6 +47,22 @@ function decodePaymentMethodFromNotes(rawNotes: string | undefined | null): { no
     return { notes, paymentMethod }
 }
 
+// db.get() returns a RAW snake_case row (unlike list(), which camelCases).
+// deleteCharge/updateCharge read camelCase fields off it, which came back
+// undefined — breaking the checked-out lookup (id=eq.undefined) and the
+// inventory restock. Normalize the fields those paths depend on.
+function normalizeChargeRow(row: any) {
+    return {
+        bookingId: row?.bookingId ?? row?.booking_id,
+        inventoryId: row?.inventoryId ?? row?.inventory_id,
+        unitPrice: Number(row?.unitPrice ?? row?.unit_price ?? 0),
+        quantity: Number(row?.quantity ?? 0),
+        paymentMethod: row?.paymentMethod ?? row?.payment_method,
+        notes: row?.notes,
+        description: row?.description,
+    }
+}
+
 /** Enrich a raw DB charge row — reads paymentMethod from dedicated column, falls back to legacy notes encoding */
 function enrichCharge(raw: any): BookingCharge {
     // Direct column takes priority (new charges)
@@ -147,21 +163,22 @@ class BookingChargesService {
         try {
             const existingCharge = await db.bookingCharges.get(chargeId)
             if (!existingCharge) throw new Error('Charge not found')
+            const ex = normalizeChargeRow(existingCharge)
 
-            const booking = await db.bookings.get(existingCharge.bookingId)
+            const booking = await db.bookings.get(ex.bookingId)
             if (booking?.status === 'checked-out') {
                 throw new Error('Cannot edit charges for a checked-out booking')
             }
 
-            const quantity = data.quantity ?? existingCharge.quantity
-            const unitPrice = data.unitPrice ?? existingCharge.unitPrice
+            const quantity = data.quantity ?? ex.quantity
+            const unitPrice = data.unitPrice ?? ex.unitPrice
             const amount = quantity * unitPrice
 
             const { paymentMethod: _pm, notes: _n, ...rest } = data  // strip from spread
             const updated = await db.bookingCharges.update(chargeId, {
                 ...rest,
-                notes: data.notes !== undefined ? (data.notes || null) : existingCharge.notes,
-                paymentMethod: data.paymentMethod || existingCharge.paymentMethod || 'cash',
+                notes: data.notes !== undefined ? (data.notes || null) : ex.notes,
+                paymentMethod: data.paymentMethod || ex.paymentMethod || 'cash',
                 amount,
                 updatedAt: new Date().toISOString()
             })
@@ -169,17 +186,17 @@ class BookingChargesService {
             // Keep inventory in sync when the quantity of an inventory-linked
             // charge changes. Without this, editing a charge's quantity drifted
             // stock (deletion restocks, but edit did not). Non-blocking.
-            const qtyDelta = quantity - existingCharge.quantity
-            if (existingCharge.inventoryId && qtyDelta !== 0) {
+            const qtyDelta = quantity - ex.quantity
+            if (ex.inventoryId && qtyDelta !== 0) {
                 try {
                     const me = await auth.me().catch(() => null)
                     const staffInfo = me
                         ? { id: me.id, name: me.email?.split('@')[0] || 'Staff' }
                         : { id: 'system', name: 'System' }
                     if (qtyDelta > 0) {
-                        await inventoryService.reduceStock(existingCharge.inventoryId, qtyDelta, staffInfo, `Charge edit (+${qtyDelta}): ${existingCharge.description}`)
+                        await inventoryService.reduceStock(ex.inventoryId, qtyDelta, staffInfo, `Charge edit (+${qtyDelta}): ${ex.description}`)
                     } else {
-                        await inventoryService.restockStock(existingCharge.inventoryId, -qtyDelta, staffInfo, `Charge edit (${qtyDelta}): ${existingCharge.description}`)
+                        await inventoryService.restockStock(ex.inventoryId, -qtyDelta, staffInfo, `Charge edit (${qtyDelta}): ${ex.description}`)
                     }
                 } catch (invError) {
                     console.error('[BookingChargesService] Failed to adjust stock on charge edit:', invError)
@@ -201,22 +218,23 @@ class BookingChargesService {
         try {
             const existingCharge = await db.bookingCharges.get(chargeId)
             if (!existingCharge) throw new Error('Charge not found')
+            const ex = normalizeChargeRow(existingCharge)
 
-            const booking = await db.bookings.get(existingCharge.bookingId)
+            const booking = await db.bookings.get(ex.bookingId)
             if (booking?.status === 'checked-out') {
                 throw new Error('Cannot delete charges for a checked-out booking')
             }
 
             // Reverse inventory stock if linked
-            if (existingCharge.inventoryId && existingCharge.quantity) {
+            if (ex.inventoryId && ex.quantity) {
                 try {
                     const me = await auth.me().catch(() => null)
                     const staffInfo = me ? { id: me.id, name: me.email?.split('@')[0] || 'Staff' } : { id: 'system', name: 'System' }
                     await inventoryService.restockStock(
-                        existingCharge.inventoryId,
-                        existingCharge.quantity,
+                        ex.inventoryId,
+                        ex.quantity,
                         staffInfo,
-                        `Reversed guest charge: ${existingCharge.description} (Booking ${existingCharge.bookingId})`
+                        `Reversed guest charge: ${ex.description} (Booking ${ex.bookingId})`
                     )
                 } catch (invError) {
                     console.error('[BookingChargesService] Failed to restock stock during deletion:', invError)

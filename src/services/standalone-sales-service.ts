@@ -108,14 +108,18 @@ export const standaloneSalesService = {
 
   async deleteSale(id: string): Promise<void> {
     try {
-      const existingSale = await db.standaloneSales.get(id) as StandaloneSale | undefined
-      if (existingSale && existingSale.inventoryId && existingSale.quantity) {
+      // db.get() returns a raw snake_case row; read both cases so the restock
+      // link isn't lost (inventory_id / inventoryId).
+      const existingSale = await db.standaloneSales.get(id) as any
+      const saleInventoryId = existingSale?.inventoryId ?? existingSale?.inventory_id
+      const saleQuantity = Number(existingSale?.quantity ?? 0)
+      if (existingSale && saleInventoryId && saleQuantity) {
         try {
           const me = await auth.me().catch(() => null)
           const staffInfo = me ? { id: me.id, name: me.email?.split('@')[0] || 'Staff' } : { id: 'system', name: 'System' }
           await inventoryService.restockStock(
-            existingSale.inventoryId,
-            existingSale.quantity,
+            saleInventoryId,
+            saleQuantity,
             staffInfo,
             `Reversed standalone sale: ${existingSale.description}`
           )
