@@ -258,7 +258,7 @@ function PastWeekRow({
 
 // ─── Booking breakdown section (shared between current week and past weeks) ───
 
-function BookingBreakdown({ result, onDeleteSale }: { result: StaffWeekResult; onDeleteSale?: (id: string) => void }) {
+function BookingBreakdown({ result, onDeleteSale }: { result: StaffWeekResult; onDeleteSale?: (sale: StandaloneSale) => void }) {
   const { bookings, chargesByCategory, standaloneSales, standaloneSalesRevenue, orphanCharges = [], orphanChargesTotal = 0 } = result
 
   // Category summary for charges
@@ -373,7 +373,7 @@ function StandaloneSalesTable({
 }: {
   sales: StandaloneSale[]
   total: number
-  onDelete?: (id: string) => void
+  onDelete?: (sale: StandaloneSale) => void
 }) {
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
@@ -412,7 +412,7 @@ function StandaloneSalesTable({
                 <TableCell>
                   <button
                     type="button"
-                    onClick={() => onDelete(s.id)}
+                    onClick={() => onDelete(s)}
                     className="text-destructive hover:text-destructive/80 p-1 rounded hover:bg-destructive/10"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -528,9 +528,11 @@ export function MyRevenuePage() {
     }
   }
 
-  const handleDeleteSale = async (id: string) => {
+  const handleDeleteSale = async (sale: StandaloneSale) => {
     try {
-      await standaloneSalesService.deleteSale(id)
+      // Pass the loaded sale so deleteSale reverses inventory reliably (avoids
+      // the unreliable get() that loses the inventory link).
+      await standaloneSalesService.deleteSale(sale)
       toast.success('Sale removed')
       loadCurrentData()
     } catch {
