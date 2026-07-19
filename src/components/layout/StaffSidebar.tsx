@@ -241,62 +241,63 @@ export function StaffSidebar({ email, className, onNavigate }: StaffSidebarProps
           </NavLink>
         ))}
 
-        {/* Price list collapsible - only show if user has access to any items */}
-        {showPriceListSection && (
-          <div>
-            <button
-              ref={buttonRef}
-              type="button"
-              onClick={() => setPriceOpen((v) => !v)}
-              onKeyDown={handleKeyDown}
-              aria-expanded={priceOpen}
-              aria-controls="price-submenu"
-              className={[
-                'w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
-                'hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20',
-                priceOpen ? 'bg-white/10 text-white' : 'text-white/80'
-              ].join(' ')}
-            >
-              <Tag className="h-4 w-4" />
-              <span className="flex-1 truncate">Price list</span>
-              <ChevronDown className={`h-4 w-4 transition-transform ${priceOpen ? 'rotate-180' : 'rotate-0'}`} />
-            </button>
-
-            {priceOpen && (
-              <div
-                id="price-submenu"
-                ref={submenuRef}
-                className="mt-1 space-y-1"
-                role="menu"
-                aria-label="Price list submenu"
-              >
-                {visiblePriceListItems.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    onClick={onNavigate}
-                    className={({ isActive }) => [
-                      'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ml-7',
-                      'hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20',
-                      isActive ? 'bg-white/10 text-white' : 'text-white/80'
-                    ].join(' ')}
-                    role="menuitem"
-                  >
-                    <span className="flex-1 truncate">{item.label}</span>
-                    {item.to === '/staff/local-tax' && (
-                      <span className="ml-2 inline-flex items-center rounded-full bg-rose-500 text-white text-[10px] px-2 py-0.5">NEW</span>
-                    )}
-                  </NavLink>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Admin-only items - Employees and Invoices */}
-        {visibleAdminItems.length > 0 && (
+        {(visibleAdminItems.length > 0 || showPriceListSection) && (
           <div className="mt-2 pt-2 border-t border-white/10">
             <p className="px-3 py-2 text-xs uppercase tracking-widest text-white/40">Admin</p>
+
+            {/* Price list collapsible - only show if user has access to any items */}
+            {showPriceListSection && (
+              <div>
+                <button
+                  ref={buttonRef}
+                  type="button"
+                  onClick={() => setPriceOpen((v) => !v)}
+                  onKeyDown={handleKeyDown}
+                  aria-expanded={priceOpen}
+                  aria-controls="price-submenu"
+                  className={[
+                    'w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+                    'hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20',
+                    priceOpen ? 'bg-white/10 text-white' : 'text-white/80'
+                  ].join(' ')}
+                >
+                  <Tag className="h-4 w-4" />
+                  <span className="flex-1 truncate">Price list</span>
+                  <ChevronDown className={`h-4 w-4 transition-transform ${priceOpen ? 'rotate-180' : 'rotate-0'}`} />
+                </button>
+
+                {priceOpen && (
+                  <div
+                    id="price-submenu"
+                    ref={submenuRef}
+                    className="mt-1 space-y-1"
+                    role="menu"
+                    aria-label="Price list submenu"
+                  >
+                    {visiblePriceListItems.map((item) => (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        onClick={onNavigate}
+                        className={({ isActive }) => [
+                          'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ml-7',
+                          'hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20',
+                          isActive ? 'bg-white/10 text-white' : 'text-white/80'
+                        ].join(' ')}
+                        role="menuitem"
+                      >
+                        <span className="flex-1 truncate">{item.label}</span>
+                        {item.to === '/staff/local-tax' && (
+                          <span className="ml-2 inline-flex items-center rounded-full bg-rose-500 text-white text-[10px] px-2 py-0.5">NEW</span>
+                        )}
+                      </NavLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {visibleAdminItems.map((item) => (
               <NavLink
                 key={item.to}
