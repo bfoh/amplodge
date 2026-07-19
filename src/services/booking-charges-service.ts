@@ -166,6 +166,26 @@ class BookingChargesService {
                 updatedAt: new Date().toISOString()
             })
 
+            // Keep inventory in sync when the quantity of an inventory-linked
+            // charge changes. Without this, editing a charge's quantity drifted
+            // stock (deletion restocks, but edit did not). Non-blocking.
+            const qtyDelta = quantity - existingCharge.quantity
+            if (existingCharge.inventoryId && qtyDelta !== 0) {
+                try {
+                    const me = await auth.me().catch(() => null)
+                    const staffInfo = me
+                        ? { id: me.id, name: me.email?.split('@')[0] || 'Staff' }
+                        : { id: 'system', name: 'System' }
+                    if (qtyDelta > 0) {
+                        await inventoryService.reduceStock(existingCharge.inventoryId, qtyDelta, staffInfo, `Charge edit (+${qtyDelta}): ${existingCharge.description}`)
+                    } else {
+                        await inventoryService.restockStock(existingCharge.inventoryId, -qtyDelta, staffInfo, `Charge edit (${qtyDelta}): ${existingCharge.description}`)
+                    }
+                } catch (invError) {
+                    console.error('[BookingChargesService] Failed to adjust stock on charge edit:', invError)
+                }
+            }
+
             console.log('[BookingChargesService] Charge updated:', chargeId)
             return enrichCharge(updated)
         } catch (error) {

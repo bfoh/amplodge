@@ -111,8 +111,16 @@ export function LogSalePage() {
         <GuestChargesDialog
           open={!!selected}
           onOpenChange={(o) => { if (!o) setSelected(null) }}
-          booking={{ ...selected, checkIn: selected.dates?.checkIn, checkOut: selected.dates?.checkOut }}
-          guest={selected.guest}
+          // Map LocalBooking fields to what GuestChargesDialog reads:
+          // guest.name (from fullName), booking.totalPrice (from amount), dates.
+          booking={{
+            ...selected,
+            totalPrice: selected.amount ?? selected.totalPrice ?? 0,
+            roomNumber: selected.roomNumber,
+            checkIn: selected.dates?.checkIn,
+            checkOut: selected.dates?.checkOut,
+          }}
+          guest={{ ...selected.guest, name: selected.guest?.fullName || selected.guest?.name || 'Guest' }}
           onChargesUpdated={() => {}}
         />
       )}
