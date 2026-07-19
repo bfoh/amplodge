@@ -534,7 +534,16 @@ export function MyRevenuePage() {
       // the unreliable get() that loses the inventory link).
       await standaloneSalesService.deleteSale(sale)
       toast.success('Sale removed')
-      loadCurrentData()
+      // Optimistically drop it from the displayed week + totals. A cached
+      // reload (loadCurrentData) lags because list() is cache-first and the
+      // cache only re-warms on page load; the DB delete already succeeded.
+      const amt = sale.amount || 0
+      setCurrentResult(prev => prev ? {
+        ...prev,
+        standaloneSales: prev.standaloneSales.filter(s => s.id !== sale.id),
+        standaloneSalesRevenue: prev.standaloneSalesRevenue - amt,
+        grandRevenue: prev.grandRevenue - amt,
+      } : prev)
     } catch {
       toast.error('Failed to remove sale')
     }
