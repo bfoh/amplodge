@@ -23,7 +23,7 @@ import { inventoryService } from '@/services/inventory-service'
 import { type InventoryTransaction, type InventoryItem } from '@/types'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
-import { format } from 'date-fns'
+import { safeFormatAny } from '@/lib/safe-date'
 import { Input } from '@/components/ui/input'
 
 export function InventoryTransactionsPage() {
@@ -134,13 +134,12 @@ export function InventoryTransactionsPage() {
                 ) : (
                   filteredTransactions.map((tx) => {
                     const item = items[tx.inventoryId]
-                    const date = new Date(tx.createdAt)
-                    
+
                     return (
                       <TableRow key={tx.id}>
                         <TableCell className="text-xs whitespace-nowrap">
-                          <div className="font-medium">{format(date, 'MMM d, yyyy')}</div>
-                          <div className="text-muted-foreground">{format(date, 'HH:mm')}</div>
+                          <div className="font-medium">{safeFormatAny(tx.createdAt, 'MMM d, yyyy')}</div>
+                          <div className="text-muted-foreground">{safeFormatAny(tx.createdAt, 'HH:mm')}</div>
                         </TableCell>
                         <TableCell className="font-semibold">
                           {item ? item.name : <span className="text-muted-foreground italic">Deleted Item</span>}
