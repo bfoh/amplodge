@@ -209,6 +209,9 @@ export function GuestChargesDialog({
     const handleEditCharge = async (chargeId: string) => {
         setSubmitting(true)
         try {
+            // Pass the already-loaded charge row so updateCharge doesn't re-fetch
+            // via the unreliable get() (which loses bookingId/inventoryId).
+            const existing = charges.find(c => c.id === chargeId)
             await bookingChargesService.updateCharge(chargeId, {
                 description: description.trim(),
                 category,
@@ -216,7 +219,7 @@ export function GuestChargesDialog({
                 unitPrice,
                 paymentMethod,
                 notes: notes.trim() || undefined
-            })
+            }, existing)
             toast.success('Charge updated successfully')
             resetForm()
             fetchCharges()
@@ -229,11 +232,13 @@ export function GuestChargesDialog({
         }
     }
 
-    const handleDeleteCharge = async (chargeId: string) => {
+    const handleDeleteCharge = async (charge: BookingCharge) => {
         if (!confirm('Are you sure you want to delete this charge?')) return
 
         try {
-            await bookingChargesService.deleteCharge(chargeId)
+            // Pass the full loaded charge so the service doesn't re-fetch via the
+            // unreliable get() (which loses bookingId/inventoryId).
+            await bookingChargesService.deleteCharge(charge)
             toast.success('Charge deleted')
             fetchCharges()
             onChargesUpdated?.()
@@ -557,7 +562,7 @@ export function GuestChargesDialog({
                                                     variant="ghost"
                                                     size="icon"
                                                     className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                                    onClick={() => handleDeleteCharge(charge.id)}
+                                                    onClick={() => handleDeleteCharge(charge)}
                                                 >
                                                     <Trash2 className="w-3.5 h-3.5" />
                                                 </Button>

@@ -106,11 +106,15 @@ export const standaloneSalesService = {
     }
   },
 
-  async deleteSale(id: string): Promise<void> {
+  async deleteSale(sale: StandaloneSale | string): Promise<void> {
+    const id = typeof sale === 'string' ? sale : sale.id
     try {
-      // db.get() returns a raw snake_case row; read both cases so the restock
-      // link isn't lost (inventory_id / inventoryId).
-      const existingSale = await db.standaloneSales.get(id) as any
+      // Prefer the already-loaded sale object (from list(), reliable). get() is
+      // a last resort — it has returned partial rows via the offline cache,
+      // losing the inventory link and skipping the restock. Read snake or camel.
+      const existingSale: any = typeof sale === 'string'
+        ? await db.standaloneSales.get(sale)
+        : sale
       const saleInventoryId = existingSale?.inventoryId ?? existingSale?.inventory_id
       const saleQuantity = Number(existingSale?.quantity ?? 0)
       if (existingSale && saleInventoryId && saleQuantity) {

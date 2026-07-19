@@ -159,15 +159,20 @@ class BookingChargesService {
     /**
      * Update an existing charge (only if booking is not checked-out)
      */
-    async updateCharge(chargeId: string, data: UpdateChargeData): Promise<BookingCharge | null> {
+    async updateCharge(chargeId: string, data: UpdateChargeData, existing?: BookingCharge): Promise<BookingCharge | null> {
         try {
-            const existingCharge = await db.bookingCharges.get(chargeId)
+            // Prefer the caller-supplied row (from list(), reliable). get() is a
+            // last resort — it has returned partial rows via the offline cache.
+            const existingCharge = existing ?? await db.bookingCharges.get(chargeId)
             if (!existingCharge) throw new Error('Charge not found')
             const ex = normalizeChargeRow(existingCharge)
 
-            const booking = await db.bookings.get(ex.bookingId)
-            if (booking?.status === 'checked-out') {
-                throw new Error('Cannot edit charges for a checked-out booking')
+            // Best-effort checked-out guard.
+            if (ex.bookingId) {
+                const booking = await db.bookings.get(ex.bookingId)
+                if (booking?.status === 'checked-out') {
+                    throw new Error('Cannot edit charges for a checked-out booking')
+                }
             }
 
             const quantity = data.quantity ?? ex.quantity
@@ -214,15 +219,23 @@ class BookingChargesService {
     /**
      * Delete a charge (only if booking is not checked-out)
      */
-    async deleteCharge(chargeId: string): Promise<boolean> {
+    async deleteCharge(charge: BookingCharge | string): Promise<boolean> {
         try {
-            const existingCharge = await db.bookingCharges.get(chargeId)
-            if (!existingCharge) throw new Error('Charge not found')
-            const ex = normalizeChargeRow(existingCharge)
+            // Prefer the already-loaded charge object (from list(), which
+            // reliably carries bookingId/inventoryId). Only fall back to get()
+            // for a bare id — get() has returned partial rows via the offline
+            // cache, losing those fields and breaking the reversal.
+            const chargeId = typeof charge === 'string' ? charge : charge.id
+            const row = typeof charge === 'string' ? await db.bookingCharges.get(charge) : charge
+            if (!row) throw new Error('Charge not found')
+            const ex = normalizeChargeRow(row)
 
-            const booking = await db.bookings.get(ex.bookingId)
-            if (booking?.status === 'checked-out') {
-                throw new Error('Cannot delete charges for a checked-out booking')
+            // Best-effort checked-out guard (skipped if we can't resolve the booking).
+            if (ex.bookingId) {
+                const booking = await db.bookings.get(ex.bookingId)
+                if (booking?.status === 'checked-out') {
+                    throw new Error('Cannot delete charges for a checked-out booking')
+                }
             }
 
             // Reverse inventory stock if linked
