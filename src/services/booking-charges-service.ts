@@ -1,4 +1,5 @@
 import { db, auth } from '@/lib/db'
+import { supabase } from '@/lib/supabase'
 import { BookingCharge, ChargeCategory } from '@/types'
 import { inventoryService } from './inventory-service'
 
@@ -91,6 +92,41 @@ class BookingChargesService {
         } catch (error) {
             console.error('[BookingChargesService] Error fetching charges:', error)
             return []
+        }
+    }
+
+    /**
+     * Fresh read straight from Supabase (via the proxy client), bypassing the
+     * offline PouchDB cache. db.list() is cache-first and the cache only
+     * re-warms on page load, so it goes stale after a mid-session write. Use
+     * this right after add/edit/delete so the folio reflects the change without
+     * a reload. Falls back to the cached read on any error.
+     */
+    async getChargesForBookingFresh(bookingId: string): Promise<BookingCharge[]> {
+        try {
+            const { data, error } = await supabase
+                .from('booking_charges')
+                .select('*')
+                .eq('booking_id', bookingId)
+                .order('created_at', { ascending: false })
+                .limit(100)
+            if (error) throw error
+            return (data || []).map((r: any) => enrichCharge({
+                id: r.id,
+                bookingId: r.booking_id,
+                description: r.description,
+                category: r.category,
+                quantity: r.quantity,
+                unitPrice: r.unit_price,
+                amount: r.amount,
+                notes: r.notes,
+                paymentMethod: r.payment_method,
+                inventoryId: r.inventory_id,
+                createdAt: r.created_at,
+            }))
+        } catch (error) {
+            console.error('[BookingChargesService] Fresh fetch failed, using cached:', error)
+            return this.getChargesForBooking(bookingId)
         }
     }
 
