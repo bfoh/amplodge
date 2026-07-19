@@ -58,6 +58,11 @@ export function GuestChargesDialog({
     const [notes, setNotes] = useState('')
     const [inventoryId, setInventoryId] = useState<string>('')
 
+    // Multi-item staging cart (additive — does not affect the single-add flow above).
+    type DraftCharge = { id: string; inventoryId?: string; description: string; category: ChargeCategory; quantity: number; unitPrice: number }
+    const [cart, setCart] = useState<DraftCharge[]>([])
+    const cartTotal = cart.reduce((s, c) => s + c.quantity * c.unitPrice, 0)
+
     // Fetch charges when dialog opens
     useEffect(() => {
         if (open && booking) {
@@ -141,6 +146,64 @@ export function GuestChargesDialog({
         } finally {
             setSubmitting(false)
         }
+    }
+
+    const addToCart = () => {
+        if (!description.trim()) { toast.error('Please enter a description'); return }
+        if (unitPrice < 0) { toast.error('Please enter a valid price'); return }
+        setCart(prev => [...prev, {
+            id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            inventoryId: inventoryId || undefined,
+            description: description.trim(),
+            category,
+            quantity,
+            unitPrice,
+        }])
+        // Reset only the item fields; keep the form open, and keep shared
+        // category / paymentMethod / notes for the next line.
+        setDescription('')
+        setQuantity(1)
+        setUnitPrice(0)
+        setInventoryId('')
+    }
+
+    const removeFromCart = (id: string) => setCart(prev => prev.filter(c => c.id !== id))
+
+    const saveCart = async () => {
+        // Include the current form line if filled but not yet added to the list.
+        const staged = description.trim()
+            ? [...cart, { id: 'current', inventoryId: inventoryId || undefined, description: description.trim(), category, quantity, unitPrice }]
+            : cart
+        if (staged.length === 0) { toast.error('Add at least one item'); return }
+
+        setSubmitting(true)
+        let ok = 0, fail = 0
+        for (const c of staged) {
+            try {
+                const chargeData: CreateChargeData = {
+                    bookingId: booking.remoteId || booking.id,
+                    description: c.description,
+                    category: c.category,
+                    quantity: c.quantity,
+                    unitPrice: c.unitPrice,
+                    paymentMethod,
+                    notes: notes.trim() || undefined,
+                    inventoryId: c.inventoryId,
+                }
+                await bookingChargesService.addCharge(chargeData)
+                ok++
+            } catch (error) {
+                fail++
+                console.error('Failed to add cart charge:', error)
+            }
+        }
+        setSubmitting(false)
+        setCart([])
+        resetForm()
+        fetchCharges()
+        onChargesUpdated?.()
+        if (ok) toast.success(`Added ${ok} item${ok > 1 ? 's' : ''}${fail ? ` (${fail} failed)` : ''}`)
+        else toast.error('Failed to add charges')
     }
 
     const handleEditCharge = async (chargeId: string) => {
@@ -366,10 +429,47 @@ export function GuestChargesDialog({
                                         </div>
                                     </div>
 
-                                    <div className="flex gap-2 justify-end pt-2">
+                                    {/* Multi-item staging cart (not shown while editing an existing charge) */}
+                                    {!editingChargeId && cart.length > 0 && (
+                                        <div className="space-y-1.5 pt-2 border-t">
+                                            <p className="text-xs font-medium text-muted-foreground">Items to add ({cart.length})</p>
+                                            {cart.map(c => (
+                                                <div key={c.id} className="flex items-center justify-between text-sm">
+                                                    <span className="truncate">{c.description} ({c.quantity}×)</span>
+                                                    <span className="flex items-center gap-2">
+                                                        <span className="font-medium">{formatCurrencySync(c.quantity * c.unitPrice, currency)}</span>
+                                                        <button onClick={() => removeFromCart(c.id)} className="text-destructive hover:opacity-70" aria-label="Remove item">
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </span>
+                                                </div>
+                                            ))}
+                                            <div className="flex justify-between text-sm font-semibold pt-1 border-t">
+                                                <span>Subtotal</span>
+                                                <span>{formatCurrencySync(cartTotal, currency)}</span>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="flex flex-wrap gap-2 justify-end pt-2">
                                         <Button variant="outline" onClick={resetForm}>
                                             Cancel
                                         </Button>
+                                        {!editingChargeId && (
+                                            <Button variant="secondary" onClick={addToCart} disabled={submitting} className="gap-1.5">
+                                                <Plus className="w-4 h-4" /> Add to list
+                                            </Button>
+                                        )}
+                                        {!editingChargeId && (cart.length > 0 || description.trim().length > 0) && (
+                                            <Button onClick={saveCart} disabled={submitting} className="min-w-[100px]">
+                                                {submitting ? (
+                                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                                ) : (
+                                                    <Check className="w-4 h-4 mr-2" />
+                                                )}
+                                                Save all
+                                            </Button>
+                                        )}
                                         <Button
                                             onClick={() => editingChargeId
                                                 ? handleEditCharge(editingChargeId)
