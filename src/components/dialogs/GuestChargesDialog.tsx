@@ -256,7 +256,7 @@ export function GuestChargesDialog({
     }
 
     const totalCharges = charges.reduce((sum, c) => sum + (c.amount || 0), 0)
-    const roomCost = booking?.totalPrice || 0
+    const roomCost = booking?.totalPrice || booking?.amount || 0
     const grandTotal = roomCost + totalCharges
     const isCheckedOut = booking?.status === 'checked-out'
     const canEdit = !isCheckoutMode && !isCheckedOut

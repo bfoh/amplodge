@@ -199,8 +199,8 @@ export function InventoryPage() {
     (item.category || '').toLowerCase().includes(search.toLowerCase())
   )
 
-  const lowStockItems = items.filter(i => i.stockQuantity <= i.minThreshold)
-  const totalValue = items.reduce((sum, i) => sum + (i.stockQuantity * i.unitPrice), 0)
+  const lowStockItems = items.filter(i => (Number(i.stockQuantity) || 0) <= (Number(i.minThreshold) || 0))
+  const totalValue = items.reduce((sum, i) => sum + ((Number(i.stockQuantity) || 0) * (Number(i.unitPrice) || 0)), 0)
 
   // ── Revenue Logic ───────────────────────────────────────────────────────
   const getPeriodRange = (type: 'weekly' | 'monthly' | 'yearly') => {
