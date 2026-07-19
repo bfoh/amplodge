@@ -64,28 +64,26 @@ async function heartbeatCheck(): Promise<boolean> {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), HEARTBEAT_TIMEOUT_MS)
 
-    // Use a lightweight endpoint — just check if we can reach the internet.
-    // We use the Supabase URL (already configured) or a fallback.
+    // Check the app's ACTUAL data path — the Supabase proxy — not a direct
+    // Supabase connection. Direct connections time out from some regions (e.g.
+    // Ghana → Ireland), which is the whole reason the proxy exists; a direct
+    // heartbeat would falsely report offline and force stale-cache reads /
+    // id-less writes even though the app can read/write fine via the proxy.
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
     const checkUrl = supabaseUrl
-      ? `${supabaseUrl}/rest/v1/?limit=0`
+      ? `/.netlify/functions/supabase-proxy?_sbpath=${encodeURIComponent('/rest/v1/')}&limit=0`
       : 'https://httpbin.org/get'
 
     const res = await fetch(checkUrl, {
-      method: 'HEAD',
+      method: 'GET',
       signal: controller.signal,
-      headers: supabaseUrl
-        ? {
-            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY || ''}`,
-          }
-        : {},
-      // Bypass the Netlify proxy for heartbeat so we test actual connectivity
       cache: 'no-store',
     })
 
     clearTimeout(timeout)
-    const alive = res.ok || res.status === 401 || res.status === 406 // Supabase returns 406 for HEAD on REST
+    // Any HTTP response means the data path is reachable. 401/406 are expected
+    // (anon key / REST root), and still prove connectivity.
+    const alive = res.ok || res.status === 401 || res.status === 406
     setOnline(alive)
     return alive
   } catch {
