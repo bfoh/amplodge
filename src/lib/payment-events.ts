@@ -160,9 +160,12 @@ export function computeStaffAttributedRevenue(
         ? paid
         : 0 // pending = nothing collected at booking time
 
-    // 2. Remaining balance is credited to the check-in staff
+    // 2. Remaining balance is credited to the check-in staff.
+    // Fall back to the booking creator (not '') when no check-in/out staff is
+    // recorded, so the balance is never dropped — company-wide totals sum these
+    // per-staff figures (HRPage), and an unowned gap would silently undercount.
     const remainder = Math.max(0, effectivePrice - creatorAmount)
-    const checkInStaff = checkInBy || checkOutBy || '' // Use checkout as fallback for checkin if missing
+    const checkInStaff = checkInBy || checkOutBy || createdBy
 
     let attributed = 0
     
@@ -198,10 +201,12 @@ export function computeStaffAttributedRevenue(
     }
   }
 
-  // Any remaining gap (unrecorded balance) is attributed to the check-in staff
+  // Any remaining gap (unrecorded balance) is attributed to the check-in staff,
+  // falling back to the booking creator (not '') so it is never dropped from
+  // company-wide totals that sum these per-staff figures.
   const gap = Math.max(0, effectivePrice - coveredTotal)
   if (gap > 0) {
-    const gapStaff = checkInBy || checkOutBy || ''
+    const gapStaff = checkInBy || checkOutBy || createdBy
     if (gapStaff === staffId) {
       // If dateRange is provided, we only count the gap if the booking was active this week.
       // Since the gap is unattributed, we include it to avoid "losing" revenue in the grand total.

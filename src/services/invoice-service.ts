@@ -174,6 +174,15 @@ export async function createInvoiceData(
     // Room price from booking (already tax inclusive)
     const roomTotal = booking.totalPrice
 
+    // For PERCENTAGE discounts, recompute the amount against the CURRENT base so
+    // the displayed "X%" always matches the deduction. The stored amount is
+    // frozen at booking time and goes stale after a stay extension / added
+    // charge. Fixed discounts keep their stored amount.
+    if (discount?.type === 'percentage') {
+      discountAmount = (roomTotal + additionalChargesTotal) * (discount.value / 100)
+      discount = { ...discount, amount: discountAmount }
+    }
+
     // Grand total calculation
     // Grand Total = Room Total + Additional Charges - Discount
     const grandTotal = Math.max(0, roomTotal + additionalChargesTotal - discountAmount)
@@ -1585,7 +1594,7 @@ export async function createGroupInvoiceData(bookings: BookingWithDetails[], bil
     }
 
     const groupChargesTotal = groupAdditionalCharges.reduce((sum, c) => sum + (c.amount || 0), 0)
-    const discountAmount = groupDiscount?.amount || 0
+    let discountAmount = groupDiscount?.amount || 0
 
     const processedBookings = await Promise.all(bookings.map(async (booking) => {
       // Get ADDITIONAL SERVICES (e.g. food, spa) per booking - distinct from "Booking Charges" added at reception?
@@ -1644,6 +1653,14 @@ export async function createGroupInvoiceData(bookings: BookingWithDetails[], bil
     // 1. Sum of all room LINE TOTALS (room price + per-room services like Breakfast, Jollof rice)
     // This uses 'subtotal' (which is lineTotal = roomTotal + dbChargesTotal)
     const totalRoomsCost = processedBookings.reduce((sum, b) => sum + b.subtotal, 0)
+
+    // For PERCENTAGE discounts, recompute against the CURRENT group base so the
+    // displayed "X%" matches the deduction (stored amount goes stale after a
+    // stay extension / added charge). Fixed discounts keep their stored amount.
+    if (groupDiscount?.type === 'percentage') {
+      discountAmount = (totalRoomsCost + groupChargesTotal) * (groupDiscount.value / 100)
+      groupDiscount = { ...groupDiscount, amount: discountAmount }
+    }
 
     // 2. Calculate Grand Total: Room Line Totals + Group Level Charges - Discount
     const grandTotal = Math.max(0, totalRoomsCost + groupChargesTotal - discountAmount)
