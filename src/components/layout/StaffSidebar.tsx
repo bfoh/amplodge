@@ -21,7 +21,8 @@ import {
   Star,
   Megaphone,
   Briefcase,
-  Home
+  Home,
+  ShoppingCart
 } from 'lucide-react'
 import { useStaffRole } from '@/hooks/use-staff-role'
 import { useIsAdmin } from '@/hooks/use-is-admin'
@@ -52,7 +53,6 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: 'Dashboard', to: '/staff/dashboard', icon: LayoutDashboard, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Calendar', to: '/staff/calendar', icon: Calendar, minRole: ['owner', 'admin', 'manager', 'staff'] },
-  { label: 'Rooms', to: '/staff/properties', icon: Home, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Bookings', to: '/staff/bookings', icon: List, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Reservations', to: '/staff/reservations', icon: History, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Onsite Booking', to: '/staff/onsite', icon: PlusCircle, minRole: ['owner', 'admin', 'manager', 'staff'] },
@@ -60,6 +60,7 @@ const navItems: NavItem[] = [
   { label: 'Housekeeping', to: '/staff/housekeeping', icon: Sparkles, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Channels', to: '/staff/channels', icon: MessageSquare, minRole: ['owner', 'admin', 'manager'] },
   { label: 'My Revenue', to: '/staff/my-revenue', icon: BarChart3, minRole: ['owner', 'admin', 'manager', 'staff'] },
+  { label: 'Log a Sale', to: '/staff/log-sale', icon: ShoppingCart, minRole: ['owner', 'admin', 'manager', 'staff'] },
 ]
 
 // Price list submenu items - Admin only
@@ -77,6 +78,7 @@ const adminItems: Array<{
   icon: React.ComponentType<{ className?: string }>
   minRole: StaffRole[]
 }> = [
+    { label: 'Rooms', to: '/staff/properties', icon: Home, minRole: ['owner', 'admin'] },
     { label: 'Inventory', to: '/staff/inventory', icon: Package, minRole: ['owner', 'admin', 'manager'] },
     { label: 'Employees', to: '/staff/employees', icon: Users, minRole: ['owner', 'admin', 'manager'] },
     { label: 'HR', to: '/staff/hr', icon: Briefcase, minRole: ['owner', 'admin'] },

@@ -16,7 +16,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
-import { Loader2, TrendingUp, BookOpen, ChevronDown, Send, CheckCircle, Clock, Eye, ShoppingBag, Plus, Trash2 } from 'lucide-react'
+import { Loader2, TrendingUp, BookOpen, ChevronDown, Send, CheckCircle, Clock, Eye, ShoppingBag, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useStaffRole } from '@/hooks/use-staff-role'
 import {
@@ -34,7 +34,6 @@ import {
 } from '@/services/revenue-service'
 import { standaloneSalesService, SALE_CATEGORIES } from '@/services/standalone-sales-service'
 import type { StandaloneSale } from '@/types'
-import { LogSaleDialog } from '@/components/dialogs/LogSaleDialog'
 import { format } from 'date-fns'
 import { useSubscription } from '@/hooks/use-subscription'
 
@@ -450,7 +449,6 @@ export function MyRevenuePage() {
   const [submitting, setSubmitting] = useState(false)
 
   // Log Sale dialog
-  const [logSaleOpen, setLogSaleOpen] = useState(false)
 
   const load = useCallback(async (uid: string, name: string) => {
     setLoading(true)
@@ -580,9 +578,6 @@ export function MyRevenuePage() {
             Track the revenue you've brought in — one week at a time (Mon–Sun).
           </p>
         </div>
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setLogSaleOpen(true)}>
-          <Plus className="w-4 h-4" /> Log a Sale
-        </Button>
       </div>
 
       {/* Current week card */}
@@ -799,19 +794,6 @@ export function MyRevenuePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Log Sale dialog */}
-      {userId && staffRecord && (
-        <LogSaleDialog
-          open={logSaleOpen}
-          onOpenChange={setLogSaleOpen}
-          staffId={userId}
-          staffName={staffRecord.name}
-          onSuccess={() => {
-            loadCurrentData()
-            if (!currentWeekOpen) setCurrentWeekOpen(true)
-          }}
-        />
-      )}
     </div>
   )
 }

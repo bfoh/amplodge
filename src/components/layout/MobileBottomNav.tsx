@@ -1,9 +1,9 @@
 import React from 'react'
 import { NavLink } from 'react-router-dom'
 import { 
-  LayoutDashboard, 
-  Calendar, 
-  Home, 
+  LayoutDashboard,
+  Calendar,
+  ShoppingCart,
   List,
   History
 } from 'lucide-react'
@@ -13,7 +13,7 @@ export function MobileBottomNav() {
   const navItems = [
     { label: 'Dash', to: '/staff/dashboard', icon: LayoutDashboard },
     { label: 'Calendar', to: '/staff/calendar', icon: Calendar },
-    { label: 'Rooms', to: '/staff/properties', icon: Home },
+    { label: 'Sell', to: '/staff/log-sale', icon: ShoppingCart },
     { label: 'Bookings', to: '/staff/bookings', icon: List },
     { label: 'History', to: '/staff/reservations', icon: History },
   ]
