@@ -34,11 +34,6 @@ export async function checkRateLimit(event, { endpoint, limit, windowSeconds = 6
       p_limit: limit,
       p_window_seconds: windowSeconds,
     })
-    // TEMP DEBUG — remove after diagnosing limiter
-    console.log('[rate-limit][debug] key=%s host=%s data=%j err=%s',
-      key,
-      (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'NONE').replace(/^https?:\/\//, ''),
-      data, error?.message || 'none')
     if (error) {
       console.error('[rate-limit] RPC error (failing open):', error.message)
       return { allowed: true }

@@ -18,6 +18,10 @@ CREATE TABLE IF NOT EXISTS public.rate_limits (
   PRIMARY KEY (key, window_start)
 );
 
+-- Lock the table down: no direct client access. Only the SECURITY DEFINER
+-- RPC below may touch it (it runs as the function owner, bypassing RLS).
+ALTER TABLE public.rate_limits ENABLE ROW LEVEL SECURITY;
+
 -- Helps the opportunistic cleanup below.
 CREATE INDEX IF NOT EXISTS rate_limits_window_start_idx
   ON public.rate_limits (window_start);
@@ -31,6 +35,11 @@ CREATE OR REPLACE FUNCTION public.check_rate_limit(
 )
 RETURNS boolean
 LANGUAGE plpgsql
+-- SECURITY DEFINER: run as the function owner so the INSERT bypasses the
+-- table's RLS. Without this, callers (anon/service via PostgREST) hit a
+-- "row violates row-level security policy" error and the limiter fails open.
+SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
   v_window_start timestamptz;
