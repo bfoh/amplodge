@@ -122,7 +122,6 @@ export function InventoryPage() {
   }
 
   const loadInventory = async () => {
-    setLoading(true)
     try {
       const data = await inventoryService.getItems()
       setItems(data)
