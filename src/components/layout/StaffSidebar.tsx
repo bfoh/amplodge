@@ -52,7 +52,6 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: 'Dashboard', to: '/staff/dashboard', icon: LayoutDashboard, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Calendar', to: '/staff/calendar', icon: Calendar, minRole: ['owner', 'admin', 'manager', 'staff'] },
-  { label: 'Rooms', to: '/staff/properties', icon: Home, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Bookings', to: '/staff/bookings', icon: List, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Reservations', to: '/staff/reservations', icon: History, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Onsite Booking', to: '/staff/onsite', icon: PlusCircle, minRole: ['owner', 'admin', 'manager', 'staff'] },
@@ -77,6 +76,7 @@ const adminItems: Array<{
   icon: React.ComponentType<{ className?: string }>
   minRole: StaffRole[]
 }> = [
+    { label: 'Rooms', to: '/staff/properties', icon: Home, minRole: ['owner', 'admin'] },
     { label: 'Inventory', to: '/staff/inventory', icon: Package, minRole: ['owner', 'admin', 'manager'] },
     { label: 'Employees', to: '/staff/employees', icon: Users, minRole: ['owner', 'admin', 'manager'] },
     { label: 'HR', to: '/staff/hr', icon: Briefcase, minRole: ['owner', 'admin'] },
