@@ -79,6 +79,7 @@ export const ROUTE_ACCESS: Record<string, StaffRole[]> = {
   '/staff/requests': ['owner', 'admin', 'manager', 'staff'],
   '/staff/hr': ['owner', 'admin'],
   '/staff/my-revenue': ['owner', 'admin', 'manager', 'staff'],
+  '/staff/log-sale': ['owner', 'admin', 'manager', 'staff'],
   '/staff/clock': ['owner', 'admin', 'manager', 'staff'],
   '/staff/inventory': ['owner', 'admin', 'manager'],
   '/staff/inventory/transactions': ['owner', 'admin', 'manager']
@@ -107,7 +108,8 @@ export const NAV_ITEMS: NavItem[] = [
   { path: '/staff/activity-logs', label: 'Activity Logs', minRole: ['owner', 'admin'] },
   { path: '/staff/settings', label: 'Settings', minRole: ['owner', 'admin'] },
   { path: '/staff/marketing', label: 'Marketing', minRole: ['owner', 'admin', 'manager', 'staff'] },
-  { path: '/staff/hr', label: 'HR', minRole: ['owner', 'admin'] }
+  { path: '/staff/hr', label: 'HR', minRole: ['owner', 'admin'] },
+  { path: '/staff/log-sale', label: 'Log a Sale', minRole: ['owner', 'admin', 'manager', 'staff'] }
 ]
 
 /**

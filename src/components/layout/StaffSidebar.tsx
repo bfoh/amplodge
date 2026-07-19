@@ -21,7 +21,8 @@ import {
   Star,
   Megaphone,
   Briefcase,
-  Home
+  Home,
+  ShoppingCart
 } from 'lucide-react'
 import { useStaffRole } from '@/hooks/use-staff-role'
 import { useIsAdmin } from '@/hooks/use-is-admin'
@@ -59,6 +60,7 @@ const navItems: NavItem[] = [
   { label: 'Housekeeping', to: '/staff/housekeeping', icon: Sparkles, minRole: ['owner', 'admin', 'manager', 'staff'] },
   { label: 'Channels', to: '/staff/channels', icon: MessageSquare, minRole: ['owner', 'admin', 'manager'] },
   { label: 'My Revenue', to: '/staff/my-revenue', icon: BarChart3, minRole: ['owner', 'admin', 'manager', 'staff'] },
+  { label: 'Log a Sale', to: '/staff/log-sale', icon: ShoppingCart, minRole: ['owner', 'admin', 'manager', 'staff'] },
 ]
 
 // Price list submenu items - Admin only

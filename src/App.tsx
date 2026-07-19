@@ -55,6 +55,7 @@ const MarketingPage = lazyWithRetry(() => import('./pages/staff/MarketingPage'))
 const ServiceRequestsPage = lazyWithRetry(() => import('./pages/staff/ServiceRequestsPage').then(m => ({ default: m.ServiceRequestsPage })))
 const HRPage = lazyWithRetry(() => import('./pages/staff/HRPage').then(m => ({ default: m.HRPage })))
 const MyRevenuePage = lazyWithRetry(() => import('./pages/staff/MyRevenuePage').then(m => ({ default: m.MyRevenuePage })))
+const LogSalePage = lazyWithRetry(() => import('./pages/staff/LogSalePage').then(m => ({ default: m.LogSalePage })))
 const ClockPage = lazyWithRetry(() => import('./pages/staff/ClockPage').then(m => ({ default: m.ClockPage })))
 const InventoryPage = lazyWithRetry(() => import('./pages/staff/InventoryPage').then(m => ({ default: m.InventoryPage })))
 const InventoryTransactionsPage = lazyWithRetry(() => import('./pages/staff/InventoryTransactionsPage').then(m => ({ default: m.InventoryTransactionsPage })))
@@ -235,6 +236,7 @@ function App() {
                 <Route path="requests" element={<ServiceRequestsPage />} />
                 <Route path="hr" element={<HRPage />} />
                 <Route path="my-revenue" element={<MyRevenuePage />} />
+                <Route path="log-sale" element={<LogSalePage />} />
                 <Route path="inventory" element={<InventoryPage />} />
                 <Route path="inventory/transactions" element={<InventoryTransactionsPage />} />
               </Route>
