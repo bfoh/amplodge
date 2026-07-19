@@ -107,6 +107,26 @@ export const standaloneSalesService = {
   },
 
   async deleteSale(id: string): Promise<void> {
+    try {
+      const existingSale = await db.standaloneSales.get(id) as StandaloneSale | undefined
+      if (existingSale && existingSale.inventoryId && existingSale.quantity) {
+        try {
+          const me = await auth.me().catch(() => null)
+          const staffInfo = me ? { id: me.id, name: me.email?.split('@')[0] || 'Staff' } : { id: 'system', name: 'System' }
+          await inventoryService.restockStock(
+            existingSale.inventoryId,
+            existingSale.quantity,
+            staffInfo,
+            `Reversed standalone sale: ${existingSale.description}`
+          )
+        } catch (invError) {
+          console.error('[standaloneSalesService] Failed to restock stock during sale deletion:', invError)
+        }
+      }
+    } catch (e) {
+      console.warn('[standaloneSalesService] Failed to fetch sale for reversal:', e)
+    }
+
     await db.standaloneSales.delete(id)
   },
 }

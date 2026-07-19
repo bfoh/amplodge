@@ -187,6 +187,22 @@ class BookingChargesService {
                 throw new Error('Cannot delete charges for a checked-out booking')
             }
 
+            // Reverse inventory stock if linked
+            if (existingCharge.inventoryId && existingCharge.quantity) {
+                try {
+                    const me = await auth.me().catch(() => null)
+                    const staffInfo = me ? { id: me.id, name: me.email?.split('@')[0] || 'Staff' } : { id: 'system', name: 'System' }
+                    await inventoryService.restockStock(
+                        existingCharge.inventoryId,
+                        existingCharge.quantity,
+                        staffInfo,
+                        `Reversed guest charge: ${existingCharge.description} (Booking ${existingCharge.bookingId})`
+                    )
+                } catch (invError) {
+                    console.error('[BookingChargesService] Failed to restock stock during deletion:', invError)
+                }
+            }
+
             await db.bookingCharges.delete(chargeId)
             console.log('[BookingChargesService] Charge deleted:', chargeId)
             return true
