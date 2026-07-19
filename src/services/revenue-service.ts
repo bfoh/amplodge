@@ -169,6 +169,7 @@ function normalizePaymentMethod(raw: string): string {
   if (s === 'mobile_money' || s === 'mobile money' || s.includes('mobile') || s.includes('momo')) return 'mobile_money'
   if (s === 'card' || s.includes('card') || s.includes('credit') || s.includes('debit')) return 'card'
   if (s === 'not_paid' || s === 'not paid') return 'not_paid'
+  if (s === 'pay_later' || s === 'pay later') return 'pay_later'  // on folio, not collected until settled at checkout
   return ''                                    // unrecognised format → treat as no data
 }
 

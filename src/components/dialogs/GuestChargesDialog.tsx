@@ -54,7 +54,7 @@ export function GuestChargesDialog({
     const [category, setCategory] = useState<ChargeCategory>('food_beverage')
     const [quantity, setQuantity] = useState(1)
     const [unitPrice, setUnitPrice] = useState(0)
-    const [paymentMethod, setPaymentMethod] = useState<'cash' | 'mobile_money' | 'card'>('cash')
+    const [paymentMethod, setPaymentMethod] = useState<'cash' | 'mobile_money' | 'card' | 'pay_later'>('cash')
     const [notes, setNotes] = useState('')
     const [inventoryId, setInventoryId] = useState<string>('')
 
@@ -185,7 +185,7 @@ export function GuestChargesDialog({
         setCategory(charge.category)
         setQuantity(charge.quantity)
         setUnitPrice(charge.unitPrice)
-        setPaymentMethod((charge.paymentMethod as 'cash' | 'mobile_money' | 'card') || 'cash')
+        setPaymentMethod((charge.paymentMethod as 'cash' | 'mobile_money' | 'card' | 'pay_later') || 'cash')
         setNotes(charge.notes || '')
         setInventoryId((charge as any).inventoryId || '')
         setEditingChargeId(charge.id)
@@ -341,7 +341,7 @@ export function GuestChargesDialog({
 
                                         <div>
                                             <Label>Payment Method</Label>
-                                            <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as 'cash' | 'mobile_money' | 'card')}>
+                                            <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as 'cash' | 'mobile_money' | 'card' | 'pay_later')}>
                                                 <SelectTrigger>
                                                     <SelectValue />
                                                 </SelectTrigger>
@@ -349,6 +349,7 @@ export function GuestChargesDialog({
                                                     <SelectItem value="cash">💵 Cash</SelectItem>
                                                     <SelectItem value="mobile_money">📱 Mobile Money</SelectItem>
                                                     <SelectItem value="card">💳 Card</SelectItem>
+                                                    <SelectItem value="pay_later">⏳ Pay Later (add to folio)</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                         </div>
@@ -422,6 +423,7 @@ export function GuestChargesDialog({
                                                 <Badge variant="secondary" className="text-[10px] h-5 px-1.5 uppercase font-bold tracking-tight">
                                                     {charge.paymentMethod === 'cash' ? '💵 Cash'
                                                         : charge.paymentMethod === 'mobile_money' ? '📱 MoMo'
+                                                        : charge.paymentMethod === 'pay_later' ? '⏳ Pay Later'
                                                         : '💳 Card'}
                                                 </Badge>
                                             )}
