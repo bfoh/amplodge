@@ -76,7 +76,9 @@ export function GuestChargesDialog({
         setLoading(true)
         try {
             const bookingId = booking.remoteId || booking.id
-            const data = await bookingChargesService.getChargesForBooking(bookingId)
+            // Fresh read (bypasses the stale offline cache) so add/edit/delete
+            // reflect in the folio without a reload.
+            const data = await bookingChargesService.getChargesForBookingFresh(bookingId)
             setCharges(data)
         } catch (error) {
             console.error('Failed to fetch charges:', error)
