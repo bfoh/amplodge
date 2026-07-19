@@ -592,6 +592,7 @@ export function GroupManageDialog({
                                                     <Label>Check-in Date *</Label>
                                                     <Input
                                                         type="date"
+                                                        min={new Date().toLocaleDateString('en-CA')}
                                                         value={newCheckIn}
                                                         onChange={(e) => setNewCheckIn(e.target.value)}
                                                     />

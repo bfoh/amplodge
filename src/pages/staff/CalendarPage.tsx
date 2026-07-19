@@ -574,11 +574,11 @@ export function CalendarPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="checkIn">Check-in Date*</Label>
-                    <Input id="checkIn" type="date" value={formData.checkIn} onChange={(e) => setFormData({ ...formData, checkIn: e.target.value })} required />
+                    <Input id="checkIn" type="date" min={new Date().toLocaleDateString('en-CA')} value={formData.checkIn} onChange={(e) => setFormData({ ...formData, checkIn: e.target.value })} required />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="checkOut">Check-out Date*</Label>
-                    <Input id="checkOut" type="date" value={formData.checkOut} onChange={(e) => setFormData({ ...formData, checkOut: e.target.value })} required />
+                    <Input id="checkOut" type="date" min={formData.checkIn || new Date().toLocaleDateString('en-CA')} value={formData.checkOut} onChange={(e) => setFormData({ ...formData, checkOut: e.target.value })} required />
                   </div>
                 </div>
 
