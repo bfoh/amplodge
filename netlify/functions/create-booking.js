@@ -58,6 +58,7 @@ function generateEmailHtml({ title, preheader, content }) {
 import { createClient } from '@supabase/supabase-js';
 import PDFDocument from 'pdfkit';
 import { Buffer } from 'node:buffer';
+import { checkRateLimit, tooManyRequests } from './_lib/rate-limit.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
@@ -161,6 +162,11 @@ export const handler = async (event, context) => {
     if (event.httpMethod !== 'POST') {
         return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method Not Allowed' }) };
     }
+
+    // Rate limit: 5 bookings / minute per IP. This endpoint writes a row and
+    // fires email/SMS, so it's the strictest — caps spam and notification abuse.
+    const rl = await checkRateLimit(event, { endpoint: 'create-booking', limit: 5 });
+    if (!rl.allowed) return tooManyRequests(headers);
 
     try {
         const body = JSON.parse(event.body);
