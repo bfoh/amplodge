@@ -1,10 +1,15 @@
-const { createClient } = require('@supabase/supabase-js');
+import { createClient } from '@supabase/supabase-js';
+import { checkRateLimit, tooManyRequests } from './_lib/rate-limit.js';
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
     // Only allow GET requests
     if (event.httpMethod !== 'GET') {
         return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
     }
+
+    // Rate limit: 30 requests / minute per IP (caps token brute-forcing).
+    const rl = await checkRateLimit(event, { endpoint: 'verify-guest', limit: 30 });
+    if (!rl.allowed) return tooManyRequests({ 'Access-Control-Allow-Origin': '*' });
 
     const { token } = event.queryStringParameters;
 

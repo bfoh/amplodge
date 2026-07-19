@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { checkRateLimit, tooManyRequests } from './_lib/rate-limit.js';
 
 // Initialize Supabase client
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -29,6 +30,10 @@ export const handler = async (event, context) => {
             body: JSON.stringify({ error: 'Method Not Allowed' })
         };
     }
+
+    // Rate limit: 60 requests / minute per IP.
+    const rl = await checkRateLimit(event, { endpoint: 'rooms-availability', limit: 60 });
+    if (!rl.allowed) return tooManyRequests(headers);
 
     try {
         const { checkIn, checkOut, guests } = event.queryStringParameters;
