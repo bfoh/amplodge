@@ -296,6 +296,12 @@ export function calculateStaffWeekResultInternal(
       const creator = b.createdBy || b.created_by || ''
       const creatorName = b.createdByName || b.created_by_name || ''
       const status = b.status || ''
+
+      // Cancelled bookings earn no revenue: deposits are refunded on cancel
+      // (per policy), so exclude them entirely — matches the analytics/dashboard
+      // view, which already ignores cancelled bookings.
+      if (status === 'cancelled') return false
+
       const specialReq = b.special_requests || b.specialRequests || ''
       const events = parsePaymentEvents(specialReq)
 
