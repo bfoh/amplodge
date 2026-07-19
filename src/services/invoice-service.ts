@@ -1608,13 +1608,15 @@ export async function createGroupInvoiceData(bookings: BookingWithDetails[], bil
       const d2 = new Date(Date.UTC(checkOut.getFullYear(), checkOut.getMonth(), checkOut.getDate()))
       const nights = Math.max(1, Math.ceil((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24)))
 
-      const taxRate = 0.17
       const roomTotal = booking.totalPrice // This is typically room rate * nights
 
-      // Per-room calculations
-      // We only include DB charges here. Group charges are added at the invoice level.
-      const roomSubtotal = roomTotal - (roomTotal * taxRate)
-      const roomRate = roomSubtotal / nights
+      // Per-room GROSS nightly rate, consistent with single invoices (roomRate =
+      // roomTotal / nights) and the other group path. The old code used a
+      // hardcoded 0.17 "tax" with the wrong back-out (× (1 - rate) instead of
+      // / (1 + rate)), producing a net figure that contradicted the summary's
+      // Ghana tax breakdown. Tax is broken out once, at the summary level, from
+      // the tax-inclusive grand total.
+      const roomRate = roomTotal / nights
 
       // Line total (Room + DB Charges)
       const lineTotal = roomTotal + dbChargesTotal

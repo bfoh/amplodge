@@ -140,8 +140,12 @@ class AnalyticsService {
         })
       }
 
+      // b.amount is already discount-netted (effectiveAmount from getAllBookings).
+      // Do NOT fall back to gross totalPrice: for a fully-discounted (net-zero)
+      // booking b.amount is 0, and the old `|| b.totalPrice` re-introduced the
+      // gross price, over-counting exactly those bookings.
       let baseRoomRevenueTotal = revenueBookings.reduce(
-        (sum, b) => sum + Number(b.amount || b.totalPrice || 0),
+        (sum, b) => sum + Number(b.amount || 0),
         0
       )
 
