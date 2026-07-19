@@ -14,7 +14,7 @@
 
 import { Resend } from 'resend';
 import { Buffer } from 'node:buffer';
-import { requireStaff, jsonResponse, handleCors } from './_lib/auth.js';
+import { requireStaffOrInternal, jsonResponse, handleCors } from './_lib/auth.js';
 
 const DEFAULT_FROM_EMAIL = 'AMP Lodge <noreply@updates.amplodge.org>';
 const DEFAULT_FROM_NAME = 'AMP Lodge';
@@ -27,7 +27,7 @@ export const handler = async (event) => {
     }
 
     try {
-        await requireStaff(event);
+        await requireStaffOrInternal(event);
     } catch (e) {
         return jsonResponse(e.status, e.body);
     }

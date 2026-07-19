@@ -1,7 +1,7 @@
 // Arkesel SMS Integration
 // Documentation: https://arkesel.com/developers
 
-import { requireStaff, jsonResponse, handleCors } from './_lib/auth.js'
+import { requireStaffOrInternal, jsonResponse, handleCors } from './_lib/auth.js'
 
 export const handler = async (event) => {
     const corsResp = handleCors(event); if (corsResp) return corsResp
@@ -15,7 +15,7 @@ export const handler = async (event) => {
     // These are part of normal hotel operations. Admin-only gating here
     // previously caused silent 403s for non-admin staff doing routine work.
     try {
-        await requireStaff(event);
+        await requireStaffOrInternal(event);
     } catch (e) {
         return jsonResponse(e.status, e.body);
     }
