@@ -175,24 +175,42 @@ export const handler = async (event, context) => {
             };
         }
 
-        // Date Validation - Reject past dates
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const checkInDate = new Date(checkIn);
-        const checkOutDate = new Date(checkOut);
+        // Date Validation - Reject past dates.
+        // Normalize everything to a UTC date-only epoch so the comparison is
+        // deterministic regardless of server timezone. Date-only "YYYY-MM-DD"
+        // inputs already parse as UTC midnight; comparing them against a
+        // LOCAL midnight `today` (the previous approach) drifted by a day in
+        // non-UTC timezones.
+        const toUtcDay = (s) => {
+            const d = new Date(s);
+            if (isNaN(d.getTime())) return null;
+            return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+        };
+        const nowUtc = new Date();
+        const todayUtc = Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate());
+        const checkInUtc = toUtcDay(checkIn);
+        const checkOutUtc = toUtcDay(checkOut);
 
-        if (checkInDate < today) {
-            console.warn('[CreateBooking] Rejected: Check-in date is in the past', { checkIn, today: today.toISOString() });
+        if (checkInUtc === null || checkOutUtc === null) {
+            return {
+                statusCode: 400,
+                headers,
+                body: JSON.stringify({ error: 'Invalid check-in or check-out date' })
+            };
+        }
+
+        if (checkInUtc < todayUtc) {
+            console.warn('[CreateBooking] Rejected: Check-in date is in the past', { checkIn });
             return {
                 statusCode: 400,
                 headers,
                 body: JSON.stringify({
-                    error: `Check-in date (${checkIn}) cannot be in the past. Today is ${today.toISOString().split('T')[0]}.`
+                    error: `Check-in date (${checkIn}) cannot be in the past. Today is ${new Date(todayUtc).toISOString().split('T')[0]}.`
                 })
             };
         }
 
-        if (checkOutDate <= checkInDate) {
+        if (checkOutUtc <= checkInUtc) {
             console.warn('[CreateBooking] Rejected: Check-out must be after check-in', { checkIn, checkOut });
             return {
                 statusCode: 400,
@@ -203,13 +221,23 @@ export const handler = async (event, context) => {
             };
         }
 
-        // 1. Find or Create Guest
+        // 1. Find or Create Guest.
+        // Use limit+maybeSingle rather than .single(): .single() throws
+        // (PGRST116) when the email has 0 OR >1 rows. The 0-row case is normal
+        // (new guest) and the duplicate-email case must not blow up and cause a
+        // third duplicate insert — take the first existing row instead.
         let guestId;
         const { data: existingGuest, error: guestError } = await supabase
             .from('guests')
             .select('id')
             .eq('email', guestEmail)
-            .single();
+            .limit(1)
+            .maybeSingle();
+
+        if (guestError) {
+            console.error('[CreateBooking] Guest lookup error:', guestError);
+            throw guestError;
+        }
 
         if (existingGuest) {
             guestId = existingGuest.id;
@@ -268,7 +296,7 @@ export const handler = async (event, context) => {
 
         const { data: roomsOfType, error: roomsError } = await supabase
             .from('rooms')
-            .select('id, room_number, price, room_types(base_price)')
+            .select('id, room_number, price, room_types(name, base_price)')
             .eq('room_type_id', validRoomTypeId) // Use validated ID
             .in('status', ['clean', 'available']);
 
@@ -301,10 +329,13 @@ export const handler = async (event, context) => {
             throw busyError;
         }
 
+        // Rooms this read believes are free, in stable order. This read is only
+        // a fast pre-filter — the DB exclusion constraint (bookings_no_room_overlap)
+        // is the actual source of truth against concurrent bookings.
         const busyRoomIds = new Set(busyBookings.map(b => b.room_id));
-        const availableRoom = roomsOfType.find(r => !busyRoomIds.has(r.id));
+        const candidateRooms = roomsOfType.filter(r => !busyRoomIds.has(r.id));
 
-        if (!availableRoom) {
+        if (candidateRooms.length === 0) {
             console.log('[CreateBooking] All rooms busy for dates:', { checkIn, checkOut });
             return {
                 statusCode: 409, // Conflict / No availability
@@ -313,23 +344,13 @@ export const handler = async (event, context) => {
             };
         }
 
-        console.log('[CreateBooking] Selected Room:', availableRoom.room_number);
+        // Nights is room-independent. Computed from the same UTC date-only
+        // values used in validation, so it matches the client's differenceInDays
+        // exactly (no Math.ceil inflation if a time component ever sneaks in).
+        // ALIGNMENT: price always uses room_types.base_price to match availability.
+        const nights = Math.round((checkOutUtc - checkInUtc) / (1000 * 60 * 60 * 24));
 
-        // Calculate price (simplified: base_price * nights)
-        // ALIGNMENT FIX: Always use room_types.base_price to match the availability endpoint
-        const start = new Date(checkIn);
-        const end = new Date(checkOut);
-        const nights = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
-
-        const pricePerNight = availableRoom.room_types ? availableRoom.room_types.base_price : 0;
-
-        if (!pricePerNight) {
-            console.warn('[CreateBooking] No base_price found for room type');
-        }
-
-        const totalPrice = pricePerNight * nights;
-
-        // 2.5 Resolve "System User" (Admin) to own the booking
+        // 2.5 Resolve "System User" (Admin) to own the booking (room-independent).
         // Optimization: Query 'staff' table instead of slow auth.admin.listUsers()
         let systemUserId = null;
         try {
@@ -355,35 +376,85 @@ export const handler = async (event, context) => {
             // Non-blocking
         }
 
-        // 3. Create Booking
-        console.log('[CreateBooking] Creating booking record...');
-        const { data: booking, error: bookingError } = await supabase
-            .from('bookings')
-            .insert({
-                guest_id: guestId,
-                user_id: systemUserId, // Assign ownership
-                room_id: availableRoom.id,
-                check_in: checkIn,
-                check_out: checkOut,
-                status: 'confirmed',
-                total_price: totalPrice,
-                num_guests: 1,
-                special_requests: '[Voice Agent Booking]',
-                source: 'voice_agent',
-                created_at: new Date().toISOString()
-            })
-            .select()
-            .single();
+        // 3. Create Booking — try candidates in order. If a concurrent request
+        // booked our chosen room between the availability read and our insert,
+        // the DB rejects it (23P01 overlap / 23505 dedup) and we fall through
+        // to the next room. This closes the double-booking race.
+        let booking = null;
+        let availableRoom = null;
+        let totalPrice = 0;
 
-        if (bookingError) throw bookingError;
+        for (const room of candidateRooms) {
+            const pricePerNight = room.room_types ? room.room_types.base_price : 0;
+            if (!pricePerNight) {
+                console.warn('[CreateBooking] No base_price found for room type');
+            }
+            const candidateTotal = pricePerNight * nights;
 
-        console.log('[CreateBooking] Success:', booking.id);
+            console.log('[CreateBooking] Attempting room:', room.room_number);
+            const { data, error: bookingError } = await supabase
+                .from('bookings')
+                .insert({
+                    guest_id: guestId,
+                    user_id: systemUserId, // Assign ownership
+                    room_id: room.id,
+                    check_in: checkIn,
+                    check_out: checkOut,
+                    status: 'confirmed',
+                    total_price: candidateTotal,
+                    num_guests: 1,
+                    special_requests: '[Voice Agent Booking]',
+                    source: 'voice_agent',
+                    created_at: new Date().toISOString()
+                })
+                .select()
+                .single();
+
+            if (!bookingError) {
+                booking = data;
+                availableRoom = room;
+                totalPrice = candidateTotal;
+                break;
+            }
+
+            // 23P01 = exclusion_violation (overlap), 23505 = unique_violation
+            // (exact-duplicate / idempotency). Both mean this room was taken
+            // concurrently — try the next candidate.
+            if (bookingError.code === '23P01' || bookingError.code === '23505') {
+                console.warn(`[CreateBooking] Room ${room.room_number} taken concurrently (${bookingError.code}); trying next.`);
+                continue;
+            }
+
+            // Any other error is a genuine failure.
+            throw bookingError;
+        }
+
+        if (!booking) {
+            console.log('[CreateBooking] All candidate rooms taken concurrently:', { checkIn, checkOut });
+            return {
+                statusCode: 409,
+                headers,
+                body: JSON.stringify({ error: 'No rooms available for these dates' })
+            };
+        }
+
+        console.log('[CreateBooking] Success:', booking.id, 'Room:', availableRoom.room_number);
 
         // --- Notification Trigger Start (Parallelized) ---
         // We use Promise.all to run these concurrently (faster) and await them
         // so the function doesn't freeze before sending.
         try {
             const baseUrl = process.env.URL || 'https://amplodge.org';
+            // send-email / send-sms require staff auth OR this internal secret.
+            // Without it the calls below 401 and confirmations silently never send.
+            const internalSecret = process.env.INTERNAL_FUNCTION_SECRET;
+            if (!internalSecret) {
+                console.error('[CreateBooking] INTERNAL_FUNCTION_SECRET not set — confirmation email/SMS will be rejected by send-email/send-sms.');
+            }
+            const internalHeaders = {
+                'Content-Type': 'application/json',
+                ...(internalSecret ? { 'x-internal-secret': internalSecret } : {})
+            };
             const notificationPromises = [];
 
             // 1. Send SMS
@@ -393,6 +464,7 @@ export const handler = async (event, context) => {
                 notificationPromises.push(
                     fetch(`${baseUrl}/.netlify/functions/send-sms`, {
                         method: 'POST',
+                        headers: internalHeaders,
                         body: JSON.stringify({ to: guestPhone, message: smsMessage })
                     }).then(res => {
                         if (!res.ok) console.error('[CreateBooking] SMS Failed:', res.status);
@@ -504,6 +576,7 @@ export const handler = async (event, context) => {
                 notificationPromises.push(
                     fetch(`${baseUrl}/.netlify/functions/send-email`, {
                         method: 'POST',
+                        headers: internalHeaders,
                         body: JSON.stringify(emailPayload)
                     }).then(res => {
                         if (!res.ok) console.error('[CreateBooking] Email Failed:', res.status);

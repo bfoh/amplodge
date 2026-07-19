@@ -6,10 +6,16 @@ exports.handler = async (event) => {
         return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
     }
 
+    // Single generic failure for every "credentials don't line up" case so the
+    // endpoint never reveals which rooms exist, which have bookings, or the
+    // name on file. Enumeration + name-leak protection.
+    const GENERIC_AUTH_ERROR = 'Invalid room number or name. Please check your booking details or contact reception.';
+    const authFailed = () => ({ statusCode: 401, body: JSON.stringify({ error: GENERIC_AUTH_ERROR }) });
+
     try {
         const { roomNumber, firstName } = JSON.parse(event.body);
 
-        if (!roomNumber || !firstName) {
+        if (!roomNumber || !firstName || !firstName.trim()) {
             return { statusCode: 400, body: JSON.stringify({ error: 'Room number and First Name are required' }) };
         }
 
@@ -35,7 +41,7 @@ exports.handler = async (event) => {
             return { statusCode: 500, body: JSON.stringify({ error: `Database Error (Room): ${roomError.message}` }) };
         }
         if (!room) {
-            return { statusCode: 401, body: JSON.stringify({ error: 'Invalid Room Number' }) };
+            return authFailed();
         }
 
         console.log(`[guest-login] Room found: ${room.id} for room_number: ${roomNumber}`);
@@ -55,7 +61,7 @@ exports.handler = async (event) => {
         console.log(`[guest-login] Found ${allBookings?.length || 0} bookings for room ${roomNumber}`);
 
         if (!allBookings || allBookings.length === 0) {
-            return { statusCode: 401, body: JSON.stringify({ error: 'No bookings found for this room.' }) };
+            return authFailed();
         }
 
         // 3. Find the best matching booking
@@ -89,13 +95,7 @@ exports.handler = async (event) => {
         }
 
         if (!activeBooking) {
-            // Provide helpful error with status info
-            const statuses = allBookings.map(b => b.status).join(', ');
-            return {
-                statusCode: 401, body: JSON.stringify({
-                    error: `No active booking found. Existing booking statuses: ${statuses}`
-                })
-            };
+            return authFailed();
         }
 
         // 4. Verify Guest Name
@@ -114,32 +114,39 @@ exports.handler = async (event) => {
 
             if (guestError || !guest) {
                 console.error("Guest Query Error:", guestError);
-                return { statusCode: 500, body: JSON.stringify({ error: 'Could not verify guest details.' }) };
+                return authFailed();
             }
             guestName = guest.name;
         }
 
-        console.log(`[guest-login] Guest name from booking: ${guestName}, Input firstName: ${firstName}`);
+        // 5. Verify name. Require an EXACT (case-insensitive) match on the
+        // guest's first name — NOT a prefix, which let a single letter match
+        // any guest. On any mismatch, return the generic error and never echo
+        // the stored name.
+        const storedFirstName = (guestName || '').trim().split(/\s+/)[0].toLowerCase();
+        const providedFirstName = firstName.trim().toLowerCase();
 
-        // 5. Check Name Match (case-insensitive prefix)
-        if (guestName && guestName.toLowerCase().startsWith(firstName.toLowerCase())) {
-            console.log(`[guest-login] Name match successful!`);
-            return {
-                statusCode: 200,
-                body: JSON.stringify({
-                    success: true,
-                    token: activeBooking.guest_token,
-                    guestName: guestName
-                })
-            };
-        } else {
-            console.log(`[guest-login] Name mismatch: "${guestName}" does not start with "${firstName}"`);
-            return {
-                statusCode: 401, body: JSON.stringify({
-                    error: `Name does not match. Guest on booking: "${guestName?.split(' ')[0] || 'Unknown'}"`
-                })
-            };
+        if (!storedFirstName || storedFirstName !== providedFirstName) {
+            console.log('[guest-login] Name mismatch for room', roomNumber);
+            return authFailed();
         }
+
+        // Name matched but no token was ever issued for this booking — fail
+        // rather than hand back a "/guest/null" capability URL.
+        if (!activeBooking.guest_token) {
+            console.warn('[guest-login] Booking has no guest_token:', activeBooking.id);
+            return authFailed();
+        }
+
+        console.log('[guest-login] Name match successful');
+        return {
+            statusCode: 200,
+            body: JSON.stringify({
+                success: true,
+                token: activeBooking.guest_token,
+                guestName: guestName
+            })
+        };
 
     } catch (err) {
         console.error("Guest Login Handler Error:", err);

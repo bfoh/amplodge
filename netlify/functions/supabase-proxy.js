@@ -46,9 +46,36 @@ exports.handler = async (event) => {
             }
         }
 
-        const targetUrl = `${SUPABASE_URL}${supabasePath}${forwardQuery ? '?' + forwardQuery : ''}`
+        // SECURITY: resolve the path against the Supabase origin and reject if
+        // the host changed. Plain string concat let a client smuggle a
+        // different host (e.g. _sbpath=".evil.com/..." -> "proj.supabase.co.evil.com",
+        // or a protocol-relative "//evil.com/..."), causing us to forward the
+        // authorization + apikey headers to an attacker-controlled server.
+        const base = new URL(SUPABASE_URL)
+        let resolved
+        try {
+            resolved = new URL(supabasePath, base)
+        } catch {
+            return {
+                statusCode: 400,
+                headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ error: 'Bad request', message: 'Invalid path' }),
+            }
+        }
+        if (resolved.origin !== base.origin) {
+            console.error('[supabase-proxy] Blocked host smuggling attempt:', supabasePath)
+            return {
+                statusCode: 400,
+                headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ error: 'Bad request', message: 'Invalid path' }),
+            }
+        }
 
-        console.log(`[supabase-proxy] ${event.httpMethod} ${supabasePath}`)
+        // Rebuild strictly from the validated origin + resolved path. The query
+        // is taken only from forwardQuery (any query smuggled into the path is dropped).
+        const targetUrl = `${base.origin}${resolved.pathname}${forwardQuery ? '?' + forwardQuery : ''}`
+
+        console.log(`[supabase-proxy] ${event.httpMethod} ${resolved.pathname}`)
 
         // Build forwarded headers
         const forwardHeaders = {}

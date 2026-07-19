@@ -42,14 +42,19 @@ export const handler = async (event, context) => {
     try {
         console.log(`[get-invoice-data] Fetching for invoice: ${invoiceNumber} / booking: ${bookingId}`);
 
+        // Explicit joins only. Never `guests (*)` — that leaked commercial
+        // history (total_revenue, total_stays, last_room_number, ...) to anyone
+        // with the invoice link. The invoice needs just these guest fields.
+        const SELECT = `
+                *,
+                guests (name, email, phone, address),
+                rooms (room_number, room_types (name, base_price)),
+                properties (room_number, room_types (name, base_price))
+            `;
+
         let query = supabase
             .from('bookings')
-            .select(`
-                *,
-                guests (*),
-                rooms (*, room_types (*)),
-                properties (*, room_types (*))
-            `);
+            .select(SELECT);
 
         // Filter by invoice number or booking ID
         // Note: 'invoice_number' column vs 'invoiceNumber' param
@@ -75,7 +80,7 @@ export const handler = async (event, context) => {
         if (!mainBooking && invoiceNumber && !bookingId) {
             const { data: fallbackBookings } = await supabase
                 .from('bookings')
-                .select(`*, guests (*), rooms (*, room_types (*))`)
+                .select(SELECT)
                 .eq('id', invoiceNumber);
 
             if (fallbackBookings && fallbackBookings.length > 0) {
@@ -122,19 +127,9 @@ export const handler = async (event, context) => {
         if (groupId) {
             console.log(`[get-invoice-data] Detected group ${groupId}, fetching siblings...`);
 
-            // We need to query again to get all siblings
-            // If group_id is a real column:
-            const { data: groupBookings, error: groupError } = await supabase
-                .from('bookings')
-                .select(`*, guests (*), rooms (*, room_types (*))`)
-                .eq(mainBooking.group_id ? 'group_id' : 'id', 'NEVER_MATCH_PLACEHOLDER') // Placeholder to setup query structure
-                .or(`group_id.eq.${groupId},special_requests.ilike.%${groupId}%`); // Clean search approach
-
-            // More robust group search:
-            // If we have a real column 'group_id', use it. 
-            // If not, we have to rely on the metadata search which is tricky in restricted SQL.
-            // Using a simpler approach: 
-            let siblingsQuery = supabase.from('bookings').select(`*, guests (*), rooms (*, room_types (*))`);
+            // Fetch all siblings. If we have a real 'group_id' column, match on
+            // it; otherwise fall back to searching the special_requests metadata.
+            let siblingsQuery = supabase.from('bookings').select(SELECT);
 
             if (mainBooking.group_id) {
                 siblingsQuery = siblingsQuery.eq('group_id', groupId);
