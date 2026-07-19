@@ -49,6 +49,10 @@ export default function HousekeepingPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkConfirm, setBulkConfirm] = useState<'complete' | 'delete' | null>(null)
   const [bulkBusy, setBulkBusy] = useState(false)
+  // Multi-assignee dialog: which task we're assigning + the checked staff ids.
+  const [assignTarget, setAssignTarget] = useState<HousekeepingTask | null>(null)
+  const [assignSelected, setAssignSelected] = useState<Set<string>>(new Set())
+  const [assigning, setAssigning] = useState(false)
 
   // Notification-diagnostic state
   const { role } = useStaffRole()
@@ -130,6 +134,32 @@ export default function HousekeepingPage() {
     return staffMember?.name || 'Unknown'
   }
 
+  // All assignee ids for a task — prefers the multi-assignee array, falling
+  // back to the legacy single assignedTo for pre-migration rows.
+  const getAssigneeIds = (task: HousekeepingTask): string[] => {
+    if (task.assignedToIds && task.assignedToIds.length > 0) return task.assignedToIds
+    return task.assignedTo ? [task.assignedTo] : []
+  }
+
+  const getStaffNames = (task: HousekeepingTask): string => {
+    const ids = getAssigneeIds(task)
+    if (ids.length === 0) return 'Unassigned'
+    return ids.map(id => staff.find(s => s.id === id)?.name || 'Unknown').join(', ')
+  }
+
+  const openAssignDialog = (task: HousekeepingTask) => {
+    setAssignTarget(task)
+    setAssignSelected(new Set(getAssigneeIds(task)))
+  }
+
+  const toggleAssignee = (id: string) => {
+    setAssignSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
   const handleCompleteTask = async () => {
     if (!selectedTask) return
 
@@ -148,7 +178,7 @@ export default function HousekeepingPage() {
           await activityLogService.logTaskCompleted(selectedTask.id, {
             title: `Room ${selectedTask.roomNumber} Cleaning`,
             roomNumber: selectedTask.roomNumber,
-            completedBy: getStaffName(selectedTask.assignedTo),
+            completedBy: getStaffNames(selectedTask),
             completedAt: new Date().toISOString(),
             notes: completionNotes
           }).catch(err => console.error('Failed to log task completion:', err))
@@ -169,98 +199,70 @@ export default function HousekeepingPage() {
     })
   }
 
-  const handleAssignTask = async (taskId: string, staffId: string) => {
+  const handleAssignTask = async (taskId: string, staffIds: string[]) => {
+    if (staffIds.length === 0) { toast.error('Select at least one staff member'); return }
+    setAssigning(true)
     try {
-      // Update task assignment
+      // Persist multi-assignee list; keep assignedTo as the primary (first) for
+      // backward compatibility with anything still reading the single column.
       await db.housekeepingTasks.update(taskId, {
-        assignedTo: staffId,
+        assignedTo: staffIds[0],
+        assignedToIds: staffIds,
         status: 'in_progress'
       })
 
-      // Get task and staff details for email
       const task = tasks.find(t => t.id === taskId)
-      const assignedStaff = staff.find(s => s.id === staffId)
+      const assignedList = staffIds
+        .map(id => staff.find(s => s.id === id))
+        .filter((s): s is NonNullable<typeof s> => Boolean(s))
+      const completionUrl = `${window.location.origin}/task-complete/${taskId}`
 
-      if (task && assignedStaff) {
-        // Generate completion URL
-        const completionUrl = `${window.location.origin}/task-complete/${taskId}`
-
-        // Validate the assigned staff has a usable email BEFORE making the
-        // round-trip; otherwise the user sees a generic "email failed" toast
-        // with no clue why. Most failures land here on staff rows that were
-        // imported/seeded without an email.
-        if (!assignedStaff.email || !assignedStaff.email.includes('@')) {
-          toast.success(
-            `Task assigned to ${assignedStaff.name}. No email on file — notify them in person.`
-          )
-          console.warn('[HousekeepingPage] Skipped email — no valid address for staff', assignedStaff)
-        } else {
-          console.log('📧 [HousekeepingPage] Sending task assignment email...', {
+      // Notify EACH assignee independently. One bad email must not block the rest.
+      let notified = 0, noEmail = 0
+      for (const st of assignedList) {
+        if (!st.email || !st.email.includes('@')) { noEmail++; continue }
+        try {
+          await sendTaskAssignmentEmail({
+            employeeName: st.name,
+            employeeEmail: st.email,
+            employeePhone: st.phone,
+            roomNumber: task?.roomNumber || '',
+            taskNotes: task?.notes || '',
             taskId,
-            roomNumber: task.roomNumber,
-            staffEmail: assignedStaff.email
+            completionUrl,
           })
-
-          const notif = await sendTaskAssignmentEmail({
-            employeeName: assignedStaff.name,
-            employeeEmail: assignedStaff.email,
-            employeePhone: assignedStaff.phone,
-            roomNumber: task.roomNumber,
-            taskNotes: task.notes || '',
-            taskId: task.id,
-            completionUrl: completionUrl
-          }) as any
-
-          // Both channels are attempted independently. Show what landed and
-          // include the per-channel error message when one side fails so the
-          // operator can act on it (invalid number, suspended key, etc).
-          if (notif.emailOk && notif.smsOk) {
-            toast.success(`Task assigned to ${assignedStaff.name}. Email + SMS sent.`)
-          } else if (notif.emailOk) {
-            if (notif.hasPhone) {
-              toast.error(
-                `Task assigned to ${assignedStaff.name}. Email sent. SMS failed: ${notif.smsError || 'unknown'}`
-              )
-            } else {
-              toast.success(
-                `Task assigned to ${assignedStaff.name}. Email sent (no phone on file).`
-              )
-            }
-          } else if (notif.smsOk) {
-            toast.error(
-              `Task assigned to ${assignedStaff.name}. SMS sent. Email failed: ${notif.emailError || 'unknown'}`
-            )
-          } else {
-            const reason = notif.error || 'unknown error'
-            toast.error(
-              `Task assigned to ${assignedStaff.name}, but notifications failed: ${reason}`
-            )
-            console.warn('[HousekeepingPage] Both channels failed:', notif)
-          }
+          notified++
+        } catch (e) {
+          console.warn('[HousekeepingPage] Notification failed for', st.name, e)
         }
-      } else {
-        toast.success('Task assigned successfully')
       }
 
+      const names = assignedList.map(s => s.name).join(', ')
+      const parts: string[] = []
+      if (notified) parts.push(`notified ${notified}`)
+      if (noEmail) parts.push(`${noEmail} without email`)
+      toast.success(`Assigned to ${names}${parts.length ? ` (${parts.join(', ')})` : ''}.`)
+
       const user = await auth.me()
-      // Log the task assignment
       await activityLogService.log({
         action: 'assigned',
         userId: user?.id || 'system',
         entityType: 'task',
         entityId: taskId,
         details: {
-          title: `Room ${task.roomNumber} Cleaning`,
-          roomNumber: task.roomNumber,
-          assignedTo: assignedStaff.name,
-          assignedToEmail: assignedStaff.email
+          title: `Room ${task?.roomNumber} Cleaning`,
+          roomNumber: task?.roomNumber,
+          assignedTo: names
         }
       }).catch(err => console.error('Failed to log task assignment:', err))
 
+      setAssignTarget(null)
       await loadData()
     } catch (error) {
       console.error('Failed to assign task:', error)
       toast.error('Failed to assign task')
+    } finally {
+      setAssigning(false)
     }
   }
 
@@ -328,7 +330,7 @@ export default function HousekeepingPage() {
     const q = (searchTerm || '').toLowerCase()
     const matchesSearch =
       String(task.roomNumber ?? '').toLowerCase().includes(q) ||
-      (getStaffName(task.assignedTo) || '').toLowerCase().includes(q)
+      (getStaffNames(task) || '').toLowerCase().includes(q)
     const matchesStatus = statusFilter === 'all' || task.status === statusFilter
     return matchesSearch && matchesStatus
   })
@@ -715,7 +717,7 @@ export default function HousekeepingPage() {
                       <div className="flex flex-col gap-2 text-sm text-gray-600">
                         <div className="flex items-center gap-2">
                           <User className="w-4 h-4" />
-                          <span>Assigned to: {getStaffName(task.assignedTo)}</span>
+                          <span>Assigned to: {getStaffNames(task)}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <Calendar className="w-4 h-4" />
@@ -738,21 +740,10 @@ export default function HousekeepingPage() {
 
                     <div className="flex flex-col gap-2 md:w-48">
                       {task.status === 'pending' && (
-                        <Select
-                          onValueChange={(staffId) => handleAssignTask(task.id, staffId)}
-                          value={task.assignedTo || undefined}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Assign to..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {staff.map((s) => (
-                              <SelectItem key={s.id} value={s.id}>
-                                {s.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <Button variant="outline" onClick={() => openAssignDialog(task)}>
+                          <User className="w-4 h-4 mr-2" />
+                          {getAssigneeIds(task).length > 0 ? 'Reassign' : 'Assign staff'}
+                        </Button>
                       )}
 
                       {(task.status === 'in_progress' || task.status === 'pending') && (
@@ -844,6 +835,48 @@ export default function HousekeepingPage() {
                   Completing...
                 </>
               ) : 'Complete Task'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Multi-staff assignment dialog */}
+      <Dialog open={!!assignTarget} onOpenChange={(open) => !open && setAssignTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign Housekeeping Task</DialogTitle>
+            <DialogDescription>
+              Select one or more staff for Room {assignTarget?.roomNumber}. Each selected staff member is notified.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 py-2 max-h-72 overflow-y-auto">
+            {staff.length === 0 && (
+              <p className="text-sm text-muted-foreground">No staff available.</p>
+            )}
+            {staff.map((s) => (
+              <label key={s.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-muted cursor-pointer">
+                <Checkbox
+                  checked={assignSelected.has(s.id)}
+                  onCheckedChange={() => toggleAssignee(s.id)}
+                />
+                <span className="flex-1 text-sm">{s.name}</span>
+                {!s.email && <span className="text-[10px] text-amber-600">no email</span>}
+              </label>
+            ))}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAssignTarget(null)} disabled={assigning}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => assignTarget && handleAssignTask(assignTarget.id, [...assignSelected])}
+              disabled={assigning || assignSelected.size === 0}
+            >
+              {assigning ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Assigning...</>
+              ) : `Assign (${assignSelected.size})`}
             </Button>
           </DialogFooter>
         </DialogContent>

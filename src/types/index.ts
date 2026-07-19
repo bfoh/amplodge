@@ -198,7 +198,8 @@ export interface HousekeepingTask {
   propertyId: string
   userId?: string // Original creator (optional)
   roomNumber: string
-  assignedTo: string | null
+  assignedTo: string | null      // Primary/first assignee (back-compat)
+  assignedToIds?: string[]       // All assignees (multi-staff). Falls back to [assignedTo] when empty.
   status: 'pending' | 'in_progress' | 'completed'
   notes: string | null
   createdAt: string
