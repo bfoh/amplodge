@@ -1472,18 +1472,23 @@ function calculateGhanaTaxBreakdown(grandTotal: number): GhanaTaxBreakdown {
   // = 1.05 × 1.15 + 0.01 = 1.2075 + 0.01 = 1.2175
   const taxMultiplier = 1.2175
 
-  const salesTotal = grandTotal / taxMultiplier
-  const gfNhil = salesTotal * 0.05
-  const subTotal = salesTotal + gfNhil
-  const vat = subTotal * 0.15
-  const tourismLevy = salesTotal * 0.01
+  const rawSalesTotal = grandTotal / taxMultiplier
+  const gfNhil = Math.round(rawSalesTotal * 0.05 * 100) / 100
+  const vat = Math.round(rawSalesTotal * 1.05 * 0.15 * 100) / 100   // VAT on (sales + GF/NHIL)
+  const tourismLevy = Math.round(rawSalesTotal * 0.01 * 100) / 100
+
+  // Sales Total absorbs the rounding residual so the displayed components sum
+  // EXACTLY to the grand total (Sales + GF/NHIL + VAT + Tourism = Grand, and
+  // SubTotal + VAT + Tourism = Grand). Prevents penny drift on the invoice.
+  const salesTotal = Math.round((grandTotal - gfNhil - vat - tourismLevy) * 100) / 100
+  const subTotal = Math.round((salesTotal + gfNhil) * 100) / 100
 
   return {
-    salesTotal: Math.round(salesTotal * 100) / 100,
-    gfNhil: Math.round(gfNhil * 100) / 100,
-    subTotal: Math.round(subTotal * 100) / 100,
-    vat: Math.round(vat * 100) / 100,
-    tourismLevy: Math.round(tourismLevy * 100) / 100,
+    salesTotal,
+    gfNhil,
+    subTotal,
+    vat,
+    tourismLevy,
     grandTotal: grandTotal
   }
 }
@@ -1547,7 +1552,7 @@ export async function createGroupInvoiceData(bookings: BookingWithDetails[], bil
 
     // Create new group invoice number if not exists, or reuse logic?
     // For now, generate a fresh one representing this aggregated view
-    const invoiceNumber = `GRP - ${Date.now()} -${Math.random().toString(36).substring(2, 6).toUpperCase()} `
+    const invoiceNumber = `GRP-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`
     const invoiceDate = new Date().toISOString()
     const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
 
