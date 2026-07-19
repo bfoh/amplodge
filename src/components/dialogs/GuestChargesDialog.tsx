@@ -135,24 +135,10 @@ export function GuestChargesDialog({
                 inventoryId: inventoryId || undefined
             }
 
-            const created = await bookingChargesService.addCharge(chargeData)
-            // Optimistic: the app can be in offline mode where re-fetching reads
-            // stale cache, so update local state directly instead of fetchCharges().
-            const optimistic = {
-                id: (created as any)?.id || `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-                bookingId,
-                description: chargeData.description,
-                category,
-                quantity,
-                unitPrice,
-                amount: quantity * unitPrice,
-                paymentMethod,
-                notes: chargeData.notes,
-                inventoryId: chargeData.inventoryId,
-            } as unknown as BookingCharge
-            setCharges(prev => [optimistic, ...prev])
+            await bookingChargesService.addCharge(chargeData)
             toast.success('Charge added successfully')
             resetForm()
+            await fetchCharges()
             onChargesUpdated?.()
         } catch (error: any) {
             console.error('Failed to add charge:', error)
@@ -192,7 +178,6 @@ export function GuestChargesDialog({
 
         setSubmitting(true)
         const bookingId = booking.remoteId || booking.id
-        const added: BookingCharge[] = []
         let ok = 0, fail = 0
         for (const c of staged) {
             try {
@@ -206,19 +191,7 @@ export function GuestChargesDialog({
                     notes: notes.trim() || undefined,
                     inventoryId: c.inventoryId,
                 }
-                const created = await bookingChargesService.addCharge(chargeData)
-                added.push({
-                    id: (created as any)?.id || `tmp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-                    bookingId,
-                    description: c.description,
-                    category: c.category,
-                    quantity: c.quantity,
-                    unitPrice: c.unitPrice,
-                    amount: c.quantity * c.unitPrice,
-                    paymentMethod,
-                    notes: notes.trim() || undefined,
-                    inventoryId: c.inventoryId,
-                } as unknown as BookingCharge)
+                await bookingChargesService.addCharge(chargeData)
                 ok++
             } catch (error) {
                 fail++
@@ -228,8 +201,7 @@ export function GuestChargesDialog({
         setSubmitting(false)
         setCart([])
         resetForm()
-        // Optimistic append (avoid stale-cache re-fetch).
-        if (added.length) setCharges(prev => [...added, ...prev])
+        await fetchCharges()
         onChargesUpdated?.()
         if (ok) toast.success(`Added ${ok} item${ok > 1 ? 's' : ''}${fail ? ` (${fail} failed)` : ''}`)
         else toast.error('Failed to add charges')
@@ -249,13 +221,9 @@ export function GuestChargesDialog({
                 paymentMethod,
                 notes: notes.trim() || undefined
             }, existing)
-            // Optimistic replace (avoid stale-cache re-fetch).
-            const amount = quantity * unitPrice
-            setCharges(prev => prev.map(c => c.id === chargeId
-                ? { ...c, description: description.trim(), category, quantity, unitPrice, amount, paymentMethod, notes: notes.trim() || undefined }
-                : c))
             toast.success('Charge updated successfully')
             resetForm()
+            await fetchCharges()
             onChargesUpdated?.()
         } catch (error: any) {
             console.error('Failed to update charge:', error)
@@ -268,30 +236,16 @@ export function GuestChargesDialog({
     const handleDeleteCharge = async (charge: BookingCharge) => {
         if (!confirm('Are you sure you want to delete this charge?')) return
 
-        // Optimistic remove so the folio + totals update instantly (a re-fetch
-        // reads stale cache in offline mode).
-        const snapshot = charges
-        setCharges(prev => prev.filter(c => c.id !== charge.id))
-        onChargesUpdated?.()
-
-        // A tmp_ id means this charge was added optimistically this session and
-        // is not yet reconciled to a real DB id here — its DB row (with a real
-        // id) will resolve on next open. Skip the service call to avoid a
-        // no-op delete + double restock.
-        if (typeof charge.id === 'string' && charge.id.startsWith('tmp_')) {
-            toast.success('Charge removed')
-            return
-        }
-
         try {
             // Pass the full loaded charge so the service doesn't re-fetch via the
             // unreliable get() (which loses bookingId/inventoryId).
             await bookingChargesService.deleteCharge(charge)
             toast.success('Charge deleted')
+            await fetchCharges()
+            onChargesUpdated?.()
         } catch (error: any) {
             console.error('Failed to delete charge:', error)
             toast.error(error.message || 'Failed to delete charge')
-            setCharges(snapshot) // rollback on failure
         }
     }
 
