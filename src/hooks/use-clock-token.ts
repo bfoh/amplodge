@@ -17,9 +17,17 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getClockToken } from '@/services/attendance-service'
+import { getClockToken, mintClockNonceKiosk } from '@/services/attendance-service'
 
 const HIDE_STALE_AFTER_MS = 90_000
+
+/** Optional device-scoped kiosk credential. When supplied the hook mints via
+ *  the anon kiosk RPC (no admin session needed); otherwise it uses the
+ *  admin-only mint. */
+export interface KioskCreds {
+  id: string
+  key: string
+}
 
 function messageFor(error: string): string {
   switch (error) {
@@ -29,12 +37,14 @@ function messageFor(error: string): string {
       return 'Server setup incomplete — the database is missing execute grants for clock-in functions. Apply the grants-fix migration (20260723) in the Supabase SQL editor.'
     case 'not_authenticated':
       return 'Session expired — please log out and log in again.'
+    case 'bad_kiosk':
+      return 'This kiosk is not registered or has been revoked. Re-provision it from HR → Kiosks.'
     default:
       return 'Could not fetch a clock-in code — retrying…'
   }
 }
 
-export function useClockToken() {
+export function useClockToken(kioskCreds?: KioskCreds | null) {
   const [token, setToken] = useState<string | null>(null)
   const [secondsLeft, setSecondsLeft] = useState(0)
   const [windowSecs, setWindowSecs] = useState(60)
@@ -50,7 +60,9 @@ export function useClockToken() {
     if (fetchingRef.current) return
     fetchingRef.current = true
     try {
-      const res = await getClockToken()
+      const res = kioskCreds
+        ? await mintClockNonceKiosk(kioskCreds.id, kioskCreds.key)
+        : await getClockToken()
       if ('error' in res) {
         if (failedSinceRef.current === null) failedSinceRef.current = Date.now()
         setError(messageFor(res.error))
@@ -78,7 +90,7 @@ export function useClockToken() {
     } finally {
       fetchingRef.current = false
     }
-  }, [])
+  }, [kioskCreds])
 
   useEffect(() => {
     fetchToken()

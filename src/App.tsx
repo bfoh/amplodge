@@ -209,8 +209,11 @@ function App() {
               {/* Staff Clock-In/Out - Protected, no sidebar */}
               <Route path="/staff/clock" element={<ProtectedRoute><ClockPage /></ProtectedRoute>} />
 
-              {/* Entrance kiosk QR display - Protected (admin), no sidebar, no controls */}
-              <Route path="/staff/qr-display" element={<ProtectedRoute><QRDisplayPage /></ProtectedRoute>} />
+              {/* Entrance kiosk QR display - PUBLIC, no sidebar, no controls.
+                  Provisioned kiosks mint via their device key (?kiosk=&key=),
+                  needing no user session; a no-cred visitor can only mint if
+                  they are a logged-in admin (fallback), else sees an error. */}
+              <Route path="/staff/qr-display" element={<QRDisplayPage />} />
 
               {/* Staff Portal - Protected Routes */}
               <Route path="/staff" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>

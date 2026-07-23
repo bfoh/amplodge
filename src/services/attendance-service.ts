@@ -254,6 +254,8 @@ export interface AttendanceSettings {
   longShiftHours: number
   qrWindowSeconds: number
   graceMinutesDefault: number
+  requireOnsiteNetwork: boolean
+  onsiteCidrs: string[]
 }
 
 // ─── QR token (server-issued, HMAC-signed) ────────────────────────────────────
@@ -271,7 +273,9 @@ export async function getClockToken(): Promise<
   { token: string; expiresIn: number } | { error: ClockError; detail?: string }
 > {
   try {
-    const { data, error } = await supabase.rpc('get_clock_token')
+    // Per-scan single-use nonce (migration 20260724). Same {token, expires_in}
+    // shape as the retired get_clock_token, so the kiosk/hook are unchanged.
+    const { data, error } = await supabase.rpc('mint_clock_nonce')
     if (error) {
       const msg = error.message ?? String(error)
       if (error.code === '42501' || msg.includes('permission denied')) {
@@ -775,10 +779,107 @@ export async function getAttendanceSettings(): Promise<AttendanceSettings | null
       longShiftHours: Number(data.long_shift_hours),
       qrWindowSeconds: Number(data.qr_window_seconds),
       graceMinutesDefault: Number(data.grace_minutes_default),
+      requireOnsiteNetwork: !!data.require_onsite_network,
+      onsiteCidrs: Array.isArray(data.onsite_cidrs) ? data.onsite_cidrs : [],
     }
   } catch {
     return null
   }
+}
+
+// ─── Kiosk credentials + on-site network (migration 20260725) ────────────────
+
+export interface ClockKiosk {
+  id: string
+  label: string
+  egressCidr: string | null
+  active: boolean
+  lastUsedAt: string | null
+}
+
+/**
+ * Mint a nonce using a device-scoped kiosk credential (no user session).
+ * Used by the entrance kiosk once it has been provisioned with {id, key}.
+ * Same {token, expiresIn} shape as the admin mint.
+ */
+export async function mintClockNonceKiosk(
+  kioskId: string,
+  kioskKey: string,
+): Promise<{ token: string; expiresIn: number } | { error: ClockError; detail?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('mint_clock_nonce_kiosk', {
+      p_kiosk_id: kioskId,
+      p_kiosk_key: kioskKey,
+    })
+    if (error) return { error: 'network', detail: error.message ?? String(error) }
+    const d = data as any
+    if (!d?.ok) return { error: (d?.error as ClockError) ?? 'unknown', detail: d?.error }
+    return { token: d.token as string, expiresIn: d.expires_in as number }
+  } catch (e) {
+    return { error: 'network', detail: (e as Error)?.message ?? 'fetch failed' }
+  }
+}
+
+/** Admin: provision a kiosk. Returns the plaintext key ONCE — store it now. */
+export async function createClockKiosk(
+  label: string,
+  egressCidr?: string | null,
+): Promise<{ ok: boolean; kioskId?: string; kioskKey?: string; error?: string }> {
+  const { data, error } = await supabase.rpc('create_clock_kiosk', {
+    p_label: label,
+    p_egress_cidr: egressCidr ?? null,
+  })
+  if (error) return { ok: false, error: error.message ?? 'request failed' }
+  const d = data as any
+  if (!d?.ok) return { ok: false, error: d?.error ?? 'unknown' }
+  return { ok: true, kioskId: d.kiosk_id, kioskKey: d.kiosk_key }
+}
+
+/** Admin: revoke a kiosk credential (deactivates it). */
+export async function revokeClockKiosk(kioskId: string): Promise<{ ok: boolean; error?: string }> {
+  const { data, error } = await supabase.rpc('revoke_clock_kiosk', { p_kiosk_id: kioskId })
+  if (error) return { ok: false, error: error.message ?? 'request failed' }
+  const d = data as any
+  return d?.ok ? { ok: true } : { ok: false, error: d?.error ?? 'unknown' }
+}
+
+/** Admin: list registered kiosks (RLS restricts to admins). */
+export async function listClockKiosks(): Promise<ClockKiosk[]> {
+  const { data, error } = await supabase
+    .from('clock_kiosks')
+    .select('id, label, egress_cidr, active, last_used_at')
+    .order('created_at', { ascending: false })
+  if (error || !data) return []
+  return data.map((r: any) => ({
+    id: r.id,
+    label: r.label,
+    egressCidr: r.egress_cidr ?? null,
+    active: !!r.active,
+    lastUsedAt: r.last_used_at ?? null,
+  }))
+}
+
+/** Admin: enable/disable on-site network enforcement and set the CIDR allowlist. */
+export async function setOnsiteNetwork(
+  enabled: boolean,
+  cidrs: string[],
+): Promise<{ ok: boolean; error?: string; value?: string }> {
+  const { data, error } = await supabase.rpc('set_onsite_network', {
+    p_enabled: enabled,
+    p_cidrs: cidrs,
+  })
+  if (error) return { ok: false, error: error.message ?? 'request failed' }
+  const d = data as any
+  return d?.ok ? { ok: true } : { ok: false, error: d?.error ?? 'unknown', value: d?.value }
+}
+
+/** Admin: rotate the proxy shared secret. Returns it ONCE — paste into Netlify env AMP_PROXY_SECRET. */
+export async function rotateProxySecret(): Promise<{ ok: boolean; secret?: string; error?: string }> {
+  const { data, error } = await supabase.rpc('rotate_proxy_secret')
+  if (error) return { ok: false, error: error.message ?? 'request failed' }
+  const d = data as any
+  if (!d?.ok) return { ok: false, error: d?.error ?? 'unknown' }
+  return { ok: true, secret: d.proxy_secret }
 }
 
 // ─── CSV export ───────────────────────────────────────────────────────────────

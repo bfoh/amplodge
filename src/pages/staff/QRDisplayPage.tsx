@@ -3,19 +3,54 @@
  * dedicated screen at the hotel entrance (tablet / spare phone / monitor).
  *
  * Deliberately shows NOTHING else: no dashboard, no navigation, no data.
- * The page still requires an admin session (the get_clock_token RPC is
- * admin-only), but leaving it open at reception exposes no controls.
  *
- * Route: /staff/qr-display (owner/admin only, outside AppLayout).
+ * Two modes:
+ *  - KIOSK CREDENTIAL (preferred): open once with ?kiosk=<id>&key=<key> (from
+ *    HR → Kiosks → "Provision kiosk"). The creds are saved to localStorage and
+ *    stripped from the URL; the page then mints via the anon kiosk RPC and needs
+ *    NO user session — so a public reception device holds no admin login.
+ *  - ADMIN FALLBACK: opened without creds by a logged-in admin, it uses the
+ *    admin-only mint (legacy behaviour).
+ *
+ * Route: /staff/qr-display (outside AppLayout).
  */
 
+import { useMemo } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { Loader2, AlertTriangle } from 'lucide-react'
-import { useClockToken } from '@/hooks/use-clock-token'
+import { useClockToken, type KioskCreds } from '@/hooks/use-clock-token'
 import { buildClockUrl } from '@/services/attendance-service'
 
+const KIOSK_STORAGE_KEY = 'amp_kiosk_creds'
+
+/** Read kiosk creds from the URL (once), persist them, and scrub the URL so the
+ *  key isn't left in the address bar / history. Falls back to any stored creds. */
+function resolveKioskCreds(): KioskCreds | null {
+  try {
+    const params = new URLSearchParams(window.location.search)
+    const id = params.get('kiosk')
+    const key = params.get('key')
+    if (id && key) {
+      const creds = { id, key }
+      window.localStorage.setItem(KIOSK_STORAGE_KEY, JSON.stringify(creds))
+      params.delete('kiosk')
+      params.delete('key')
+      const clean = window.location.pathname + (params.toString() ? `?${params}` : '')
+      window.history.replaceState(null, '', clean)
+      return creds
+    }
+    const stored = window.localStorage.getItem(KIOSK_STORAGE_KEY)
+    return stored ? (JSON.parse(stored) as KioskCreds) : null
+  } catch {
+    return null
+  }
+}
+
 export function QRDisplayPage() {
-  const { token, secondsLeft, windowSecs, error, detail, failures } = useClockToken()
+  // Memoized so the creds reference is stable across renders (keeps the token
+  // hook's rotation interval from resetting).
+  const kioskCreds = useMemo(resolveKioskCreds, [])
+  const { token, secondsLeft, windowSecs, error, detail, failures } = useClockToken(kioskCreds)
   const url = token ? buildClockUrl(token) : ''
   const pct = windowSecs > 0 ? Math.max(0, Math.min(100, (secondsLeft / windowSecs) * 100)) : 0
 

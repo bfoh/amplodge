@@ -102,6 +102,16 @@ exports.handler = async (event) => {
             forwardHeaders['x-real-ip'] = clientIp
         }
 
+        // Prove to the DB that this request really came through the proxy, so
+        // _amp_request_ip() can trust the x-forwarded-for above for on-site
+        // attendance checks. The client's own copy of this header is never
+        // forwarded (forwardHeaders is rebuilt from a fixed allowlist), so it
+        // cannot be spoofed by hitting Supabase directly. Set AMP_PROXY_SECRET
+        // to the value returned by rotate_proxy_secret().
+        if (process.env.AMP_PROXY_SECRET) {
+            forwardHeaders['x-amp-proxy-secret'] = process.env.AMP_PROXY_SECRET
+        }
+
         const fetchOptions = { method: event.httpMethod, headers: forwardHeaders }
 
         if (event.body && event.httpMethod !== 'GET' && event.httpMethod !== 'HEAD') {

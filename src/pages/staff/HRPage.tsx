@@ -86,6 +86,7 @@ import { activityLogService } from '@/services/activity-log-service'
 import { OverridePanel } from '@/components/hr/OverridePanel'
 import { ReviewQueuePanel } from '@/components/hr/ReviewQueuePanel'
 import { ShiftEditorPanel } from '@/components/hr/ShiftEditorPanel'
+import { KioskNetworkPanel } from '@/components/hr/KioskNetworkPanel'
 import { ReportsPanel } from '@/components/hr/ReportsPanel'
 import { QRCodeSVG } from 'qrcode.react'
 import {
@@ -777,6 +778,9 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
 
       {/* Shift schedule editor */}
       {adminId && <ShiftEditorPanel adminId={adminId} />}
+
+      {/* Kiosk credentials & on-site network enforcement */}
+      {adminId && <KioskNetworkPanel />}
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
