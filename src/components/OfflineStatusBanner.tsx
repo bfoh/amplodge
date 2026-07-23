@@ -2,25 +2,23 @@ import { useEffect, useState } from 'react'
 import { bookingEngine } from '@/services/booking-engine'
 import { AlertCircle, CheckCircle, RefreshCw, Wifi, WifiOff } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { useNetworkStatus } from '@/lib/network-status'
 
 export function OfflineStatusBanner() {
-  const [isOnline, setIsOnline] = useState(navigator.onLine)
+  // Share the app-wide connectivity detector (hysteresis + real-traffic signal)
+  // instead of raw navigator.onLine, so a spurious mobile `offline` event no
+  // longer flashes this banner while the data layer is actually fine.
+  const { isOnline } = useNetworkStatus()
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle')
   const [syncMessage, setSyncMessage] = useState('')
   const [pendingSyncs, setPendingSyncs] = useState(0)
 
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true)
-    const handleOffline = () => setIsOnline(false)
-
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('offline', handleOffline)
-
     // Subscribe to sync status changes
     const unsubscribe = bookingEngine.onSyncStatusChange((status, message) => {
       setSyncStatus(status)
       setSyncMessage(message || '')
-      
+
       if (status === 'synced') {
         setTimeout(() => setSyncStatus('idle'), 3000)
       }
@@ -31,13 +29,11 @@ export function OfflineStatusBanner() {
       const pending = await bookingEngine.getPendingSyncBookings()
       setPendingSyncs(pending.length)
     }
-    
+
     checkPending()
     const interval = setInterval(checkPending, 5000)
 
     return () => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('offline', handleOffline)
       unsubscribe()
       clearInterval(interval)
     }

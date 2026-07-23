@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { reportReachable } from './network-status'
 
 const supabaseDirectUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -39,6 +40,11 @@ function buildProxyFetch(directUrl: string) {
 
         return fetch(fetchUrl, { ...init, signal: controller.signal })
             .then(async (response) => {
+                // Any response (even 4xx/5xx) proves the data path is reachable —
+                // let the network detector clear a stale "offline" instantly from
+                // real traffic instead of waiting for the next background probe.
+                reportReachable()
+
                 // If we get an Invalid API Key error (401/403), it might be a transient proxy issue.
                 // Log it and allow the StaffLoginPage's retry logic (if any) or inform the user.
                 if (response.status === 401 || response.status === 403) {
