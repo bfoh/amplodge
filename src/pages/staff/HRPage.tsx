@@ -85,7 +85,6 @@ import { useClockToken } from '@/hooks/use-clock-token'
 import { activityLogService } from '@/services/activity-log-service'
 import { OverridePanel } from '@/components/hr/OverridePanel'
 import { ReviewQueuePanel } from '@/components/hr/ReviewQueuePanel'
-import { ShiftEditorPanel } from '@/components/hr/ShiftEditorPanel'
 import { KioskNetworkPanel } from '@/components/hr/KioskNetworkPanel'
 import { ReportsPanel } from '@/components/hr/ReportsPanel'
 import { QRCodeSVG } from 'qrcode.react'
@@ -605,7 +604,6 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
   const today = new Date().toISOString().split('T')[0]
   const todayRecords = activeRecords.filter(r => r.date === today)
   const presentToday = todayRecords.filter(r => r.status === 'present' || r.status === 'late').length
-  const absentToday = todayRecords.filter(r => r.status === 'absent').length
   const hoursThisWeek = activeRecords
     .filter(r => {
       const d = new Date(r.date)
@@ -776,17 +774,13 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
       {/* Reports */}
       <ReportsPanel />
 
-      {/* Shift schedule editor */}
-      {adminId && <ShiftEditorPanel adminId={adminId} />}
-
       {/* Kiosk credentials & on-site network enforcement */}
       {adminId && <KioskNetworkPanel />}
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <StatCard icon={Check} label="Present Today" value={presentToday} color="bg-green-500" />
         <StatCard icon={Clock} label="Hours This Week" value={hoursThisWeek.toFixed(1)} color="bg-blue-500" />
-        <StatCard icon={X} label="Absent Today" value={absentToday} color="bg-red-500" />
       </div>
 
       {/* Records header */}
