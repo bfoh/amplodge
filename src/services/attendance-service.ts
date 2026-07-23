@@ -158,6 +158,7 @@ export type ClockError =
   | 'not_authenticated'
   | 'already_clocked_in'
   | 'not_admin'
+  | 'permission_denied'
   | 'network'
   | 'unknown'
 
@@ -261,16 +262,33 @@ export interface AttendanceSettings {
  * Fetch a fresh signed clock token. Admin-only (the QR panel runs on an
  * admin screen at the premises). Tokens rotate every `qr_window_seconds`
  * and cannot be forged or predicted without the DB-resident HMAC secret.
+ *
+ * On failure, `detail` carries the raw PostgREST/transport message so field
+ * displays can show the real cause (missing grant, expired session, proxy
+ * outage) instead of a generic "retrying" forever.
  */
-export async function getClockToken(): Promise<{ token: string; expiresIn: number } | { error: ClockError }> {
+export async function getClockToken(): Promise<
+  { token: string; expiresIn: number } | { error: ClockError; detail?: string }
+> {
   try {
     const { data, error } = await supabase.rpc('get_clock_token')
-    if (error) return { error: 'network' }
+    if (error) {
+      const msg = error.message ?? String(error)
+      if (error.code === '42501' || msg.includes('permission denied')) {
+        // EXECUTE grant missing for the authenticated role (migration Part 10
+        // not fully applied) — the fix is SQL-side, retrying won't heal it.
+        return { error: 'permission_denied', detail: msg }
+      }
+      if (error.code === 'PGRST301' || msg.toLowerCase().includes('jwt')) {
+        return { error: 'not_authenticated', detail: msg }
+      }
+      return { error: 'network', detail: msg }
+    }
     const d = data as any
-    if (!d?.ok) return { error: (d?.error as ClockError) ?? 'unknown' }
+    if (!d?.ok) return { error: (d?.error as ClockError) ?? 'unknown', detail: d?.error }
     return { token: d.token as string, expiresIn: d.expires_in as number }
-  } catch {
-    return { error: 'network' }
+  } catch (e) {
+    return { error: 'network', detail: (e as Error)?.message ?? 'fetch failed' }
   }
 }
 

@@ -68,6 +68,25 @@ where table_schema = 'public' and table_name = 'staff'
   and privilege_type = 'UPDATE'
   and grantee in ('anon', 'authenticated');
 
+-- A8. Public API grants present → every row must be true. If any row is
+--     false, the QR/clock pages fail with 42501 "permission denied" — apply
+--     supabase/migrations/20260723_attendance_v3_grants_reapply.sql.
+select p.proname,
+       has_function_privilege('authenticated', p.oid, 'execute') as authenticated_can_execute
+from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname in (
+    'get_clock_token', 'clock_in_attendance', 'clock_out_attendance',
+    'request_attendance_override', 'approve_attendance_override',
+    'reject_attendance_override', 'reset_device_binding',
+    'adjust_attendance_record', 'void_attendance_record',
+    'mark_attendance_reviewed', 'admin_manual_attendance',
+    'get_my_attendance', 'get_live_attendance', 'get_attendance_report',
+    'upsert_shift', 'delete_shift', 'get_shifts',
+    'set_attendance_settings', 'validate_clock_token', 'set_staff_role'
+  )
+order by p.proname;
+
 -- ─── Section B: simulated-RLS abuse tests ───────────────────────────────────
 -- Paste a real non-admin staff member's auth UUID here (Authentication → Users,
 -- or: select user_id, name, role from staff;).

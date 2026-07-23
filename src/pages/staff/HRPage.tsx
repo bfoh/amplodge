@@ -334,7 +334,7 @@ export function HRPage() {
 // ─── QR Code Panel ────────────────────────────────────────────────────────────
 
 function QRPanel() {
-  const { token, secondsLeft, windowSecs, error } = useClockToken()
+  const { token, secondsLeft, windowSecs, error, detail, failures } = useClockToken()
   const [displayMode, setDisplayMode] = useState(false)
 
   const url = token ? buildClockUrl(token) : ''
@@ -395,10 +395,15 @@ function QRPanel() {
             Each code is signed by the server and expires quickly, so photos or printouts of it are useless.
           </p>
           {error && (
-            <p className="flex items-center gap-2 text-amber-600">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              {error}
-            </p>
+            <div className="space-y-1">
+              <p className="flex items-center gap-2 text-amber-600">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                {error}
+              </p>
+              {detail && failures >= 3 && (
+                <p className="text-[11px] text-muted-foreground break-all">{detail}</p>
+              )}
+            </div>
           )}
           {countdownBar('max-w-xs')}
         </div>
