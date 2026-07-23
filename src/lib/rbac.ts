@@ -81,6 +81,7 @@ export const ROUTE_ACCESS: Record<string, StaffRole[]> = {
   '/staff/my-revenue': ['owner', 'admin', 'manager', 'staff'],
   '/staff/log-sale': ['owner', 'admin', 'manager', 'staff'],
   '/staff/clock': ['owner', 'admin', 'manager', 'staff'],
+  '/staff/qr-display': ['owner', 'admin'],
   '/staff/inventory': ['owner', 'admin', 'manager'],
   '/staff/inventory/transactions': ['owner', 'admin', 'manager']
 }

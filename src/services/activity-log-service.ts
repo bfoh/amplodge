@@ -429,6 +429,35 @@ class ActivityLogService {
     })
   }
 
+  // ─── Attendance (v3) ──────────────────────────────────────────────────────
+  // Client-side activity-log mirrors of admin attendance actions. The
+  // server-side hash-chained attendance_events log is the authoritative
+  // audit trail; these surface the actions in the general activity feed.
+
+  public async logAttendanceAction(
+    action:
+      | 'manual_entry'
+      | 'record_voided'
+      | 'record_adjusted'
+      | 'record_reviewed'
+      | 'override_approved'
+      | 'override_rejected'
+      | 'device_reset'
+      | 'shift_changed'
+      | 'settings_changed',
+    entityId: string,
+    details: any,
+    userId?: string
+  ) {
+    await this.log({
+      action,
+      entityType: 'attendance',
+      entityId,
+      details,
+      userId,
+    })
+  }
+
   public async logTaskCompleted(taskId: string, details: any, userId?: string) {
     await this.log({
       action: 'completed',

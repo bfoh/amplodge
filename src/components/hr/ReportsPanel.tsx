@@ -74,7 +74,7 @@ export function ReportsPanel() {
     const rows = [
       ['Staff', 'Days', 'Hours', 'Late', 'Avg per day'].join(','),
       ...report.per_staff.map(s => [
-        `"${s.name}"`, s.days, s.hours, s.late, s.avg_per_day ?? '',
+        `"${s.name}"`, s.days, s.hours, s.late, avgPerDay(s.days, s.hours) ?? '',
       ].join(',')),
     ].join('\n')
     const blob = new Blob([rows], { type: 'text/csv;charset=utf-8;' })
@@ -196,7 +196,7 @@ export function ReportsPanel() {
                       <td className="px-3 py-2">{s.days}</td>
                       <td className="px-3 py-2">{s.hours}h</td>
                       <td className="px-3 py-2">{s.late}</td>
-                      <td className="px-3 py-2">{s.avg_per_day != null ? `${s.avg_per_day}h` : '—'}</td>
+                      <td className="px-3 py-2">{avgPerDay(s.days, s.hours) != null ? `${avgPerDay(s.days, s.hours)}h` : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -207,6 +207,11 @@ export function ReportsPanel() {
       </div>
     </div>
   )
+}
+
+function avgPerDay(days: number, hours: number): number | null {
+  if (!days || days <= 0) return null
+  return Math.round((hours / days) * 10) / 10
 }
 
 function StatTile({ label, value }: { label: string; value: number | string }) {

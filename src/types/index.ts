@@ -293,8 +293,8 @@ export interface HotelSettings {
   updatedAt: string
 }
 
-export type ActivityAction = 'created' | 'updated' | 'deleted' | 'cancelled' | 'restored' | 'confirmed' | 'checked-in' | 'checked-out' | 'checked_in' | 'checked_out' | 'payment_recorded' | 'payment_received' | 'payment_refunded' | 'status_changed' | 'assigned' | 'completed' | 'exported' | 'imported' | 'login' | 'logout' | 'sync_completed' | 'notified' | 'diagnostic' | 'table_init' | 'verify_write'
-export type EntityType = 'booking' | 'room' | 'room_type' | 'guest' | 'invoice' | 'employee' | 'staff' | 'property' | 'settings' | 'inventory' | 'payment' | 'task' | 'contact_message' | 'report' | 'user' | 'housekeeping_task' | 'system' | 'test' | 'diagnostic'
+export type ActivityAction = 'created' | 'updated' | 'deleted' | 'cancelled' | 'restored' | 'confirmed' | 'checked-in' | 'checked-out' | 'checked_in' | 'checked_out' | 'payment_recorded' | 'payment_received' | 'payment_refunded' | 'status_changed' | 'assigned' | 'completed' | 'exported' | 'imported' | 'login' | 'logout' | 'sync_completed' | 'notified' | 'diagnostic' | 'table_init' | 'verify_write' | 'manual_entry' | 'record_voided' | 'record_adjusted' | 'record_reviewed' | 'override_approved' | 'override_rejected' | 'device_reset' | 'shift_changed' | 'settings_changed'
+export type EntityType = 'booking' | 'room' | 'room_type' | 'guest' | 'invoice' | 'employee' | 'staff' | 'property' | 'settings' | 'inventory' | 'payment' | 'task' | 'contact_message' | 'report' | 'user' | 'housekeeping_task' | 'system' | 'test' | 'diagnostic' | 'attendance'
 
 export interface ActivityLog {
   id: string

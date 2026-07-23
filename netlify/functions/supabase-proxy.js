@@ -105,8 +105,10 @@ exports.handler = async (event) => {
         const fetchOptions = { method: event.httpMethod, headers: forwardHeaders }
 
         if (event.body && event.httpMethod !== 'GET' && event.httpMethod !== 'HEAD') {
+            // Pass binary bodies (e.g. Storage photo uploads) through as a raw
+            // Buffer. Re-encoding as utf-8 text corrupts non-text payloads.
             fetchOptions.body = event.isBase64Encoded
-                ? Buffer.from(event.body, 'base64').toString('utf-8')
+                ? Buffer.from(event.body, 'base64')
                 : event.body
         }
 

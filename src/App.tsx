@@ -57,6 +57,7 @@ const HRPage = lazyWithRetry(() => import('./pages/staff/HRPage').then(m => ({ d
 const MyRevenuePage = lazyWithRetry(() => import('./pages/staff/MyRevenuePage').then(m => ({ default: m.MyRevenuePage })))
 const LogSalePage = lazyWithRetry(() => import('./pages/staff/LogSalePage').then(m => ({ default: m.LogSalePage })))
 const ClockPage = lazyWithRetry(() => import('./pages/staff/ClockPage').then(m => ({ default: m.ClockPage })))
+const QRDisplayPage = lazyWithRetry(() => import('./pages/staff/QRDisplayPage').then(m => ({ default: m.QRDisplayPage })))
 const InventoryPage = lazyWithRetry(() => import('./pages/staff/InventoryPage').then(m => ({ default: m.InventoryPage })))
 const InventoryTransactionsPage = lazyWithRetry(() => import('./pages/staff/InventoryTransactionsPage').then(m => ({ default: m.InventoryTransactionsPage })))
 // Guest portal + voice widget are lazy-loaded too — most visits to /staff/*
@@ -207,6 +208,9 @@ function App() {
 
               {/* Staff Clock-In/Out - Protected, no sidebar */}
               <Route path="/staff/clock" element={<ProtectedRoute><ClockPage /></ProtectedRoute>} />
+
+              {/* Entrance kiosk QR display - Protected (admin), no sidebar, no controls */}
+              <Route path="/staff/qr-display" element={<ProtectedRoute><QRDisplayPage /></ProtectedRoute>} />
 
               {/* Staff Portal - Protected Routes */}
               <Route path="/staff" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>

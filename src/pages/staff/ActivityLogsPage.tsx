@@ -227,6 +227,7 @@ export function ActivityLogsPage() {
       system: 'bg-slate-100 text-slate-800',
       test: 'bg-gray-100 text-gray-800',
       diagnostic: 'bg-rose-100 text-rose-800',
+      attendance: 'bg-sky-100 text-sky-800',
     }
     return colors[entityType] || 'bg-gray-100 text-gray-800'
   }

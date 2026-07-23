@@ -33,7 +33,8 @@ export const CACHED_TABLES = [
   'invoices',
   'staff',
   'housekeeping_tasks',
-  'hr_attendance',
+  // hr_attendance is intentionally NOT cached: clock events are
+  // server-authoritative (v3). Caching them enabled offline forgery replays.
   'standalone_sales',
   'booking_charges',
   'notifications',

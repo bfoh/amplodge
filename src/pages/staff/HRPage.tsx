@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { format, parseISO } from 'date-fns'
 import { safeFormatDate } from '@/lib/safe-date'
 import { useSubscription } from '@/hooks/use-subscription'
@@ -45,11 +45,12 @@ import {
   QrCode,
   Wifi,
   RefreshCw,
-  Printer,
+  Monitor,
   MapPin,
   ShoppingBag,
   Smartphone,
   ShieldCheck,
+  ExternalLink,
 } from 'lucide-react'
 import { generateEmploymentApplicationPDF } from '@/lib/hr-form-pdf'
 import {
@@ -68,15 +69,23 @@ import { standaloneSalesService, SALE_CATEGORIES } from '@/services/standalone-s
 import { type StandaloneSale } from '@/types'
 import {
   getLiveAttendance,
-  generateClockUrl,
-  secondsUntilNextToken,
+  buildClockUrl,
+  getAttendancePhotoUrl,
+  voidRecord,
+  adjustRecord,
+  manualEntry,
+  resetDeviceBinding,
   downloadCsv,
   parseLocationFromNotes,
   getNotesLabel,
-  resetDeviceBinding,
-  type AttendanceRecord as LiveAttendanceRecord,
+  type LiveAttendanceRow,
+  type AttendanceRecord as ServiceAttendanceRecord,
 } from '@/services/attendance-service'
+import { useClockToken } from '@/hooks/use-clock-token'
+import { activityLogService } from '@/services/activity-log-service'
 import { OverridePanel } from '@/components/hr/OverridePanel'
+import { ReviewQueuePanel } from '@/components/hr/ReviewQueuePanel'
+import { ShiftEditorPanel } from '@/components/hr/ShiftEditorPanel'
 import { ReportsPanel } from '@/components/hr/ReportsPanel'
 import { QRCodeSVG } from 'qrcode.react'
 import {
@@ -95,8 +104,12 @@ interface AttendanceRecord {
   date: string
   clockIn: string
   clockOut: string
+  clockInAt?: string | null
+  clockOutAt?: string | null
   hoursWorked: number
   status: 'late' | 'init' | 'present' | 'absent'
+  lateMinutes?: number
+  scheduledStart?: string | null
   notes: string
   createdAt: string
   // v2 columns (nullable — old rows pre-date them)
@@ -108,6 +121,12 @@ interface AttendanceRecord {
   overrideReason?: string | null
   overrideApprovedBy?: string | null
   flags?: string[] | null
+  // v3 columns (nullable — old rows pre-date them)
+  clockInPhotoPath?: string | null
+  clockOutPhotoPath?: string | null
+  voidedAt?: string | null
+  voidReason?: string | null
+  reviewedAt?: string | null
 }
 
 interface LeaveRequest {
@@ -229,6 +248,19 @@ function StatCard({ icon: Icon, label, value, color }: { icon: any; label: strin
   )
 }
 
+/**
+ * Prefill value for a datetime-local input: prefer the authoritative ISO
+ * timestamptz, fall back to the Accra date + HH:MM[:SS] wall-clock columns.
+ */
+function toLocalInput(iso: string | null | undefined, date: string, wall: string | null | undefined): string {
+  if (iso) {
+    const d = new Date(iso)
+    if (!isNaN(d.getTime())) return format(d, "yyyy-MM-dd'T'HH:mm")
+  }
+  if (date && wall) return `${date}T${wall.slice(0, 5)}`
+  return ''
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function HRPage() {
@@ -302,41 +334,20 @@ export function HRPage() {
 // ─── QR Code Panel ────────────────────────────────────────────────────────────
 
 function QRPanel() {
-  const [url, setUrl] = useState(() => generateClockUrl())
-  const [secs, setSecs] = useState(() => secondsUntilNextToken())
+  const { token, secondsLeft, windowSecs, error } = useClockToken()
+  const [displayMode, setDisplayMode] = useState(false)
 
-  useEffect(() => {
-    const id = setInterval(() => {
-      const s = secondsUntilNextToken()
-      setSecs(s)
-      // Token just rolled over — regenerate URL
-      if (s === WINDOW_SECS - 1 || s === WINDOW_SECS) {
-        setUrl(generateClockUrl())
-      }
-    }, 1000)
-    return () => clearInterval(id)
-  }, [])
+  const url = token ? buildClockUrl(token) : ''
+  const pct = windowSecs > 0 ? Math.max(0, Math.min(100, (secondsLeft / windowSecs) * 100)) : 0
 
-  const m = Math.floor(secs / 60)
-  const s = secs % 60
-
-  const handlePrint = () => {
-    const w = window.open('', '_blank')
-    if (!w) return
-    const svg = document.getElementById('att-qr')?.innerHTML ?? ''
-    w.document.write(`<!DOCTYPE html><html><head><title>AMP Lodge — Clock-In QR</title>
-      <style>body{font-family:sans-serif;text-align:center;padding:48px}
-      h1{font-size:22px;margin-bottom:6px}p{color:#666;font-size:13px;margin:6px 0}
-      .qr{display:inline-block;background:#fff;padding:16px;border:1px solid #e5e7eb;border-radius:12px;margin:24px 0}</style>
-      </head><body>
-      <h1>🏨 AMP Lodge</h1>
-      <p>Scan to clock in / clock out</p>
-      <div class="qr">${svg}</div>
-      <p style="font-size:11px;color:#aaa;margin-top:8px">Post at hotel entrance · Scan with phone camera</p>
-      <script>window.onload=()=>window.print()</script>
-      </body></html>`)
-    w.document.close()
-  }
+  const countdownBar = (className: string) => (
+    <div className={`h-1.5 rounded-full bg-muted overflow-hidden ${className}`}>
+      <div
+        className="h-full bg-primary rounded-full transition-[width] duration-1000 ease-linear"
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  )
 
   return (
     <div className="border rounded-xl p-5 space-y-4">
@@ -345,39 +356,89 @@ function QRPanel() {
           <QrCode className="w-5 h-5 text-primary" />
           <h3 className="font-semibold">Staff Clock-In QR Code</h3>
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <RefreshCw className="w-3.5 h-3.5" />
-          <span>Refreshes in {m}:{String(s).padStart(2, '0')}</span>
-        </div>
-      </div>
-      <div className="flex flex-col sm:flex-row items-center gap-6">
-        <div id="att-qr" className="bg-white p-3 rounded-lg border flex-shrink-0">
-          <QRCodeSVG value={url} size={180} level="M" />
-        </div>
-        <div className="space-y-3 text-sm text-muted-foreground">
-          <p className="flex items-center gap-2">
-            <Wifi className="w-4 h-4 text-green-500 flex-shrink-0" />
-            Post this at the hotel entrance. Staff scan with their phone camera to clock in or out.
-          </p>
-          <p className="flex items-center gap-2">
-            <RefreshCw className="w-4 h-4 text-blue-500 flex-shrink-0" />
-            The token rotates every 10 minutes to prevent screenshot reuse.
-          </p>
-          <Button variant="outline" size="sm" className="gap-2 mt-2" onClick={handlePrint}>
-            <Printer className="w-4 h-4" /> Print QR Code
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>{error ? 'Retrying' : 'Refreshes'} in {secondsLeft}s</span>
+          </div>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setDisplayMode(true)}>
+            <Monitor className="w-4 h-4" /> Display mode
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            title="Open the dedicated entrance kiosk page (no dashboard, no controls) in a new tab"
+            onClick={() => window.open('/staff/qr-display', '_blank', 'noopener')}
+          >
+            <ExternalLink className="w-4 h-4" /> Kiosk page
           </Button>
         </div>
       </div>
+      <div className="flex flex-col sm:flex-row items-center gap-6">
+        <div className="bg-white p-3 rounded-lg border flex-shrink-0">
+          {token ? (
+            <QRCodeSVG value={url} size={180} level="M" />
+          ) : (
+            <div className="w-[180px] h-[180px] flex items-center justify-center">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          )}
+        </div>
+        <div className="space-y-3 text-sm text-muted-foreground flex-1 w-full">
+          <p className="flex items-center gap-2">
+            <Wifi className="w-4 h-4 text-green-500 flex-shrink-0" />
+            Show this on a screen at the entrance — codes rotate every {windowSecs}s.
+          </p>
+          <p className="flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 text-blue-500 flex-shrink-0" />
+            Each code is signed by the server and expires quickly, so photos or printouts of it are useless.
+          </p>
+          {error && (
+            <p className="flex items-center gap-2 text-amber-600">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              {error}
+            </p>
+          )}
+          {countdownBar('max-w-xs')}
+        </div>
+      </div>
+
+      {/* Fullscreen display mode — for a dedicated screen at the entrance */}
+      {displayMode && (
+        <div className="fixed inset-0 z-50 bg-white flex flex-col items-center justify-center gap-8 p-8">
+          <div className="text-center space-y-1">
+            <h2 className="text-3xl font-bold tracking-tight">AMP Lodge — Staff Clock-In</h2>
+            <p className="text-muted-foreground">Scan with your phone camera to clock in or out</p>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border-2 shadow-sm">
+            {token ? (
+              <QRCodeSVG value={url} size={380} level="M" />
+            ) : (
+              <div className="w-[380px] h-[380px] flex items-center justify-center">
+                <Loader2 className="w-10 h-10 animate-spin text-muted-foreground" />
+              </div>
+            )}
+          </div>
+          <div className="w-full max-w-md space-y-2">
+            {countdownBar('h-2.5')}
+            <p className="text-center text-sm text-muted-foreground">
+              {error ? error : `New code in ${secondsLeft}s`}
+            </p>
+          </div>
+          <Button variant="outline" onClick={() => setDisplayMode(false)}>
+            <X className="w-4 h-4 mr-2" /> Exit display mode
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
 
-const WINDOW_SECS = 10 * 60
-
 // ─── Live Now Panel ───────────────────────────────────────────────────────────
 
 function LiveNowPanel() {
-  const [live, setLive] = useState<LiveAttendanceRecord[]>([])
+  const [live, setLive] = useState<LiveAttendanceRow[]>([])
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
@@ -421,20 +482,78 @@ function LiveNowPanel() {
           {present.map(r => (
             <div key={r.id} className="flex items-center gap-3 px-4 py-2.5">
               <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
-              <span className="font-medium text-sm flex-1">{(r as any).staffName}</span>
-              <span className="text-xs text-muted-foreground">Clocked in {(r as any).clockIn}</span>
+              <span className="font-medium text-sm flex-1 truncate">{r.staffName}</span>
+              {r.flags.length > 0 && (
+                <span className="hidden sm:flex flex-wrap gap-1 justify-end">
+                  {r.flags.map(f => (
+                    <span key={f} className={`text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap ${flagStyle(f)}`}>
+                      {f.replace(/_/g, ' ')}
+                    </span>
+                  ))}
+                </span>
+              )}
+              {r.lateMinutes > 0 && (
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-800 border border-yellow-200 whitespace-nowrap"
+                  title={r.scheduledStart ? `Scheduled start ${r.scheduledStart}` : 'Clocked in late'}
+                >
+                  Late {r.lateMinutes}m
+                </span>
+              )}
+              <span className="text-xs text-muted-foreground whitespace-nowrap">Clocked in {r.clockIn}</span>
+              <AttendancePhotoThumb path={r.clockInPhotoPath} alt={`${r.staffName} clock-in`} />
             </div>
           ))}
           {completed.map(r => (
             <div key={r.id} className="flex items-center gap-3 px-4 py-2.5 opacity-60">
               <span className="w-2 h-2 rounded-full bg-gray-400 flex-shrink-0" />
-              <span className="text-sm flex-1">{(r as any).staffName}</span>
-              <span className="text-xs text-muted-foreground">{(r as any).clockIn} → {(r as any).clockOut}</span>
+              <span className="text-sm flex-1 truncate">{r.staffName}</span>
+              {r.lateMinutes > 0 && (
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-800 border border-yellow-200 whitespace-nowrap"
+                  title={r.scheduledStart ? `Scheduled start ${r.scheduledStart}` : 'Clocked in late'}
+                >
+                  Late {r.lateMinutes}m
+                </span>
+              )}
+              {r.hoursWorked > 0 && (
+                <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">{r.hoursWorked}h</span>
+              )}
+              <span className="text-xs text-muted-foreground whitespace-nowrap">{r.clockIn} → {r.clockOut}</span>
+              <AttendancePhotoThumb path={r.clockInPhotoPath} alt={`${r.staffName} clock-in`} />
             </div>
           ))}
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * Lazily-fetched clock-event photo thumbnail. Signed URLs expire after 60s,
+ * so each row fetches its own once on mount; failures stay silent (a plain
+ * placeholder renders instead).
+ */
+function AttendancePhotoThumb({ path, alt }: { path: string | null; alt: string }) {
+  const [url, setUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    if (!path) return
+    getAttendancePhotoUrl(path, 60).then(u => { if (!cancelled) setUrl(u) })
+    return () => { cancelled = true }
+  }, [path])
+
+  if (!path || !url) {
+    return <span className="w-8 h-8 rounded-full bg-muted border flex-shrink-0" aria-hidden />
+  }
+  return (
+    <img
+      src={url}
+      alt={alt}
+      className="w-8 h-8 rounded-full object-cover border flex-shrink-0"
+      loading="lazy"
+    />
   )
 }
 
@@ -446,8 +565,13 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
   const [staffList, setStaffList] = useState<StaffMember[]>([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [form, setForm] = useState({ staffId: '', staffName: '', date: '', clockIn: '', clockOut: '', status: 'present', notes: '' })
+  const [form, setForm] = useState({ staffId: '', staffName: '', date: '', clockIn: '', clockOut: '', reason: '' })
   const [saving, setSaving] = useState(false)
+  const [voidTarget, setVoidTarget] = useState<AttendanceRecord | null>(null)
+  const [voidReason, setVoidReason] = useState('')
+  const [adjustTarget, setAdjustTarget] = useState<AttendanceRecord | null>(null)
+  const [adjustForm, setAdjustForm] = useState({ clockInAt: '', clockOutAt: '', reason: '' })
+  const [acting, setActing] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -470,11 +594,13 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
 
   useEffect(() => { load() }, [load, updatedAtAtt, updatedAtStaff])
 
+  // Voided rows stay visible in the table for audit, but never count in stats.
+  const activeRecords = records.filter(r => !r.voidedAt)
   const today = new Date().toISOString().split('T')[0]
-  const todayRecords = records.filter(r => r.date === today)
+  const todayRecords = activeRecords.filter(r => r.date === today)
   const presentToday = todayRecords.filter(r => r.status === 'present' || r.status === 'late').length
   const absentToday = todayRecords.filter(r => r.status === 'absent').length
-  const hoursThisWeek = records
+  const hoursThisWeek = activeRecords
     .filter(r => {
       const d = new Date(r.date)
       const now = new Date()
@@ -493,48 +619,137 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
       toast.error('Staff, date, and clock-in time are required')
       return
     }
+    if (!form.reason.trim()) {
+      toast.error('A reason is required for manual entries')
+      return
+    }
+    const member = staffList.find(s => s.id === form.staffId)
+    if (!member?.userId) {
+      toast.error('Selected staff member has no linked user account')
+      return
+    }
     setSaving(true)
     try {
-      let hoursWorked = 0
-      if (form.clockIn && form.clockOut) {
-        const [inH, inM] = form.clockIn.split(':').map(Number)
-        const [outH, outM] = form.clockOut.split(':').map(Number)
-        let diff = outH * 60 + outM - (inH * 60 + inM)
-        // Negative difference means the shift crossed midnight (e.g. 22:00 → 06:00)
-        if (diff < 0) diff += 24 * 60
-        hoursWorked = diff / 60
-      }
-      await db.hr_attendance.create({
-        id: `att_${Date.now()}`,
-        ...form,
-        hoursWorked: parseFloat(hoursWorked.toFixed(2)),
-        createdAt: new Date().toISOString()
+      const { recordId } = await manualEntry({
+        staffId: member.userId,
+        date: form.date,
+        clockIn: form.clockIn,
+        clockOut: form.clockOut || undefined,
+        reason: form.reason.trim(),
       })
       toast.success('Attendance logged')
+      activityLogService.logAttendanceAction(
+        'manual_entry', recordId,
+        { staffName: member.name, date: form.date, clockIn: form.clockIn, clockOut: form.clockOut || null, reason: form.reason.trim() },
+        adminId
+      ).catch(() => {})
       setDialogOpen(false)
-      setForm({ staffId: '', staffName: '', date: '', clockIn: '', clockOut: '', status: 'present', notes: '' })
+      setForm({ staffId: '', staffName: '', date: '', clockIn: '', clockOut: '', reason: '' })
       load()
-    } catch {
-      toast.error('Failed to log attendance')
+    } catch (e) {
+      toast.error((e as Error).message || 'Failed to log attendance')
     } finally {
       setSaving(false)
     }
   }
 
-  const handleDelete = async (id: string) => {
+  const openAdjust = (r: AttendanceRecord) => {
+    setAdjustTarget(r)
+    setAdjustForm({
+      clockInAt: toLocalInput(r.clockInAt, r.date, r.clockIn),
+      clockOutAt: toLocalInput(r.clockOutAt, r.date, r.clockOut),
+      reason: '',
+    })
+  }
+
+  const handleVoid = async () => {
+    if (!voidTarget) return
+    if (!voidReason.trim()) {
+      toast.error('A reason is required to void a record')
+      return
+    }
+    setActing(true)
     try {
-      await db.hr_attendance.delete(id)
-      toast.success('Record deleted')
+      await voidRecord(voidTarget.id, voidReason.trim())
+      toast.success('Record voided')
+      activityLogService.logAttendanceAction(
+        'record_voided', voidTarget.id,
+        { staffName: voidTarget.staffName, date: voidTarget.date, reason: voidReason.trim() },
+        adminId
+      ).catch(() => {})
+      setVoidTarget(null)
+      setVoidReason('')
       load()
-    } catch {
-      toast.error('Failed to delete record')
+    } catch (e) {
+      toast.error((e as Error).message || 'Failed to void record')
+    } finally {
+      setActing(false)
     }
   }
 
+  const handleAdjust = async () => {
+    if (!adjustTarget) return
+    if (!adjustForm.reason.trim()) {
+      toast.error('A reason is required for adjustments')
+      return
+    }
+    if (!adjustForm.clockInAt && !adjustForm.clockOutAt) {
+      toast.error('Set at least one of clock-in or clock-out')
+      return
+    }
+    setActing(true)
+    try {
+      await adjustRecord({
+        recordId: adjustTarget.id,
+        clockInAt: adjustForm.clockInAt ? new Date(adjustForm.clockInAt).toISOString() : null,
+        clockOutAt: adjustForm.clockOutAt ? new Date(adjustForm.clockOutAt).toISOString() : null,
+        reason: adjustForm.reason.trim(),
+      })
+      toast.success('Record adjusted')
+      activityLogService.logAttendanceAction(
+        'record_adjusted', adjustTarget.id,
+        {
+          staffName: adjustTarget.staffName,
+          clockInAt: adjustForm.clockInAt || null,
+          clockOutAt: adjustForm.clockOutAt || null,
+          reason: adjustForm.reason.trim(),
+        },
+        adminId
+      ).catch(() => {})
+      setAdjustTarget(null)
+      load()
+    } catch (e) {
+      toast.error((e as Error).message || 'Failed to adjust record')
+    } finally {
+      setActing(false)
+    }
+  }
+
+  const toV3Record = (r: AttendanceRecord): ServiceAttendanceRecord => ({
+    id: r.id,
+    staffId: r.staffId,
+    staffName: r.staffName,
+    date: r.date,
+    clockIn: r.clockIn,
+    clockOut: r.clockOut,
+    clockInAt: r.clockInAt ?? null,
+    clockOutAt: r.clockOutAt ?? null,
+    hoursWorked: r.hoursWorked,
+    status: r.status,
+    lateMinutes: r.lateMinutes ?? 0,
+    scheduledStart: r.scheduledStart ?? null,
+    flags: r.flags ?? [],
+    gpsDistance: r.gpsDistance ?? null,
+    clockInPhotoPath: r.clockInPhotoPath ?? null,
+    clockOutPhotoPath: r.clockOutPhotoPath ?? null,
+    notes: r.notes ?? '',
+    createdAt: r.createdAt,
+  })
+
   const handleExport = () => {
-    if (records.length === 0) { toast.error('No records to export'); return }
+    if (activeRecords.length === 0) { toast.error('No records to export'); return }
     const today_ = new Date().toISOString().split('T')[0]
-    downloadCsv(records, `attendance_${today_}.csv`)
+    downloadCsv(activeRecords.map(toV3Record), `attendance_${today_}.csv`)
     toast.success('Attendance exported')
   }
 
@@ -546,11 +761,17 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
       {/* Pending overrides (auto-hides when empty) */}
       {adminId && <OverridePanel adminId={adminId} />}
 
+      {/* Flagged records awaiting review (auto-hides when empty) */}
+      {adminId && <ReviewQueuePanel adminId={adminId} />}
+
       {/* Live Now */}
       <LiveNowPanel />
 
       {/* Reports */}
       <ReportsPanel />
+
+      {/* Shift schedule editor */}
+      {adminId && <ShiftEditorPanel adminId={adminId} />}
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -596,7 +817,19 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
                     <td className="px-4 py-3 whitespace-nowrap">{r.clockIn || '—'}</td>
                     <td className="px-4 py-3 whitespace-nowrap">{r.clockOut || '—'}</td>
                     <td className="px-4 py-3 whitespace-nowrap">{r.hoursWorked ? `${r.hoursWorked}h` : '—'}</td>
-                    <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        <StatusBadge status={r.status} />
+                        {r.voidedAt && (
+                          <span
+                            className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-destructive/10 text-destructive border border-destructive/30"
+                            title={r.voidReason ? `Void reason: ${r.voidReason}` : 'Voided'}
+                          >
+                            voided
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-4 py-3 max-w-[220px]">
                       {(() => {
                         const loc = parseLocationFromNotes(r.notes)
@@ -670,8 +903,11 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
                             if (!adminId) return
                             if (!confirm(`Reset device binding for ${r.staffName}? Next clock-in will register a new device.`)) return
                             try {
-                              await resetDeviceBinding(r.staffId, adminId)
+                              await resetDeviceBinding(r.staffId)
                               toast.success('Device binding reset.')
+                              activityLogService.logAttendanceAction(
+                                'device_reset', r.staffId, { staffName: r.staffName }, adminId
+                              ).catch(() => {})
                             } catch (e) {
                               toast.error((e as Error).message)
                             }
@@ -683,9 +919,21 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
                       <FlagsCell flags={r.flags ?? null} />
                     </td>
                     <td className="px-4 py-3">
-                      <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(r.id)}>
-                        <X className="w-4 h-4" />
-                      </Button>
+                      {!r.voidedAt && (
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => openAdjust(r)}>
+                            Adjust…
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                            onClick={() => { setVoidTarget(r); setVoidReason('') }}
+                          >
+                            Void…
+                          </Button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -707,14 +955,34 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
                   </div>
                   <div className="flex items-center gap-2">
                     <StatusBadge status={r.status} />
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="h-8 w-8 text-destructive/40 hover:text-destructive hover:bg-red-50 rounded-full" 
-                      onClick={() => handleDelete(r.id)}
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
+                    {r.voidedAt && (
+                      <span
+                        className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-destructive/10 text-destructive border border-destructive/30"
+                        title={r.voidReason ? `Void reason: ${r.voidReason}` : 'Voided'}
+                      >
+                        voided
+                      </span>
+                    )}
+                    {!r.voidedAt && (
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2 text-xs rounded-full"
+                          onClick={() => openAdjust(r)}
+                        >
+                          Adjust…
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2 text-xs text-destructive/60 hover:text-destructive hover:bg-red-50 rounded-full"
+                          onClick={() => { setVoidTarget(r); setVoidReason('') }}
+                        >
+                          Void…
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -824,25 +1092,92 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
               </div>
             </div>
             <div className="grid gap-2">
-              <Label>Status</Label>
-              <Select onValueChange={v => setForm(f => ({ ...f, status: v }))} value={form.status}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="present">Present</SelectItem>
-                  <SelectItem value="absent">Absent</SelectItem>
-                  <SelectItem value="late">Late</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Notes</Label>
-              <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} />
+              <Label>Reason <span className="text-destructive">*</span></Label>
+              <Textarea
+                value={form.reason}
+                onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
+                rows={2}
+                placeholder="e.g. Staff forgot their phone, network outage…"
+              />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSave} disabled={saving}>
               {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Void record dialog — the row is kept for audit, marked voided */}
+      <Dialog open={!!voidTarget} onOpenChange={(open) => { if (!open) setVoidTarget(null) }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Void Attendance Record</DialogTitle></DialogHeader>
+          <div className="grid gap-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              {voidTarget?.staffName} — {voidTarget?.date} ({voidTarget?.clockIn || '—'} → {voidTarget?.clockOut || '—'}).
+              The record is kept for audit but excluded from totals and reports.
+            </p>
+            <div className="grid gap-2">
+              <Label>Reason <span className="text-destructive">*</span></Label>
+              <Textarea
+                value={voidReason}
+                onChange={e => setVoidReason(e.target.value)}
+                rows={3}
+                placeholder="Why is this record being voided?"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVoidTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleVoid} disabled={acting || !voidReason.trim()}>
+              {acting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Void record
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Adjust record dialog — audited time correction */}
+      <Dialog open={!!adjustTarget} onOpenChange={(open) => { if (!open) setAdjustTarget(null) }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Adjust Attendance Times</DialogTitle></DialogHeader>
+          <div className="grid gap-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              {adjustTarget?.staffName} — {adjustTarget?.date}. Every change is journaled with your reason.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid gap-2">
+                <Label>Clock In</Label>
+                <Input
+                  type="datetime-local"
+                  value={adjustForm.clockInAt}
+                  onChange={e => setAdjustForm(f => ({ ...f, clockInAt: e.target.value }))}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Clock Out</Label>
+                <Input
+                  type="datetime-local"
+                  value={adjustForm.clockOutAt}
+                  onChange={e => setAdjustForm(f => ({ ...f, clockOutAt: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label>Reason <span className="text-destructive">*</span></Label>
+              <Textarea
+                value={adjustForm.reason}
+                onChange={e => setAdjustForm(f => ({ ...f, reason: e.target.value }))}
+                rows={2}
+                placeholder="Why are these times being corrected?"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAdjustTarget(null)}>Cancel</Button>
+            <Button onClick={handleAdjust} disabled={acting || !adjustForm.reason.trim()}>
+              {acting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Save adjustment
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2342,6 +2677,8 @@ function flagStyle(f: string): string {
   if (f === 'outside_geofence' || f === 'device_mismatch') return 'bg-red-50 text-red-700 border-red-200'
   if (f === 'override_approved') return 'bg-amber-50 text-amber-700 border-amber-200'
   if (f === 'device_first_bind') return 'bg-blue-50 text-blue-700 border-blue-200'
+  if (f === 'adjusted') return 'bg-purple-50 text-purple-700 border-purple-200'
+  if (f === 'manual_entry') return 'bg-blue-50 text-blue-700 border-blue-200'
   if (f === 'low_gps_accuracy' || f === 'no_location') return 'bg-amber-50 text-amber-700 border-amber-200'
   return 'bg-stone-50 text-stone-700 border-stone-200'
 }
