@@ -124,7 +124,7 @@ export function ActivityLogsPage() {
       refreshIntervalRef.current = setInterval(() => {
         console.log('[ActivityLogsPage] Auto-refreshing logs...')
         loadLogs()
-      }, 30000) // 30 seconds
+      }, 120000) // 2 min — realtime table updates already refresh promptly; this is a fallback
     } else {
       if (refreshIntervalRef.current) {
         clearInterval(refreshIntervalRef.current)

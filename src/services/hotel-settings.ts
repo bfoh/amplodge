@@ -152,6 +152,11 @@ export class HotelSettingsService {
 
       this.settings = updatedSettings
 
+      // Notify same-tab subscribers (e.g. useCurrency) without polling.
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('hotel-settings-changed', { detail: updatedSettings }))
+      }
+
       console.log('✅ [HotelSettings] Settings updated successfully')
       return updatedSettings
 

@@ -1,4 +1,15 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+/* Self-hosted fonts (@fontsource): same-origin hashed woff2 served with the
+   app's immutable cache headers. Replaces the render-blocking Google Fonts
+   @import chain (app CSS → google CSS → gstatic font files — two extra TLS
+   handshakes that stalled first paint on high-RTT connections). Only the
+   weights actually used by the UI are shipped. */
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+@import '@fontsource/playfair-display/400.css';
+@import '@fontsource/playfair-display/600.css';
+@import '@fontsource/playfair-display/700.css';
 
 @tailwind base;
 @tailwind components;

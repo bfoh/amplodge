@@ -1,44 +1,58 @@
 import { useState, useEffect } from 'react'
 import { hotelSettingsService } from '@/services/hotel-settings'
+import { onTableUpdated } from '@/lib/db'
 
 /**
- * Hook to get and use the current hotel currency throughout the app
- * Automatically updates when currency changes in settings
+ * Hook to get and use the current hotel currency throughout the app.
+ *
+ * Event-driven, no polling: same-tab changes arrive via the
+ * 'hotel-settings-changed' CustomEvent fired by updateHotelSettings; changes
+ * from other devices arrive via the hotel_settings realtime/SWR subscription.
+ * (The old version polled Supabase every 5s from every mounted consumer —
+ * a constant network drain, brutal on slow connections.)
  */
 export function useCurrency() {
   const [currency, setCurrency] = useState<string>('GHS')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let cancelled = false
+
     const loadCurrency = async () => {
       try {
         const settings = await hotelSettingsService.getHotelSettings()
-        setCurrency(settings.currency || 'GHS')
+        if (!cancelled) setCurrency(settings.currency || 'GHS')
       } catch (error) {
         console.error('Failed to load currency:', error)
-        setCurrency('GHS')
+        if (!cancelled) setCurrency('GHS')
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
     loadCurrency()
 
-    // Refresh currency periodically to catch changes
-    const interval = setInterval(() => {
+    // Same-tab: Settings page saved new settings.
+    const onLocalChange = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (detail?.currency) setCurrency(detail.currency)
+    }
+    window.addEventListener('hotel-settings-changed', onLocalChange)
+
+    // Cross-device: hotel_settings changed elsewhere (realtime / SWR refresh).
+    const unsubscribe = onTableUpdated('hotel_settings', () => {
       hotelSettingsService.refreshSettings().then(() => {
         const cached = hotelSettingsService.getCachedSettings()
-        if (cached?.currency) {
-          setCurrency(cached.currency)
-        }
-      }).catch(() => {
-        // Ignore errors on refresh
-      })
-    }, 5000) // Check every 5 seconds
+        if (!cancelled && cached?.currency) setCurrency(cached.currency)
+      }).catch(() => {})
+    })
 
-    return () => clearInterval(interval)
+    return () => {
+      cancelled = true
+      window.removeEventListener('hotel-settings-changed', onLocalChange)
+      unsubscribe()
+    }
   }, [])
 
   return { currency, loading }
 }
-

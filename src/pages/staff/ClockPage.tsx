@@ -363,11 +363,13 @@ export function ClockPage() {
       )
       .subscribe()
 
+    // Slow fallback only — the realtime subscription above delivers the
+    // decision instantly; this catches missed websocket events on flaky links.
     const poll = setInterval(async () => {
       if (!active) return
       const ovr = await getOverride(overrideId)
       if (ovr) handleUpdate(ovr.status, (ovr as any).admin_note ?? null)
-    }, 4000)
+    }, 30000)
 
     return () => stop()
   }, [phase, overrideId, photoPath, runClock])

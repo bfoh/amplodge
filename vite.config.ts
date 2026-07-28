@@ -34,7 +34,10 @@ export default defineConfig(({ mode }) => ({
     minify: mode === 'production' ? 'terser' : false,
     terserOptions: {
       compress: {
-        drop_console: false, // Keep console logs for debugging
+        // Strip noisy logging from production bundles (600+ call sites) but
+        // keep console.warn/error so Sentry breadcrumbs and real failures
+        // stay visible in the field.
+        pure_funcs: mode === 'production' ? ['console.log', 'console.info', 'console.debug'] : [],
         drop_debugger: mode === 'production',
       },
     },

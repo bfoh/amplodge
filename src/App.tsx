@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Suspense, lazy, useEffect, useState, useRef } from 'react'
 import { Toaster } from 'sonner'
 import { Navbar } from './components/Navbar'
@@ -79,6 +79,14 @@ const VirtualTourPage = lazyWithRetry(() => import('./pages/VirtualTourPage').th
 
 import { BookingCartProvider } from './context/BookingCartContext'
 
+// The voice concierge is for guests/public visitors — staff sessions should
+// not download its chunk (speech/audio + Gemini client) at all.
+function RoutedVoiceWidget() {
+  const location = useLocation()
+  if (location.pathname.startsWith('/staff')) return null
+  return <VoiceWidget />
+}
+
 function App() {
   const [adminSeeded, setAdminSeeded] = useState(() => {
     try {
@@ -89,10 +97,14 @@ function App() {
   })
 
   useEffect(() => {
-    import('./services/test-group-booking').then(({ testGroupBooking }) => {
-      (window as any).testGroupBooking = testGroupBooking
-      console.log('🧪 `testGroupBooking()` is available in the console for verification.')
-    })
+    // Dev-only console helper. Must not ship to production — it drags the
+    // whole booking engine chunk into every visitor's first load.
+    if (import.meta.env.DEV) {
+      import('./services/test-group-booking').then(({ testGroupBooking }) => {
+        (window as any).testGroupBooking = testGroupBooking
+        console.log('🧪 `testGroupBooking()` is available in the console for verification.')
+      })
+    }
 
     const initializeApp = async () => {
       try {
@@ -175,7 +187,7 @@ function App() {
         <BrowserRouter>
           <Toaster position="top-right" />
           <ReceiptPrintDialog />
-          <VoiceWidget />
+          <RoutedVoiceWidget />
           <Suspense fallback={<div className="flex items-center justify-center py-12"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
             <Routes>
               {/* Guest Portal Routes */}

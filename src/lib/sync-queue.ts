@@ -339,7 +339,9 @@ export function startAutoSync(executor: SyncExecutor): void {
     triggerSync().catch(() => {})
   }, AUTO_SYNC_INTERVAL_MS)
 
-  // Kick an immediate attempt so a page load with a backlog flushes promptly.
+  // Surface any backlog from a previous session to subscribers (badges), then
+  // kick an immediate drain attempt so it flushes promptly.
+  refreshCounts().then(notifyListeners).catch(() => {})
   triggerSync().catch(() => {})
 }
 

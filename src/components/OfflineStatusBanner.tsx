@@ -3,6 +3,7 @@ import { bookingEngine } from '@/services/booking-engine'
 import { AlertCircle, CheckCircle, RefreshCw, Wifi, WifiOff } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useNetworkStatus } from '@/lib/network-status'
+import { onSyncStateChange } from '@/lib/db'
 
 export function OfflineStatusBanner() {
   // Share the app-wide connectivity detector (hysteresis + real-traffic signal)
@@ -24,18 +25,15 @@ export function OfflineStatusBanner() {
       }
     })
 
-    // Check pending syncs periodically
-    const checkPending = async () => {
-      const pending = await bookingEngine.getPendingSyncBookings()
-      setPendingSyncs(pending.length)
-    }
-
-    checkPending()
-    const interval = setInterval(checkPending, 5000)
+    // Event-driven pending count from the sync queue (replaces the old 5s
+    // polling loop — the queue notifies on every enqueue/drain already).
+    const unsubscribeSync = onSyncStateChange((state) => {
+      setPendingSyncs(state.pendingCount + state.failedCount)
+    })
 
     return () => {
       unsubscribe()
-      clearInterval(interval)
+      unsubscribeSync()
     }
   }, [])
 
