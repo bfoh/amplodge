@@ -22,7 +22,6 @@
  *   a backoff retry" (still auto-retrying) — never "given up".
  */
 
-import PouchDB from 'pouchdb-browser'
 import { getNetworkOnline } from './network-status'
 
 // ---------------------------------------------------------------------------
@@ -75,13 +74,17 @@ const LAST_SYNC_KEY = 'offline_sync_last_completed'
 // Singleton queue
 // ---------------------------------------------------------------------------
 
-let queueDB: PouchDB.Database | null = null
+// PouchDB is imported lazily so the queue's storage engine stays out of the
+// startup bundle (the global `PouchDB` type namespace comes from @types/pouchdb).
+let queueDBPromise: Promise<PouchDB.Database> | null = null
 
-function getQueueDB(): PouchDB.Database {
-  if (!queueDB) {
-    queueDB = new PouchDB(QUEUE_DB_NAME, { auto_compaction: true })
+function getQueueDB(): Promise<PouchDB.Database> {
+  if (!queueDBPromise) {
+    queueDBPromise = import('pouchdb-browser').then(
+      (pouch) => new pouch.default(QUEUE_DB_NAME, { auto_compaction: true })
+    )
   }
-  return queueDB
+  return queueDBPromise
 }
 
 // ---------------------------------------------------------------------------
@@ -108,7 +111,7 @@ function allEntries(rows: PouchDB.Core.AllDocsResponse<{}>['rows']): QueueEntry[
 }
 
 async function refreshCounts() {
-  const db = getQueueDB()
+  const db = await getQueueDB()
   try {
     const all = await db.allDocs({ include_docs: true })
     const docs = allEntries(all.rows)
@@ -151,7 +154,7 @@ export async function enqueue(
   recordId: string,
   payload: Record<string, any> = {}
 ): Promise<void> {
-  const db = getQueueDB()
+  const db = await getQueueDB()
   const entry: QueueEntry = {
     _id: `sync_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     table,
@@ -178,7 +181,7 @@ export async function enqueue(
  * left mid-flight ('processing') by a previous crashed drain so they recover.
  */
 export async function getPendingEntries(): Promise<QueueEntry[]> {
-  const db = getQueueDB()
+  const db = await getQueueDB()
   const all = await db.allDocs({ include_docs: true })
   const now = Date.now()
 
@@ -195,7 +198,7 @@ export async function getPendingEntries(): Promise<QueueEntry[]> {
  * (Still auto-retrying — this is not a terminal state.)
  */
 export async function getFailedEntries(): Promise<QueueEntry[]> {
-  const db = getQueueDB()
+  const db = await getQueueDB()
   const all = await db.allDocs({ include_docs: true })
   return allEntries(all.rows)
     .filter(e => e.retries > 0)
@@ -227,7 +230,7 @@ export async function processQueue(
   currentState.currentMessage = `Syncing ${entries.length} change${entries.length === 1 ? '' : 's'}...`
   notifyListeners()
 
-  const db = getQueueDB()
+  const db = await getQueueDB()
   let processed = 0
   let failed = 0
 
@@ -346,7 +349,7 @@ export function startAutoSync(executor: SyncExecutor): void {
  */
 export async function retryFailed(): Promise<number> {
   const entries = await getFailedEntries()
-  const db = getQueueDB()
+  const db = await getQueueDB()
   let reset = 0
 
   for (const entry of entries) {
@@ -374,7 +377,7 @@ export async function retryFailed(): Promise<number> {
  * Clear all entries from the sync queue.
  */
 export async function clearQueue(): Promise<void> {
-  const db = getQueueDB()
+  const db = await getQueueDB()
   const all = await db.allDocs({ include_docs: true })
   const toDelete = allEntries(all.rows).map(d => ({ ...d, _deleted: true }) as any)
 
@@ -403,5 +406,5 @@ export function getLastSyncCompletedAt(): string | null {
   }
 }
 
-// Initialize counts on module load
-refreshCounts().catch(() => {})
+// Counts initialize on first use (startAutoSync / enqueue). Deliberately not
+// run at module load — that would pull PouchDB into every visitor's startup.

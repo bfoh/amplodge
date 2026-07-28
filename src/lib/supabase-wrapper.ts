@@ -88,9 +88,43 @@ function initRealtimeSubscriptions() {
     })
 }
 
-// Start subscriptions on load
-if (typeof window !== 'undefined') {
+// ---------------------------------------------------------------------------
+// Offline / realtime activation
+// ---------------------------------------------------------------------------
+// Nothing here runs for anonymous visitors: no realtime websocket, no PouchDB,
+// no full-table warmup. `initOfflineSupport()` is called from App.tsx once a
+// Supabase (or cached offline) session exists — staff get the offline-first
+// experience, the public marketing site gets a plain thin client.
+
+let offlineActive = false
+
+export function isOfflineSupportActive(): boolean {
+  return offlineActive
+}
+
+export async function initOfflineSupport(): Promise<void> {
+  if (offlineActive) return
+  offlineActive = true
+
   initRealtimeSubscriptions()
+
+  // Background drain of queued offline writes + re-warm on reconnect.
+  syncQueue.startAutoSync(executeSyncEntry)
+  onNetworkChange((online) => {
+    if (online) {
+      console.log('[SupabaseDB] 🔄 Back online — draining sync queue...')
+      syncQueue.triggerSync()
+      warmupComplete.clear()
+      for (const table of offlineCache.CACHED_TABLES) {
+        ensureWarm(table)
+      }
+    }
+  })
+
+  // Staggered warmup of all cached tables so the staff portal works offline.
+  offlineCache.CACHED_TABLES.forEach((table, i) => {
+    setTimeout(() => ensureWarm(table), Math.max(i * 500, 100))
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +139,7 @@ const warmupComplete = new Set<string>()
  * Runs once per session per table.
  */
 async function ensureWarm(tableName: string): Promise<void> {
+  if (!offlineActive) return // Only warm caches for authenticated sessions
   if (warmupComplete.has(tableName) || warmupInProgress.has(tableName)) return
   if (!getNetworkOnline()) return // Can't warm if offline
 
@@ -161,12 +196,14 @@ async function backgroundRefresh(
     if (error) return null
 
     // Update the full table cache in background (non-blocking)
-    if (data && !query?.where) {
-      offlineCache.warmTable(tableName, data).catch(() => {})
-    } else if (data) {
-      // For filtered queries, update individual docs
-      for (const row of data) {
-        offlineCache.writeOne(tableName, row).catch(() => {})
+    if (offlineActive) {
+      if (data && !query?.where) {
+        offlineCache.warmTable(tableName, data).catch(() => {})
+      } else if (data) {
+        // For filtered queries, update individual docs
+        for (const row of data) {
+          offlineCache.writeOne(tableName, row).catch(() => {})
+        }
       }
     }
 
@@ -181,18 +218,12 @@ async function backgroundRefresh(
 // ---------------------------------------------------------------------------
 
 function createTableWrapper(tableName: string) {
-  // Kick off background warmup (fire and forget)
-  if (typeof window !== 'undefined') {
-    // Stagger warmup to avoid overwhelming the network
-    const delay = offlineCache.CACHED_TABLES.indexOf(tableName as any) * 500
-    setTimeout(() => ensureWarm(tableName), Math.max(delay, 100))
-  }
-
+  // Warmup happens in initOfflineSupport() (auth-gated) — nothing eager here.
   return {
     async list(options: { where?: Record<string, any>; limit?: number; orderBy?: Record<string, any> } = {}) {
-      // --- Try cache first ---
+      // --- Try cache first (only for authenticated offline-enabled sessions) ---
       let cached: Record<string, any>[] | null = null
-      if (offlineCache.isTableCached(tableName)) {
+      if (offlineActive && offlineCache.isTableCached(tableName)) {
         try {
           cached = await offlineCache.readAll(tableName)
           // Ensure cached is an array
@@ -308,10 +339,12 @@ function createTableWrapper(tableName: string) {
         if (error) throw error
 
         // Update cache with fresh data
-        if (data && !options.where && !options.limit) {
-          offlineCache.warmTable(tableName, data).catch(() => {})
-        } else if (data && data.length > 0) {
-          offlineCache.writeMany(tableName, data).catch(() => {})
+        if (offlineActive) {
+          if (data && !options.where && !options.limit) {
+            offlineCache.warmTable(tableName, data).catch(() => {})
+          } else if (data && data.length > 0) {
+            offlineCache.writeMany(tableName, data).catch(() => {})
+          }
         }
 
         return data || []
@@ -427,17 +460,19 @@ function createTableWrapper(tableName: string) {
           if (data.length < pageSize) break
           offset += pageSize
         }
-        if (!options.where) {
-          offlineCache.warmTable(tableName, all).catch(() => {})
-        } else {
-          offlineCache.writeMany(tableName, all).catch(() => {})
+        if (offlineActive) {
+          if (!options.where) {
+            offlineCache.warmTable(tableName, all).catch(() => {})
+          } else {
+            offlineCache.writeMany(tableName, all).catch(() => {})
+          }
         }
         return all
       }
 
       // Read cache snapshot if we have one (for SWR or offline)
       let cached: Record<string, any>[] | null = null
-      if (offlineCache.isTableCached(tableName)) {
+      if (offlineActive && offlineCache.isTableCached(tableName)) {
         try {
           cached = await offlineCache.readAll(tableName)
           
@@ -545,25 +580,30 @@ function createTableWrapper(tableName: string) {
               return null
             }
             // Fall back to cache
-            const cached = await offlineCache.readOne(tableName, id)
-            if (cached) return convertToCamelCase(cached)
+            if (offlineActive) {
+              const cached = await offlineCache.readOne(tableName, id)
+              if (cached) return convertToCamelCase(cached)
+            }
             throw error
           }
 
           // Update cache
-          if (data) {
+          if (offlineActive && data) {
             offlineCache.writeOne(tableName, data).catch(() => {})
           }
           return convertToCamelCase(data)
         } catch (err) {
           // Network error — try cache
-          const cached = await offlineCache.readOne(tableName, id)
-          if (cached) return convertToCamelCase(cached)
+          if (offlineActive) {
+            const cached = await offlineCache.readOne(tableName, id)
+            if (cached) return convertToCamelCase(cached)
+          }
           throw err
         }
       }
 
       // --- Offline: cache only ---
+      if (!offlineActive) return null
       const cached = await offlineCache.readOne(tableName, id)
       return cached ? convertToCamelCase(cached) : null
     },
@@ -591,7 +631,7 @@ function createTableWrapper(tableName: string) {
           }
 
           // Write to cache
-          if (data) {
+          if (offlineActive && data) {
             offlineCache.writeOne(tableName, data).catch(() => {})
           }
 
@@ -651,7 +691,7 @@ function createTableWrapper(tableName: string) {
           }
 
           // Update cache
-          if (data) {
+          if (offlineActive && data) {
             offlineCache.writeOne(tableName, data).catch(() => {})
           }
 
@@ -695,7 +735,9 @@ function createTableWrapper(tableName: string) {
           }
 
           // Remove from cache
-          offlineCache.deleteOne(tableName, id).catch(() => {})
+          if (offlineActive) {
+            offlineCache.deleteOne(tableName, id).catch(() => {})
+          }
 
           return true
         } catch (err: any) {
@@ -795,29 +837,8 @@ async function executeSyncEntry(entry: syncQueue.QueueEntry): Promise<void> {
   }
 }
 
-// Start the self-healing background drain. This runs on an interval whenever
-// we're online, so the queue flushes even if we never catch a clean
-// offline→online transition (the failure mode that stranded the "1 failed"
-// entries). Idempotent.
-if (typeof window !== 'undefined') {
-  syncQueue.startAutoSync(executeSyncEntry)
-
-  onNetworkChange((online) => {
-    if (online) {
-      console.log('[SupabaseDB] 🔄 Back online — draining sync queue...')
-      // Kick an immediate drain (the scheduler would catch it within a tick
-      // anyway, but reconnect is exactly when we want it flushed now).
-      syncQueue.triggerSync()
-
-      // Re-warm critical tables to pick up changes made by other users while
-      // we were offline.
-      warmupComplete.clear()
-      for (const table of offlineCache.CACHED_TABLES) {
-        ensureWarm(table)
-      }
-    }
-  })
-}
+// The self-healing background drain and reconnect re-warm are started inside
+// initOfflineSupport() — auth-gated, never for anonymous visitors.
 
 // ---------------------------------------------------------------------------
 // Database tables

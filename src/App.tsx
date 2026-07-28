@@ -3,7 +3,7 @@ import { Suspense, lazy, useEffect, useState, useRef } from 'react'
 import { Toaster } from 'sonner'
 import { Navbar } from './components/Navbar'
 import { Footer } from './components/Footer'
-import { db, auth } from '@/lib/db'
+import { db, auth, initOfflineSupport } from '@/lib/db'
 import { activityLogService } from './services/activity-log-service'
 import { StaffLoginPage } from './pages/staff/StaffLoginPage'
 import { ProtectedRoute } from './components/ProtectedRoute'
@@ -148,9 +148,14 @@ function App() {
     const unsubscribe = auth.onAuthStateChanged(async (state) => {
       if (!state.isLoading) {
         if (state.user?.id) {
+          // Authenticated (or cached offline) session — enable the offline
+          // data layer: realtime subscription, table warmup, sync queue.
+          // Anonymous visitors never reach this, so the public site stays thin.
+          initOfflineSupport().catch(() => {})
+
           activityLogService.setCurrentUser(state.user.id)
           console.log('📝 [App] Activity log service updated with user:', state.user.email)
-          
+
           if (state.user?.email === import.meta.env.VITE_ADMIN_EMAIL) {
             await ensureAdminStaffRecord(state.user.id, state.user.email)
           }

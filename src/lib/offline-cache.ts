@@ -13,10 +13,22 @@
  *   incremental via updated_at / created_at timestamps
  */
 
-import PouchDB from 'pouchdb-browser'
-import PouchDBFind from 'pouchdb-find'
+// PouchDB is loaded lazily (dynamic import) so the ~170KB chunk stays out of
+// the startup bundle — anonymous visitors on the public site never pay for it.
+// The global `PouchDB` type namespace comes from @types/pouchdb (no runtime cost).
+let pouchPromise: Promise<PouchDB.Static> | null = null
 
-PouchDB.plugin(PouchDBFind)
+function getPouch(): Promise<PouchDB.Static> {
+  if (!pouchPromise) {
+    pouchPromise = Promise.all([import('pouchdb-browser'), import('pouchdb-find')]).then(
+      ([pouch, find]) => {
+        pouch.default.plugin(find.default)
+        return pouch.default
+      }
+    )
+  }
+  return pouchPromise
+}
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -54,12 +66,18 @@ const SYNC_META_KEY = 'offline_cache_sync_meta'
 
 const dbInstances = new Map<string, PouchDB.Database>()
 
-function getDB(tableName: string): PouchDB.Database {
-  if (!dbInstances.has(tableName)) {
-    const db = new PouchDB(`amplodge_${tableName}`, { auto_compaction: true })
-    dbInstances.set(tableName, db)
+async function getDB(tableName: string): Promise<PouchDB.Database> {
+  let db = dbInstances.get(tableName)
+  if (!db) {
+    const Pouch = await getPouch()
+    // Re-check after the await — a concurrent caller may have created it.
+    db = dbInstances.get(tableName)
+    if (!db) {
+      db = new Pouch(`amplodge_${tableName}`, { auto_compaction: true })
+      dbInstances.set(tableName, db)
+    }
   }
-  return dbInstances.get(tableName)!
+  return db
 }
 
 // ---------------------------------------------------------------------------
@@ -119,7 +137,7 @@ export function getLastSyncTime(tableName: string): string | null {
  * @param rows       Array of row objects from Supabase (snake_case keys)
  */
 export async function warmTable(tableName: string, rows: Record<string, any>[]): Promise<void> {
-  const db = getDB(tableName)
+  const db = await getDB(tableName)
   const startTime = Date.now()
 
   try {
@@ -174,7 +192,7 @@ export async function warmTable(tableName: string, rows: Record<string, any>[]):
  * Returns snake_case objects (matching Supabase column names).
  */
 export async function readAll(tableName: string): Promise<Record<string, any>[]> {
-  const db = getDB(tableName)
+  const db = await getDB(tableName)
   try {
     const result = await db.allDocs({ include_docs: true })
     return result.rows
@@ -197,7 +215,7 @@ export async function readAll(tableName: string): Promise<Record<string, any>[]>
  * Read a single document by id from the cache.
  */
 export async function readOne(tableName: string, id: string): Promise<Record<string, any> | null> {
-  const db = getDB(tableName)
+  const db = await getDB(tableName)
   try {
     const doc = await db.get(String(id))
     const result = { ...doc } as any
@@ -217,7 +235,7 @@ export async function readOne(tableName: string, id: string): Promise<Record<str
  * This is used for write-through caching after a Supabase mutation.
  */
 export async function writeOne(tableName: string, doc: Record<string, any>): Promise<void> {
-  const db = getDB(tableName)
+  const db = await getDB(tableName)
   const docId = String(doc.id)
 
   try {
@@ -248,7 +266,7 @@ export async function writeOne(tableName: string, doc: Record<string, any>): Pro
 export async function writeMany(tableName: string, docs: Record<string, any>[]): Promise<void> {
   if (docs.length === 0) return
 
-  const db = getDB(tableName)
+  const db = await getDB(tableName)
   try {
     // PouchDB bulkDocs is much faster than individual put() calls
     // We still need to get the latest _rev for each doc if it exists
@@ -286,7 +304,7 @@ export async function writeMany(tableName: string, docs: Record<string, any>[]):
  * Delete a single document from the cache.
  */
 export async function deleteOne(tableName: string, id: string): Promise<void> {
-  const db = getDB(tableName)
+  const db = await getDB(tableName)
   try {
     const doc = await db.get(String(id))
     await db.remove(doc)
@@ -300,7 +318,7 @@ export async function deleteOne(tableName: string, id: string): Promise<void> {
  * Count the number of documents in a cached table.
  */
 export async function countDocs(tableName: string): Promise<number> {
-  const db = getDB(tableName)
+  const db = await getDB(tableName)
   try {
     const info = await db.info()
     return info.doc_count
@@ -313,7 +331,7 @@ export async function countDocs(tableName: string): Promise<number> {
  * Destroy the PouchDB for a specific table (full reset).
  */
 export async function destroyTable(tableName: string): Promise<void> {
-  const db = getDB(tableName)
+  const db = await getDB(tableName)
   try {
     await db.destroy()
     dbInstances.delete(tableName)

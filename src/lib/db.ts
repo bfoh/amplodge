@@ -20,6 +20,8 @@ import {
   onTableUpdated as _onTableUpdated,
 } from './supabase-wrapper'
 
+export { initOfflineSupport, isOfflineSupportActive } from './supabase-wrapper'
+
 import * as T from '../types'
 
 export interface TableWrapper<TRow> {
