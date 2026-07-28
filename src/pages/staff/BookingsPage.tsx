@@ -2,7 +2,6 @@ import { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSubscription } from '../../hooks/use-subscription'
 import { AlertCircle, RefreshCw, CheckCircle2 } from 'lucide-react'
-import * as syncQueue from '../../lib/sync-queue'
 import { Card, CardContent } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
@@ -101,7 +100,6 @@ export function BookingsPage() {
   const [qrBooking, setQrBooking] = useState<BookingWithDetails | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [displayLimit, setDisplayLimit] = useState(50)
-  const [syncState, setSyncState] = useState(syncQueue.getSyncState())
   const isRefreshing = useRef(false)
 
   const [formData, setFormData] = useState({
@@ -173,14 +171,6 @@ export function BookingsPage() {
     else if (!isRefreshing.current) loadData()
   }, [bookingsUpdate, roomsUpdate])
 
-
-  useEffect(() => {
-    // Subscribe to sync state changes
-    const unsubscribe = syncQueue.onSyncStateChange((state) => {
-      setSyncState(state)
-    })
-    return () => unsubscribe()
-  }, [])
 
   const loadData = async () => {
     if (isRefreshing.current) return
@@ -795,48 +785,6 @@ export function BookingsPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Sync Status Banner */}
-      {syncState.pendingCount > 0 && (
-        <div className={cn(
-          "flex items-center justify-between p-3 rounded-lg border shadow-sm transition-all animate-in fade-in slide-in-from-top-2 duration-300",
-          syncState.status === 'error' ? "bg-red-50 border-red-200 text-red-800" : "bg-primary/5 border-primary/20 text-primary"
-        )}>
-          <div className="flex items-center gap-3">
-            {syncState.status === 'syncing' ? (
-              <RefreshCw className="w-4 h-4 animate-spin" />
-            ) : syncState.status === 'error' ? (
-              <AlertCircle className="w-4 h-4" />
-            ) : (
-              <CheckCircle2 className="w-4 h-4" />
-            )}
-            <div className="text-sm">
-              <span className="font-bold">{syncState.pendingCount} offline {syncState.pendingCount === 1 ? 'change' : 'changes'} pending.</span>
-              {syncState.status === 'error' && (
-                <span className="ml-1 opacity-90 italic">Some items are failing and retrying...</span>
-              )}
-              {syncState.status === 'syncing' && (
-                <span className="ml-1 opacity-90">{syncState.currentMessage || 'Uploading to database...'}</span>
-              )}
-            </div>
-          </div>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="h-8 text-xs font-semibold hover:bg-white/50" 
-            onClick={async () => {
-              if (syncState.status === 'error') {
-                // retryFailed clears backoff and kicks a drain itself.
-                await syncQueue.retryFailed()
-              } else {
-                // Force an immediate drain of anything pending.
-                await syncQueue.triggerSync()
-              }
-            }}
-          >
-            {syncState.status === 'error' ? 'Retry All' : 'Syncing...'}
-          </Button>
-        </div>
-      )}
 
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>

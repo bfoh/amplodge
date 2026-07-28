@@ -1,4 +1,4 @@
-import { db, auth, isOnline, syncQueue } from '@/lib/db'
+import { db, auth } from '@/lib/db'
 import { v4 as uuidv4 } from 'uuid'
 import { activityLogService } from './activity-log-service'
 import { sendBookingConfirmation } from './notifications'

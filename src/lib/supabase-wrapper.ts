@@ -1,30 +1,19 @@
 /**
- * Supabase Database Wrapper — with Offline Support
+ * Supabase Database Wrapper
  *
- * This module provides the data-access API used by `@/lib/db`, backed by Supabase,
- * augmented with PouchDB-based offline caching and a sync queue.
- *
- * Read flow:
- *   1. Read from PouchDB cache (instant)
- *   2. If online, also fetch from Supabase in the background and update cache
- *   3. Returns cache data immediately for fast UI
- *
- * Write flow:
- *   1. Write to PouchDB cache (optimistic, instant)
- *   2. If online, write to Supabase and update cache with server response
- *   3. If offline, enqueue the mutation in the sync queue
+ * This module provides the data-access API used by `@/lib/db`, backed directly
+ * by Supabase. Reads and writes go straight to the network; realtime
+ * subscriptions (auth-gated) power live table-update notifications so pages
+ * refresh when data changes elsewhere.
  */
 
 import { supabase } from './supabase'
-import * as offlineCache from './offline-cache'
-import * as syncQueue from './sync-queue'
-import { getNetworkOnline, onNetworkChange, reportUnreachable } from './network-status'
 
 // ---------------------------------------------------------------------------
 // Table-update pub/sub
 // ---------------------------------------------------------------------------
-// Pages subscribe to table updates and re-run their loader when fresh server
-// data has been written into the cache by a background SWR refresh.
+// Pages subscribe to table updates and re-run their loader when the realtime
+// channel reports a server-side change.
 
 const tableListeners = new Map<string, Set<() => void>>()
 
@@ -54,15 +43,16 @@ function emitTableUpdated(table: string) {
 // ---------------------------------------------------------------------------
 // Realtime Subscriptions
 // ---------------------------------------------------------------------------
-// Listen for server-side changes and signal local subscribers.
+// Listen for server-side changes and signal local subscribers. Started from
+// App.tsx once a session exists — anonymous visitors never open the websocket.
 
 let realtimeChannel: any = null
 
 function initRealtimeSubscriptions() {
   if (realtimeChannel) return
-  
+
   console.log('📡 [SupabaseDB] Initializing Realtime Subscriptions...')
-  
+
   realtimeChannel = supabase
     .channel('db-changes')
     .on(
@@ -74,9 +64,7 @@ function initRealtimeSubscriptions() {
         // Most tables match, but some (activity_logs) use snake_case in DB
         // and camelCase in TypedDB. We emit both for safety.
         const camelTable = table.replace(/_([a-z])/g, (g) => g[1].toUpperCase())
-        
-        console.log(`🔔 [SupabaseDB] Realtime update for ${table}:`, payload.eventType)
-        
+
         emitTableUpdated(table)
         if (camelTable !== table) {
           emitTableUpdated(camelTable)
@@ -88,318 +76,68 @@ function initRealtimeSubscriptions() {
     })
 }
 
-// ---------------------------------------------------------------------------
-// Offline / realtime activation
-// ---------------------------------------------------------------------------
-// Nothing here runs for anonymous visitors: no realtime websocket, no PouchDB,
-// no full-table warmup. `initOfflineSupport()` is called from App.tsx once a
-// Supabase (or cached offline) session exists — staff get the offline-first
-// experience, the public marketing site gets a plain thin client.
-
-let offlineActive = false
-
-export function isOfflineSupportActive(): boolean {
-  return offlineActive
-}
-
-export async function initOfflineSupport(): Promise<void> {
-  if (offlineActive) return
-  offlineActive = true
-
+/**
+ * Enable live table-update notifications for authenticated sessions.
+ * Idempotent. Called from App.tsx when auth state resolves with a user.
+ */
+export async function initRealtimeUpdates(): Promise<void> {
   initRealtimeSubscriptions()
-
-  // Background drain of queued offline writes + re-warm on reconnect.
-  syncQueue.startAutoSync(executeSyncEntry)
-  onNetworkChange((online) => {
-    if (online) {
-      console.log('[SupabaseDB] 🔄 Back online — draining sync queue...')
-      syncQueue.triggerSync()
-      warmupComplete.clear()
-      for (const table of offlineCache.CACHED_TABLES) {
-        ensureWarm(table)
-      }
-    }
-  })
-
-  // Staggered warmup of all cached tables so the staff portal works offline.
-  offlineCache.CACHED_TABLES.forEach((table, i) => {
-    setTimeout(() => ensureWarm(table), Math.max(i * 500, 100))
-  })
 }
 
 // ---------------------------------------------------------------------------
-// Cache warm-up management
-// ---------------------------------------------------------------------------
-
-const warmupInProgress = new Set<string>()
-const warmupComplete = new Set<string>()
-
-/**
- * Warm the cache for a specific table by fetching all rows from Supabase.
- * Runs once per session per table.
- */
-async function ensureWarm(tableName: string): Promise<void> {
-  if (!offlineActive) return // Only warm caches for authenticated sessions
-  if (warmupComplete.has(tableName) || warmupInProgress.has(tableName)) return
-  if (!getNetworkOnline()) return // Can't warm if offline
-
-  warmupInProgress.add(tableName)
-  try {
-    const { data, error } = await supabase.from(tableName).select('*')
-    if (error) {
-      console.warn(`[SupabaseDB] Warmup failed for ${tableName}:`, error.message)
-      return
-    }
-    if (data) {
-      await offlineCache.warmTable(tableName, data)
-      warmupComplete.add(tableName)
-    }
-  } catch (err) {
-    console.warn(`[SupabaseDB] Warmup exception for ${tableName}:`, err)
-  } finally {
-    warmupInProgress.delete(tableName)
-  }
-}
-
-/**
- * Background refresh: fetch from Supabase and update cache silently.
- * Returns the fresh data if successful, null otherwise.
- */
-async function backgroundRefresh(
-  tableName: string,
-  query?: any
-): Promise<Record<string, any>[] | null> {
-  if (!getNetworkOnline()) return null
-
-  try {
-    let q = supabase.from(tableName).select('*')
-
-    // Apply filters if provided (simplified for background refresh)
-    if (query?.where) {
-      Object.entries(query.where).forEach(([key, value]: [string, any]) => {
-        const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase()
-        if (value && typeof value === 'object' && !Array.isArray(value)) {
-          if ('in' in value) q = q.in(snakeKey, value.in)
-          else if ('gt' in value) q = q.gt(snakeKey, value.gt)
-          else if ('gte' in value) q = q.gte(snakeKey, value.gte)
-          else if ('lt' in value) q = q.lt(snakeKey, value.lt)
-          else if ('lte' in value) q = q.lte(snakeKey, value.lte)
-          else if ('neq' in value) q = q.neq(snakeKey, value.neq)
-          else q = q.eq(snakeKey, value)
-        } else {
-          q = q.eq(snakeKey, value)
-        }
-      })
-    }
-
-    const { data, error } = await q
-    if (error) return null
-
-    // Update the full table cache in background (non-blocking)
-    if (offlineActive) {
-      if (data && !query?.where) {
-        offlineCache.warmTable(tableName, data).catch(() => {})
-      } else if (data) {
-        // For filtered queries, update individual docs
-        for (const row of data) {
-          offlineCache.writeOne(tableName, row).catch(() => {})
-        }
-      }
-    }
-
-    return data
-  } catch {
-    return null
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Table wrapper with offline support
+// Table wrapper
 // ---------------------------------------------------------------------------
 
 function createTableWrapper(tableName: string) {
-  // Warmup happens in initOfflineSupport() (auth-gated) — nothing eager here.
   return {
     async list(options: { where?: Record<string, any>; limit?: number; orderBy?: Record<string, any> } = {}) {
-      // --- Try cache first (only for authenticated offline-enabled sessions) ---
-      let cached: Record<string, any>[] | null = null
-      if (offlineActive && offlineCache.isTableCached(tableName)) {
-        try {
-          cached = await offlineCache.readAll(tableName)
-          // Ensure cached is an array
-          if (!Array.isArray(cached)) {
-            console.warn(`[SupabaseDB] Cache for ${tableName} is not an array, resetting to []`)
-            cached = []
-          }
+      let query = supabase.from(tableName).select('*')
 
-          // Apply client-side filtering on cached data
-          if (cached.length > 0 && options.where) {
-            cached = cached.filter(row => {
-              return Object.entries(options.where!).every(([key, value]) => {
-                const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase()
-                const rowValue = row[snakeKey] ?? row[key]
-
-                if (value && typeof value === 'object' && !Array.isArray(value)) {
-                  if ('in' in value) return value.in.includes(rowValue)
-                  if ('gt' in value) return rowValue > value.gt
-                  if ('gte' in value) return rowValue >= value.gte
-                  if ('lt' in value) return rowValue < value.lt
-                  if ('lte' in value) return rowValue <= value.lte
-                  if ('neq' in value) return rowValue !== value.neq
-                  if ('like' in value) return String(rowValue || '').includes(value.like.replace(/%/g, ''))
-                  if ('ilike' in value) return String(rowValue || '').toLowerCase().includes(value.ilike.replace(/%/g, '').toLowerCase())
-                  if ('is' in value) return rowValue === value.is
-                  return true
-                }
-                return String(rowValue) === String(value)
-              })
-            })
-          }
-
-          // Apply client-side ordering
-          if (cached && options.orderBy) {
-            if ('column' in options.orderBy && typeof options.orderBy.column === 'string') {
-              const col = options.orderBy.column.replace(/([A-Z])/g, '_$1').toLowerCase()
-              const asc = options.orderBy.ascending ?? false
-              cached.sort((a, b) => {
-                const va = a[col] ?? a[options.orderBy!.column]
-                const vb = b[col] ?? b[options.orderBy!.column]
-                const cmp = String(va ?? '').localeCompare(String(vb ?? ''))
-                return asc ? cmp : -cmp
-              })
-            } else {
-              Object.entries(options.orderBy).forEach(([key, value]) => {
-                const col = key.replace(/([A-Z])/g, '_$1').toLowerCase()
-                const asc = value === 'asc'
-                cached!.sort((a, b) => {
-                  const va = a[col] ?? a[key]
-                  const vb = b[col] ?? b[key]
-                  const cmp = String(va ?? '').localeCompare(String(vb ?? ''))
-                  return asc ? cmp : -cmp
-                })
-              })
+      if (options.where) {
+        Object.entries(options.where).forEach(([key, value]) => {
+          const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase()
+          if (value && typeof value === 'object' && !Array.isArray(value)) {
+            if ('in' in value) query = query.in(snakeKey, value.in)
+            else if ('gt' in value) query = query.gt(snakeKey, value.gt)
+            else if ('gte' in value) query = query.gte(snakeKey, value.gte)
+            else if ('lt' in value) query = query.lt(snakeKey, value.lt)
+            else if ('lte' in value) query = query.lte(snakeKey, value.lte)
+            else if ('neq' in value) query = query.neq(snakeKey, value.neq)
+            else if ('like' in value) query = query.like(snakeKey, value.like)
+            else if ('ilike' in value) query = query.ilike(snakeKey, value.ilike)
+            else if ('is' in value) query = query.is(snakeKey, value.is)
+            else {
+              console.warn(`[SupabaseDB] Unknown operator in where clause for ${snakeKey}:`, value)
             }
-          }
-
-          // Apply limit
-          if (cached.length > 0 && options.limit) {
-            cached = cached.slice(0, options.limit)
-          }
-        } catch (err) {
-          console.warn(`[SupabaseDB] Cache read failed for ${tableName}:`, err)
-          cached = null
-        }
-      }
-
-      // --- Build the network fetch as a function so we can run it foreground
-      //     (no cache) or background (SWR refresh after returning cache). ---
-      const fetchFromSupabase = async (): Promise<Record<string, any>[]> => {
-        let query = supabase.from(tableName).select('*')
-
-        if (options.where) {
-          Object.entries(options.where).forEach(([key, value]) => {
-            const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase()
-            if (value && typeof value === 'object' && !Array.isArray(value)) {
-              if ('in' in value) query = query.in(snakeKey, value.in)
-              else if ('gt' in value) query = query.gt(snakeKey, value.gt)
-              else if ('gte' in value) query = query.gte(snakeKey, value.gte)
-              else if ('lt' in value) query = query.lt(snakeKey, value.lt)
-              else if ('lte' in value) query = query.lte(snakeKey, value.lte)
-              else if ('neq' in value) query = query.neq(snakeKey, value.neq)
-              else if ('like' in value) query = query.like(snakeKey, value.like)
-              else if ('ilike' in value) query = query.ilike(snakeKey, value.ilike)
-              else if ('is' in value) query = query.is(snakeKey, value.is)
-              else {
-                console.warn(`[SupabaseDB] Unknown operator in where clause for ${snakeKey}:`, value)
-              }
-            } else {
-              query = query.eq(snakeKey, value)
-            }
-          })
-        }
-
-        if (options.orderBy) {
-          if ('column' in options.orderBy && typeof options.orderBy.column === 'string') {
-            const snakeColumn = options.orderBy.column.replace(/([A-Z])/g, '_$1').toLowerCase()
-            query = query.order(snakeColumn, { ascending: options.orderBy.ascending ?? false })
           } else {
-            Object.entries(options.orderBy).forEach(([key, value]) => {
-              const snakeColumn = key.replace(/([A-Z])/g, '_$1').toLowerCase()
-              const ascending = value === 'asc'
-              query = query.order(snakeColumn, { ascending })
-            })
+            query = query.eq(snakeKey, value)
           }
-        }
-
-        if (options.limit) {
-          query = query.limit(options.limit)
-        }
-
-        const { data, error } = await query
-        if (error) throw error
-
-        // Update cache with fresh data
-        if (offlineActive) {
-          if (data && !options.where && !options.limit) {
-            offlineCache.warmTable(tableName, data).catch(() => {})
-          } else if (data && data.length > 0) {
-            offlineCache.writeMany(tableName, data).catch(() => {})
-          }
-        }
-
-        return data || []
+        })
       }
 
-      // --- SWR: cache hit + online → return cached now, refresh in background ---
-      if (cached && getNetworkOnline()) {
-        const cachedSnapshot = cached.map(convertToCamelCase)
-        // Capture a fingerprint (row count + max updated_at) so we can detect
-        // both inserts/deletes and in-place row updates (e.g. booking status
-        // flipping confirmed → checked-in). Emitting only on count change
-        // missed those status updates entirely, which left analytics pages
-        // showing stale revenue figures. The cache write after fetch ensures
-        // a follow-up list() returns the new snapshot, so no emit-loop.
-        const maxUpdatedAt = (rows: any[]) => {
-          let m = ''
-          for (const r of rows) {
-            const t = r?.updated_at || r?.updatedAt || ''
-            if (t && t > m) m = t
-          }
-          return m
-        }
-        const cachedCount = cached.length
-        const cachedMaxTs = maxUpdatedAt(cached)
-        fetchFromSupabase()
-          .then(freshData => {
-            if (freshData.length !== cachedCount || maxUpdatedAt(freshData) !== cachedMaxTs) {
-              emitTableUpdated(tableName)
-            }
+      if (options.orderBy) {
+        if ('column' in options.orderBy && typeof options.orderBy.column === 'string') {
+          const snakeColumn = options.orderBy.column.replace(/([A-Z])/g, '_$1').toLowerCase()
+          query = query.order(snakeColumn, { ascending: options.orderBy.ascending ?? false })
+        } else {
+          Object.entries(options.orderBy).forEach(([key, value]) => {
+            const snakeColumn = key.replace(/([A-Z])/g, '_$1').toLowerCase()
+            const ascending = value === 'asc'
+            query = query.order(snakeColumn, { ascending })
           })
-          .catch(err => {
-            console.warn(`[SupabaseDB] Background refresh failed for ${tableName}:`, err?.message || err)
-          })
-        return cachedSnapshot
-      }
-
-      // --- No cache, online → fetch foreground (block on network) ---
-      if (getNetworkOnline()) {
-        try {
-          const data = await fetchFromSupabase()
-          return data.map(convertToCamelCase)
-        } catch (err) {
-          console.error(`[SupabaseDB] Error listing ${tableName}:`, err)
-          throw err
         }
       }
 
-      // --- Offline: return cache only ---
-      if (cached) {
-        return cached.map(convertToCamelCase)
+      if (options.limit) {
+        query = query.limit(options.limit)
       }
 
-      // No cache and offline — return empty
-      console.warn(`[SupabaseDB] Offline with no cache for ${tableName}`)
-      return []
+      const { data, error } = await query
+      if (error) {
+        console.error(`[SupabaseDB] Error listing ${tableName}:`, error)
+        throw error
+      }
+      return (data || []).map(convertToCamelCase)
     },
 
     /**
@@ -445,9 +183,7 @@ function createTableWrapper(tableName: string) {
         return query
       }
 
-      // Background paginator — used both as foreground (no cache) and
-      // background SWR refresh (cache hit).
-      const paginate = async (): Promise<Record<string, any>[]> => {
+      try {
         const all: Record<string, any>[] = []
         let offset = 0
         const HARD_CEILING = 100000
@@ -460,303 +196,72 @@ function createTableWrapper(tableName: string) {
           if (data.length < pageSize) break
           offset += pageSize
         }
-        if (offlineActive) {
-          if (!options.where) {
-            offlineCache.warmTable(tableName, all).catch(() => {})
-          } else {
-            offlineCache.writeMany(tableName, all).catch(() => {})
-          }
-        }
-        return all
-      }
-
-      // Read cache snapshot if we have one (for SWR or offline)
-      let cached: Record<string, any>[] | null = null
-      if (offlineActive && offlineCache.isTableCached(tableName)) {
-        try {
-          cached = await offlineCache.readAll(tableName)
-          
-          // Ensure cached is an array
-          if (!Array.isArray(cached)) {
-            console.warn(`[SupabaseDB] Cache for ${tableName} (listAll) is not an array, resetting to []`)
-            cached = []
-          }
-
-          if (cached.length > 0 && options.where) {
-            cached = cached.filter(row => {
-              return Object.entries(options.where!).every(([key, value]) => {
-                const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase()
-                const rowValue = row[snakeKey] ?? row[key]
-                if (value && typeof value === 'object' && !Array.isArray(value)) {
-                  if ('in' in value) return value.in.includes(rowValue)
-                  if ('gt' in value) return rowValue > value.gt
-                  if ('gte' in value) return rowValue >= value.gte
-                  if ('lt' in value) return rowValue < value.lt
-                  if ('lte' in value) return rowValue <= value.lte
-                  if ('neq' in value) return rowValue !== value.neq
-                  if ('like' in value) return String(rowValue || '').includes(value.like.replace(/%/g, ''))
-                  if ('ilike' in value) return String(rowValue || '').toLowerCase().includes(value.ilike.replace(/%/g, '').toLowerCase())
-                  if ('is' in value) return rowValue === value.is
-                  return true
-                }
-                return String(rowValue) === String(value)
-              })
-            })
-          }
-          if (cached && options.orderBy) {
-            if ('column' in options.orderBy && typeof options.orderBy.column === 'string') {
-              const col = options.orderBy.column.replace(/([A-Z])/g, '_$1').toLowerCase()
-              const asc = options.orderBy.ascending ?? false
-              cached.sort((a, b) => {
-                const va = a[col] ?? a[options.orderBy!.column]
-                const vb = b[col] ?? b[options.orderBy!.column]
-                const cmp = String(va ?? '').localeCompare(String(vb ?? ''))
-                return asc ? cmp : -cmp
-              })
-            } else {
-              Object.entries(options.orderBy).forEach(([key, value]) => {
-                const col = key.replace(/([A-Z])/g, '_$1').toLowerCase()
-                const asc = value === 'asc'
-                cached!.sort((a, b) => {
-                  const va = a[col] ?? a[key]
-                  const vb = b[col] ?? b[key]
-                  const cmp = String(va ?? '').localeCompare(String(vb ?? ''))
-                  return asc ? cmp : -cmp
-                })
-              })
-            }
-          }
-        } catch (err) {
-          console.warn(`[SupabaseDB] listAll cache read failed for ${tableName}:`, err)
-          cached = null
-        }
-      }
-
-      // Offline: cache or empty
-      if (!getNetworkOnline()) {
-        return (cached || []).map(convertToCamelCase)
-      }
-
-      // SWR: cache hit + online → return cached, paginate in background.
-      // Emit only if the row count changed; otherwise we'd loop with any
-      // subscriber that re-fetches on update.
-      if (cached && cached.length > 0) {
-        const cachedSnapshot = cached.map(convertToCamelCase)
-        const cachedCount = cached.length
-        paginate()
-          .then(freshData => {
-            if (freshData.length !== cachedCount) {
-              emitTableUpdated(tableName)
-            }
-          })
-          .catch(err => {
-            console.warn(`[SupabaseDB] listAll background refresh failed for ${tableName}:`, err?.message || err)
-          })
-        return cachedSnapshot
-      }
-
-      // No cache, online → paginate foreground
-      try {
-        const all = await paginate()
         return all.map(convertToCamelCase)
       } catch (err) {
-        console.error(`[SupabaseDB] listAll foreground error for ${tableName}:`, err)
+        console.error(`[SupabaseDB] listAll error for ${tableName}:`, err)
         return []
       }
     },
 
     async get(id: string) {
-      // --- Try Supabase first if online ---
-      if (getNetworkOnline()) {
-        try {
-          const { data, error } = await supabase
-            .from(tableName)
-            .select('*')
-            .eq('id', id)
-            .single()
+      const { data, error } = await supabase
+        .from(tableName)
+        .select('*')
+        .eq('id', id)
+        .single()
 
-          if (error) {
-            if (error.code === 'PGRST116') {
-              return null
-            }
-            // Fall back to cache
-            if (offlineActive) {
-              const cached = await offlineCache.readOne(tableName, id)
-              if (cached) return convertToCamelCase(cached)
-            }
-            throw error
-          }
-
-          // Update cache
-          if (offlineActive && data) {
-            offlineCache.writeOne(tableName, data).catch(() => {})
-          }
-          return convertToCamelCase(data)
-        } catch (err) {
-          // Network error — try cache
-          if (offlineActive) {
-            const cached = await offlineCache.readOne(tableName, id)
-            if (cached) return convertToCamelCase(cached)
-          }
-          throw err
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return null
         }
+        throw error
       }
-
-      // --- Offline: cache only ---
-      if (!offlineActive) return null
-      const cached = await offlineCache.readOne(tableName, id)
-      return cached ? convertToCamelCase(cached) : null
+      return convertToCamelCase(data)
     },
 
     async create(record: Record<string, any>) {
       const snakeRecord = convertToSnakeCase(record)
 
-      if (tableName === 'housekeeping_tasks') {
-        console.log(`[SupabaseDB] Creating ${tableName} with payload:`, snakeRecord)
+      const { data, error } = await supabase
+        .from(tableName)
+        .insert(snakeRecord)
+        .select()
+        .single()
+
+      if (error) {
+        console.error(`[SupabaseDB] Error creating ${tableName}:`, error)
+        throw error
       }
-
-      if (getNetworkOnline()) {
-        try {
-          const { data, error } = await supabase
-            .from(tableName)
-            .insert(snakeRecord)
-            .select()
-            .single()
-
-          if (error) {
-            console.error(`[SupabaseDB] Error creating ${tableName}:`, error)
-            console.error(`[SupabaseDB] Error details - Code: ${error.code}, Message: ${error.message}, Details: ${error.details}`)
-            console.error(`[SupabaseDB] Payload sent:`, snakeRecord)
-            throw error
-          }
-
-          // Write to cache
-          if (offlineActive && data) {
-            offlineCache.writeOne(tableName, data).catch(() => {})
-          }
-
-          return convertToCamelCase(data)
-        } catch (err: any) {
-          // If it's a network error (not a Supabase error), queue offline
-          if (!err?.code && !err?.details) {
-            console.log(`[SupabaseDB] Network error on create, queuing offline for ${tableName}`)
-            reportUnreachable() // real transport failure — nudge the detector
-            return await this._createOffline(snakeRecord)
-          }
-          throw err
-        }
-      }
-
-      // Offline: create in cache and queue
-      return await this._createOffline(snakeRecord)
-    },
-
-    async _createOffline(snakeRecord: Record<string, any>) {
-      // Generate a temporary ID if none exists
-      if (!snakeRecord.id) {
-        snakeRecord.id = `offline_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-      }
-      if (!snakeRecord.created_at) {
-        snakeRecord.created_at = new Date().toISOString()
-      }
-      if (!snakeRecord.updated_at) {
-        snakeRecord.updated_at = new Date().toISOString()
-      }
-
-      // Write to local cache
-      await offlineCache.writeOne(tableName, snakeRecord)
-
-      // Queue for sync
-      await syncQueue.enqueue(tableName, 'create', snakeRecord.id, snakeRecord)
-
-      console.log(`[SupabaseDB] 📴 Created ${tableName} offline: ${snakeRecord.id}`)
-      return convertToCamelCase(snakeRecord)
+      return convertToCamelCase(data)
     },
 
     async update(id: string, updates: Record<string, any>) {
       const snakeUpdates = convertToSnakeCase(updates)
 
-      if (getNetworkOnline()) {
-        try {
-          const { data, error } = await supabase
-            .from(tableName)
-            .update(snakeUpdates)
-            .eq('id', id)
-            .select()
-            .single()
+      const { data, error } = await supabase
+        .from(tableName)
+        .update(snakeUpdates)
+        .eq('id', id)
+        .select()
+        .single()
 
-          if (error) {
-            console.error(`[SupabaseDB] Error updating ${tableName}:`, error)
-            throw error
-          }
-
-          // Update cache
-          if (offlineActive && data) {
-            offlineCache.writeOne(tableName, data).catch(() => {})
-          }
-
-          return convertToCamelCase(data)
-        } catch (err: any) {
-          // Network error — go offline path
-          if (!err?.code && !err?.details) {
-            reportUnreachable() // real transport failure — nudge the detector
-            return await this._updateOffline(id, snakeUpdates)
-          }
-          throw err
-        }
+      if (error) {
+        console.error(`[SupabaseDB] Error updating ${tableName}:`, error)
+        throw error
       }
-
-      return await this._updateOffline(id, snakeUpdates)
-    },
-
-    async _updateOffline(id: string, snakeUpdates: Record<string, any>) {
-      // Read current doc from cache and merge
-      const existing = await offlineCache.readOne(tableName, id)
-      const merged = { ...existing, ...snakeUpdates, id, updated_at: new Date().toISOString() }
-
-      await offlineCache.writeOne(tableName, merged)
-      await syncQueue.enqueue(tableName, 'update', id, snakeUpdates)
-
-      console.log(`[SupabaseDB] 📴 Updated ${tableName}/${id} offline`)
-      return convertToCamelCase(merged)
+      return convertToCamelCase(data)
     },
 
     async delete(id: string) {
-      if (getNetworkOnline()) {
-        try {
-          const { error } = await supabase
-            .from(tableName)
-            .delete()
-            .eq('id', id)
+      const { error } = await supabase
+        .from(tableName)
+        .delete()
+        .eq('id', id)
 
-          if (error) {
-            console.error(`[SupabaseDB] Error deleting ${tableName}:`, error)
-            throw error
-          }
-
-          // Remove from cache
-          if (offlineActive) {
-            offlineCache.deleteOne(tableName, id).catch(() => {})
-          }
-
-          return true
-        } catch (err: any) {
-          if (!err?.code && !err?.details) {
-            reportUnreachable() // real transport failure — nudge the detector
-            return await this._deleteOffline(id)
-          }
-          throw err
-        }
+      if (error) {
+        console.error(`[SupabaseDB] Error deleting ${tableName}:`, error)
+        throw error
       }
-
-      return await this._deleteOffline(id)
-    },
-
-    async _deleteOffline(id: string) {
-      await offlineCache.deleteOne(tableName, id)
-      await syncQueue.enqueue(tableName, 'delete', id)
-
-      console.log(`[SupabaseDB] 📴 Deleted ${tableName}/${id} offline`)
       return true
     },
   }
@@ -784,61 +289,6 @@ function convertToSnakeCase(obj: Record<string, any>): Record<string, any> {
   })
   return result
 }
-
-// ---------------------------------------------------------------------------
-// Sync queue processing — execute queued mutations against Supabase
-// ---------------------------------------------------------------------------
-
-async function executeSyncEntry(entry: syncQueue.QueueEntry): Promise<void> {
-  switch (entry.operation) {
-    case 'create': {
-      const { error } = await supabase
-        .from(entry.table)
-        .insert(entry.payload)
-        .select()
-        .single()
-
-      if (error) {
-        // If duplicate / conflict, treat as success (already synced)
-        if (error.code === '23505' || error.message?.includes('duplicate')) {
-          console.log(`[SyncExecutor] Duplicate detected for ${entry.table}/${entry.recordId}, treating as synced`)
-          return
-        }
-        // If schema cache error (unknown column), the row was likely already inserted
-        // by a newer code path — treat as success to avoid blocking the queue forever
-        if (error.message?.includes('schema cache') || error.message?.includes('Could not find')) {
-          console.warn(`[SyncExecutor] Schema mismatch for ${entry.table}/${entry.recordId}, skipping stale queued entry`)
-          return
-        }
-        throw error
-      }
-      break
-    }
-
-    case 'update': {
-      const { error } = await supabase
-        .from(entry.table)
-        .update(entry.payload)
-        .eq('id', entry.recordId)
-
-      if (error) throw error
-      break
-    }
-
-    case 'delete': {
-      const { error } = await supabase
-        .from(entry.table)
-        .delete()
-        .eq('id', entry.recordId)
-
-      if (error) throw error
-      break
-    }
-  }
-}
-
-// The self-healing background drain and reconnect re-warm are started inside
-// initOfflineSupport() — auth-gated, never for anonymous visitors.
 
 // ---------------------------------------------------------------------------
 // Database tables
@@ -877,8 +327,11 @@ export const db = {
 }
 
 // ---------------------------------------------------------------------------
-// Auth wrapper with offline session caching
+// Auth wrapper with session caching
 // ---------------------------------------------------------------------------
+// The localStorage session cache keeps login resilient across transient
+// network/server errors (Supabase 5xx) without granting anything the server
+// wouldn't: every privileged operation still requires a valid JWT.
 
 const AUTH_CACHE_KEY = 'offline_auth_session'
 const AUTH_SESSION_EXPIRY = 7 * 24 * 60 * 60 * 1000 // 7 days
@@ -925,7 +378,6 @@ export const auth = {
       throw new Error(error.message)
     }
 
-    // Cache session for offline access
     if (data.user) {
       cacheAuthSession({ id: data.user.id, email: data.user.email })
     }
@@ -973,20 +425,11 @@ export const auth = {
   },
 
   async me() {
-    // Offline — use cached session
-    if (!getNetworkOnline()) {
-      const cached = getCachedAuthSession()
-      if (cached) {
-        console.log('[SupabaseAuth] 📴 Using cached session for offline access')
-      }
-      return cached || null
-    }
-
-    // Online — distinguish 4 cases:
+    // Distinguish 4 cases:
     //   1. Supabase returns user → trust it, refresh cache
     //   2. Supabase returns null user (no error) → real signed-out, clear cache
     //   3. AuthApiError (real 4xx auth response) → token rejected, clear cache
-    //   4. Network error / 5xx → fall back to cache for offline tolerance
+    //   4. Network error / 5xx → fall back to cached session
     let supabaseError: unknown = null
     let supabaseUser: { id: string; email: string | undefined } | null = null
 
@@ -1024,12 +467,7 @@ export const auth = {
     }
 
     // Case 4: Network/server error → fall back to cache
-    const cached = getCachedAuthSession()
-    if (cached) {
-      console.log('[SupabaseAuth] 📴 Network error — using cached session for offline access')
-      return cached
-    }
-    return null
+    return getCachedAuthSession()
   },
 
   async changePassword(oldPassword: string, newPassword: string) {
@@ -1079,7 +517,7 @@ export const auth = {
 
       callback({ isLoading: false, user })
     }).catch(() => {
-      // Network error — try cached session for offline tolerance
+      // Network error — try cached session
       const cached = getCachedAuthSession()
       callback({ isLoading: false, user: cached })
     })
@@ -1100,12 +538,3 @@ export const auth = {
     return () => subscription.unsubscribe()
   }
 }
-
-// ---------------------------------------------------------------------------
-// Exports
-// ---------------------------------------------------------------------------
-//
-// `db` and `auth` are exported individually above (lines 760, 829).
-// The legacy `blink` shim was removed in the phase-1 strip-blink refactor —
-// see docs/superpowers/specs/2026-05-10-phase1-strip-blink-design.md.
-// Consumers import from `@/lib/db` (the public surface).

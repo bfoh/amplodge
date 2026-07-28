@@ -5,7 +5,6 @@ import { canAccessRoute } from '@/lib/rbac'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
 import { auth } from '@/lib/db'
-import { getNetworkOnline } from '@/lib/network-status'
 
 interface ProtectedRouteProps {
   children: ReactNode
@@ -44,14 +43,8 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
 
     // --- No user ID → redirect to login ---
     if (!userId) {
-      if (!getNetworkOnline()) {
-        toast.error('Offline', {
-          description: 'No cached session. Please connect to the internet and log in.',
-        })
-      } else {
-        const returnTo = encodeURIComponent(location.pathname + location.search)
-        navigate(`/staff/login?returnTo=${returnTo}`, { replace: true })
-      }
+      const returnTo = encodeURIComponent(location.pathname + location.search)
+      navigate(`/staff/login?returnTo=${returnTo}`, { replace: true })
       lastAuthKey.current = authKey
       setIsAuthorized(false)
       return

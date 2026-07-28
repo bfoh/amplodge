@@ -16,7 +16,6 @@ import { formatCurrencySync, makeUuid } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { useBookingCart } from '@/context/BookingCartContext'
 import { bookingEngine } from '@/services/booking-engine'
-import { OfflineStatusBanner } from '@/components/OfflineStatusBanner'
 
 export function BookingPage() {
   const { currency } = useCurrency()
@@ -534,7 +533,6 @@ export function BookingPage() {
 
   return (
     <>
-      <OfflineStatusBanner />
       <div className="min-h-screen pt-12 sm:pt-20 pb-20 bg-gradient-to-b from-secondary/30 to-secondary/60">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 sm:mb-12 gap-4">

@@ -29,7 +29,6 @@ import { useIsAdmin } from '@/hooks/use-is-admin'
 import { canAccessRoute } from '@/lib/rbac'
 import { db, auth } from '@/lib/db'
 import type { StaffRole } from '@/lib/rbac'
-import { SyncStatusBadge } from '@/components/SyncStatusBadge'
 import { activityLogService } from '@/services/activity-log-service'
 import { cn } from '@/lib/utils'
 
@@ -318,9 +317,6 @@ export function StaffSidebar({ email, className, onNavigate }: StaffSidebarProps
       </nav>
 
       <div className="p-4 border-t border-white/10 space-y-3">
-        <div className="bg-white/5 rounded-lg p-2">
-          <SyncStatusBadge />
-        </div>
         <button
           onClick={handleLogout}
           className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors text-rose-400 hover:bg-rose-500/10 hover:text-rose-300"

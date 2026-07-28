@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { db, auth } from '@/lib/db'
 import type { StaffRole } from '@/lib/rbac'
-import { getNetworkOnline } from '@/lib/network-status'
 
 // Cache helper functions
 const CACHE_KEY_PREFIX = 'staff_role_cache_'
@@ -31,15 +30,9 @@ function loadFromCache(userId: string): { staffRecord: StaffRecord; role: StaffR
     const isExpired = age > CACHE_EXPIRY
     const isStale = age > CACHE_REFRESH_INTERVAL
 
-    // If expired AND online, purge the cache
-    if (isExpired && getNetworkOnline()) {
+    if (isExpired) {
       localStorage.removeItem(`${CACHE_KEY_PREFIX}${userId}`)
       return null
-    }
-
-    // If expired but offline, still return it (stale data > no data)
-    if (isExpired && !getNetworkOnline()) {
-      console.log('[useStaffRole] 📴 Using expired cache (offline mode)')
     }
 
     return {
@@ -172,23 +165,13 @@ export function useStaffRole() {
           isStale: cached.isStale,
         })
 
-        // If stale but online, refresh in background (non-blocking)
-        if (cached.isStale && getNetworkOnline()) {
+        // If stale, refresh in background (non-blocking)
+        if (cached.isStale) {
           console.log('🔄 [useStaffRole] Cache is stale, refreshing in background...')
           // Don't await — fire and forget
           loadStaffRoleFromNetwork(uid).catch(() => {})
         }
 
-        return
-      }
-
-      // If offline and no cache, we can't fetch — bail gracefully
-      if (!getNetworkOnline()) {
-        console.warn('📴 [useStaffRole] Offline with no cache for userId:', uid)
-        setRole(null)
-        setStaffRecord(null)
-        setLoading(false)
-        isLoadingRef.current = false
         return
       }
 
