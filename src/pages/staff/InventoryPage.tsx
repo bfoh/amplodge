@@ -42,7 +42,6 @@ import {
   Loader2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { revenueService } from '@/services/revenue-service'
 import { analyticsService } from '@/services/analytics-service'
 import { inventoryService } from '@/services/inventory-service'
 import { type InventoryItem } from '@/types'

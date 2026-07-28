@@ -1420,6 +1420,11 @@ export async function generatePreInvoicePDF(preInvoiceData: PreInvoiceData): Pro
       guestName: preInvoiceData.guest.name
     })
 
+    const [jsPDF, html2canvas] = await Promise.all([
+      import('jspdf').then(m => m.default),
+      import('html2canvas').then(m => m.default)
+    ])
+
     const htmlContent = await generatePreInvoiceHTML(preInvoiceData)
 
     const element = document.createElement('div')
@@ -1918,6 +1923,10 @@ export async function generateGroupInvoiceHTML(data: GroupInvoiceData): Promise<
 
 export async function generateGroupInvoicePDF(data: GroupInvoiceData): Promise<Blob> {
   console.log('📄 [GroupInvoicePDF] Generating PDF with', data.bookings.length, 'bookings...')
+  const [jsPDF, html2canvas] = await Promise.all([
+    import('jspdf').then(m => m.default),
+    import('html2canvas').then(m => m.default)
+  ])
   const htmlContent = await generateGroupInvoiceHTML(data)
 
   const element = document.createElement('div')

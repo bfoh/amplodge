@@ -169,28 +169,6 @@ export function ActivityLogsPage() {
     return userId.length > 20 ? `${userId.slice(0, 8)}...` : userId
   }
 
-  // All test functions removed
-
-  function applyFilters() {
-    let filtered = [...logs]
-
-    // Apply search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase()
-      filtered = filtered.filter(log => {
-        const readableDetails = convertDetailsToReadableMessage(log.details || '').toLowerCase()
-        return (
-          (log.entityType || '').toLowerCase().includes(query) ||
-          (log.action || '').toLowerCase().includes(query) ||
-          (log.entityId || '').toLowerCase().includes(query) ||
-          readableDetails.includes(query)
-        )
-      })
-    }
-
-    setFilteredLogs(filtered)
-  }
-
   function getActionPillColor(action: ActivityAction): string {
     switch (action) {
       case 'created': return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'

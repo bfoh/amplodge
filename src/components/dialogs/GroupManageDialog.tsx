@@ -448,7 +448,7 @@ export function GroupManageDialog({
                     id: b.id,
                     guestName,
                     guestEmail,
-                    roomNumber: room?.roomNumber || 'N/A',
+                    roomNumber: property?.roomNumber || 'N/A',
                     roomType: roomType?.name || 'Standard Room',
                     checkIn: b.checkIn,
                     checkOut: b.checkOut,

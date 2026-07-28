@@ -261,6 +261,10 @@ export interface ExternalBooking {
   updatedAt: string
 }
 
+// Rooms and properties are the same table in this schema; several pages
+// import the domain-friendly `Room` name.
+export type Room = Property
+
 export interface Property {
   id: string
   name: string

@@ -134,9 +134,8 @@ export function CalendarGridView({
       let room: any = null
 
       if (roomId) {
-        const properties = await db.properties.list({ limit: 500 })
-        setProperties(properties)
-        room = properties.find((r: any) => r.id === roomId)
+        const allProperties = await db.properties.list({ limit: 500 })
+        room = allProperties.find((r: any) => r.id === roomId)
         if (room) roomNumber = room.roomNumber || 'N/A'
       }
 

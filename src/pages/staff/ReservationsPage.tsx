@@ -592,7 +592,7 @@ export function ReservationsPage() {
           guest,
           room: {
             roomNumber: room?.roomNumber || 'N/A',
-            roomType: room?.roomType || 'Standard'
+            roomType: (room as any)?.roomType || 'Standard'
             // We could resolve roomType name from ID if needed, but room object usually has type ID.
             // However, let's stick to what createInvoiceData expects or what we have.
             // If room.roomType is just an ID, we might want to map it.
@@ -758,7 +758,7 @@ export function ReservationsPage() {
               grandTotal: invoiceData.charges.total
             })
 
-            await sendCheckOutNotification(guest, room, bookingForNotification, notificationInvoiceData)
+            await sendCheckOutNotification(guest, { id: room.id, roomNumber: room.roomNumber || 'N/A' }, bookingForNotification, notificationInvoiceData)
             console.log('✅ [ReservationsPage] Check-out notification sent successfully!')
           } catch (notificationError) {
             console.error('❌ [ReservationsPage] Check-out notification error:', notificationError)

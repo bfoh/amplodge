@@ -52,35 +52,6 @@ export function CalendarTimeline({
   const [checkOutDialog, setCheckOutDialog] = useState<any>(null)
   const [extendStayDialog, setExtendStayDialog] = useState<any>(null)
 
-  // OPTIMIZATION: Pre-calculate bookings into a map for O(1) lookup during cell rendering.
-  // Map structure: propertyId -> dateKey -> booking
-  const bookingsMap = useMemo(() => {
-    const map = new Map<string, Map<string, any>>()
-    
-    for (const booking of bookings) {
-      if (booking.status === 'checked-out') continue
-      
-      const propertyId = booking.propertyId ?? booking.roomId
-      if (!propertyId) continue
-      
-      if (!map.has(propertyId)) {
-        map.set(propertyId, new Map())
-      }
-      
-      const propMap = map.get(propertyId)!
-      
-      // We only care about bookings that overlap with our timelineDates.
-      // But specifically, the current findBookingStartingAtIndex logic looks for 
-      // the booking whose startIdx (relative to timelineDates) is the current cell index.
-      
-      const { startIdx, span } = getBookingSpan(booking, timelineDates[0])
-      if (span > 0 && startIdx >= 0 && startIdx < timelineDates.length) {
-        const startDateKey = dateKey(timelineDates[startIdx])
-        propMap.set(startDateKey, booking)
-      }
-    }
-    return map
-  }, [bookings, timelineDates])
   const [processing, setProcessing] = useState(false)
   const timelineRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
@@ -278,6 +249,36 @@ export function CalendarTimeline({
     return { startIdx, endIdx, span }
   }
 
+  // OPTIMIZATION: Pre-calculate bookings into a map for O(1) lookup during cell
+  // rendering. Map structure: propertyId -> dateKey -> booking. Defined after
+  // timelineDates/dateKey/getBookingSpan so the memo callback can use them.
+  const bookingsMap = useMemo(() => {
+    const map = new Map<string, Map<string, any>>()
+
+    for (const booking of bookings) {
+      if (booking.status === 'checked-out') continue
+
+      const propertyId = booking.propertyId ?? booking.roomId
+      if (!propertyId) continue
+
+      if (!map.has(propertyId)) {
+        map.set(propertyId, new Map())
+      }
+
+      const propMap = map.get(propertyId)!
+
+      // Index each booking by the dateKey of its first visible day so
+      // findBookingStartingAtIndex can look it up by cell column.
+      const { startIdx, span } = getBookingSpan(booking, timelineDates[0])
+      if (span > 0 && startIdx >= 0 && startIdx < timelineDates.length) {
+        const startDateKey = dateKey(timelineDates[startIdx])
+        propMap.set(startDateKey, booking)
+      }
+    }
+    return map
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookings, timelineDates])
+
   const getLastName = (fullName: string) => {
     if (!fullName || typeof fullName !== 'string') return ''
     const parts = fullName.trim().split(' ')
@@ -332,9 +333,8 @@ export function CalendarTimeline({
       let room: any = null
 
       if (roomId) {
-        const properties = await db.properties.list({ limit: 500 })
-        setProperties(properties)
-        room = properties.find((r: any) => r.id === roomId)
+        const allProperties = await db.properties.list({ limit: 500 })
+        room = allProperties.find((r: any) => r.id === roomId)
         if (room) roomNumber = room.roomNumber || 'N/A'
       }
 
