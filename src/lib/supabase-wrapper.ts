@@ -18,7 +18,7 @@
 import { supabase } from './supabase'
 import * as offlineCache from './offline-cache'
 import * as syncQueue from './sync-queue'
-import { getNetworkOnline, onNetworkChange } from './network-status'
+import { getNetworkOnline, onNetworkChange, reportUnreachable } from './network-status'
 
 // ---------------------------------------------------------------------------
 // Table-update pub/sub
@@ -600,6 +600,7 @@ function createTableWrapper(tableName: string) {
           // If it's a network error (not a Supabase error), queue offline
           if (!err?.code && !err?.details) {
             console.log(`[SupabaseDB] Network error on create, queuing offline for ${tableName}`)
+            reportUnreachable() // real transport failure — nudge the detector
             return await this._createOffline(snakeRecord)
           }
           throw err
@@ -658,6 +659,7 @@ function createTableWrapper(tableName: string) {
         } catch (err: any) {
           // Network error — go offline path
           if (!err?.code && !err?.details) {
+            reportUnreachable() // real transport failure — nudge the detector
             return await this._updateOffline(id, snakeUpdates)
           }
           throw err
@@ -698,6 +700,7 @@ function createTableWrapper(tableName: string) {
           return true
         } catch (err: any) {
           if (!err?.code && !err?.details) {
+            reportUnreachable() // real transport failure — nudge the detector
             return await this._deleteOffline(id)
           }
           throw err
@@ -792,17 +795,23 @@ async function executeSyncEntry(entry: syncQueue.QueueEntry): Promise<void> {
   }
 }
 
-// Auto-process queue when coming back online
+// Start the self-healing background drain. This runs on an interval whenever
+// we're online, so the queue flushes even if we never catch a clean
+// offline→online transition (the failure mode that stranded the "1 failed"
+// entries). Idempotent.
 if (typeof window !== 'undefined') {
-  onNetworkChange(async (online) => {
-    if (online) {
-      console.log('[SupabaseDB] 🔄 Back online — processing sync queue...')
-      const result = await syncQueue.processQueue(executeSyncEntry)
-      if (result.processed > 0 || result.failed > 0) {
-        console.log(`[SupabaseDB] Sync complete: ${result.processed} synced, ${result.failed} failed`)
-      }
+  syncQueue.startAutoSync(executeSyncEntry)
 
-      // Re-warm critical tables to pick up changes made by other users while offline
+  onNetworkChange((online) => {
+    if (online) {
+      console.log('[SupabaseDB] 🔄 Back online — draining sync queue...')
+      // Kick an immediate drain (the scheduler would catch it within a tick
+      // anyway, but reconnect is exactly when we want it flushed now).
+      syncQueue.triggerSync()
+
+      // Re-warm critical tables to pick up changes made by other users while
+      // we were offline.
+      warmupComplete.clear()
       for (const table of offlineCache.CACHED_TABLES) {
         ensureWarm(table)
       }

@@ -4,22 +4,32 @@
  * data behind the Netlify → Supabase proxy).
  *
  * The offline flag gates a lot of behaviour in supabase-wrapper (stale-cache
- * reads, queued/id-less writes), so a FALSE offline is very disruptive. The old
- * detector flipped offline on a single failed probe and treated any non-2xx
- * response as offline — so one 5s timeout, one radio handoff, or one transient
- * proxy 5xx dropped the whole app into offline mode for up to 30s. That was the
- * "intermittent offline" users complained about.
+ * reads, queued/id-less writes), so a WRONG offline is very disruptive.
+ *
+ * The bug this module exists to kill: the app would go offline on a blip and
+ * then STAY offline forever, even after the signal returned. The cause was
+ * trusting `navigator.onLine`. On Android/Chrome (most of our users) that flag
+ * routinely stays `false` after connectivity is restored until a navigation
+ * happens, and the `online` event fires unreliably. The old detector would
+ * short-circuit its probe to a failure whenever `navigator.onLine === false`,
+ * so once the OS flag stuck, the app never actually re-tested the network and
+ * was trapped offline.
  *
  * Design principles here:
- *  1. A probe only FAILS on a transport error (fetch throws / times out).
+ *  1. REAL PROBES ARE THE ONLY SOURCE OF TRUTH. We never treat
+ *     `navigator.onLine === false` as proof of being offline — we always run an
+ *     actual fetch against the data path. The OS flag is used only as a *hint*
+ *     to probe sooner.
+ *  2. A probe only FAILS on a transport error (fetch throws / times out).
  *     ANY HTTP response — including 4xx/5xx — proves the data path is reachable;
  *     a server error is not the user being offline.
- *  2. Hysteresis: go offline only after several CONSECUTIVE failures; return
+ *  3. Hysteresis: go offline only after several CONSECUTIVE failures; return
  *     online on the very first success. Single blips never surface.
- *  3. Fast, adaptive polling: relaxed when healthy, quick to confirm a genuine
- *     drop, quick to recover. Native online/offline events kick an immediate
- *     re-check instead of being trusted blindly (mobile fires them spuriously).
- *  4. A generous timeout that tolerates real Ghanaian round-trips + cold starts.
+ *  4. Fast, adaptive polling, PLUS immediate re-checks on every signal that the
+ *     environment may have changed: native online/offline events, tab becoming
+ *     visible, and window focus. Mobile PWAs freeze timers in the background, so
+ *     a resume-triggered probe is what actually rescues a trapped session.
+ *  5. A generous timeout that tolerates real Ghanaian round-trips + cold starts.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
@@ -35,7 +45,7 @@ const PROBE_TIMEOUT_MS = 8_000
 const POLL_HEALTHY_MS = 30_000
 
 /** Poll cadence while offline — poll faster so recovery is snappy. */
-const POLL_RECOVERY_MS = 6_000
+const POLL_RECOVERY_MS = 5_000
 
 /** Poll cadence while failures are accumulating but we're still marked online. */
 const POLL_CONFIRM_MS = 2_000
@@ -53,7 +63,10 @@ const FAILURE_THRESHOLD = 3
 
 type NetworkListener = (online: boolean) => void
 
-let _isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true
+// Optimistic default: assume online until a probe proves otherwise. We never
+// seed this to `false` from navigator.onLine — a stuck OS flag must not gate
+// the app before the first real probe runs.
+let _isOnline = true
 let _consecutiveFailures = 0
 const _listeners = new Set<NetworkListener>()
 
@@ -73,9 +86,10 @@ function probeUrl(): string {
   // Check the app's ACTUAL data path — the Supabase proxy — not a direct
   // Supabase connection (direct connections time out from some regions, e.g.
   // Ghana → Ireland, which is the whole reason the proxy exists).
+  // cache-buster keeps any intermediary from serving a stale 200.
   return supabaseUrl
-    ? `/.netlify/functions/supabase-proxy?_sbpath=${encodeURIComponent('/rest/v1/')}&limit=0`
-    : 'https://httpbin.org/get'
+    ? `/.netlify/functions/supabase-proxy?_sbpath=${encodeURIComponent('/rest/v1/')}&limit=0&_probe=${Date.now()}`
+    : `https://httpbin.org/get?_probe=${Date.now()}`
 }
 
 function recordSuccess(): boolean {
@@ -92,30 +106,44 @@ function recordFailure(): boolean {
   return _isOnline
 }
 
+// Guard so overlapping triggers (poll tick + focus + online event firing at
+// once) don't stack up concurrent fetches; they all await the in-flight probe.
+let probeInFlight: Promise<boolean> | null = null
+
 /**
  * One connectivity probe. Resolves to the (possibly unchanged) online state.
  * Only a transport-level error counts as a failure; any HTTP status = reachable.
+ *
+ * Note: we intentionally do NOT consult `navigator.onLine` here. It produces
+ * false negatives that trap the app offline; the fetch below is the sole
+ * arbiter. If the radio really is off the fetch fails fast and hysteresis
+ * handles it.
  */
-async function probe(): Promise<boolean> {
-  // If the browser is certain there's no radio, treat it as a failure without
-  // burning a fetch — but still go through hysteresis so a spurious `offline`
-  // event that self-corrects within a poll or two never surfaces.
-  if (typeof navigator !== 'undefined' && !navigator.onLine) {
-    return recordFailure()
-  }
+function probe(): Promise<boolean> {
+  if (probeInFlight) return probeInFlight
 
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS)
-  try {
-    // We don't inspect the status: reaching the proxy at all (200, 401, 404,
-    // 500, …) proves the network path works. Only a throw/abort means offline.
-    await fetch(probeUrl(), { method: 'GET', signal: controller.signal, cache: 'no-store' })
-    return recordSuccess()
-  } catch {
-    return recordFailure()
-  } finally {
-    clearTimeout(timeout)
-  }
+  const run = (async () => {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS)
+    try {
+      // We don't inspect the status: reaching the proxy at all (200, 401, 404,
+      // 500, …) proves the network path works. Only a throw/abort means offline.
+      await fetch(probeUrl(), { method: 'GET', signal: controller.signal, cache: 'no-store' })
+      return recordSuccess()
+    } catch {
+      return recordFailure()
+    } finally {
+      clearTimeout(timeout)
+    }
+  })()
+
+  // Clear the guard once the probe settles (success or failure) so the next
+  // trigger runs a fresh probe.
+  probeInFlight = run
+  run.finally(() => {
+    if (probeInFlight === run) probeInFlight = null
+  })
+  return run
 }
 
 // ---------------------------------------------------------------------------
@@ -158,13 +186,25 @@ function start() {
 // ---------------------------------------------------------------------------
 
 if (typeof window !== 'undefined') {
-  // Don't trust native events blindly — they're noisy on mobile. Use them only
-  // to trigger an immediate re-check; the hysteresis above decides the outcome.
+  // Native connectivity events are noisy/unreliable on mobile — use them only
+  // to trigger an immediate real probe; the probe + hysteresis decide the
+  // outcome. We never flip state directly off these events.
   window.addEventListener('online', () => {
     _consecutiveFailures = 0 // give recovery a clean slate
     probeNow()
   })
   window.addEventListener('offline', probeNow)
+
+  // Resume triggers. Mobile PWAs throttle/freeze timers in the background, so
+  // when the user brings the app back to the foreground the polling loop may
+  // have been asleep for minutes. Re-probe immediately on resume — this is the
+  // path that rescues a session that was trapped offline while backgrounded.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') probeNow()
+  })
+  window.addEventListener('focus', probeNow)
+  window.addEventListener('pageshow', probeNow)
+
   start()
 }
 
@@ -198,6 +238,21 @@ export async function checkConnectivity(): Promise<boolean> {
  */
 export function reportReachable(): void {
   if (!_isOnline || _consecutiveFailures > 0) recordSuccess()
+}
+
+/**
+ * Counterpart to reportReachable: a real request just failed at the transport
+ * level (fetch threw / timed out). Feed it through the SAME hysteresis as a
+ * probe failure so one failed request never flips us offline on its own, but a
+ * genuine outage is confirmed faster (and triggers a confirming probe soon via
+ * the tightened poll cadence). Never call this for an HTTP error response — a
+ * 4xx/5xx proves reachability.
+ */
+export function reportUnreachable(): void {
+  recordFailure()
+  // If this pushed us toward a wobble, confirm quickly rather than waiting for
+  // the relaxed healthy cadence.
+  if (_isOnline && _consecutiveFailures > 0) probeNow()
 }
 
 // ---------------------------------------------------------------------------

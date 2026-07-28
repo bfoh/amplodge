@@ -11,8 +11,8 @@
 
 // Bump these on every meaningful SW change so stale clients pick up the
 // new fetch strategy and existing caches drop on activate.
-const CACHE_NAME = 'amplodge-v3'
-const SHELL_CACHE = 'amplodge-shell-v3'
+const CACHE_NAME = 'amplodge-v4'
+const SHELL_CACHE = 'amplodge-shell-v4'
 
 // Assets to pre-cache on install
 const PRECACHE_URLS = [
@@ -53,6 +53,16 @@ self.addEventListener('activate', (event) => {
   )
   // Take control of all pages immediately
   self.clients.claim()
+})
+
+// Allow the page to tell a freshly-installed SW to activate immediately, so a
+// bug fix reaches live devices on the next load instead of waiting for every
+// tab to close. The page posts { type: 'SKIP_WAITING' } when it detects a
+// waiting worker (see main.tsx).
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting()
+  }
 })
 
 // Fetch: route requests through appropriate strategy

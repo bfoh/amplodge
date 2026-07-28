@@ -825,10 +825,12 @@ export function BookingsPage() {
             className="h-8 text-xs font-semibold hover:bg-white/50" 
             onClick={async () => {
               if (syncState.status === 'error') {
+                // retryFailed clears backoff and kicks a drain itself.
                 await syncQueue.retryFailed()
+              } else {
+                // Force an immediate drain of anything pending.
+                await syncQueue.triggerSync()
               }
-              // The triggerSync in supabase-wrapper is private, but processQueue is public.
-              // We'll rely on the heartbeat or wait for it to naturally trigger.
             }}
           >
             {syncState.status === 'error' ? 'Retry All' : 'Syncing...'}
