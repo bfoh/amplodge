@@ -1,4 +1,4 @@
-import fetch from 'node-fetch';
+// Uses the global fetch built into the Node 22 runtime — no node-fetch needed.
 import { requireStaff, jsonResponse, handleCors } from './_lib/auth.js';
 
 export const handler = async (event) => {
