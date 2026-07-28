@@ -3,6 +3,16 @@ dist
 
 # Local Netlify folder
 .netlify
-.env.local
 .env
+.env.*
+!.env.local.example
 supabase/.temp/
+
+# OS / editor artifacts
+.DS_Store
+Thumbs.db
+
+# Logs and local scratch
+*.log
+*.local
+scratch/
