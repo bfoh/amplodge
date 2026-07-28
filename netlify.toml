@@ -34,8 +34,9 @@
 # -----------------------------------------------------------------------------
 # Caching headers tuned for Ghana (and any high-latency region).
 # Vite emits hashed filenames in /assets/, so they are safe to cache forever.
-# index.html and the service worker MUST stay no-cache so users always pick up
-# new builds.
+# index.html MUST stay no-cache so users always pick up new builds.
+# /sw.js is a kill-switch worker (PWA removed) and must also stay no-cache so
+# devices with the old service worker fetch it and self-uninstall.
 # -----------------------------------------------------------------------------
 
 [[headers]]
@@ -67,8 +68,3 @@
   for = "/sw.js"
   [headers.values]
     Cache-Control = "no-cache, no-store, must-revalidate"
-
-[[headers]]
-  for = "/manifest.json"
-  [headers.values]
-    Cache-Control = "public, max-age=3600"
