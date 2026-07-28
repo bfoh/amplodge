@@ -7,8 +7,9 @@ exports.handler = async (event) => {
 
     const { token } = event.queryStringParameters;
 
-    if (!token) {
-        return { statusCode: 400, body: JSON.stringify({ error: 'Missing token' }) };
+    // Real guest tokens are ~30 chars; short values are enumeration attempts.
+    if (!token || token.length < 16) {
+        return { statusCode: 400, body: JSON.stringify({ error: 'Missing or invalid token' }) };
     }
 
     try {

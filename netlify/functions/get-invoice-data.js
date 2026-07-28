@@ -1,47 +1,60 @@
-
 import { createClient } from '@supabase/supabase-js';
+import crypto from 'node:crypto';
+import { tryAuth, handleCors, jsonResponse } from './_lib/auth.js';
 
-export const handler = async (event, context) => {
-    // CORS headers
-    const headers = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS'
-    };
+// Constant-time token comparison. Hashing first sidesteps timingSafeEqual's
+// equal-length requirement without leaking length information.
+function safeTokenEqual(a, b) {
+    if (!a || !b) return false;
+    const ha = crypto.createHash('sha256').update(String(a)).digest();
+    const hb = crypto.createHash('sha256').update(String(b)).digest();
+    return crypto.timingSafeEqual(ha, hb);
+}
 
-    // Handle preflight requests
-    if (event.httpMethod === 'OPTIONS') {
-        return { statusCode: 200, headers, body: '' };
-    }
+// Never return guest access tokens in the payload (group responses would
+// otherwise leak sibling bookings' tokens).
+function stripToken(booking) {
+    if (!booking) return booking;
+    const { guest_token, ...rest } = booking;
+    return rest;
+}
+
+export const handler = async (event) => {
+    const corsResp = handleCors(event);
+    if (corsResp) return corsResp;
 
     if (event.httpMethod !== 'GET') {
-        return { statusCode: 405, headers, body: 'Method Not Allowed' };
+        return jsonResponse(405, { error: 'Method Not Allowed' });
     }
 
-    const { invoiceNumber, bookingId } = event.queryStringParameters;
+    const { invoiceNumber, bookingId, t: guestToken } = event.queryStringParameters || {};
 
     if (!invoiceNumber && !bookingId) {
-        return {
-            statusCode: 400,
-            headers,
-            body: JSON.stringify({ error: 'Missing invoiceNumber or bookingId' })
-        };
+        return jsonResponse(400, { error: 'Missing invoiceNumber or bookingId' });
     }
 
-    // Initialize Supabase Admin Client
-    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
     if (!supabaseUrl || !supabaseKey) {
         console.error('Missing Supabase configuration');
-        return { statusCode: 500, headers, body: JSON.stringify({ error: 'Configuration error' }) };
+        return jsonResponse(500, { error: 'Configuration error' });
     }
-
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // Auth: staff JWT grants full access; otherwise the caller must present the
+    // booking's guest_token (?t=...) which is compared after the booking loads.
+    let isStaff = false;
     try {
-        console.log(`[get-invoice-data] Fetching for invoice: ${invoiceNumber} / booking: ${bookingId}`);
+        const ctx = await tryAuth(event);
+        isStaff = !!(ctx && ctx.staff);
+    } catch {
+        isStaff = false;
+    }
+    if (!isStaff && !guestToken) {
+        return jsonResponse(401, { error: 'Unauthorized' });
+    }
 
+    try {
         // Explicit joins only. Never `guests (*)` — that leaked commercial
         // history (total_revenue, total_stays, last_room_number, ...) to anyone
         // with the invoice link. The invoice needs just these guest fields.
@@ -52,57 +65,35 @@ export const handler = async (event, context) => {
                 properties (room_number, room_types (name, base_price))
             `;
 
-        let query = supabase
-            .from('bookings')
-            .select(SELECT);
-
-        // Filter by invoice number or booking ID
-        // Note: 'invoice_number' column vs 'invoiceNumber' param
+        let query = supabase.from('bookings').select(SELECT);
         if (bookingId) {
             query = query.eq('id', bookingId);
-        } else if (invoiceNumber) {
-            // Try matching invoice_number column first
-            // If that fails, we might need to search special_requests or other logic
-            // providing a flexible OR search if needed, but strict is better for now
+        } else {
             query = query.eq('invoice_number', invoiceNumber);
         }
 
         const { data: bookings, error } = await query;
-
         if (error) {
             console.error('[get-invoice-data] Database error:', error);
             throw error;
         }
 
-        let mainBooking = bookings && bookings.length > 0 ? bookings[0] : null;
-
-        // Fallback: If not found by invoice_number column, try finding by ID if invoiceNumber looks like a UUID
-        if (!mainBooking && invoiceNumber && !bookingId) {
-            const { data: fallbackBookings } = await supabase
-                .from('bookings')
-                .select(SELECT)
-                .eq('id', invoiceNumber);
-
-            if (fallbackBookings && fallbackBookings.length > 0) {
-                mainBooking = fallbackBookings[0];
-                console.log('[get-invoice-data] Found booking by treating invoiceNumber as ID');
-            }
-        }
+        const mainBooking = bookings && bookings.length > 0 ? bookings[0] : null;
 
         if (!mainBooking) {
-            return {
-                statusCode: 404,
-                headers,
-                body: JSON.stringify({ error: 'Invoice not found' })
-            };
+            return jsonResponse(404, { error: 'Invoice not found' });
+        }
+
+        // Guest path: constant-time check against the booking's own token.
+        // Bookings without a token fail closed (run backfill-guest-tokens).
+        if (!isStaff && !safeTokenEqual(guestToken, mainBooking.guest_token)) {
+            return jsonResponse(401, { error: 'Unauthorized' });
         }
 
         // Detect Group Booking
-        // Check for 'group_id' column or metadata in special_requests
-        let groupId = mainBooking.group_id; // If column exists
+        let groupId = mainBooking.group_id;
         let groupReference = mainBooking.group_reference;
 
-        // Parse special_requests if columns are missing/empty
         if (!groupId && mainBooking.special_requests) {
             const match = mainBooking.special_requests.match(/<!-- GROUP_DATA:(.*?) -->/);
             if (match) {
@@ -116,58 +107,40 @@ export const handler = async (event, context) => {
             }
         }
 
-        let responseData = {
+        const responseData = {
             type: 'single',
-            booking: mainBooking,
-            // Helper to determine if we found it via ID or invoice_number, passes back logical invoice number
+            booking: stripToken(mainBooking),
             invoiceNumber: mainBooking.invoice_number || invoiceNumber
         };
 
-        // If part of a group, fetch ALL group bookings
+        // If part of a group, fetch ALL group bookings. Access to the group is
+        // already authorized above via the main booking (staff JWT or its token).
         if (groupId) {
-            console.log(`[get-invoice-data] Detected group ${groupId}, fetching siblings...`);
-
-            // Fetch all siblings. If we have a real 'group_id' column, match on
-            // it; otherwise fall back to searching the special_requests metadata.
             let siblingsQuery = supabase.from('bookings').select(SELECT);
-
             if (mainBooking.group_id) {
                 siblingsQuery = siblingsQuery.eq('group_id', groupId);
             } else {
-                // Fallback: search special_requests for the groupId string
-                // This is less efficient but necessary if no column
                 siblingsQuery = siblingsQuery.ilike('special_requests', `%${groupId}%`);
             }
 
-            const { data: siblings, error: siblingsError } = await siblingsQuery;
+            const { data: siblings } = await siblingsQuery;
 
             if (siblings && siblings.length > 0) {
                 responseData.type = 'group';
-                responseData.bookings = siblings;
+                responseData.bookings = siblings.map(stripToken);
                 responseData.groupId = groupId;
                 responseData.groupReference = groupReference;
-                // Identify billing contact (usually on primary booking)
-                const primary = siblings.find(b => {
-                    const isPrimary = b.is_primary_booking || (b.special_requests && b.special_requests.includes('"isPrimaryBooking":true'));
-                    return isPrimary;
-                }) || siblings[0];
-
-                responseData.primaryBooking = primary;
+                const primary = siblings.find(b =>
+                    b.is_primary_booking ||
+                    (b.special_requests && b.special_requests.includes('"isPrimaryBooking":true'))
+                ) || siblings[0];
+                responseData.primaryBooking = stripToken(primary);
             }
         }
 
-        return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify(responseData)
-        };
-
+        return jsonResponse(200, responseData);
     } catch (error) {
         console.error('[get-invoice-data] Internal error:', error);
-        return {
-            statusCode: 500,
-            headers,
-            body: JSON.stringify({ error: 'Internal Server Error' })
-        };
+        return jsonResponse(500, { error: 'Internal Server Error' });
     }
 };

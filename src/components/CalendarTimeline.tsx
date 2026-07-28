@@ -2,7 +2,7 @@ import { useRef, useEffect, useState, useMemo } from 'react'
 import { cn } from '../lib/utils'
 import { getRoomDisplayName, calculateNights } from '../lib/display'
 import { Users, CalendarIcon, Mail, Phone, DollarSign, MessageSquare, LogIn, LogOut, CheckCircle2, CalendarPlus } from 'lucide-react'
-import { createInvoiceData, generateInvoicePDF, blobToBase64 } from '@/services/invoice-service'
+import { createInvoiceData, generateInvoicePDF, blobToBase64, buildGuestInvoiceUrl } from '@/services/invoice-service'
 import { bookingEngine } from '../services/booking-engine'
 import { sendCheckInNotification, sendCheckOutNotification } from '@/services/notifications'
 import { activityLogService } from '@/services/activity-log-service'
@@ -424,7 +424,7 @@ export function CalendarTimeline({
         const invoiceInfo = {
           invoiceNumber: invoiceData.invoiceNumber,
           totalAmount: invoiceData.charges.total,
-          downloadUrl: `${window.location.origin}/invoice/${invoiceData.invoiceNumber}?bookingId=${bookingWithDetails.id}`
+          downloadUrl: await buildGuestInvoiceUrl(bookingWithDetails.id, invoiceData.invoiceNumber)
         }
 
         // Send standardized check-out email

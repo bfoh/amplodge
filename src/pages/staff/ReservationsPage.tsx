@@ -16,7 +16,7 @@ import { safeFormatDate, safeParseISO } from '@/lib/safe-date'
 import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { toast } from 'sonner'
-import { createInvoiceData, downloadInvoicePDF, generateInvoicePDF, sendInvoiceEmail, createGroupInvoiceData, downloadGroupInvoicePDF, createPreInvoiceData, downloadPreInvoicePDF, generatePreInvoicePDF } from '@/services/invoice-service'
+import { createInvoiceData, downloadInvoicePDF, generateInvoicePDF, sendInvoiceEmail, createGroupInvoiceData, downloadGroupInvoicePDF, createPreInvoiceData, downloadPreInvoicePDF, generatePreInvoicePDF, buildGuestInvoiceUrl } from '@/services/invoice-service'
 import { activityLogService } from '@/services/activity-log-service'
 import { housekeepingService } from '@/services/housekeeping-service'
 import { bookingChargesService, CHARGE_CATEGORIES } from '@/services/booking-charges-service'
@@ -539,7 +539,7 @@ export function ReservationsPage() {
     }
   }
 
-  const handleWhatsAppShare = (booking: Booking, type: 'invoice' | 'pre-invoice') => {
+  const handleWhatsAppShare = async (booking: Booking, type: 'invoice' | 'pre-invoice') => {
     const guest = guestMap.get(booking.guestId)
     const room = roomMap.get(booking.roomId)
     if (!guest || !room) { toast.error('Guest or room information not available'); return }
@@ -552,7 +552,7 @@ export function ReservationsPage() {
 
     // Public invoice view page — no login required, works for both invoice and pre-invoice
     const typeParam = type === 'pre-invoice' ? '&type=pre-invoice' : ''
-    const viewUrl = `${window.location.origin}/invoice/${(booking as any).invoiceNumber || booking.id}?bookingId=${booking.id}${typeParam}`
+    const viewUrl = await buildGuestInvoiceUrl(booking.id, (booking as any).invoiceNumber, typeParam)
 
     const message = `Dear ${guest.name},\n\nPlease find your ${label} from AMP Lodge.\n\n📋 ${label}: ${displayRef}\n🏠 Room ${room.roomNumber}\n📅 ${booking.checkIn} → ${booking.checkOut} (${nights} night${nights !== 1 ? 's' : ''})\n💰 Total: GH₵${Number((booking as any).totalPrice ?? (booking as any).amount ?? 0).toFixed(2)}\n\n🔗 View ${label}: ${viewUrl}\n\nThank you for choosing AMP Lodge!`
 
@@ -749,7 +749,7 @@ export function ReservationsPage() {
             const notificationInvoiceData = {
               invoiceNumber: invoiceData.invoiceNumber,
               totalAmount: invoiceData.charges.total, // CORRECT: includes additional charges
-              downloadUrl: `${window.location.origin}/invoice/${invoiceData.invoiceNumber}?bookingId=${booking.id}`
+              downloadUrl: await buildGuestInvoiceUrl(booking.id, invoiceData.invoiceNumber)
             }
 
             console.log('📧 [ReservationsPage] Sending check-out notification with total (room + charges):', {

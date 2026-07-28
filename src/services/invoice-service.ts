@@ -75,6 +75,28 @@ interface BookingWithDetails {
   }
 }
 
+/**
+ * Public invoice links require the booking's guest access token (?t=...) since
+ * get-invoice-data was auth-gated. Fetches the token by booking id; falls back
+ * to a tokenless URL (staff sessions can still open it with their JWT).
+ */
+export async function buildGuestInvoiceUrl(
+  bookingId: string,
+  invoiceNumber?: string,
+  extraParams?: string
+): Promise<string> {
+  let token = ''
+  try {
+    const { db } = await import('@/lib/db')
+    const b: any = await db.bookings.get(bookingId)
+    token = b?.guestToken || b?.guest_token || ''
+  } catch {
+    // Tokenless fallback below.
+  }
+  const base = `${window.location.origin}/invoice/${invoiceNumber || bookingId}?bookingId=${bookingId}`
+  return `${base}${extraParams || ''}${token ? `&t=${token}` : ''}`
+}
+
 export async function createInvoiceData(
   booking: BookingWithDetails,
   roomDetails: any,
@@ -832,7 +854,7 @@ export async function sendInvoiceEmail(invoiceData: InvoiceData, pdfBlob: Blob):
 
     // Convert PDF blob to base64 for email attachment
     const pdfBase64 = await blobToBase64(pdfBlob)
-    const downloadUrl = `${window.location.origin}/invoice/${invoiceData.invoiceNumber}`
+    const downloadUrl = await buildGuestInvoiceUrl(invoiceData.booking.id, invoiceData.invoiceNumber)
 
     const htmlContent = `
       <!DOCTYPE html>

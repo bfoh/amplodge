@@ -19,6 +19,7 @@ import {
 } from '@/services/invoice-service'
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
+import { supabase } from '@/lib/supabase'
 
 export function InvoicePage() {
   const { invoiceNumber } = useParams<{ invoiceNumber: string }>()
@@ -68,13 +69,25 @@ export function InvoicePage() {
         const searchParams = new URLSearchParams(window.location.search)
         const bookingIdParam = searchParams.get('bookingId')
         const typeParam = searchParams.get('type')
+        const guestTokenParam = searchParams.get('t')
 
         const baseUrl = import.meta.env.VITE_API_URL || window.location.origin
         const params = new URLSearchParams()
         if (invoiceNumber) params.append('invoiceNumber', invoiceNumber)
         if (bookingIdParam) params.append('bookingId', bookingIdParam)
+        if (guestTokenParam) params.append('t', guestTokenParam)
 
-        const response = await fetch(`${baseUrl}/.netlify/functions/get-invoice-data?${params.toString()}`)
+        // Staff sessions authenticate with their JWT; guests use the ?t= token
+        // embedded in their emailed invoice link.
+        const { data: { session } } = await supabase.auth.getSession()
+        const authHeaders: Record<string, string> = session?.access_token
+          ? { Authorization: `Bearer ${session.access_token}` }
+          : {}
+
+        const response = await fetch(
+          `${baseUrl}/.netlify/functions/get-invoice-data?${params.toString()}`,
+          { headers: authHeaders }
+        )
 
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}))

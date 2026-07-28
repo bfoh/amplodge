@@ -3,7 +3,7 @@ import { cn, formatCurrencySync } from '../lib/utils'
 import { useCurrency } from '../hooks/use-currency'
 import { getRoomDisplayName, calculateNights } from '../lib/display'
 import { Users, CalendarIcon, Mail, Phone, DollarSign, MessageSquare, LogIn, LogOut, CheckCircle2, CalendarPlus } from 'lucide-react'
-import { createInvoiceData, generateInvoicePDF, blobToBase64 } from '@/services/invoice-service'
+import { createInvoiceData, generateInvoicePDF, blobToBase64, buildGuestInvoiceUrl } from '@/services/invoice-service'
 import { sendCheckInNotification, sendCheckOutNotification } from '@/services/notifications'
 import { bookingEngine } from '../services/booking-engine'
 import {
@@ -225,7 +225,7 @@ export function CalendarGridView({
         const invoiceInfo = {
           invoiceNumber: invoiceData.invoiceNumber,
           totalAmount: invoiceData.charges.total,
-          downloadUrl: `${window.location.origin}/invoice/${invoiceData.invoiceNumber}?bookingId=${bookingWithDetails.id}`
+          downloadUrl: await buildGuestInvoiceUrl(bookingWithDetails.id, invoiceData.invoiceNumber)
         }
 
         // Send standardized check-out email
