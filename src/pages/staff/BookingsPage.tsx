@@ -154,7 +154,7 @@ export function BookingsPage() {
 
     const nights = calculateNights(formData.checkIn, formData.checkOut)
     const selectedRoomType = roomTypes.find((rt: any) => rt.id === selectedProperty.roomTypeId)
-    const pricePerNight = Number(selectedRoomType?.basePrice) || 0
+    const pricePerNight = Number(selectedRoomType?.basePrice) || Number(selectedProperty.basePrice) || 0
     const calculatedPrice = nights * pricePerNight
 
     setFormData(prev => {
@@ -177,26 +177,33 @@ export function BookingsPage() {
     isRefreshing.current = true
     try {
 
-      // Load bookings, properties (rooms), and room types
-      const [allBookings, roomsData, roomTypesData, propertiesData] = await Promise.all([
+      // Load bookings, room types, and rooms (properties table)
+      const [allBookings, roomTypesData, propertiesData] = await Promise.all([
         bookingEngine.getAllBookings(),
-        (db as any).rooms.list({ orderBy: { roomNumber: 'asc' } }),
         (db as any).roomTypes.list(),
         db.properties.listAll().catch(() => [])
       ])
 
-      // Combine rooms and properties for maximum inventory visibility
-      const combinedRooms = [...(roomsData as any[])]
-      const seenRoomIds = new Set(combinedRooms.map(r => r.id))
-      
-      if (Array.isArray(propertiesData)) {
-        propertiesData.forEach((p: any) => {
-          if (!seenRoomIds.has(p.id)) {
-            combinedRooms.push(p)
-            seenRoomIds.add(p.id)
-          }
+      // The Rooms page (properties table) is the single source of truth for
+      // the room list. The legacy `rooms` table only mirrors id/roomNumber and
+      // produced duplicate "Room · 0.00/night" dropdown entries when merged in.
+      // Rows may carry the type id as propertyTypeId or roomTypeId depending
+      // on when they were created — normalize to roomTypeId for all lookups.
+      const seenRoomNumbers = new Set<string>()
+      const combinedRooms = (Array.isArray(propertiesData) ? propertiesData : [])
+        .map((p: any) => ({
+          ...p,
+          roomTypeId: p.propertyTypeId || p.property_type_id || p.roomTypeId || '',
+        }))
+        .filter((p: any) => {
+          const rn = String(p.roomNumber || '').trim()
+          if (!rn || seenRoomNumbers.has(rn)) return false
+          seenRoomNumbers.add(rn)
+          return true
         })
-      }
+        .sort((a: any, b: any) =>
+          String(a.roomNumber).localeCompare(String(b.roomNumber), undefined, { numeric: true })
+        )
 
       const roomTypeMap = new Map<string, string>((roomTypesData as any[]).map((rt: any) => [rt.id, rt.name]))
       const propertyTypeByRoomNumber = new Map<string, string>(
@@ -851,7 +858,7 @@ export function BookingsPage() {
                     <option value="">Select a room</option>
                     {availableProperties.map((property: any) => {
                       const roomType = roomTypes.find((rt: any) => rt.id === property.roomTypeId)
-                      const pricePerNight = Number(roomType?.basePrice) || 0
+                      const pricePerNight = Number(roomType?.basePrice) || Number(property.basePrice) || 0
                       // Disable rooms that already have an overlapping active
                       // booking for the chosen dates. The server still enforces
                       // this on submit; the disabled flag is just to prevent
@@ -963,7 +970,7 @@ export function BookingsPage() {
                     {formData.checkIn && formData.checkOut && formData.propertyId && (() => {
                       const selectedProperty = properties.find((p: any) => p.id === formData.propertyId)
                       const roomType = selectedProperty ? roomTypes.find((rt: any) => rt.id === selectedProperty.roomTypeId) : null
-                      const pricePerNight = roomType ? Number(roomType.basePrice) : 0
+                      const pricePerNight = Number(roomType?.basePrice) || Number(selectedProperty?.basePrice) || 0
                       return (
                         <p className="text-xs text-muted-foreground mt-1">
                           {calculateNights(formData.checkIn, formData.checkOut)} night(s) × {formatCurrencySync(pricePerNight, currency)}/night

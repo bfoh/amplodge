@@ -93,9 +93,12 @@ export function OnsiteBookingPage() {
 
   const loadData = async () => {
     try {
+      // Rooms come from the properties table — the Rooms page is the single
+      // source of truth. The legacy `rooms` table only mirrors id/roomNumber
+      // and produced typeless, zero-price entries here.
       const [typesData, roomsData, bookingsData] = await Promise.all([
         db.roomTypes.list(),
-        (db as any).rooms.list({ orderBy: { createdAt: 'desc' } }),
+        db.properties.listAll().catch(() => []),
         bookingEngine.getAllBookings()
       ])
       const normalize = (s: string) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
@@ -104,17 +107,27 @@ export function OnsiteBookingPage() {
         return n && n.length > 0
       })
 
-      // Process rooms data to match room types
-      const roomsWithPrices = roomsData.map((room: any) => {
-        const matchingType =
-          filteredTypes.find((rt) => rt.id === room.propertyTypeId) ||
-          filteredTypes.find((rt) => rt.name.toLowerCase() === (room.propertyType || '').toLowerCase())
-        return {
-          ...room,
-          roomTypeName: matchingType?.name || room.propertyType || '',
-          displayPrice: matchingType?.basePrice ?? 0
-        }
-      })
+      // Match each room to its type (type id field name varies by row age)
+      // and dedupe by room number.
+      const seenRoomNumbers = new Set<string>()
+      const roomsWithPrices = (roomsData as any[])
+        .filter((room: any) => {
+          const rn = String(room.roomNumber || '').trim()
+          if (!rn || seenRoomNumbers.has(rn)) return false
+          seenRoomNumbers.add(rn)
+          return true
+        })
+        .map((room: any) => {
+          const typeId = room.propertyTypeId || room.property_type_id || room.roomTypeId
+          const matchingType =
+            filteredTypes.find((rt) => rt.id === typeId) ||
+            filteredTypes.find((rt) => rt.name.toLowerCase() === (room.propertyType || '').toLowerCase())
+          return {
+            ...room,
+            roomTypeName: matchingType?.name || room.propertyType || '',
+            displayPrice: matchingType?.basePrice ?? (Number(room.basePrice) || 0)
+          }
+        })
 
       // Process bookings - bookingEngine.getAllBookings() already provides roomNumber
       // Only resolve roomId if roomNumber is missing
@@ -165,7 +178,8 @@ export function OnsiteBookingPage() {
   // Calculate available rooms for a specific room type and date range
   const getAvailableRoomCount = (roomTypeId: string, checkInDate?: Date, checkOutDate?: Date) => {
     const propertiesOfType = properties.filter(prop => {
-      const matchingType = roomTypes.find(rt => rt.id === prop.propertyTypeId) ||
+      const typeId = prop.propertyTypeId || prop.property_type_id || prop.roomTypeId
+      const matchingType = roomTypes.find(rt => rt.id === typeId) ||
         roomTypes.find(rt => rt.name.toLowerCase() === (prop.propertyType || '').toLowerCase())
       return matchingType?.id === roomTypeId
     })
@@ -238,7 +252,8 @@ export function OnsiteBookingPage() {
 
     // Find ALL properties of this type
     const propertiesOfType = properties.filter(prop => {
-      const matchingType = roomTypes.find(rt => rt.id === prop.propertyTypeId) ||
+      const typeId = prop.propertyTypeId || prop.property_type_id || prop.roomTypeId
+      const matchingType = roomTypes.find(rt => rt.id === typeId) ||
         roomTypes.find(rt => rt.name.toLowerCase() === (prop.propertyType || '').toLowerCase())
       return matchingType?.id === roomType.id
     })
