@@ -19,6 +19,7 @@ import { sendTransactionalEmail } from '@/services/email-service'
 import { sendBookingConfirmationSMS } from '@/services/sms-service'
 import { activityLogService } from '@/services/activity-log-service'
 import { buildBookingPaymentEvent, appendPaymentEvent } from '@/lib/payment-events'
+import { ClockStatusWarning } from '@/components/ClockStatusWarning'
 import { createInvoiceData, buildOnsiteGroupReceiptData } from '@/services/invoice-service'
 import { promptPrintReceipt, promptPrintGroupReceipt } from '@/services/receipt-print'
 import { getRoomAvailability } from '@/lib/availability'
@@ -1291,6 +1292,8 @@ export function OnsiteBookingPage() {
                 </div>
               </div>
             )}
+
+            {step === 5 && <ClockStatusWarning className="mt-6" />}
 
             {/* Navigation Buttons */}
             <div className="flex justify-between mt-8">

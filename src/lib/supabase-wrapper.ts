@@ -416,6 +416,20 @@ export const auth = {
   },
 
   async logout() {
+    // Read the current user BEFORE clearing anything so we can also drop
+    // their cached staff role — otherwise a stale role/name can outlive
+    // this logout (previously only cleared reactively by a SIGNED_OUT
+    // listener in use-staff-role.tsx, which may not even be mounted).
+    // Matters most for the shared front-desk terminal: the next person to
+    // log in must never see a flash of the previous person's cached role.
+    try {
+      const cached = getCachedAuthSession()
+      if (cached?.id) {
+        // Prefix must match CACHE_KEY_PREFIX in src/hooks/use-staff-role.tsx.
+        localStorage.removeItem(`staff_role_cache_${cached.id}`)
+      }
+    } catch { /* ignore */ }
+
     clearCachedAuthSession()
 
     const { error } = await supabase.auth.signOut()

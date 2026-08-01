@@ -19,6 +19,7 @@ import { createInvoiceData } from '@/services/invoice-service'
 import { promptPrintReceipt } from '@/services/receipt-print'
 import { Tag, Plus, X } from 'lucide-react'
 import type { PaymentSplit } from '@/types'
+import { ClockStatusWarning } from '@/components/ClockStatusWarning'
 
 interface CheckInDialogProps {
     open: boolean
@@ -385,6 +386,8 @@ export function CheckInDialog({
                         </div>
                     </div>
                 </div>
+
+                <ClockStatusWarning />
 
                 <DialogFooter>
                     <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isProcessing}>

@@ -20,6 +20,7 @@ import {
 import { Plus, Calendar, User, Home, Search, Trash2, Users, QrCode, ExternalLink, Smartphone, Printer, BookOpen, X, Loader2, Pencil } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { buildBookingPaymentEvent, appendPaymentEvent, parsePaymentEvents, aggregateMethodTotals } from '@/lib/payment-events'
+import { ClockStatusWarning } from '@/components/ClockStatusWarning'
 import { QRCodeSVG } from 'qrcode.react'
 import { db, auth } from '@/lib/db'
 import { toast } from 'sonner'
@@ -1177,6 +1178,8 @@ export function BookingsPage() {
                     onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   />
                 </div>
+
+                <ClockStatusWarning className="mb-1" />
 
                 <div className="flex justify-end gap-3">
                   <Button

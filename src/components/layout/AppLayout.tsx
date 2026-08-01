@@ -7,11 +7,14 @@ import { Menu, Bell } from 'lucide-react'
 import { auth } from '@/lib/db'
 import { StaffSidebar } from './StaffSidebar'
 import { MobileBottomNav } from './MobileBottomNav'
+import { IdleWarningDialog } from './IdleWarningDialog'
+import { useIdleLogout } from '@/hooks/use-idle-logout'
 
 export function AppLayout() {
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
+  const { showWarning, secondsRemaining, stayLoggedIn, logoutNow } = useIdleLogout()
 
   useEffect(() => {
     const getUser = async () => {
@@ -115,6 +118,13 @@ export function AppLayout() {
       
       {/* Mobile Bottom Navigation */}
       <MobileBottomNav />
+
+      <IdleWarningDialog
+        open={showWarning}
+        secondsRemaining={secondsRemaining}
+        onStayLoggedIn={stayLoggedIn}
+        onLogoutNow={logoutNow}
+      />
     </div>
   )
 }

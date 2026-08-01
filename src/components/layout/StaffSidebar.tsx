@@ -26,7 +26,7 @@ import {
 } from 'lucide-react'
 import { useStaffRole } from '@/hooks/use-staff-role'
 import { useIsAdmin } from '@/hooks/use-is-admin'
-import { canAccessRoute } from '@/lib/rbac'
+import { canAccessRoute, getRoleDisplay } from '@/lib/rbac'
 import { db, auth } from '@/lib/db'
 import type { StaffRole } from '@/lib/rbac'
 import { activityLogService } from '@/services/activity-log-service'
@@ -91,7 +91,7 @@ const adminItems: Array<{
   ]
 
 export function StaffSidebar({ email, className, onNavigate }: StaffSidebarProps) {
-  const { role, canManageEmployees, isLoading: isLoadingStaff } = useStaffRole()
+  const { role, staffRecord, canManageEmployees, isLoading: isLoadingStaff } = useStaffRole()
   const { isAdmin } = useIsAdmin()
   const navigate = useNavigate()
 
@@ -206,11 +206,28 @@ export function StaffSidebar({ email, className, onNavigate }: StaffSidebarProps
         </div>
         <h2 className="text-xl font-serif font-bold text-white tracking-tight">AMP Lodge</h2>
         <p className="text-[10px] uppercase tracking-[0.25em] text-primary/60 font-semibold mt-1.5">Management Portal</p>
-        {email && (
-          <div className="mt-5 px-3 py-1.5 rounded-full bg-white/5 border border-white/5 max-w-full">
-            <p className="text-[10px] text-white/40 truncate w-full text-center" title={email}>
-              {email}
+        {(staffRecord?.name || email) && (
+          <div className="mt-5 w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 max-w-full">
+            <p className="text-sm font-semibold text-white text-center truncate" title={staffRecord?.name || email || undefined}>
+              {staffRecord?.name || email}
             </p>
+            <div className="flex items-center justify-center gap-1.5 mt-1">
+              {role && (
+                <span className="text-[9px] uppercase tracking-wider font-bold text-primary/80 bg-primary/10 px-1.5 py-0.5 rounded">
+                  {getRoleDisplay(role)}
+                </span>
+              )}
+            </div>
+            {/* Shift handover safety: makes the current identity impossible to
+                miss, and gives the next staff member a one-click way to fix
+                a session left open by whoever used this terminal before them. */}
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="mt-1.5 text-[10px] text-white/40 hover:text-white/80 underline underline-offset-2 w-full text-center transition-colors"
+            >
+              Not you? Switch account
+            </button>
           </div>
         )}
       </div>
