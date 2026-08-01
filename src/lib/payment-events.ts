@@ -122,6 +122,57 @@ export function buildCheckOutPaymentEvent(opts: {
   }
 }
 
+export interface MethodTotal { method: string; amount: number }
+
+/**
+ * Aggregate per-method amounts across all recorded payment events.
+ * Splits-aware: an event with splits contributes each split separately.
+ * Methods are returned in payment order (booking → checkin → checkout),
+ * with amounts merged per method.
+ */
+export function aggregateMethodTotals(events: PaymentEvent[]): MethodTotal[] {
+  const stageOrder: Record<string, number> = { booking: 0, checkin: 1, checkout: 2 }
+  const totals = new Map<string, number>()
+  const sorted = [...events].sort(
+    (a, b) => (stageOrder[a.stage] ?? 3) - (stageOrder[b.stage] ?? 3)
+  )
+  for (const e of sorted) {
+    const parts = e.splits && e.splits.length > 0
+      ? e.splits
+      : [{ method: e.method, amount: e.amount }]
+    for (const p of parts) {
+      if (!p.method || !(Number(p.amount) > 0)) continue
+      totals.set(p.method, (totals.get(p.method) || 0) + Number(p.amount))
+    }
+  }
+  return [...totals.entries()].map(([method, amount]) => ({ method, amount }))
+}
+
+/** Short display name for a payment method key. */
+export function displayMethodName(method: string): string {
+  const s = (method || '').trim().toLowerCase()
+  if (!s) return ''
+  if (s === 'cash') return 'Cash'
+  if (s === 'mobile_money' || s === 'mobile money' || s.includes('momo') || s.includes('mobile')) return 'Momo'
+  if (s.includes('card') || s.includes('credit') || s.includes('debit')) return 'Card'
+  if (s === 'not_paid' || s === 'not paid') return 'Not Paid'
+  return method.charAt(0).toUpperCase() + method.slice(1)
+}
+
+/**
+ * Human label describing every method the guest actually paid with, in
+ * payment order — e.g. "Cash", or "Momo + Cash" when a part payment at
+ * booking was completed with a different method at check-in.
+ * Returns '' when no payment events are recorded (caller falls back to the
+ * booking's paymentMethod column).
+ */
+export function formatMethodsLabel(events: PaymentEvent[]): string {
+  return aggregateMethodTotals(events)
+    .map((t) => displayMethodName(t.method))
+    .filter(Boolean)
+    .join(' + ')
+}
+
 /**
  * Given a list of PaymentEvents and an effective price, compute how much
  * revenue is attributed to a specific staff member.

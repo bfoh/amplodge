@@ -19,6 +19,7 @@ import {
 } from "../../components/ui/alert-dialog"
 import { Plus, Calendar, User, Home, Search, Trash2, Users, QrCode, ExternalLink, Smartphone, Printer, BookOpen, X, Loader2, Pencil } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { buildBookingPaymentEvent, appendPaymentEvent } from '@/lib/payment-events'
 import { QRCodeSVG } from 'qrcode.react'
 import { db, auth } from '@/lib/db'
 import { toast } from 'sonner'
@@ -383,6 +384,23 @@ export function BookingsPage() {
       // Update the payload with the resolved createdBy
       bookingPayload.createdBy = createdBy
       console.log('[BookingsPage] Final createdBy for booking:', createdBy)
+
+      // Record the booking-stage payment event (method + splits + staff) so the
+      // method used at booking time survives check-in and drives the payment
+      // labels on the Reservations and revenue pages.
+      const bookingEvent = buildBookingPaymentEvent({
+        paymentType: formData.paymentType === 'later' ? 'pending' : formData.paymentType,
+        amount: bookingPayload.amountPaid,
+        staffId: createdBy || '',
+        staffName: bookingPayload.createdByName || 'Staff',
+        method: primaryPaymentMethod,
+        splits: formData.paymentSplits
+          .filter(s => (Number(s.amount) || 0) > 0)
+          .map(s => ({ method: s.method, amount: Number(s.amount) || 0 })),
+      })
+      if (bookingEvent) {
+        bookingPayload.specialRequests = appendPaymentEvent('', bookingEvent)
+      }
 
       console.log('[BookingsPage] Calling bookingEngine.createBooking with:', bookingPayload)
       console.log('[BookingsPage] Staff data:', staffData)

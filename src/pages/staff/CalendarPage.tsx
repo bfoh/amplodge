@@ -22,6 +22,7 @@ import { toast } from 'sonner'
 import { createInvoiceData } from '@/services/invoice-service'
 import { promptPrintReceipt } from '@/services/receipt-print'
 import { bookingEngine } from '../../services/booking-engine'
+import { buildBookingPaymentEvent, appendPaymentEvent } from '@/lib/payment-events'
 import { CalendarTimeline } from '../../components/CalendarTimeline'
 import { CalendarGridView } from '../../components/CalendarGridView'
 import { CalendarListView } from '../../components/CalendarListView'
@@ -310,6 +311,20 @@ export function CalendarPage() {
         ? formData.paymentSplits.filter(s => (Number(s.amount) || 0) > 0).map(s => ({ method: s.method, amount: Number(s.amount) || 0 }))
         : undefined
 
+      // Record the booking-stage payment event (method + splits + staff) so the
+      // method used at booking time survives check-in and drives the payment
+      // labels on the Reservations and revenue pages.
+      const bookingEvent = buildBookingPaymentEvent({
+        paymentType: formData.paymentType === 'later' ? 'pending' : formData.paymentType,
+        amount: formData.paymentType === 'full' ? formData.totalPrice : formData.paymentType === 'part' ? splitsPaidTotal : 0,
+        staffId: createdBy || '',
+        staffName: staffData?.name || 'Staff',
+        method: primaryPaymentMethod,
+        splits: formData.paymentSplits
+          .filter(s => (Number(s.amount) || 0) > 0)
+          .map(s => ({ method: s.method, amount: Number(s.amount) || 0 })),
+      })
+
       await bookingEngine.createBooking({
         guest: {
           fullName: formData.guestName,
@@ -325,6 +340,7 @@ export function CalendarPage() {
         status: 'confirmed',
         source: 'reception',
         notes: formData.notes,
+        specialRequests: bookingEvent ? appendPaymentEvent('', bookingEvent) : undefined,
         payment_method: primaryPaymentMethod,
         amountPaid: formData.paymentType === 'full' ? formData.totalPrice : formData.paymentType === 'part' ? splitsPaidTotal : 0,
         paymentStatus: formData.paymentType === 'full' ? 'full' : formData.paymentType === 'part' ? 'part' : 'pending',

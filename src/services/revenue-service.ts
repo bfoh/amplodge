@@ -11,7 +11,7 @@ import { startOfWeek, endOfWeek, format, subWeeks, addDays, parseISO } from 'dat
 import { standaloneSalesService } from './standalone-sales-service'
 import type { StandaloneSale, ActivityLog } from '@/types'
 import { CHARGE_CATEGORIES } from './booking-charges-service'
-import { parsePaymentEvents, computeStaffAttributedRevenue } from '@/lib/payment-events'
+import { parsePaymentEvents, computeStaffAttributedRevenue, aggregateMethodTotals } from '@/lib/payment-events'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -392,6 +392,7 @@ export function calculateStaffWeekResultInternal(
       const isConfirmed = b.status === 'confirmed'
       let depositAmount = 0
       let depositMethod = rawMethod
+      let depositSplits: Array<{ method: string; amount: number }> | undefined
       if (isConfirmed) {
         const isGroupMember = specialReq.includes('GROUP_DATA')
         const events = parsePaymentEvents(specialReq)
@@ -400,7 +401,14 @@ export function calculateStaffWeekResultInternal(
             .filter((e) => e.stage === 'booking')
             .reduce((s, e) => s + e.amount, 0)
           const bookingEvent = events.find((e) => e.stage === 'booking')
-          if (bookingEvent) depositMethod = bookingEvent.method
+          if (bookingEvent) {
+            depositMethod = bookingEvent.method
+            // Multi-method deposit → surface each method with its amount
+            const totals = aggregateMethodTotals([bookingEvent])
+              .map((t) => ({ method: normalizePaymentMethod(t.method), amount: t.amount }))
+              .filter((t) => t.method)
+            if (totals.length > 1) depositSplits = totals
+          }
 
           if (isGroupMember && depositAmount > 0) {
             const gdMatch = (specialReq as string).match(/<!-- GROUP_DATA:(.*?) -->/)
@@ -452,7 +460,8 @@ export function calculateStaffWeekResultInternal(
           staffAttributedRevenue: depositAmount, isDeposit: true, depositAmount,
           status: b.status, createdAt: b.createdAt || b.created_at || '',
           createdBy: creatorId, checkInBy: '', checkInByName: '', checkOutBy: '', checkOutByName: '',
-          paymentMethod: normalizePaymentMethod(depositMethod), paymentSplits,
+          paymentMethod: normalizePaymentMethod(depositMethod),
+          paymentSplits: depositSplits || paymentSplits,
           additionalCharges: [], additionalChargesTotal: 0, grandTotal: depositAmount,
         }
       }
@@ -504,6 +513,18 @@ export function calculateStaffWeekResultInternal(
         { from, to }
       )
 
+      // Payment methods across ALL stages (booking deposit + check-in balance
+      // + check-out). When the guest paid different stages with different
+      // methods, surface each method with its collected amount so the revenue
+      // tables and per-method totals reflect what was actually taken.
+      const methodTotals = aggregateMethodTotals(rawPaymentEvents)
+        .map((t) => ({ method: normalizePaymentMethod(t.method), amount: t.amount }))
+        .filter((t) => t.method)
+      const eventPrimaryMethod = methodTotals.length > 0
+        ? methodTotals.reduce((a, s) => (s.amount > a.amount ? s : a)).method
+        : ''
+      const eventSplits = methodTotals.length > 1 ? methodTotals : undefined
+
       return {
         id: b.id, guestName, roomNumber: room?.roomNumber || '—',
         checkIn: b.checkIn, checkOut: b.checkOut, totalPrice: rawPrice,
@@ -512,7 +533,8 @@ export function calculateStaffWeekResultInternal(
         createdAt: b.createdAt || b.created_at || '', createdBy: creatorId,
         checkInBy: checkInById, checkInByName: b.checkInByName || b.check_in_by_name || '',
         checkOutBy: checkOutById, checkOutByName: b.checkOutByName || b.check_out_by_name || '',
-        paymentMethod: normalizePaymentMethod(primaryMethod), paymentSplits,
+        paymentMethod: eventPrimaryMethod || normalizePaymentMethod(primaryMethod),
+        paymentSplits: eventSplits || paymentSplits,
         additionalCharges, additionalChargesTotal,
         grandTotal: effectivePrice + additionalChargesTotal,
       }

@@ -39,6 +39,9 @@ export interface LocalBooking {
   amountPaid?: number
   paymentStatus?: 'full' | 'part' | 'pending'
   notes?: string
+  // Pre-built specialRequests metadata (e.g. a PAYMENT_EVENTS comment from the
+  // booking form). createBooking carries the PAYMENT_EVENTS comment forward.
+  specialRequests?: string
   createdBy?: string
   createdByName?: string
   checkInBy?: string

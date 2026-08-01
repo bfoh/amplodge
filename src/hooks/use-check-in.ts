@@ -3,7 +3,7 @@ import { db, auth } from '@/lib/db'
 import { toast } from 'sonner'
 import { activityLogService } from '@/services/activity-log-service'
 import { Booking, Room, Guest, PaymentSplit } from '@/types'
-import { buildCheckInPaymentEvent, appendPaymentEvent } from '@/lib/payment-events'
+import { buildCheckInPaymentEvent, appendPaymentEvent, parsePaymentEvents, aggregateMethodTotals } from '@/lib/payment-events'
 
 // Define a standardized CheckInOptions interface
 export interface CheckInOptions {
@@ -122,7 +122,6 @@ export function useCheckIn() {
                 const updateData: any = {
                     status: 'checked-in',
                     actualCheckIn: new Date().toISOString(),
-                    paymentMethod: paymentMethod,
                     // Record who performed the check-in for revenue attribution
                     checkInBy: user?.id || '',
                     checkInByName: staffName,
@@ -149,6 +148,20 @@ export function useCheckIn() {
                     existingReq = appendPaymentEvent(existingReq, checkInEvent)
                 }
                 updateData.specialRequests = existingReq
+
+                // paymentMethod column: only update when money was actually
+                // collected at check-in. A fully-prepaid booking must keep the
+                // method used at booking time — previously the dialog's default
+                // ('cash') overwrote it even when nothing was collected. When
+                // both stages collected money, store the method that carried
+                // the largest total; the per-stage detail lives in
+                // PAYMENT_EVENTS and drives the combined labels in the UI.
+                if ((checkInAmount ?? 0) > 0) {
+                    const methodTotals = aggregateMethodTotals(parsePaymentEvents(existingReq))
+                    updateData.paymentMethod = methodTotals.length > 0
+                        ? methodTotals.reduce((a, b) => (b.amount > a.amount ? b : a)).method
+                        : paymentMethod
+                }
 
                 // Add discount fields if discount is applied
                 if (discountAmount && discountAmount > 0) {

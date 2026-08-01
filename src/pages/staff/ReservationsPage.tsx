@@ -17,6 +17,7 @@ import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { toast } from 'sonner'
 import { createInvoiceData, downloadInvoicePDF, generateInvoicePDF, sendInvoiceEmail, createGroupInvoiceData, downloadGroupInvoicePDF, createPreInvoiceData, downloadPreInvoicePDF, generatePreInvoicePDF, buildGuestInvoiceUrl } from '@/services/invoice-service'
+import { parsePaymentEvents, formatMethodsLabel } from '@/lib/payment-events'
 import { activityLogService } from '@/services/activity-log-service'
 import { housekeepingService } from '@/services/housekeeping-service'
 import { bookingChargesService, CHARGE_CATEGORIES } from '@/services/booking-charges-service'
@@ -1323,7 +1324,13 @@ export function ReservationsPage() {
                             </TableCell>
                             <TableCell>
                               {(() => {
-                                const method = b.paymentMethod || 'Not Paid'
+                                // Prefer the recorded payment events — they carry every
+                                // method the guest actually paid with, across booking
+                                // and check-in stages (e.g. "Momo + Cash").
+                                const eventsLabel = formatMethodsLabel(
+                                  parsePaymentEvents((b as any)._rawSpecialRequests || (b as any).special_requests || '')
+                                )
+                                const method = eventsLabel || b.paymentMethod || 'Not Paid'
                                 const isUnpaid = method === 'Not Paid' || method === 'Not paid' || method === 'not_paid'
 
                                 if (isUnpaid) {
@@ -1543,7 +1550,9 @@ export function ReservationsPage() {
                        </div>
                        <div className="space-y-0.5">
                          <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground">Payment</p>
-                         <p className="text-[11px] font-medium text-stone-600">{b.paymentMethod || 'Unpaid'}</p>
+                         <p className="text-[11px] font-medium text-stone-600">
+                           {formatMethodsLabel(parsePaymentEvents((b as any)._rawSpecialRequests || (b as any).special_requests || '')) || b.paymentMethod || 'Unpaid'}
+                         </p>
                        </div>
                     </div>
                     
