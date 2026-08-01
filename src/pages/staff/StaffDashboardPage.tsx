@@ -188,7 +188,7 @@ export function StaffDashboardPage() {
             <Button
               size="lg"
               className="h-24 text-lg bg-gradient-to-br from-primary to-accent hover:from-primary/90 hover:to-accent/90"
-              onClick={() => navigate('/staff/onsite-booking')}
+              onClick={() => navigate('/staff/onsite')}
             >
               <Calendar className="w-6 h-6 mr-2" />
               Walk-in Booking

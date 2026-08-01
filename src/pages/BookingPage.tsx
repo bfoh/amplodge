@@ -9,13 +9,14 @@ import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { CalendarIcon, Check } from 'lucide-react'
+import { CalendarIcon, Check, Plus, X as XIcon } from 'lucide-react'
 import { format, differenceInDays, parseISO } from 'date-fns'
 import { toast } from 'sonner'
-import { formatCurrencySync, makeUuid } from '@/lib/utils'
+import { formatCurrencySync, getCurrencySymbol, makeUuid } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { useBookingCart } from '@/context/BookingCartContext'
 import { bookingEngine } from '@/services/booking-engine'
+import { buildBookingPaymentEvent, appendPaymentEvent } from '@/lib/payment-events'
 
 export function BookingPage() {
   const { currency } = useCurrency()
@@ -39,6 +40,15 @@ export function BookingPage() {
   // Checkout State
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'mobile_money' | 'card' | 'not_paid'>('not_paid')
   const [isReceptionBooking, setIsReceptionBooking] = useState(false)
+  // Reception Mode (staff-assisted walk-in via this page) supports the same
+  // Full/Part/Later split-payment flow as the staff booking tools — a plain
+  // single-method selector can't represent "paid X via Momo now, Y via cash
+  // at check-in," which previously meant that split was never recorded
+  // anywhere and got silently overwritten at check-in.
+  const [receptionPaymentType, setReceptionPaymentType] = useState<'full' | 'part' | 'pending'>('pending')
+  const [receptionPaymentSplits, setReceptionPaymentSplits] = useState<Array<{ method: string; amount: number }>>(
+    [{ method: 'cash', amount: 0 }]
+  )
   const [loading, setLoading] = useState(false)
   // Synchronous double-click guard. State lags one render; ref flips on click.
   const submittingRef = useRef(false)
@@ -448,6 +458,31 @@ export function BookingPage() {
         return !conflictingBooking
       }
 
+      // Resolve who's booking this (staff, for reception-mode attribution;
+      // null for a genuine self-service guest — payment events just omit staffId then).
+      const currentUser = await auth.me().catch(() => null)
+      const staffName = (currentUser as any)?.user_metadata?.full_name || currentUser?.email || 'Staff'
+
+      // Reception Mode: proper Full/Part/Later split, same as the staff booking
+      // tools. Online self-service: the single-method selector maps to a
+      // full/pending event (this page has no way for a guest to specify a
+      // partial amount).
+      const receptionSplitsPaidTotal = receptionPaymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+      const receptionValidSplits = receptionPaymentSplits.filter(s => s.amount > 0)
+      const effectivePaymentType: 'full' | 'part' | 'pending' = isReceptionBooking
+        ? receptionPaymentType
+        : (paymentMethod === 'not_paid' ? 'pending' : 'full')
+      const primaryPaymentMethod: 'cash' | 'mobile_money' | 'card' | 'not_paid' = isReceptionBooking
+        ? (receptionPaymentType === 'pending'
+          ? 'not_paid'
+          : receptionValidSplits.length > 0
+            ? receptionValidSplits.reduce((a, b) => b.amount > a.amount ? b : a, receptionValidSplits[0]).method as 'cash' | 'mobile_money' | 'card'
+            : 'cash')
+        : paymentMethod
+      const paymentSplitsData = isReceptionBooking && receptionPaymentType !== 'pending' && receptionValidSplits.length > 1
+        ? receptionValidSplits.map(s => ({ method: s.method, amount: s.amount }))
+        : undefined
+
       // Prepare booking data from cart items and assignments
       const assignedRoomIds = new Set<string>()
 
@@ -486,6 +521,25 @@ export function BookingPage() {
           email: billingContact.email
         }
 
+        // This room's share of whatever was actually paid, proportional to
+        // its price within the cart — same approach used by the staff
+        // booking tools for multi-room part payments.
+        const itemPaymentAmount = effectivePaymentType === 'full'
+          ? item.price
+          : effectivePaymentType === 'part' && cartTotal > 0
+            ? Math.round((item.price / cartTotal) * receptionSplitsPaidTotal * 100) / 100
+            : 0
+
+        const bookingEvent = buildBookingPaymentEvent({
+          paymentType: effectivePaymentType,
+          amount: itemPaymentAmount,
+          staffId: currentUser?.id || '',
+          staffName,
+          method: primaryPaymentMethod,
+          splits: paymentSplitsData,
+        })
+        const specialRequests = bookingEvent ? appendPaymentEvent('', bookingEvent) : ''
+
         return {
           guest: {
             fullName: guestDetail.name,
@@ -504,13 +558,18 @@ export function BookingPage() {
           status: 'confirmed' as const,
           source: isReceptionBooking ? 'reception' as const : 'online' as const,
           payment: {
-            method: paymentMethod,
-            status: bookingEngine.getOnlineStatus() ? 'completed' as const : 'pending' as const,
-            amount: item.price,
+            method: primaryPaymentMethod,
+            status: (effectivePaymentType === 'full' ? 'completed' : 'pending') as 'pending' | 'completed',
+            amount: itemPaymentAmount,
             reference: `PAY-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-            paidAt: new Date().toISOString()
+            paidAt: effectivePaymentType !== 'pending' ? new Date().toISOString() : undefined
           },
-          payment_method: paymentMethod,
+          paymentMethod: primaryPaymentMethod,
+          payment_method: primaryPaymentMethod,
+          paymentSplits: paymentSplitsData,
+          amountPaid: itemPaymentAmount,
+          paymentStatus: effectivePaymentType,
+          specialRequests,
           idempotencyKey: idempotencyKeys[itemIdx],
         }
       })
@@ -942,23 +1001,125 @@ export function BookingPage() {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium mb-3">Payment Method</label>
-                    <Select value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="not_paid">Not Paid</SelectItem>
-                        <SelectItem value="cash">Cash</SelectItem>
-                        <SelectItem value="mobile_money">Mobile Money</SelectItem>
-                        <SelectItem value="card">Credit/Debit Card</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Payment will be collected at the property.
-                    </p>
-                  </div>
+                  {isReceptionBooking ? (
+                    <div className="space-y-4">
+                      <label className="block text-sm font-medium">Payment Status</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(
+                          [
+                            { key: 'full', label: '💰 Full', sub: 'Paid in full', color: 'border-green-500 bg-green-50 text-green-700' },
+                            { key: 'part', label: '💸 Part', sub: 'Partial amount', color: 'border-amber-500 bg-amber-50 text-amber-700' },
+                            { key: 'pending', label: '⏳ Later', sub: 'No payment yet', color: 'border-red-500 bg-red-50 text-red-700' },
+                          ] as const
+                        ).map(opt => (
+                          <button
+                            key={opt.key}
+                            type="button"
+                            onClick={() => {
+                              setReceptionPaymentType(opt.key)
+                              if (opt.key === 'full') {
+                                setReceptionPaymentSplits(prev => [{ method: prev[0]?.method === 'not_paid' ? 'cash' : (prev[0]?.method || 'cash'), amount: cartTotal }])
+                              } else {
+                                setReceptionPaymentSplits([{ method: 'cash', amount: 0 }])
+                              }
+                            }}
+                            className={`p-2 sm:p-3 rounded-lg border-2 text-center transition-all ${receptionPaymentType === opt.key ? opt.color : 'border-gray-200 hover:border-gray-300'
+                              }`}
+                          >
+                            <div className="font-semibold text-xs sm:text-sm">{opt.label}</div>
+                            <div className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 hidden sm:block">{opt.sub}</div>
+                          </button>
+                        ))}
+                      </div>
+
+                      {receptionPaymentType !== 'pending' && (
+                        <div className="space-y-2">
+                          <label className="block text-sm font-medium">
+                            {receptionPaymentType === 'full' ? 'Payment Method' : 'Payment Method(s) & Amounts'}
+                          </label>
+                          {receptionPaymentSplits.map((split, i) => (
+                            <div key={i} className="flex items-center gap-2">
+                              <Select value={split.method} onValueChange={v => setReceptionPaymentSplits(prev => prev.map((s, j) => j === i ? { ...s, method: v } : s))}>
+                                <SelectTrigger className="w-32 sm:w-44 shrink-0">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="cash">💵 Cash</SelectItem>
+                                  <SelectItem value="mobile_money">📱 Mobile Money</SelectItem>
+                                  <SelectItem value="card">💳 Card</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <div className="relative flex-1">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                                  {getCurrencySymbol(currency)}
+                                </span>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={split.amount || ''}
+                                  onChange={e => {
+                                    const val = parseFloat(e.target.value) || 0
+                                    setReceptionPaymentSplits(prev => prev.map((s, j) => j === i ? { ...s, amount: val } : s))
+                                  }}
+                                  className="pl-8"
+                                />
+                              </div>
+                              {receptionPaymentSplits.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setReceptionPaymentSplits(prev => prev.filter((_, j) => j !== i))}
+                                  className="text-destructive hover:text-destructive/80 p-1 rounded hover:bg-destructive/10 transition-colors shrink-0"
+                                >
+                                  <XIcon className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => setReceptionPaymentSplits(prev => [...prev, { method: 'cash', amount: 0 }])}
+                            className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            Add another payment method
+                          </button>
+                          <div className="flex justify-between text-sm pt-2 border-t">
+                            <span className="text-muted-foreground">Amount Paid:</span>
+                            <span className="font-semibold text-green-700">
+                              {formatCurrencySync(receptionPaymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0), currency)}
+                            </span>
+                          </div>
+                          {receptionPaymentType === 'part' && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted-foreground">Remaining Balance:</span>
+                              <span className="font-semibold text-amber-600">
+                                {formatCurrencySync(Math.max(0, cartTotal - receptionPaymentSplits.reduce((s, p) => s + (Number(p.amount) || 0), 0)), currency)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-sm font-medium mb-3">Payment Method</label>
+                      <Select value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="not_paid">Not Paid</SelectItem>
+                          <SelectItem value="cash">Cash</SelectItem>
+                          <SelectItem value="mobile_money">Mobile Money</SelectItem>
+                          <SelectItem value="card">Credit/Debit Card</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Payment will be collected at the property.
+                      </p>
+                    </div>
+                  )}
 
                   <div className="flex justify-between mt-8">
                     <Button variant="outline" onClick={() => setStep(4)} disabled={loading}>Back</Button>

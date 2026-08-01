@@ -1139,7 +1139,7 @@ export function ReservationsPage() {
               <Button
                 variant="outline"
                 className="border-stone-200 hover:bg-stone-50 hover:border-stone-300 transition-all"
-                onClick={() => navigate('/staff/onsite-booking')}
+                onClick={() => navigate('/staff/onsite')}
               >
                 <span className="mr-1">+</span>
                 <span className="hidden sm:inline">New Booking</span>
