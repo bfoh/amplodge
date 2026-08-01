@@ -80,7 +80,20 @@ exports.handler = async (event) => {
         // Build forwarded headers
         const forwardHeaders = {}
         if (event.headers['content-type'])   forwardHeaders['content-type']   = event.headers['content-type']
-        
+
+        // CRITICAL: forward Accept. supabase-js's `.single()` (used by every
+        // db.<table>.get/create/update call) sends
+        // `Accept: application/vnd.pgrst.object+json` so PostgREST returns an
+        // unwrapped single object instead of a one-element array. Without
+        // this header PostgREST always returns `[{...}]`, which the client's
+        // convertToCamelCase() then mangles into `{"0": {...}}` — silently
+        // losing every top-level field except whatever callers had a
+        // fallback for. This was the root cause of check-in wiping a
+        // booking's prior payment history: it re-fetches the booking via
+        // `.single()` to merge in the check-in event, and every one of those
+        // reads was corrupted.
+        if (event.headers['accept'])          forwardHeaders['accept']          = event.headers['accept']
+
         // Forward the apikey from the client, or fallback to the server-side key.
         // This fallback fixes the "Invalid API key" error when headers are stripped by middleboxes.
         // We also check for 'null' or 'undefined' strings which can happen if client-side extraction fails.
