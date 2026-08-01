@@ -19,7 +19,7 @@ import {
 } from "../../components/ui/alert-dialog"
 import { Plus, Calendar, User, Home, Search, Trash2, Users, QrCode, ExternalLink, Smartphone, Printer, BookOpen, X, Loader2, Pencil } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { buildBookingPaymentEvent, appendPaymentEvent } from '@/lib/payment-events'
+import { buildBookingPaymentEvent, appendPaymentEvent, parsePaymentEvents, aggregateMethodTotals } from '@/lib/payment-events'
 import { QRCodeSVG } from 'qrcode.react'
 import { db, auth } from '@/lib/db'
 import { toast } from 'sonner'
@@ -440,7 +440,30 @@ export function BookingsPage() {
         } catch {
           // Ignore lookup failure — write notes-only is fine as fallback.
         }
-        const composedSpecialRequests = preservedMeta + (formData.notes || '')
+
+        // Re-stamp the booking-stage payment event with whatever the edit form
+        // now shows. Without this, editing a booking's payment fields wrote
+        // only the paymentMethod column (below) with no event — so a later
+        // check-in, which reads events (not the column) to know what was
+        // already paid, saw nothing, collected the balance in whatever method
+        // was used then, and silently overwrote the column, losing the
+        // originally-recorded method entirely. appendPaymentEvent replaces
+        // only the 'booking'-stage entry, leaving any checkin/checkout events
+        // in preservedMeta untouched.
+        //
+        // Also re-stamp the legacy PAYMENT_DATA comment — CheckInDialog's
+        // "prior payment received" banner reads that comment directly (not
+        // the events), so leaving a stale one would show the wrong
+        // already-paid amount at check-in after an edit.
+        const metaWithoutStaleData = preservedMeta.replace(/<!-- PAYMENT_DATA:.*? -->/g, '')
+        const freshPaymentData = `<!-- PAYMENT_DATA:${JSON.stringify({
+          amountPaid: bookingPayload.amountPaid,
+          paymentStatus: bookingPayload.paymentStatus,
+        })} -->`
+        const metaWithFreshEvents = bookingEvent
+          ? appendPaymentEvent(metaWithoutStaleData, bookingEvent)
+          : metaWithoutStaleData
+        const composedSpecialRequests = metaWithFreshEvents + freshPaymentData + (formData.notes || '')
 
         // Only columns that actually exist on the bookings table — see
         // src/services/booking-engine.ts createBooking for the canonical list.
@@ -622,16 +645,51 @@ export function BookingsPage() {
       const matchedProperty = properties.find((p: any) => p.roomNumber === booking.roomNumber)
       const propertyId = matchedProperty?.id || ''
 
-      // Derive payment type from current paymentMethod + status
-      const rawPaymentStatus = raw.paymentStatus || raw.payment_status || 'pending'
+      // Derive payment type/amount/method from what was actually recorded.
+      // NOTE: paymentStatus/amountPaid are NOT real bookings columns — they
+      // only ever lived in specialRequests metadata — so reading
+      // raw.paymentStatus here always came back undefined and silently reset
+      // every edit to "Later, GH₵0", regardless of what was really paid.
+      // Prefer the booking-stage PAYMENT_EVENT (current source of truth);
+      // fall back to the legacy PAYMENT_DATA comment for older bookings.
+      const rawNotes: string = raw.specialRequests || raw.special_requests || raw.notes || ''
+      const existingEvents = parsePaymentEvents(rawNotes)
+      const existingBookingEvent = existingEvents.find(e => e.stage === 'booking')
+
+      let derivedAmountPaid = 0
+      let derivedSplits: Array<{ method: string; amount: number }> = [{ method: 'cash', amount: 0 }]
+      let derivedPaymentStatus: 'full' | 'part' | 'pending' = 'pending'
+
+      if (existingBookingEvent) {
+        derivedAmountPaid = existingBookingEvent.amount
+        const totals = aggregateMethodTotals([existingBookingEvent])
+        derivedSplits = totals.length > 0
+          ? totals
+          : [{ method: existingBookingEvent.method, amount: existingBookingEvent.amount }]
+        derivedPaymentStatus = derivedAmountPaid >= booking.totalPrice && booking.totalPrice > 0
+          ? 'full'
+          : derivedAmountPaid > 0 ? 'part' : 'pending'
+      } else {
+        const pdMatch = rawNotes.match(/<!-- PAYMENT_DATA:(.*?) -->/)
+        if (pdMatch) {
+          try {
+            const pd = JSON.parse(pdMatch[1])
+            derivedAmountPaid = Number(pd.amountPaid) || 0
+            derivedPaymentStatus = pd.paymentStatus || 'pending'
+            if (derivedAmountPaid > 0) {
+              derivedSplits = [{ method: (booking.paymentMethod || 'cash').toLowerCase(), amount: derivedAmountPaid }]
+            }
+          } catch { /* keep pending/0 defaults */ }
+        }
+      }
+
       const paymentType: 'full' | 'part' | 'later' =
-        rawPaymentStatus === 'full' ? 'full'
-        : rawPaymentStatus === 'part' ? 'part'
+        derivedPaymentStatus === 'full' ? 'full'
+        : derivedPaymentStatus === 'part' ? 'part'
         : 'later'
 
       // Notes — strip our embedded metadata comments so the user sees the
       // human-readable portion only.
-      const rawNotes: string = raw.specialRequests || raw.special_requests || raw.notes || ''
       const cleanNotes = rawNotes
         .replace(/<!--[\s\S]*?-->/g, '')
         .trim()
@@ -656,13 +714,8 @@ export function BookingsPage() {
         notes: cleanNotes,
         paymentMethod: booking.paymentMethod || 'cash',
         paymentType,
-        amountPaid: paymentType === 'full' ? booking.totalPrice : 0,
-        paymentSplits: [{
-          method: (booking.paymentMethod && booking.paymentMethod !== 'Not paid')
-            ? booking.paymentMethod.toLowerCase()
-            : 'cash',
-          amount: paymentType === 'full' ? booking.totalPrice : 0,
-        }],
+        amountPaid: derivedAmountPaid,
+        paymentSplits: derivedSplits,
       })
       setDialogOpen(true)
     } catch (e) {
