@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import Anthropic from '@anthropic-ai/sdk'
 import { requireAdmin, jsonResponse, handleCors } from './_lib/auth.js'
 
 export const handler = async (event) => {
@@ -18,19 +18,18 @@ export const handler = async (event) => {
         const body = JSON.parse(event.body);
         const { currentContent, userPrompt, channel } = body;
 
-        const apiKey = process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GOOGLE_AI_API_KEY || process.env.GOOGLE_API_KEY;
+        const apiKey = process.env.ANTHROPIC_API_KEY;
 
         if (!apiKey) {
-            console.error("Missing Google AI API Key");
+            console.error("Missing Anthropic API Key");
             return { statusCode: 500, body: JSON.stringify({ error: "Server configuration error: Missing AI Key" }) };
         }
 
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+        const anthropic = new Anthropic({ apiKey });
 
-        // Construct a focused system prompt
+        // Construct a focused prompt
         let prompt = `You are an expert hotel marketing copywriter for AMP Lodge (a premium, serene lodge).
-        
+
 Your task: Rewrite or create marketing copy based on the user's instruction.
 
 Channel: ${channel.toUpperCase()} (Keep it ${channel === 'sms' ? 'concise, under 160 chars if possible' : 'engaging and formatted with HTML'}).
@@ -45,9 +44,12 @@ Requirements:
 - Do NOT include markdown code blocks (like \`\`\`html). Just return the raw content.
 `;
 
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
+        const message = await anthropic.messages.create({
+            model: "claude-sonnet-5",
+            max_tokens: 2048,
+            messages: [{ role: "user", content: prompt }],
+        });
+        const text = message.content.find((b) => b.type === "text")?.text || "";
 
         // Cleanup: Remove markdown code fences if the AI adds them by mistake
         const cleanText = text.replace(/```html/g, '').replace(/```/g, '').trim();

@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { sendMessageToGemini, startChatSession } from '../../services/gemini-service';
+import { sendMessageToConcierge, startChatSession } from '../../services/concierge-service';
 import { callFunction } from '@/lib/api';
 
 // Define AudioContext type for TypeScript
@@ -188,7 +188,7 @@ export const useVoiceAgent = () => {
         setIsProcessing(true);
 
         try {
-            const aiResponse = await sendMessageToGemini(text);
+            const aiResponse = await sendMessageToConcierge(text);
             setMessages(prev => [...prev, { role: 'ai', text: aiResponse }]);
             await speak(aiResponse);
         } catch (error) {

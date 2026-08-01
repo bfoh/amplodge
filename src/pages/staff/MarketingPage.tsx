@@ -323,7 +323,7 @@ export default function MarketingPage() {
                                                 </Button>
                                             </div>
                                             <p className="text-[10px] text-muted-foreground">
-                                                Powered by Gemini. The AI will rewrite your current message based on your instructions.
+                                                Powered by Claude. The AI will rewrite your current message based on your instructions.
                                             </p>
                                         </div>
                                     </CardContent>
