@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db, auth } from '@/lib/db'
 import { RoomType, Room } from '@/types'
@@ -9,10 +9,10 @@ import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { CalendarIcon, Check, ArrowLeft, Plus, Trash, ShoppingCart, Users, ArrowRight, Minus, X as XIcon } from 'lucide-react'
+import { CalendarIcon, Check, ArrowLeft, Plus, Trash, ShoppingCart, Users, ArrowRight, Minus, X as XIcon, AlertTriangle, RefreshCw, Wrench, Lock } from 'lucide-react'
 import { format, differenceInDays } from 'date-fns'
 import { toast } from 'sonner'
-import { formatCurrencySync, getCurrencySymbol, makeUuid } from '@/lib/utils'
+import { formatCurrencySync, getCurrencySymbol, makeUuid, cn } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { bookingEngine, LocalBooking } from '@/services/booking-engine'
 import { sendTransactionalEmail } from '@/services/email-service'
@@ -21,6 +21,8 @@ import { activityLogService } from '@/services/activity-log-service'
 import { buildBookingPaymentEvent, appendPaymentEvent } from '@/lib/payment-events'
 import { createInvoiceData, buildOnsiteGroupReceiptData } from '@/services/invoice-service'
 import { promptPrintReceipt, promptPrintGroupReceipt } from '@/services/receipt-print'
+import { getRoomAvailability } from '@/lib/availability'
+import { createBookingGroup } from '@/lib/booking-groups'
 
 export function OnsiteBookingPage() {
   const { currency } = useCurrency()
@@ -32,6 +34,8 @@ export function OnsiteBookingPage() {
   const [properties, setProperties] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [processingId, setProcessingId] = useState<string | null>(null)
+  const [loadingRooms, setLoadingRooms] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const submittingRef = useRef(false)
 
   // Cart state for multiple rooms
@@ -92,13 +96,15 @@ export function OnsiteBookingPage() {
   }, [user])
 
   const loadData = async () => {
+    setLoadingRooms(true)
+    setLoadError(null)
     try {
       // Rooms come from the properties table — the Rooms page is the single
       // source of truth. The legacy `rooms` table only mirrors id/roomNumber
       // and produced typeless, zero-price entries here.
       const [typesData, roomsData, bookingsData] = await Promise.all([
         db.roomTypes.list(),
-        db.properties.listAll().catch(() => []),
+        db.properties.listAll(),
         bookingEngine.getAllBookings()
       ])
       const normalize = (s: string) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
@@ -145,163 +151,65 @@ export function OnsiteBookingPage() {
       setRoomTypes(filteredTypes)
       setProperties(roomsWithPrices)
       setBookings(processedBookings)
-    } catch (error) {
-      console.error('Failed to load data:', error)
+    } catch (error: any) {
+      // Previously swallowed to []/silent — every room card then showed
+      // "0 available / Sold Out" with no indication anything had failed.
+      // Surface it instead so staff know to retry rather than assume the
+      // hotel is fully booked.
+      console.error('Failed to load room/booking data:', error)
+      setLoadError(error?.message || 'Failed to load rooms. Check your connection and try again.')
+      toast.error('Failed to load room data')
+    } finally {
+      setLoadingRooms(false)
     }
   }
 
-  // Helper function to check if dates overlap using strict YYYY-MM-DD comparison
-  const isOverlap = (start1: Date | undefined, end1: Date | undefined, start2: string | Date | undefined, end2: string | Date | undefined) => {
-    // Return false if any date is missing
-    if (!start1 || !end1 || !start2 || !end2) return false
+  // Per-room-instance availability for the currently selected dates. Powered
+  // by the shared src/lib/availability.ts — every individual room is
+  // resolved to a real status (available / booked / maintenance), matched to
+  // bookings by roomId (not the fragile roomNumber-string comparisons the
+  // old per-type version used).
+  const roomAvailability = useMemo(
+    () =>
+      getRoomAvailability(properties, bookings, {
+        checkIn,
+        checkOut,
+        cartHolds: cart.map((item) => ({ propertyId: item.roomId, checkIn: item.checkIn, checkOut: item.checkOut })),
+      }),
+    [properties, bookings, checkIn, checkOut, cart]
+  )
 
-    // Normalize all inputs to YYYY-MM-DD strings
-    const toDateStr = (d: string | Date): string => {
-      if (typeof d === 'string') return d.split('T')[0]
-      if (d instanceof Date && !isNaN(d.getTime())) {
-        return format(d, 'yyyy-MM-dd')
-      }
-      return ''
+  const availabilityByType = useMemo(() => {
+    const map = new Map<string, typeof roomAvailability>()
+    for (const entry of roomAvailability) {
+      const typeId = entry.property.propertyTypeId || entry.property.property_type_id || entry.property.roomTypeId || ''
+      if (!map.has(typeId)) map.set(typeId, [])
+      map.get(typeId)!.push(entry)
     }
-
-    const s1 = toDateStr(start1)
-    const e1 = toDateStr(end1)
-    const s2 = toDateStr(start2)
-    const e2 = toDateStr(end2)
-
-    // If any date string is empty, return false
-    if (!s1 || !e1 || !s2 || !e2) return false
-
-    return s1 < e2 && s2 < e1
-  }
-
-  // Calculate available rooms for a specific room type and date range
-  const getAvailableRoomCount = (roomTypeId: string, checkInDate?: Date, checkOutDate?: Date) => {
-    const propertiesOfType = properties.filter(prop => {
-      const typeId = prop.propertyTypeId || prop.property_type_id || prop.roomTypeId
-      const matchingType = roomTypes.find(rt => rt.id === typeId) ||
-        roomTypes.find(rt => rt.name.toLowerCase() === (prop.propertyType || '').toLowerCase())
-      return matchingType?.id === roomTypeId
-    })
-
-    if (!checkInDate || !checkOutDate) {
-      // If no dates selected, show "Available Now" (Today's availability)
-      // This matches Dashboard and BookingPage logic
-      const todayIso = new Date().toISOString().split('T')[0]
-
-      const availableToday = propertiesOfType.filter(property => {
-        if (property.status === 'maintenance') return false
-
-        const hasActiveBooking = bookings.some(booking => {
-          if (booking.status === 'cancelled') return false
-          if (!['reserved', 'confirmed', 'checked-in'].includes(booking.status)) return false
-
-          // Match room
-          if (booking.roomNumber !== property.roomNumber) return false
-
-          // Handle data structure
-          const bCheckIn = (booking.checkIn || booking.dates?.checkIn || '').split('T')[0]
-          const bCheckOut = (booking.checkOut || booking.dates?.checkOut || '').split('T')[0]
-
-          // Occupied if: checkIn <= today < checkOut
-          return bCheckIn <= todayIso && bCheckOut > todayIso
-        })
-
-        return !hasActiveBooking
-      })
-
-      return availableToday.length
+    for (const list of map.values()) {
+      list.sort((a, b) => String(a.property.roomNumber).localeCompare(String(b.property.roomNumber), undefined, { numeric: true }))
     }
+    return map
+  }, [roomAvailability])
 
-    const availableProperties = propertiesOfType.filter(property => {
-      // 1. Check if room is under maintenance
-      if (property.status === 'maintenance') return false
-
-      // 2. Check for overlapping existing bookings
-      const hasOverlappingBooking = bookings.some(booking => {
-        if (booking.status === 'cancelled') return false
-        if (!['reserved', 'confirmed', 'checked-in'].includes(booking.status)) return false
-
-        // Handle both data structures: raw DB and normalized
-        const bookingCheckIn = booking.checkIn || booking.dates?.checkIn
-        const bookingCheckOut = booking.checkOut || booking.dates?.checkOut
-
-        if (booking.roomNumber !== property.roomNumber) return false
-        return isOverlap(checkInDate, checkOutDate, bookingCheckIn, bookingCheckOut)
-      })
-      if (hasOverlappingBooking) return false
-
-      // 3. Check if room is already in cart
-      const isInCart = cart.some(item =>
-        item.roomNumber === property.roomNumber &&
-        isOverlap(checkInDate, checkOutDate, item.checkIn, item.checkOut)
-      )
-      if (isInCart) return false
-
-      return true
-    })
-
-    return availableProperties.length
-  }
-
-  const addToCart = (roomType: RoomType) => {
+  const addRoomToCart = (property: any, roomType: RoomType) => {
     if (!checkIn || !checkOut) {
       toast.error('Please select check-in and check-out dates')
       return
     }
-
-    // Find ALL properties of this type
-    const propertiesOfType = properties.filter(prop => {
-      const typeId = prop.propertyTypeId || prop.property_type_id || prop.roomTypeId
-      const matchingType = roomTypes.find(rt => rt.id === typeId) ||
-        roomTypes.find(rt => rt.name.toLowerCase() === (prop.propertyType || '').toLowerCase())
-      return matchingType?.id === roomType.id
-    })
-
-    // Find first available property
-    const availableProperty = propertiesOfType.find(property => {
-      // 1. Check maintenance
-      if (property.status === 'maintenance') return false
-
-      // 2. Check bookings
-      const hasOverlappingBooking = bookings.some(booking => {
-        if (booking.status === 'cancelled') return false
-        if (booking.roomNumber !== property.roomNumber) return false
-        if (!['reserved', 'confirmed', 'checked-in'].includes(booking.status)) return false
-        return isOverlap(checkIn, checkOut, booking.checkIn, booking.checkOut)
-      })
-      if (hasOverlappingBooking) return false
-
-      // 3. Check cart
-      const isInCart = cart.some(item =>
-        item.roomNumber === property.roomNumber &&
-        isOverlap(checkIn, checkOut, item.checkIn.toISOString(), item.checkOut.toISOString())
-      )
-      if (isInCart) return false
-
-      return true
-    })
-
-    if (!availableProperty) {
-      toast.error('No more rooms of this type available for selected dates')
-      return
-    }
-
-    // Resolve to a Room object (or best effort)
-    // We prefer finding a matching Room entity, but if not found we might need to rely on Property
-    setCart([...cart, {
+    setCart(prev => [...prev, {
       id: Math.random().toString(36).substr(2, 9),
       roomTypeId: roomType.id,
       roomTypeName: roomType.name,
-      roomId: availableProperty.id,
-      roomNumber: availableProperty.roomNumber,
+      roomId: property.id,
+      roomNumber: property.roomNumber,
       price: roomType.basePrice,
       checkIn: checkIn as Date,
       checkOut: checkOut as Date,
-      numGuests: numGuests,
+      numGuests,
       idempotencyKey: makeUuid()
     }])
-    toast.success(`Added ${roomType.name} (${availableProperty.roomNumber}) to booking`)
+    toast.success(`Added ${roomType.name} (Room ${property.roomNumber}) to booking`)
   }
 
   const removeFromCart = (itemId: string) => {
@@ -512,11 +420,12 @@ export function OnsiteBookingPage() {
           address: guestInfo.address
         }
 
-        await bookingEngine.createGroupBooking(groupBookings, billingContact, additionalCharges, {
-          type: discountType,
-          value: discountValue,
-          amount: discountAmount
-        })
+        await createBookingGroup(
+          groupBookings.map((bookingData) => ({ bookingData: bookingData as any })),
+          billingContact as any,
+          additionalCharges,
+          discountValue > 0 ? { type: discountType, value: discountValue, amount: discountAmount } : undefined
+        )
 
         // A deposit/payment was taken at booking time — offer to print an 80mm
         // group receipt. Best-effort: never blocks the completed booking.
@@ -771,48 +680,113 @@ export function OnsiteBookingPage() {
                     </div>
                   </div>
 
-                  {/* Room List */}
+                  {/* Room List — every individual room, not an aggregate count per type */}
                   <div>
-                    <h3 className="font-semibold text-lg flex items-center gap-2 mb-4">
-                      <Plus className="h-5 w-5" /> Available Rooms
-                    </h3>
-                    <div className="grid gap-4">
-                      {roomTypes.map((roomType) => {
-                        const available = getAvailableRoomCount(roomType.id, checkIn, checkOut)
-                        return (
-                          <div
-                            key={roomType.id}
-                            className={`p-4 border rounded-lg transition-all hover:border-primary/50 relative overflow-hidden ${available === 0 ? 'opacity-50' : 'bg-white'
-                              }`}
-                          >
-                            <div className="flex justify-between items-start">
-                              <div className="flex-1">
-                                <h3 className="font-semibold text-lg">{roomType.name}</h3>
-                                <p className="text-sm text-muted-foreground">{roomType.description}</p>
-                                <p className="text-sm mt-2">
-                                  <span className="font-medium">Capacity:</span> {roomType.capacity} guests
-                                </p>
-                                <p className="text-sm">
-                                  <span className="font-medium">Available:</span> {available} rooms
-                                </p>
+                    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                      <h3 className="font-semibold text-lg flex items-center gap-2">
+                        <Plus className="h-5 w-5" /> Rooms
+                      </h3>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Available</span>
+                        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-400" /> Booked</span>
+                        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-gray-400" /> Maintenance</span>
+                      </div>
+                    </div>
+
+                    {loadError && (
+                      <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                        <span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 shrink-0" /> {loadError}</span>
+                        <Button size="sm" variant="outline" onClick={loadData} className="shrink-0">
+                          <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Retry
+                        </Button>
+                      </div>
+                    )}
+
+                    {!checkIn || !checkOut ? (
+                      <p className="text-sm text-muted-foreground italic mb-3">Select check-in and check-out dates to see room-by-room availability.</p>
+                    ) : null}
+
+                    {loadingRooms ? (
+                      <div className="py-12 text-center text-muted-foreground text-sm">Loading rooms…</div>
+                    ) : !loadError && roomTypes.length === 0 ? (
+                      <div className="py-12 text-center text-muted-foreground text-sm">No room types configured yet.</div>
+                    ) : (
+                      <div className="space-y-6">
+                        {roomTypes.map((roomType) => {
+                          const roomsOfType = availabilityByType.get(roomType.id) || []
+                          if (roomsOfType.length === 0) return null
+                          const availableCount = roomsOfType.filter(r => r.status === 'available').length
+                          return (
+                            <div key={roomType.id} className="rounded-lg border bg-white overflow-hidden">
+                              <div className="flex items-center justify-between gap-4 p-4 border-b bg-secondary/5">
+                                <div>
+                                  <h4 className="font-semibold">{roomType.name}</h4>
+                                  <p className="text-xs text-muted-foreground">{roomType.description}</p>
+                                  <p className="text-xs mt-1 flex items-center gap-1"><Users className="h-3 w-3" /> Capacity: {roomType.capacity} guests</p>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <p className="text-xl font-bold text-primary">{formatCurrencySync(roomType.basePrice, currency)}</p>
+                                  <p className="text-xs text-muted-foreground">per night</p>
+                                  {checkIn && checkOut && (
+                                    <p className={cn('text-xs font-medium mt-1', availableCount > 0 ? 'text-emerald-700' : 'text-red-500')}>
+                                      {availableCount} of {roomsOfType.length} available
+                                    </p>
+                                  )}
+                                </div>
                               </div>
-                              <div className="text-right">
-                                <p className="text-2xl font-bold text-primary">{formatCurrencySync(roomType.basePrice, currency)}</p>
-                                <p className="text-sm text-muted-foreground">per night</p>
-                                <Button
-                                  size="sm"
-                                  className="mt-2 text-white"
-                                  disabled={available === 0 || !checkIn || !checkOut}
-                                  onClick={() => addToCart(roomType)}
-                                >
-                                  {available === 0 ? 'Sold Out' : (!checkIn || !checkOut) ? 'Select Dates' : 'Add Room'}
-                                </Button>
+                              <div className="p-4 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                                {roomsOfType.map(({ property, status, conflictingBooking }) => {
+                                  const inCart = cart.some(item => item.roomId === property.id)
+                                  const datesSelected = !!checkIn && !!checkOut
+                                  const clickable = datesSelected && status === 'available' && !inCart
+                                  const conflictGuest = conflictingBooking?.guest?.fullName || conflictingBooking?.guestName || 'a guest'
+                                  const conflictCheckIn = conflictingBooking?.checkIn || conflictingBooking?.dates?.checkIn
+                                  const conflictCheckOut = conflictingBooking?.checkOut || conflictingBooking?.dates?.checkOut
+                                  const conflictDates = conflictCheckIn && conflictCheckOut
+                                    ? `${format(new Date(conflictCheckIn), 'MMM d')} – ${format(new Date(conflictCheckOut), 'MMM d')}`
+                                    : ''
+                                  const tooltip = status === 'booked' && conflictingBooking
+                                    ? `Booked — ${conflictGuest}${conflictDates ? ` (${conflictDates})` : ''}`
+                                    : status === 'maintenance'
+                                      ? 'Under maintenance'
+                                      : undefined
+                                  return (
+                                    <button
+                                      key={property.id}
+                                      type="button"
+                                      disabled={!clickable}
+                                      onClick={() => addRoomToCart(property, roomType)}
+                                      title={tooltip}
+                                      className={cn(
+                                        'flex flex-col items-center justify-center gap-1 rounded-lg border-2 py-3 px-2 text-sm font-medium transition-all',
+                                        inCart && 'border-primary bg-primary text-white shadow-sm',
+                                        !inCart && !datesSelected && 'border-gray-200 bg-gray-50 text-gray-500',
+                                        !inCart && datesSelected && status === 'available' && 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:border-emerald-500 hover:shadow-md cursor-pointer',
+                                        !inCart && datesSelected && status === 'booked' && 'border-red-100 bg-red-50/60 text-red-400 cursor-not-allowed',
+                                        !inCart && status === 'maintenance' && 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+                                      )}
+                                    >
+                                      <span className="text-base font-bold">{property.roomNumber}</span>
+                                      <span className="flex items-center gap-1 text-[10px] uppercase tracking-wide">
+                                        {status === 'maintenance' && <Wrench className="h-3 w-3" />}
+                                        {status === 'booked' && !inCart && <Lock className="h-3 w-3" />}
+                                        {inCart
+                                          ? 'In Cart'
+                                          : status === 'maintenance'
+                                            ? 'Maintenance'
+                                            : status === 'booked'
+                                              ? 'Booked'
+                                              : datesSelected ? 'Available' : 'Select dates'}
+                                      </span>
+                                    </button>
+                                  )
+                                })}
                               </div>
                             </div>
-                          </div>
-                        )
-                      })}
-                    </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
 
