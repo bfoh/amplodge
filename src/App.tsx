@@ -69,6 +69,11 @@ const ConciergePage = lazyWithRetry(() => import('./pages/guest/ConciergePage').
 const ServicesPage = lazyWithRetry(() => import('./pages/guest/ServicesPage').then(m => ({ default: m.ServicesPage })))
 const GuestLoginPage = lazyWithRetry(() => import('./pages/guest/GuestLoginPage').then(m => ({ default: m.GuestLoginPage })))
 const VoiceWidget = lazyWithRetry(() => import('./components/voice-agent/VoiceWidget'))
+// Staff AI assistant — the inverse of the voice widget: only staff sessions
+// should download its chunk, and never on the login/kiosk/clock screens
+// where there's no authenticated staff session (or the surface is a fixed
+// kiosk display).
+const StaffAssistantWidget = lazyWithRetry(() => import('./components/staff-assistant/StaffAssistantWidget'))
 
 const HomePage = lazyWithRetry(() => import('./pages/HomePage').then(m => ({ default: m.HomePage })))
 const RoomsPage = lazyWithRetry(() => import('./pages/RoomsPage').then(m => ({ default: m.RoomsPage })))
@@ -80,11 +85,20 @@ const VirtualTourPage = lazyWithRetry(() => import('./pages/VirtualTourPage').th
 import { BookingCartProvider } from './context/BookingCartContext'
 
 // The voice concierge is for guests/public visitors — staff sessions should
-// not download its chunk (speech/audio + Gemini client) at all.
+// not download its chunk (speech/audio + concierge client) at all.
 function RoutedVoiceWidget() {
   const location = useLocation()
   if (location.pathname.startsWith('/staff')) return null
   return <VoiceWidget />
+}
+
+const STAFF_ASSISTANT_EXCLUDED_PATHS = new Set(['/staff/login', '/staff/qr-display', '/staff/clock'])
+
+function RoutedStaffAssistant() {
+  const location = useLocation()
+  if (!location.pathname.startsWith('/staff')) return null
+  if (STAFF_ASSISTANT_EXCLUDED_PATHS.has(location.pathname)) return null
+  return <StaffAssistantWidget />
 }
 
 function App() {
@@ -188,6 +202,7 @@ function App() {
           <Toaster position="top-right" />
           <ReceiptPrintDialog />
           <RoutedVoiceWidget />
+          <RoutedStaffAssistant />
           <Suspense fallback={<div className="flex items-center justify-center py-12"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
             <Routes>
               {/* Guest Portal Routes */}

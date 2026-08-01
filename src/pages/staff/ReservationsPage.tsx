@@ -16,10 +16,9 @@ import { safeFormatDate, safeParseISO } from '@/lib/safe-date'
 import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { toast } from 'sonner'
-import { createInvoiceData, downloadInvoicePDF, generateInvoicePDF, sendInvoiceEmail, createGroupInvoiceData, downloadGroupInvoicePDF, createPreInvoiceData, downloadPreInvoicePDF, generatePreInvoicePDF, buildGuestInvoiceUrl } from '@/services/invoice-service'
+import { createInvoiceData, downloadInvoicePDF, createGroupInvoiceData, downloadGroupInvoicePDF, createPreInvoiceData, downloadPreInvoicePDF, generatePreInvoicePDF, buildGuestInvoiceUrl } from '@/services/invoice-service'
 import { parsePaymentEvents, formatMethodsLabel } from '@/lib/payment-events'
 import { activityLogService } from '@/services/activity-log-service'
-import { housekeepingService } from '@/services/housekeeping-service'
 import { bookingChargesService, CHARGE_CATEGORIES } from '@/services/booking-charges-service'
 import { BookingCharge } from '@/types'
 import {
@@ -33,6 +32,8 @@ import {
 import { LogIn, LogOut, CheckCircle2 } from 'lucide-react'
 import { calculateNights } from '@/lib/display'
 import { CheckInDialog } from '@/components/dialogs/CheckInDialog'
+import { useCheckOut } from '@/hooks/use-check-out'
+import { ClockStatusWarning } from '@/components/ClockStatusWarning'
 import { GuestChargesDialog } from '@/components/dialogs/GuestChargesDialog'
 import { ExtendStayDialog } from '@/components/dialogs/ExtendStayDialog'
 import { GroupManageDialog } from '@/components/dialogs/GroupManageDialog'
@@ -124,6 +125,7 @@ export function ReservationsPage() {
   const updatedAtTasks = useSubscription('housekeeping_tasks')
 
   const [isPending, startTransition] = useTransition()
+  const { checkOut } = useCheckOut()
 
   // Filters
   const [query, setQuery] = useState('')
@@ -630,202 +632,21 @@ export function ReservationsPage() {
     setProcessing(true)
     setCheckOutDialog(null) // Close dialog immediately
     try {
-      let housekeepingTaskCreated = false
-
-      // Update booking status to checked-out
-      const staffName = (user as any)?.user_metadata?.full_name || (user as any)?.user_metadata?.name || user?.email || 'Staff'
-      await db.bookings.update(booking.id, {
-        status: 'checked-out',
-        actualCheckOut: new Date().toISOString(),
-        checkOutBy: user?.id || '',
-        checkOutByName: staffName,
-      })
-
-      // Update property status to cleaning (canonical)
       const room = roomMap.get(booking.roomId)
-      if (room) {
-        await db.properties.update(room.id, { status: 'cleaning' })
-        // Optimistically reflect in UI immediately
-        setRooms(prev => prev.map(r => (r.id === room.id ? { ...r, status: 'cleaning' } : r)))
-
-        // Log property status change
-        try {
-          await activityLogService.log({
-            action: 'updated',
-            entityType: 'property',
-            entityId: room.id,
-            details: {
-              roomNumber: room.roomNumber,
-              previousStatus: 'occupied',
-              newStatus: 'cleaning',
-              reason: 'guest_check_out',
-              guestName: guestMap.get(booking.guestId)?.name || 'Unknown Guest',
-              bookingId: booking.id
-            },
-            userId: user?.id || 'system'
-          })
-        } catch (logError) {
-          console.error('Failed to log room status change:', logError)
-        }
-
-        // Create housekeeping task using the new service
-        try {
-          const guestName = guestMap.get(booking.guestId)?.name || 'Guest'
-          const newTask = await housekeepingService.createCheckoutTask(booking, room, guestName, user)
-
-          if (newTask) {
-            housekeepingTaskCreated = true
-          }
-        } catch (taskError) {
-          console.error('❌ [Checkout] Failed to create housekeeping task via service:', taskError)
-        }
-      }
-
-      // Optimistic UI update
-      setBookings(prev => prev.map(b =>
-        b.id === booking.id ? { ...b, status: 'checked-out' as const } : b
-      ))
-
-      // Get guest and room data for notifications
       const guest = guestMap.get(booking.guestId)
+      const roomTypeName = room ? roomTypeMap.get(room.roomTypeId)?.name : undefined
 
-      // Generate invoice and send notifications (invoice data contains correct total including additional charges)
-      if (guest && room) {
-        try {
-          console.log('🚀 [ReservationsPage] Starting invoice generation...', {
-            bookingId: booking.id,
-            guestEmail: guest.email,
-            roomNumber: room.roomNumber,
-            guestName: guest.name
-          })
+      const success = await checkOut({ booking, room, guest, roomTypeName, user })
 
-          // Create booking with details for invoice
-          const bookingWithDetails = {
-            ...booking,
-            actualCheckOut: new Date().toISOString(),
-            guest: guest,
-            room: {
-              roomNumber: room.roomNumber,
-              roomType: roomTypeMap.get(room.roomTypeId)?.name || 'Standard Room'
-            }
-          }
-
-          console.log('📊 [ReservationsPage] Creating invoice data...')
-          // Generate invoice data (this includes additional charges in the total!)
-          const invoiceData = await createInvoiceData(bookingWithDetails, room)
-          console.log('✅ [ReservationsPage] Invoice data created:', {
-            invoiceNumber: invoiceData.invoiceNumber,
-            roomTotal: (booking as any).totalPrice || (booking as any).amount || 0,
-            additionalChargesTotal: invoiceData.charges.additionalChargesTotal,
-            grandTotal: invoiceData.charges.total
-          })
-
-          // IMPORTANT: Save the invoice number to the booking record for consistency
-          try {
-            await db.bookings.update(booking.id, { invoiceNumber: invoiceData.invoiceNumber })
-            console.log('✅ [ReservationsPage] Invoice number saved to booking:', invoiceData.invoiceNumber)
-          } catch (saveError) {
-            console.error('⚠️ [ReservationsPage] Failed to save invoice number to booking:', saveError)
-          }
-
-          console.log('📄 [ReservationsPage] Generating invoice PDF...')
-          // Generate invoice PDF
-          const invoicePdf = await generateInvoicePDF(invoiceData)
-          console.log('✅ [ReservationsPage] Invoice PDF generated')
-
-          // Send check-out notification with CORRECT total (room + additional charges)
-          try {
-            const { sendCheckOutNotification } = await import('@/services/notifications')
-
-            // Create booking object with the structure expected by notifications
-            const bookingForNotification = {
-              id: booking.id,
-              checkIn: booking.checkIn,
-              checkOut: booking.checkOut,
-              actualCheckIn: booking.actualCheckIn,
-              actualCheckOut: new Date().toISOString()
-            }
-
-            // Use invoiceData.charges.total which includes room + additional charges
-            const notificationInvoiceData = {
-              invoiceNumber: invoiceData.invoiceNumber,
-              totalAmount: invoiceData.charges.total, // CORRECT: includes additional charges
-              downloadUrl: await buildGuestInvoiceUrl(booking.id, invoiceData.invoiceNumber)
-            }
-
-            console.log('📧 [ReservationsPage] Sending check-out notification with total (room + charges):', {
-              roomCost: (booking as any).totalPrice || (booking as any).amount || 0,
-              additionalCharges: invoiceData.charges.additionalChargesTotal,
-              grandTotal: invoiceData.charges.total
-            })
-
-            await sendCheckOutNotification(guest, { id: room.id, roomNumber: room.roomNumber || 'N/A' }, bookingForNotification, notificationInvoiceData)
-            console.log('✅ [ReservationsPage] Check-out notification sent successfully!')
-          } catch (notificationError) {
-            console.error('❌ [ReservationsPage] Check-out notification error:', notificationError)
-          }
-
-          console.log('📧 [ReservationsPage] Sending invoice email...')
-          // Send invoice email
-          const emailResult = await sendInvoiceEmail(invoiceData, invoicePdf)
-          console.log('📧 [ReservationsPage] Email result:', emailResult)
-
-          if (emailResult.success) {
-            console.log('✅ [ReservationsPage] Invoice sent successfully')
-            toast.success(`✅ Invoice sent to ${guest.email}`)
-          } else {
-            console.warn('⚠️ [ReservationsPage] Invoice email failed:', emailResult.error)
-            toast.error(`❌ Invoice email failed: ${emailResult.error}`)
-          }
-        } catch (invoiceError: any) {
-          console.error('❌ [ReservationsPage] Invoice generation failed:', invoiceError)
-          console.error('❌ [ReservationsPage] Error details:', {
-            message: invoiceError.message,
-            stack: invoiceError.stack,
-            name: invoiceError.name
-          })
-          toast.error(`❌ Invoice generation failed: ${invoiceError.message}`)
-        }
+      if (success) {
+        // Optimistic UI update — realtime subscriptions will reconcile shortly after.
+        setBookings(prev => prev.map(b => (b.id === booking.id ? { ...b, status: 'checked-out' as const } : b)))
+        if (room) setRooms(prev => prev.map(r => (r.id === room.id ? { ...r, status: 'cleaning' } : r)))
       } else {
-        console.warn('⚠️ [ReservationsPage] Missing guest or room data for invoice generation:', {
-          hasGuest: !!guest,
-          hasRoom: !!room,
-          guestId: booking.guestId,
-          roomId: booking.roomId
-        })
-        toast.error('❌ Cannot generate invoice: Missing guest or room data')
+        // Reload data to restore correct state
+        const b = await db.bookings.listAll({ orderBy: { createdAt: 'desc' } })
+        setBookings(b)
       }
-
-      // Log check-out activity
-      try {
-        const guest = guestMap.get(booking.guestId)
-        const room = roomMap.get(booking.roomId)
-        await activityLogService.log({
-          action: 'checked_out',
-          entityType: 'booking',
-          entityId: booking.id,
-          details: {
-            guestName: guest?.name || 'Unknown Guest',
-            roomNumber: room?.roomNumber || 'Unknown Room',
-            checkOutDate: booking.checkOut,
-            actualCheckOut: new Date().toISOString(),
-            bookingId: booking.id
-          },
-          userId: user?.id || 'system'
-        })
-        console.log('✅ [ReservationsPage] Check-out activity logged successfully!')
-      } catch (logError) {
-        console.error('❌ [ReservationsPage] Failed to log check-out activity:', logError)
-      }
-
-      const taskMessage = housekeepingTaskCreated ? ' Cleaning task created.' : ' (Cleaning task creation failed - please check console)'
-      toast.success(`Guest ${guestMap.get(booking.guestId)?.name || 'Guest'} checked out successfully!${taskMessage}`)
-    } catch (error) {
-      console.error('Check-out failed:', error)
-      toast.error('Failed to check out guest')
-      // Reload data to restore correct state
-      const [b] = await Promise.all([db.bookings.listAll({ orderBy: { createdAt: 'desc' } })])
-      setBookings(b)
     } finally {
       setProcessing(false)
     }
@@ -1033,6 +854,7 @@ export function ReservationsPage() {
               </div>
             </div>
           )}
+          <ClockStatusWarning className="mb-2" />
           <DialogFooter>
             <Button variant="outline" onClick={() => setCheckOutDialog(null)} disabled={processing}>
               Cancel
