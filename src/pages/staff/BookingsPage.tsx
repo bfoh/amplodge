@@ -27,6 +27,7 @@ import { Badge } from '../../components/ui/badge'
 import { useStaffRole } from '../../hooks/use-staff-role'
 import { bookingEngine } from '../../services/booking-engine'
 import { calculateNights } from '../../lib/display'
+import { GroupManageDialog } from '@/components/dialogs/GroupManageDialog'
 import { createInvoiceData } from '@/services/invoice-service'
 import { promptPrintReceipt } from '@/services/receipt-print'
 import { activityLogService } from '../../services/activity-log-service'
@@ -98,6 +99,7 @@ export function BookingsPage() {
     originalPropertyId: string
   } | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [manageGroup, setManageGroup] = useState<{ groupId: string; groupReference: string } | null>(null)
   const [qrBooking, setQrBooking] = useState<BookingWithDetails | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [displayLimit, setDisplayLimit] = useState(50)
@@ -1213,9 +1215,14 @@ export function BookingsPage() {
                             {booking.status}
                           </span>
                           {booking.groupReference && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-amber-50 text-amber-700 ring-1 ring-amber-200">
+                            <button
+                              type="button"
+                              onClick={() => setManageGroup({ groupId: booking.groupId!, groupReference: booking.groupReference! })}
+                              className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100 transition-colors"
+                              title="Manage group booking"
+                            >
                               <Users className="w-3 h-3 mr-1" />{booking.groupReference}
-                            </span>
+                            </button>
                           )}
                           {booking.source === 'voice_agent' && (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700 ring-1 ring-purple-200">
@@ -1416,6 +1423,16 @@ export function BookingsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {manageGroup && (
+        <GroupManageDialog
+          open={!!manageGroup}
+          onOpenChange={(open) => !open && setManageGroup(null)}
+          groupId={manageGroup.groupId}
+          groupReference={manageGroup.groupReference}
+          onUpdate={loadData}
+        />
+      )}
     </div>
   )
 }

@@ -1503,9 +1503,14 @@ export function ReservationsPage() {
                         <DropdownMenuContent align="end" className="w-[200px]">
                           <DropdownMenuLabel>Actions</DropdownMenuLabel>
                           {isGroup && (
-                            <DropdownMenuItem onClick={() => setManageGroupDialog({ groupId: b.groupId!, groupReference: (b as any).groupReference || 'Group' })}>
-                              <Settings className="w-4 h-4 mr-2 text-blue-600" /> Manage Group
-                            </DropdownMenuItem>
+                            <>
+                              <DropdownMenuItem onClick={() => setManageGroupDialog({ groupId: b.groupId!, groupReference: (b as any).groupReference || 'Group' })}>
+                                <Settings className="w-4 h-4 mr-2 text-blue-600" /> Manage Group
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleGroupInvoiceDownload(b)}>
+                                <Users className="w-4 h-4 mr-2 text-amber-600" /> Group Invoice
+                              </DropdownMenuItem>
+                            </>
                           )}
                           {canShowCheckOut && (
                             <>
