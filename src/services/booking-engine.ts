@@ -180,7 +180,12 @@ class BookingEngine {
       normalizedEmail
         ? db.guests.list({ where: { email: normalizedEmail }, limit: 1 }).catch(() => null)
         : Promise.resolve(null),
-      (db as any).rooms.list({ where: { roomNumber: bookingData.roomNumber }, limit: 1 }).catch(() => null),
+      // `properties` is the canonical room list (Rooms page source of truth);
+      // `rooms` is a legacy mirror kept only because bookings.room_id has a
+      // hard FK to rooms.id. Resolve from properties so a room visible/
+      // selectable on the Rooms page always resolves here too, then fall
+      // through to the legacy table only if properties has no match.
+      db.properties.list({ where: { roomNumber: bookingData.roomNumber }, limit: 1 }).catch(() => null),
       auth.me().catch(() => null),
     ])
 
@@ -288,21 +293,37 @@ class BookingEngine {
 
     console.log('[BookingEngine] Final guest ID:', guestId)
 
-    // Find room by roomNumber. Aligned with rooms table (FK source).
+    // Resolve the room from `properties` (canonical). bookings.room_id has a
+    // hard FK to the legacy `rooms` table, so before inserting we must ensure
+    // a `rooms` row exists with this same id — PropertiesPage dual-writes new
+    // rooms into both tables, but self-heal here in case that mirror ever
+    // drifts (manual DB edits, rows created before the dual-write existed).
     console.log('[BookingEngine] Resolving room for number:', bookingData.roomNumber)
-    const [, roomResFromPhase1] = await phase1
-    const room = (roomResFromPhase1 as any[] | null)?.[0]
-
-    if (!room) {
-      const error = new Error(`Property/Room not found for number: ${bookingData.roomNumber}`)
-      console.error('[BookingEngine] CRITICAL:', error.message)
-      throw error
-    }
+    const [, propertyResFromPhase1] = await phase1
+    const room = (propertyResFromPhase1 as any[] | null)?.[0]
 
     if (!room) {
       const error = new Error(`Room not found for number: ${bookingData.roomNumber}`)
       console.error('[BookingEngine] CRITICAL:', error.message)
       throw error
+    }
+
+    const mirrorExists = await (db as any).rooms.get(room.id).catch(() => null)
+    if (!mirrorExists) {
+      console.warn('[BookingEngine] Room', room.id, 'missing from legacy rooms mirror — self-healing before insert')
+      try {
+        await (db as any).rooms.create({
+          id: room.id,
+          roomNumber: room.roomNumber,
+          roomTypeId: room.propertyTypeId || null,
+          status: room.status || 'active',
+          price: room.basePrice ?? null,
+          createdAt: room.createdAt || new Date().toISOString(),
+        })
+      } catch (mirrorErr) {
+        console.error('[BookingEngine] Failed to self-heal rooms mirror for', room.id, mirrorErr)
+        throw new Error(`Room ${bookingData.roomNumber} exists but could not be prepared for booking. Please try again or contact support.`)
+      }
     }
 
     console.log('[BookingEngine] Using room:', room.id, room.roomNumber)
@@ -942,9 +963,16 @@ class BookingEngine {
 
     let newPrimaryId: string | undefined
 
-    // If we're removing the primary booking, transfer metadata to another booking
+    // If we're removing the primary booking, transfer metadata to another booking.
+    // Pick deterministically (earliest check-in, tie-break lowest room number) —
+    // not "whichever array index happens to be first" from an unordered fetch.
     if (isPrimary && groupBookings.length > 0) {
-      const newPrimary = groupBookings[0]
+      const sorted = [...groupBookings].sort((a: any, b: any) => {
+        const checkInCmp = String(a.checkIn || '').localeCompare(String(b.checkIn || ''))
+        if (checkInCmp !== 0) return checkInCmp
+        return String(a.roomNumber || '').localeCompare(String(b.roomNumber || ''), undefined, { numeric: true })
+      })
+      const newPrimary = sorted[0]
       console.log(`[BookingEngine] Transferring primary status to: ${newPrimary.id}`)
 
       // Update the new primary booking with group metadata
@@ -1056,6 +1084,30 @@ class BookingEngine {
           throw err
         }
         console.warn('[BookingEngine] Could not fetch booking details for logging:', err)
+      }
+
+      // If this booking belongs to a group, route through the group-aware
+      // removal so billing contact/discount/charges are transferred to a new
+      // primary instead of silently orphaned — a bare delete here previously
+      // lost that data whenever the group's primary booking was the one
+      // being deleted.
+      if (booking) {
+        const specialReq = booking.special_requests || booking.specialRequests || ''
+        const groupMatch = specialReq.match(/<!-- GROUP_DATA:(.*?) -->/)
+        let hasGroup = !!booking.groupId
+        if (!hasGroup && groupMatch) {
+          try { hasGroup = !!JSON.parse(groupMatch[1]).groupId } catch { /* ignore */ }
+        }
+        if (hasGroup) {
+          try {
+            await this.removeFromGroup(remoteId)
+            return
+          } catch (groupErr: any) {
+            // Last remaining member of the group — fall through to a normal
+            // single-booking delete rather than blocking the user.
+            if (!/last member/i.test(groupErr?.message || '')) throw groupErr
+          }
+        }
       }
 
       // Defensively clear out rows that FK to this booking BEFORE we issue
@@ -1305,9 +1357,12 @@ class BookingEngine {
   }
 
   private async _fetchAllBookings(): Promise<LocalBooking[]> {
+    // Resolve booking->room display data from `properties` (canonical Rooms
+    // page data — name, type, price), not the legacy `rooms` mirror, which
+    // only ever carries id/roomNumber/status.
     const [bookings, rooms, guests] = await Promise.all([
       db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 5000 }),
-      (db as any).rooms.list(),
+      db.properties.listAll().catch(() => []),
       db.guests.list(),
     ])
 

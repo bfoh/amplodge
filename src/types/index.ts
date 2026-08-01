@@ -86,6 +86,35 @@ export interface BillingContact {
   address: string
 }
 
+export interface AdditionalCharge {
+  id?: string
+  description: string
+  amount: number
+}
+
+export interface GroupDiscount {
+  type: 'percentage' | 'fixed'
+  value: number
+  amount?: number
+}
+
+// A group booking (multiple rooms under one reservation). Bookings that
+// belong to a group carry this row's id in Booking.groupId.
+export interface BookingGroup {
+  id: string
+  groupReference: string
+  billingContact?: BillingContact
+  additionalCharges?: AdditionalCharge[]
+  discount?: GroupDiscount
+  primaryBookingId?: string
+  invoiceNumber?: string
+  status: 'active' | 'cancelled'
+  createdBy?: string
+  createdByName?: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface CartItem {
   tempId: string
   roomTypeId: string

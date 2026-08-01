@@ -324,6 +324,7 @@ export const db = {
   standaloneSales: createTableWrapper('standalone_sales'),
   inventory: createTableWrapper('inventory'),
   inventoryTransactions: createTableWrapper('inventory_transactions'),
+  bookingGroups: createTableWrapper('booking_groups'),
 }
 
 // ---------------------------------------------------------------------------

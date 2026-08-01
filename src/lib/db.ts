@@ -69,6 +69,7 @@ export type TypedDB = {
   standaloneSales: TableWrapper<T.StandaloneSale>
   inventory: TableWrapper<T.InventoryItem>
   inventoryTransactions: TableWrapper<T.InventoryTransaction>
+  bookingGroups: TableWrapper<T.BookingGroup>
 } & Record<string, TableWrapper<any>>
 
 export const db: TypedDB = _db as unknown as TypedDB
