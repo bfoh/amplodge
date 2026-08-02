@@ -31,6 +31,19 @@ import { formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
 
 type ViewMode = 'timeline' | 'grid' | 'list'
 
+/**
+ * Default check-in/check-out for a fresh booking form. Without this the
+ * dates start blank, the availability filter has nothing to check against,
+ * and every room — including ones with a guest checked in right now — shows
+ * in the Room dropdown until staff happen to fill in dates first.
+ */
+function defaultBookingDates(): { checkIn: string; checkOut: string } {
+  const today = new Date()
+  const tomorrow = new Date(today)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  return { checkIn: today.toLocaleDateString('en-CA'), checkOut: tomorrow.toLocaleDateString('en-CA') }
+}
+
 export function CalendarPage() {
   const navigate = useNavigate()
   const { staffRecord: staffData, role, isLoading: staffLoading } = useStaffRole()
@@ -53,8 +66,7 @@ export function CalendarPage() {
     guestEmail: '',
     guestPhone: '',
     guestAddress: '',
-    checkIn: '',
-    checkOut: '',
+    ...defaultBookingDates(),
     adults: 1,
     children: 0,
     totalPrice: 0,
@@ -209,11 +221,12 @@ export function CalendarPage() {
     if (!formData.checkIn || !formData.checkOut) return false
     return bookings.some((b) => {
       const bRoomId = b.propertyId ?? b.roomId
-      return (
-        bRoomId === propertyId &&
-        activeStatuses.has(b.status) &&
-        isOverlap(formData.checkIn, formData.checkOut, b.checkIn, b.checkOut)
-      )
+      if (bRoomId !== propertyId) return false
+      if (!activeStatuses.has(b.status)) return false
+      if (isOverlap(formData.checkIn, formData.checkOut, b.checkIn, b.checkOut)) return true
+      // A guest still marked checked-in physically occupies the room through
+      // their checkout date until the actual check-out action happens.
+      return b.status === 'checked-in' && formData.checkIn === b.checkOut
     })
   }
 
@@ -408,8 +421,7 @@ export function CalendarPage() {
         guestEmail: '',
         guestPhone: '',
         guestAddress: '',
-        checkIn: '',
-        checkOut: '',
+        ...defaultBookingDates(),
         adults: 1,
         children: 0,
         totalPrice: 0,
@@ -544,7 +556,10 @@ export function CalendarPage() {
           </Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="bg-primary hover:bg-primary/90">
+              <Button
+                className="bg-primary hover:bg-primary/90"
+                onClick={() => setFormData(prev => ({ ...prev, propertyId: '', ...defaultBookingDates() }))}
+              >
                 <Plus className="w-4 h-4 mr-2" />
                 New Booking
               </Button>

@@ -55,6 +55,19 @@ function hasAtLeastTwoNames(rawName: string): boolean {
   return rawName.trim().split(/\s+/).filter(Boolean).length >= 2
 }
 
+/**
+ * Default check-in/check-out for a fresh booking form. Without this the
+ * dates start blank, the availability filter has nothing to check against,
+ * and every room — including ones with a guest checked in right now — shows
+ * in the Room dropdown until staff happen to fill in dates first.
+ */
+function defaultBookingDates(): { checkIn: string; checkOut: string } {
+  const today = new Date()
+  const tomorrow = new Date(today)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  return { checkIn: today.toLocaleDateString('en-CA'), checkOut: tomorrow.toLocaleDateString('en-CA') }
+}
+
 interface BookingWithDetails {
   id: string
   remoteId?: string
@@ -112,8 +125,7 @@ export function BookingsPage() {
     guestEmail: '',
     guestPhone: '',
     guestAddress: '',
-    checkIn: '',
-    checkOut: '',
+    ...defaultBookingDates(),
     adults: 1,
     children: 0,
     totalPrice: 0,
@@ -134,12 +146,17 @@ export function BookingsPage() {
   }
   const isRoomBooked = (roomNumber: string) => {
     if (!formData.checkIn || !formData.checkOut) return false
-    return bookings.some((b) =>
-      b.roomNumber === roomNumber &&
-      !(editingId && b.id === editingId) &&
-      activeStatuses.has(b.status) &&
-      isOverlap(formData.checkIn, formData.checkOut, b.checkIn, b.checkOut)
-    )
+    return bookings.some((b) => {
+      if (b.roomNumber !== roomNumber) return false
+      if (editingId && b.id === editingId) return false
+      if (!activeStatuses.has(b.status)) return false
+      if (isOverlap(formData.checkIn, formData.checkOut, b.checkIn, b.checkOut)) return true
+      // A guest still marked checked-in physically occupies the room through
+      // their checkout date until the actual check-out action happens —
+      // block same-day turnover even though date math alone would free the
+      // room on its checkout day.
+      return b.status === 'checked-in' && formData.checkIn === b.checkOut
+    })
   }
 
   // Room dropdown only lists rooms that can actually be booked right now:
@@ -342,7 +359,11 @@ export function BookingsPage() {
         if (b.roomNumber !== selectedProperty.roomNumber) return false
 
         // Check if dates overlap
-        return isOverlap(formData.checkIn, formData.checkOut, b.checkIn, b.checkOut)
+        if (isOverlap(formData.checkIn, formData.checkOut, b.checkIn, b.checkOut)) return true
+
+        // A guest still marked checked-in physically occupies the room through
+        // their checkout date until the actual check-out action happens.
+        return b.status === 'checked-in' && formData.checkIn === b.checkOut
       })
 
       if (isRoomBooked) {
@@ -748,8 +769,7 @@ export function BookingsPage() {
       guestEmail: '',
       guestPhone: '',
       guestAddress: '',
-      checkIn: '',
-      checkOut: '',
+      ...defaultBookingDates(),
       adults: 1,
       children: 0,
       totalPrice: 0,
