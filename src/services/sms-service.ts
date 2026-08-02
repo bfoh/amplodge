@@ -174,7 +174,7 @@ export async function sendCheckInSMS(params: {
 You are checked in to Room ${roomNumber}.
 Checkout: ${new Date(checkOutDate).toLocaleDateString()} @ 11AM
 ${totalAmount && paymentMethod ? `Paid: ${totalAmount} (${paymentMethod})\nThis payment is not refundable.` : ''}
-WiFi password at front desk.
+WiFi: AMPLODGE FREE INTERNET / Pass: 987654321
 BFast: 7-10AM
 Dial +233555009697 for help.
 
