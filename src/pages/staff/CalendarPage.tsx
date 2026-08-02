@@ -217,13 +217,27 @@ export function CalendarPage() {
     })
   }
 
-  // Show every room with an id; the dropdown disables booked ones rather than
-  // hiding them so staff can see the full inventory at a glance. Server-side
-  // overlap check still rejects on submit if a booked room is somehow picked.
+  // Room dropdown only lists rooms that can actually be booked right now:
+  // not under maintenance, and not already booked for the selected dates
+  // (recomputed live off `bookings`, kept fresh by loadData's real-time
+  // subscription). Until check-in/check-out are picked, every non-maintenance
+  // room shows — there's nothing to check an overlap against yet.
   const availableProperties = useMemo(() => {
-    return properties.filter((p: any) => !!p.id)
-     
-  }, [properties])
+    return properties.filter((p: any) => !!p.id && p.status !== 'maintenance' && !isPropertyBooked(p.id))
+  }, [properties, bookings, formData.checkIn, formData.checkOut])
+
+  // If the selected room drops out of the available list — dates changed to
+  // overlap another booking, or another staff member just booked it — clear
+  // the stale selection instead of silently submitting for an unavailable room.
+  useEffect(() => {
+    if (!formData.propertyId) return
+    const stillAvailable = availableProperties.some((p: any) => p.id === formData.propertyId)
+    if (!stillAvailable) {
+      setFormData(prev => ({ ...prev, propertyId: '' }))
+      toast.info('That room is no longer available for these dates — please pick another.')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableProperties])
 
   // Auto-calc price when selection/dates change
   useEffect(() => {
@@ -555,10 +569,9 @@ export function CalendarPage() {
                     {availableProperties.map((property: any) => {
                       const roomType = roomTypes.find((rt: any) => rt.id === property.propertyTypeId)
                       const pricePerNight = Number(roomType?.basePrice) || 0
-                      const booked = isPropertyBooked(property.id)
                       return (
-                        <option key={property.id} value={property.id} disabled={booked}>
-                          {property.name} (Room {property.roomNumber}) - {roomType?.name || ''} - {formatCurrencySync(pricePerNight, currency)}/night{booked ? ' • Booked' : ''}
+                        <option key={property.id} value={property.id}>
+                          {property.name} (Room {property.roomNumber}) - {roomType?.name || ''} - {formatCurrencySync(pricePerNight, currency)}/night
                         </option>
                       )
                     })}

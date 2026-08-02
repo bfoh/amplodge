@@ -135,19 +135,35 @@ export function BookingsPage() {
   const isRoomBooked = (roomNumber: string) => {
     if (!formData.checkIn || !formData.checkOut) return false
     return bookings.some((b) =>
-      b.roomNumber === roomNumber && activeStatuses.has(b.status) &&
+      b.roomNumber === roomNumber &&
+      !(editingId && b.id === editingId) &&
+      activeStatuses.has(b.status) &&
       isOverlap(formData.checkIn, formData.checkOut, b.checkIn, b.checkOut)
     )
   }
 
-  // Build the list of rooms to show in the dropdown.
-  // We previously filtered out every room with an overlapping active booking,
-  // which made several rooms vanish from the form even though they exist —
-  // confusing for staff who expect to see the full inventory. Now we return
-  // ALL rooms with a roomNumber, and the render layer marks booked ones as
-  // disabled so they can't be selected. The booking-engine still enforces
-  // a server-side overlap check, so this is purely a UX improvement.
-  const availableProperties = properties.filter((prop: any) => !!prop.roomNumber)
+  // Room dropdown only lists rooms that can actually be booked right now:
+  // not under maintenance, and not already booked for the selected dates
+  // (recomputed live off the `bookings`/`properties` state, which the
+  // useSubscription hooks above keep in sync with other staff's activity).
+  // Until check-in/check-out are picked, every non-maintenance room shows —
+  // there's nothing to check an overlap against yet.
+  const availableProperties = properties.filter((prop: any) =>
+    !!prop.roomNumber && prop.status !== 'maintenance' && !isRoomBooked(prop.roomNumber)
+  )
+
+  // If the selected room drops out of the available list — dates changed to
+  // overlap another booking, or another staff member just booked it — clear
+  // the stale selection instead of silently submitting for an unavailable room.
+  useEffect(() => {
+    if (!formData.propertyId) return
+    const stillAvailable = availableProperties.some((p: any) => p.id === formData.propertyId)
+    if (!stillAvailable) {
+      setFormData(prev => ({ ...prev, propertyId: '' }))
+      toast.info('That room is no longer available for these dates — please pick another.')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.checkIn, formData.checkOut, bookings, properties, editingId])
 
   // Auto-calculate price when property or dates change
   useEffect(() => {
@@ -933,14 +949,9 @@ export function BookingsPage() {
                     {availableProperties.map((property: any) => {
                       const roomType = roomTypes.find((rt: any) => rt.id === property.roomTypeId)
                       const pricePerNight = Number(roomType?.basePrice) || Number(property.basePrice) || 0
-                      // Disable rooms that already have an overlapping active
-                      // booking for the chosen dates. The server still enforces
-                      // this on submit; the disabled flag is just to prevent
-                      // staff from picking a clearly unavailable room.
-                      const booked = isRoomBooked(property.roomNumber)
                       return (
-                        <option key={property.id} value={property.id} disabled={booked}>
-                          Room {property.roomNumber} • {roomType?.name || 'Room'} • {formatCurrencySync(pricePerNight, currency)}/night{booked ? ' • Booked' : ''}
+                        <option key={property.id} value={property.id}>
+                          Room {property.roomNumber} • {roomType?.name || 'Room'} • {formatCurrencySync(pricePerNight, currency)}/night
                         </option>
                       )
                     })}
