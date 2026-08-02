@@ -111,6 +111,9 @@ export function getRoomAvailability(
       if (roomId !== property.id) return false
       const bCheckIn = b.checkIn || b.check_in || b.dates?.checkIn
       const bCheckOut = b.checkOut || b.check_out || b.dates?.checkOut
+      // A room's checkout day is a normal turnover day — a new booking
+      // starting the same day the current guest checks out is allowed,
+      // regardless of whether that checkout has been processed yet.
       return isDateRangeOverlap(checkIn, checkOut, bCheckIn, bCheckOut)
     })
 

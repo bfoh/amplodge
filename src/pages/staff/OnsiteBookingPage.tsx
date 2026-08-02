@@ -137,16 +137,17 @@ export function OnsiteBookingPage() {
         })
 
       // Process bookings - bookingEngine.getAllBookings() already provides roomNumber
-      // Only resolve roomId if roomNumber is missing
+      // but never a roomId (LocalBooking has no such field). getRoomAvailability()
+      // below matches bookings to rooms strictly by roomId, so without this backfill
+      // no booking ever matches its room and every room reads "available" regardless
+      // of actual occupancy.
+      const roomIdByNumber = new Map(
+        roomsWithPrices.map((p: any) => [String(p.roomNumber || '').trim(), p.id])
+      )
       const processedBookings = bookingsData.map((booking: any) => {
-        if (booking.roomNumber) {
-          return booking // Already has roomNumber from bookingEngine
-        }
-        const room = roomsData.find((p: any) => p.id === booking.roomId)
-        return {
-          ...booking,
-          roomNumber: room?.roomNumber || 'Unknown'
-        }
+        const roomNumber = booking.roomNumber || roomsData.find((p: any) => p.id === booking.roomId)?.roomNumber || 'Unknown'
+        const roomId = booking.roomId || roomIdByNumber.get(String(roomNumber).trim()) || ''
+        return { ...booking, roomNumber, roomId }
       })
 
       setRoomTypes(filteredTypes)

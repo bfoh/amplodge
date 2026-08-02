@@ -176,7 +176,19 @@ export function GroupManageDialog({
             setGuests(guestsData)
             setRoomTypes(roomTypesData)
             setProperties(propertiesData)
-            setAllBookings(everyBooking)
+
+            // bookingEngine.getAllBookings() returns LocalBooking rows, which carry
+            // roomNumber but never roomId — getRoomAvailability() below matches
+            // bookings to rooms strictly by roomId, so without this backfill no
+            // booking ever matches its room and every room reads as available.
+            const roomIdByNumber = new Map(
+                (propertiesData as any[]).map((p: any) => [String(p.roomNumber || '').trim(), p.id])
+            )
+            const backfilledBookings = (everyBooking as any[]).map((b: any) => ({
+                ...b,
+                roomId: b.roomId || roomIdByNumber.get(String(b.roomNumber || '').trim()) || '',
+            }))
+            setAllBookings(backfilledBookings)
             setGroupMeta(meta)
 
             const guestMap = new Map(guestsData.map((g: any) => [g.id, g]))

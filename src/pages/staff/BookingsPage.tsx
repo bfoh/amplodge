@@ -150,12 +150,9 @@ export function BookingsPage() {
       if (b.roomNumber !== roomNumber) return false
       if (editingId && b.id === editingId) return false
       if (!activeStatuses.has(b.status)) return false
-      if (isOverlap(formData.checkIn, formData.checkOut, b.checkIn, b.checkOut)) return true
-      // A guest still marked checked-in physically occupies the room through
-      // their checkout date until the actual check-out action happens —
-      // block same-day turnover even though date math alone would free the
-      // room on its checkout day.
-      return b.status === 'checked-in' && formData.checkIn === b.checkOut
+      // A room's checkout day is a normal turnover day — a new booking
+      // starting the same day the current guest checks out is allowed.
+      return isOverlap(formData.checkIn, formData.checkOut, b.checkIn, b.checkOut)
     })
   }
 
@@ -358,12 +355,9 @@ export function BookingsPage() {
         // Check if this booking is for the same room
         if (b.roomNumber !== selectedProperty.roomNumber) return false
 
-        // Check if dates overlap
-        if (isOverlap(formData.checkIn, formData.checkOut, b.checkIn, b.checkOut)) return true
-
-        // A guest still marked checked-in physically occupies the room through
-        // their checkout date until the actual check-out action happens.
-        return b.status === 'checked-in' && formData.checkIn === b.checkOut
+        // Check if dates overlap. A room's checkout day is a normal turnover
+        // day — a new booking starting the same day is allowed.
+        return isOverlap(formData.checkIn, formData.checkOut, b.checkIn, b.checkOut)
       })
 
       if (isRoomBooked) {

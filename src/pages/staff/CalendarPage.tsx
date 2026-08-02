@@ -223,10 +223,9 @@ export function CalendarPage() {
       const bRoomId = b.propertyId ?? b.roomId
       if (bRoomId !== propertyId) return false
       if (!activeStatuses.has(b.status)) return false
-      if (isOverlap(formData.checkIn, formData.checkOut, b.checkIn, b.checkOut)) return true
-      // A guest still marked checked-in physically occupies the room through
-      // their checkout date until the actual check-out action happens.
-      return b.status === 'checked-in' && formData.checkIn === b.checkOut
+      // A room's checkout day is a normal turnover day — a new booking
+      // starting the same day the current guest checks out is allowed.
+      return isOverlap(formData.checkIn, formData.checkOut, b.checkIn, b.checkOut)
     })
   }
 
