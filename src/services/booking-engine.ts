@@ -200,13 +200,18 @@ class BookingEngine {
         console.log('[BookingEngine] Found by email:', existing?.id)
       }
 
-      // If not found by email, try by computed ID. We deliberately keep this
-      // sequential — most submits hit the email match and never need it.
-      if (!existing) {
-        const byId = await db.guests.list({ where: { id: computedGuestId }, limit: 1 })
-        existing = (byId as any[])?.[0]
-        console.log('[BookingEngine] Found by ID:', existing?.id)
-      }
+      // NOTE: there used to be a second lookup here querying guests.id by
+      // computedGuestId (a slug like "guest-jane-doe-example-com"). guests.id
+      // is a real UUID column — guest rows are always created with
+      // crypto.randomUUID() below, never a slug — so that lookup could never
+      // match anything and always threw a Postgres "invalid input syntax for
+      // uuid" error. Because that throw wasn't locally caught, it aborted
+      // straight out of this whole try block (past the "create new guest"
+      // branch below) into the outer catch, which falls through to the
+      // fallback-guest path further down — silently discarding the real
+      // email/phone that was actually provided for every brand-new guest.
+      // Removed: if email search didn't find them, they're new — go create
+      // the guest with the real details, no pointless lookup in between.
 
       if (existing) {
         guestId = existing.id

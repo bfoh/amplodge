@@ -20,7 +20,7 @@ import {
 function describeAction(name: string, args: any): string {
   switch (name) {
     case 'createBooking':
-      return `Create a booking for ${args.guestName} — Room ${args.roomNumberOrType}, ${args.checkIn} → ${args.checkOut}${args.amountCollected ? `, collecting GH₵${args.amountCollected} (${args.paymentMethod})` : ' (nothing collected yet)'}.`
+      return `Create a booking for ${args.guestName} (${args.guestEmail}${args.guestPhone ? `, ${args.guestPhone}` : ''}) — Room ${args.roomNumberOrType}, ${args.checkIn} → ${args.checkOut}${args.amountCollected ? `, collecting GH₵${args.amountCollected} (${args.paymentMethod})` : ' (nothing collected yet)'}.`
     case 'checkInGuest':
       return `Check in ${args.guestNameOrBookingRef}${args.amountCollected ? `, collecting GH₵${args.amountCollected} in ${args.paymentMethod}` : ` (${args.paymentMethod})`}.`
     case 'checkOutGuest':
@@ -28,9 +28,9 @@ function describeAction(name: string, args: any): string {
     case 'extendStay':
       return `Extend ${args.guestNameOrBookingRef}'s stay to ${args.newCheckoutDate}${args.newRoomNumber ? ` (moving to Room ${args.newRoomNumber})` : ''}.`
     case 'createGroupBooking':
-      return `Create a group booking with ${args.rooms?.length || 0} room(s) billed to ${args.billingContactName}.`
+      return `Create a group booking with ${args.rooms?.length || 0} room(s) billed to ${args.billingContactName} (${args.billingContactEmail}).`
     case 'addRoomToGroup':
-      return `Add Room ${args.roomNumberOrType} for ${args.guestName} to group ${args.groupReference}.`
+      return `Add Room ${args.roomNumberOrType} for ${args.guestName} (${args.guestEmail}) to group ${args.groupReference}.`
     case 'removeRoomFromGroup':
       return `Remove ${args.roomNumberOrGuestName} from group ${args.groupReference}.`
     case 'cancelGroup':

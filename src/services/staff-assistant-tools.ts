@@ -408,7 +408,26 @@ async function toolGetTodaysDepartures(): Promise<ToolResult> {
 // Write tools (plain functions — everything except check-in/check-out)
 // ---------------------------------------------------------------------------
 
+/**
+ * Guest email is required to create a booking — it's how the confirmation
+ * email and, later, the checkout invoice reach the guest. Matches the exact
+ * bar BookingsPage.tsx's own form already enforces ("Guest name and email
+ * are required"). Without this check the model can (and did, in practice)
+ * skip straight to booking without ever asking, and createBooking silently
+ * falls back to a fallback-<uuid>@guest.local placeholder that can never
+ * receive anything.
+ */
+function requireGuestEmail(email: string | undefined): ToolResult | null {
+  if (!email || !email.trim()) {
+    return { ok: false, error: "I still need the guest's email address before I can book this — please ask the staff member for it (a phone number too, if they have one)." }
+  }
+  return null
+}
+
 async function toolCreateBooking(args: any, staffCtx: StaffCtx): Promise<ToolResult> {
+  const emailError = requireGuestEmail(args.guestEmail)
+  if (emailError) return emailError
+
   const roomResult = await resolveRoom(args.roomNumberOrType, args.checkIn, args.checkOut)
   if ('ok' in roomResult) return roomResult
   const { property, roomTypeName } = roomResult
@@ -490,15 +509,21 @@ async function toolExtendStay(args: any, staffCtx: StaffCtx): Promise<ToolResult
 }
 
 async function toolCreateGroupBooking(args: any, staffCtx: StaffCtx): Promise<ToolResult> {
+  const billingEmailError = requireGuestEmail(args.billingContactEmail)
+  if (billingEmailError) return billingEmailError
+
   const rooms: any[] = []
   for (const r of args.rooms || []) {
+    const roomEmailError = requireGuestEmail(r.guestEmail)
+    if (roomEmailError) return roomEmailError
+
     const roomResult = await resolveRoom(r.roomNumberOrType, r.checkIn, r.checkOut)
     if ('ok' in roomResult) return roomResult
     const n = nights(r.checkIn, r.checkOut)
     const amount = n * (roomResult.property.basePrice || roomResult.property.price || 0)
     rooms.push({
       bookingData: {
-        guest: { fullName: r.guestName, email: '', phone: '', address: '' },
+        guest: { fullName: r.guestName, email: r.guestEmail, phone: r.guestPhone || '', address: '' },
         roomType: roomResult.roomTypeName,
         roomNumber: roomResult.property.roomNumber,
         dates: { checkIn: r.checkIn, checkOut: r.checkOut },
@@ -516,8 +541,8 @@ async function toolCreateGroupBooking(args: any, staffCtx: StaffCtx): Promise<To
   try {
     const created = await createBookingGroup(rooms, {
       fullName: args.billingContactName,
-      email: args.billingContactEmail || '',
-      phone: '',
+      email: args.billingContactEmail,
+      phone: args.billingContactPhone || '',
       address: '',
     })
     return {
@@ -531,6 +556,9 @@ async function toolCreateGroupBooking(args: any, staffCtx: StaffCtx): Promise<To
 }
 
 async function toolAddRoomToGroup(args: any, staffCtx: StaffCtx): Promise<ToolResult> {
+  const emailError = requireGuestEmail(args.guestEmail)
+  if (emailError) return emailError
+
   const groupId = await resolveGroupId(args.groupReference)
   if (typeof groupId !== 'string') return groupId
   const roomResult = await resolveRoom(args.roomNumberOrType, args.checkIn, args.checkOut)
@@ -540,7 +568,7 @@ async function toolAddRoomToGroup(args: any, staffCtx: StaffCtx): Promise<ToolRe
 
   try {
     await addGroupMember(groupId, {
-      guest: { fullName: args.guestName, email: '', phone: '', address: '' },
+      guest: { fullName: args.guestName, email: args.guestEmail, phone: args.guestPhone || '', address: '' },
       roomType: roomResult.roomTypeName,
       roomNumber: roomResult.property.roomNumber,
       dates: { checkIn: args.checkIn, checkOut: args.checkOut },

@@ -142,8 +142,8 @@ const STAFF_TOOLS = [
       type: 'object',
       properties: {
         guestName: { type: 'string', description: "Guest's full name" },
-        guestEmail: { type: 'string', description: "Guest's email (optional but recommended)" },
-        guestPhone: { type: 'string', description: "Guest's phone (optional)" },
+        guestEmail: { type: 'string', description: "Guest's email — REQUIRED. Used to send the booking confirmation and, later, the checkout invoice. Ask the staff member for it before calling this tool if they haven't given it." },
+        guestPhone: { type: 'string', description: "Guest's phone — strongly recommended, used for SMS confirmations. Ask for it too if not given." },
         roomNumberOrType: { type: 'string', description: 'Room number (e.g. "105") or room type name (e.g. "Deluxe Room")' },
         checkIn: { type: 'string', description: 'Check-in date, YYYY-MM-DD' },
         checkOut: { type: 'string', description: 'Check-out date, YYYY-MM-DD' },
@@ -151,7 +151,7 @@ const STAFF_TOOLS = [
         paymentMethod: { type: 'string', description: 'cash, mobile_money, or card. Omit if nothing paid yet.' },
         amountCollected: { type: 'number', description: 'Amount collected now, if any. Omit or 0 for pay-later.' },
       },
-      required: ['guestName', 'roomNumberOrType', 'checkIn', 'checkOut', 'guests'],
+      required: ['guestName', 'guestEmail', 'roomNumberOrType', 'checkIn', 'checkOut', 'guests'],
     },
   },
   {
@@ -200,7 +200,8 @@ const STAFF_TOOLS = [
       type: 'object',
       properties: {
         billingContactName: { type: 'string', description: 'Name of the person/company being billed for the group' },
-        billingContactEmail: { type: 'string', description: 'Billing contact email (optional)' },
+        billingContactEmail: { type: 'string', description: 'Billing contact email — REQUIRED, used to send the group invoice. Ask for it if not given.' },
+        billingContactPhone: { type: 'string', description: 'Billing contact phone (optional)' },
         rooms: {
           type: 'array',
           description: 'One entry per room in the group',
@@ -209,15 +210,17 @@ const STAFF_TOOLS = [
             properties: {
               roomNumberOrType: { type: 'string' },
               guestName: { type: 'string' },
+              guestEmail: { type: 'string', description: "This room's guest's email — REQUIRED for their booking confirmation. Ask for each guest's email before calling this tool." },
+              guestPhone: { type: 'string', description: "This room's guest's phone (optional but recommended)" },
               checkIn: { type: 'string' },
               checkOut: { type: 'string' },
               guests: { type: 'number' },
             },
-            required: ['roomNumberOrType', 'guestName', 'checkIn', 'checkOut', 'guests'],
+            required: ['roomNumberOrType', 'guestName', 'guestEmail', 'checkIn', 'checkOut', 'guests'],
           },
         },
       },
-      required: ['billingContactName', 'rooms'],
+      required: ['billingContactName', 'billingContactEmail', 'rooms'],
     },
   },
   {
@@ -229,11 +232,13 @@ const STAFF_TOOLS = [
         groupReference: { type: 'string', description: 'The group booking reference' },
         roomNumberOrType: { type: 'string' },
         guestName: { type: 'string' },
+        guestEmail: { type: 'string', description: "Guest's email — REQUIRED, used for their booking confirmation. Ask for it if not given." },
+        guestPhone: { type: 'string', description: "Guest's phone (optional but recommended)" },
         checkIn: { type: 'string' },
         checkOut: { type: 'string' },
         guests: { type: 'number' },
       },
-      required: ['groupReference', 'roomNumberOrType', 'guestName', 'checkIn', 'checkOut', 'guests'],
+      required: ['groupReference', 'roomNumberOrType', 'guestName', 'guestEmail', 'checkIn', 'checkOut', 'guests'],
     },
   },
   {
@@ -316,7 +321,8 @@ Rules:
 4. When a staff member asks about revenue/statistics without specifying a period, default to "today" unless the question implies otherwise ("this month's numbers" → thisMonth, "how are we doing this week" → thisWeek).
 5. For any parameter that refers to a guest, booking, room, or staff member ("guestNameOrBookingRef", "roomNumberOrType", "roomNumberOrGuestName", "staffName"), pass through the person's own words as plainly as possible — do not try to normalize, guess, or resolve it to an ID yourself. If a reference could plausibly match more than one active booking or staff member, ask them to clarify rather than guessing.
 6. If a tool call fails or is denied, explain what happened in plain language and suggest a next step — don't just repeat the same call.
-7. Be concise. Staff are busy at a front desk, not looking for a long conversation. When presenting revenue/stats figures, lead with the headline number, then a couple of supporting details — not a wall of data.`
+7. Be concise. Staff are busy at a front desk, not looking for a long conversation. When presenting revenue/stats figures, lead with the headline number, then a couple of supporting details — not a wall of data.
+8. Before creating any booking (createBooking, createGroupBooking, addRoomToGroup), you MUST have the guest's email address — it's how their booking confirmation and later their checkout invoice actually reach them. If the staff member hasn't given it yet, ask for it explicitly (and ask for a phone number too, since that's used for SMS confirmations) before calling the tool — don't invent a placeholder or guess one. Dates and guest count alone are not enough to book.`
 }
 
 export const handler = async (event) => {
