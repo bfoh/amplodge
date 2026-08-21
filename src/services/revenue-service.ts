@@ -168,6 +168,79 @@ function parseGroupData(specialRequests: string): { groupId?: string; groupRefer
   }
 }
 
+/** Rooms booked in one sitting land within seconds of each other; days apart means a separate payment. */
+const GROUP_BATCH_GAP_MS = 30 * 60 * 1000
+
+/**
+ * Find group-member bookings whose stored PAYMENT_DATA.amountPaid is really a
+ * whole batch's payment stamped onto every room booked in that sitting.
+ *
+ * Before 2026-08-21 the booking form wrote the batch-wide figure onto each
+ * room, so a 5-room batch that paid GHS 1,000 stored "1000" five times. Rooms
+ * added to the same group on a later day are a separate payment and must not
+ * be pooled with it — hence batches, not groups, are the unit here.
+ *
+ * A stored amount that appears on only one room of a group is left alone: it
+ * is already that room's own figure. Rows carrying PAYMENT_EVENTS are skipped
+ * entirely — those hold a real per-room share and need no reconstruction.
+ *
+ * Returns bookingId → { amount: what the batch paid, subtotal: batch room total }.
+ */
+function buildLegacyGroupBatches(
+  bookings: any[]
+): Map<string, { amount: number; subtotal: number }> {
+  // groupId + stored amount → the member rows carrying it
+  const candidates = new Map<string, Array<{ id: string; price: number; at: number }>>()
+
+  for (const b of bookings) {
+    const specialReq = b.special_requests || b.specialRequests || ''
+    const gid = parseGroupData(specialReq)?.groupId
+    if (!gid) continue
+    if (parsePaymentEvents(specialReq).some((e) => e.stage === 'booking')) continue
+
+    const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
+    if (!pdMatch?.[1]) continue
+    let amount = 0
+    try {
+      amount = Number(JSON.parse(pdMatch[1]).amountPaid) || 0
+    } catch { continue }
+    if (amount <= 0) continue
+
+    const key = `${gid}|${amount}`
+    if (!candidates.has(key)) candidates.set(key, [])
+    candidates.get(key)!.push({
+      id: b.id,
+      price: Number(b.totalPrice ?? b.total_price ?? 0) || 0,
+      at: new Date(b.createdAt || b.created_at || 0).getTime() || 0,
+    })
+  }
+
+  const batches = new Map<string, { amount: number; subtotal: number }>()
+
+  for (const [key, rows] of candidates.entries()) {
+    const amount = Number(key.split('|')[1])
+    rows.sort((a, b) => a.at - b.at)
+
+    // Chain rows into sittings: consecutive rows closer than the gap belong together.
+    let current: typeof rows = []
+    const flush = () => {
+      if (current.length > 1) {
+        const subtotal = current.reduce((s, r) => s + r.price, 0)
+        for (const r of current) batches.set(r.id, { amount, subtotal })
+      }
+      current = []
+    }
+    for (const row of rows) {
+      const prev = current[current.length - 1]
+      if (prev && row.at - prev.at > GROUP_BATCH_GAP_MS) flush()
+      current.push(row)
+    }
+    flush()
+  }
+
+  return batches
+}
+
 /**
  * Normalise payment method to canonical lowercase/underscore format.
  * Returns '' when no data is stored (so UI can show a dash instead of "Not Paid").
@@ -245,16 +318,17 @@ export function calculateStaffWeekResultInternal(
     }
   }
 
-  // Room total of every booking in a group, keyed by groupId. Used to prorate
-  // group-wide figures (legacy PAYMENT_DATA.amountPaid) back down to one room.
-  const groupSubtotalMap = new Map<string, number>()
+  const legacyGroupBatches = buildLegacyGroupBatches(allBookings)
 
-  for (const b of allBookings) {
-    const specialReq = b.special_requests || b.specialRequests || ''
-    const gid = parseGroupData(specialReq)?.groupId
-    if (gid) {
-      groupSubtotalMap.set(gid, (groupSubtotalMap.get(gid) || 0) + Number(b.totalPrice || 0))
-    }
+  /**
+   * How much of a legacy group member's stored PAYMENT_DATA.amountPaid really
+   * belongs to this one room. Returns null when the row is not part of a
+   * duplicated batch, in which case the stored figure is already per-room.
+   */
+  const proratedLegacyPayment = (bookingId: string, roomPrice: number): number | null => {
+    const batch = legacyGroupBatches.get(bookingId)
+    if (!batch || batch.subtotal <= 0) return null
+    return Math.round((roomPrice / batch.subtotal) * batch.amount * 100) / 100
   }
 
   const chargesByBookingId = new Map<string, any[]>()
@@ -398,10 +472,6 @@ export function calculateStaffWeekResultInternal(
       if (isConfirmed) {
         const isGroupMember = specialReq.includes('GROUP_DATA')
         const groupData = isGroupMember ? parseGroupData(specialReq) : null
-        const groupId = groupData?.groupId || ''
-        // Room total of every booking in this group — used to prorate a
-        // group-wide legacy deposit back down to this one room.
-        const groupSubtotal = groupId ? (groupSubtotalMap.get(groupId) || 0) : 0
         const events = parsePaymentEvents(specialReq)
         if (events.length > 0) {
           // A group's deposit is stored as a per-room share on each member
@@ -443,11 +513,10 @@ export function calculateStaffWeekResultInternal(
                 // the group paid.
                 depositAmount = rawPrice
               } else if (pd.amountPaid > 0) {
-                // PAYMENT_DATA.amountPaid is written group-wide on every member
-                // booking, so prorate it by this room's share of the group.
-                depositAmount = isGroupMember && groupSubtotal > 0
-                  ? Math.round((rawPrice / groupSubtotal) * Number(pd.amountPaid) * 100) / 100
-                  : Number(pd.amountPaid)
+                // A batch-wide figure stamped on every room booked in one
+                // sitting is prorated back down; anything else is already
+                // this room's own number.
+                depositAmount = proratedLegacyPayment(b.id, rawPrice) ?? Number(pd.amountPaid)
               }
             } catch { /* ignore */ }
           }
@@ -486,28 +555,15 @@ export function calculateStaffWeekResultInternal(
       let legacyAmountPaid: number | undefined
       let legacyPaymentStatus: 'full' | 'part' | 'pending' | undefined
       if (paymentEvents.length === 0) {
-        const isGroupMember = specialReq.includes('GROUP_DATA')
         const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
         if (pdMatch?.[1]) {
           try {
             const pd = JSON.parse(pdMatch[1])
             legacyPaymentStatus = (pd.paymentStatus || 'pending') as 'full' | 'part' | 'pending'
-            if (isGroupMember) {
-              const gdMatch = (specialReq as string).match(/<!-- GROUP_DATA:(.*?) -->/)
-              if (gdMatch?.[1]) {
-                try {
-                  const gd = JSON.parse(gdMatch[1])
-                  const gid = gd.groupId
-                  const groupSubtotal = gid ? (groupSubtotalMap.get(gid) || 0) : 0
-                  const totalDeposit = Number(pd.amountPaid || 0)
-                  if (groupSubtotal > 0 && totalDeposit > 0) {
-                    legacyAmountPaid = Math.round((effectivePrice / groupSubtotal) * totalDeposit * 100) / 100
-                  }
-                } catch { /* ignore */ }
-              }
-            } else {
-              legacyAmountPaid = pd.amountPaid || 0
-            }
+            // A batch-wide figure stamped on every room booked in one sitting
+            // is prorated back down to this room; anything else is already
+            // this room's own number.
+            legacyAmountPaid = proratedLegacyPayment(b.id, effectivePrice) ?? (Number(pd.amountPaid) || 0)
           } catch { /* ignore */ }
         }
         if (!legacyAmountPaid) legacyAmountPaid = Number(b.amountPaid ?? b.amount_paid ?? 0) || 0
