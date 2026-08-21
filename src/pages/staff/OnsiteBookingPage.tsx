@@ -263,11 +263,16 @@ export function OnsiteBookingPage() {
         const itemNights = differenceInDays(item.checkOut, item.checkIn)
         const itemTotal = Number(item.price) * itemNights
 
-        // Proportional payment amount for this room (exact for single-room, proportional for group)
+        // Payment amount belonging to THIS room: the whole part-payment for a
+        // single-room booking, this room's proportional share for a group.
         const itemPaymentAmount = paymentType === 'full'
           ? itemTotal
-          : paymentType === 'part' && grandTotal > 0
-            ? Math.round((itemTotal / grandTotal) * splitsPaidTotal * 100) / 100
+          : paymentType === 'part'
+            ? (isSingleRoom
+                ? splitsPaidTotal
+                : grandTotal > 0
+                  ? Math.round((itemTotal / grandTotal) * splitsPaidTotal * 100) / 100
+                  : 0)
             : 0
 
         const assigned = guestAssignments[item.id] || { name: guestInfo.name, email: guestInfo.email }
@@ -303,13 +308,20 @@ export function OnsiteBookingPage() {
           payment: {
             method: primaryPaymentMethod as 'cash' | 'mobile_money' | 'card' | 'not_paid',
             status: (paymentType === 'full' ? 'completed' : 'pending') as 'completed' | 'pending',
-            amount: paymentType === 'full' ? itemTotal : (paymentType === 'part' ? splitsPaidTotal : 0),
+            amount: itemPaymentAmount,
             reference: `PAY-${Date.now()}-${index}`,
             paidAt: paymentType !== 'pending' ? new Date().toISOString() : undefined
           },
           paymentMethod: primaryPaymentMethod,
           paymentSplits: paymentSplitsData,
-          amountPaid: paymentType === 'full' ? grandTotal : (paymentType === 'part' ? splitsPaidTotal : 0),
+          // Each room records only the money that belongs to it. Storing the
+          // group-wide figure on every room made every consumer (revenue
+          // reports, invoices, reservations) count the same deposit once per
+          // room. Single-room bookings keep the whole-booking figure, which
+          // includes charges/discount.
+          amountPaid: isSingleRoom
+            ? (paymentType === 'full' ? grandTotal : (paymentType === 'part' ? splitsPaidTotal : 0))
+            : itemPaymentAmount,
           paymentStatus: paymentType,
           createdBy: user?.id,
           createdByName: staffName,

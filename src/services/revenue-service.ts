@@ -157,6 +157,17 @@ function parsePaymentSplits(rawBooking: any): Array<{ method: string; amount: nu
   }
 }
 
+/** Parsed GROUP_DATA metadata, or null when the booking is not a group member. */
+function parseGroupData(specialRequests: string): { groupId?: string; groupReference?: string; isPrimaryBooking?: boolean } | null {
+  const match = (specialRequests || '').match(/<!-- GROUP_DATA:(.*?) -->/)
+  if (!match?.[1]) return null
+  try {
+    return JSON.parse(match[1])
+  } catch {
+    return null
+  }
+}
+
 /**
  * Normalise payment method to canonical lowercase/underscore format.
  * Returns '' when no data is stored (so UI can show a dash instead of "Not Paid").
@@ -234,29 +245,15 @@ export function calculateStaffWeekResultInternal(
     }
   }
 
+  // Room total of every booking in a group, keyed by groupId. Used to prorate
+  // group-wide figures (legacy PAYMENT_DATA.amountPaid) back down to one room.
   const groupSubtotalMap = new Map<string, number>()
-  const groupDepositMap = new Map<string, number>()
-  const groupBookingsByGid = new Map<string, any[]>()
 
   for (const b of allBookings) {
     const specialReq = b.special_requests || b.specialRequests || ''
-    if (specialReq.includes('GROUP_DATA')) {
-      const gdMatch = specialReq.match(/<!-- GROUP_DATA:(.*?) -->/)
-      if (gdMatch?.[1]) {
-        try {
-          const gd = JSON.parse(gdMatch[1])
-          const gid = gd.groupId
-          if (gid) {
-            groupSubtotalMap.set(gid, (groupSubtotalMap.get(gid) || 0) + Number(b.totalPrice || 0))
-            if (!groupBookingsByGid.has(gid)) groupBookingsByGid.set(gid, [])
-            groupBookingsByGid.get(gid)!.push(b)
-            
-            const events = parsePaymentEvents(specialReq)
-            const dep = events.filter(e => e.stage === 'booking').reduce((s, e) => s + e.amount, 0)
-            if (dep > 0) groupDepositMap.set(gid, (groupDepositMap.get(gid) || 0) + dep)
-          }
-        } catch { /* ignore */ }
-      }
+    const gid = parseGroupData(specialReq)?.groupId
+    if (gid) {
+      groupSubtotalMap.set(gid, (groupSubtotalMap.get(gid) || 0) + Number(b.totalPrice || 0))
     }
   }
 
@@ -283,8 +280,6 @@ export function calculateStaffWeekResultInternal(
       .map((b: any) => `${b.roomId || b.room_id}|${b.checkIn || b.check_in}`)
   )
 
-  const groupDepositAccountedFor = new Set<string>()
-
   const isThisStaff = (id: string, name: string): boolean => {
     if (id && staffIdSet.has(id)) return true
     if (!id && name && staffNameSet.has(name.trim().toLowerCase())) return true
@@ -306,10 +301,16 @@ export function calculateStaffWeekResultInternal(
       const specialReq = b.special_requests || b.specialRequests || ''
       const events = parsePaymentEvents(specialReq)
 
-      // 1. Check if ANY payment event happened in this week
+      // 1. Check if a payment event THIS staff member recorded happened in this week.
+      //
+      // The staff check is essential: this rule short-circuits every ownership
+      // check below it, so matching on "any staff's event" put every deposit
+      // taken in the week onto every staff member's report.
+      // Events with no staff stamped on them (legacy rows) deliberately fall
+      // through to rules 2/3, which credit the creator / check-in staff.
       const hasEventInWeek = events.some(e => {
         const d = new Date(e.paidAt)
-        return d >= from && d <= to
+        return d >= from && d <= to && isThisStaff(e.staffId, e.staffName)
       })
       if (hasEventInWeek) return true
 
@@ -391,16 +392,36 @@ export function calculateStaffWeekResultInternal(
 
       const isConfirmed = b.status === 'confirmed'
       let depositAmount = 0
+      let staffDepositAmount = 0
       let depositMethod = rawMethod
       let depositSplits: Array<{ method: string; amount: number }> | undefined
       if (isConfirmed) {
         const isGroupMember = specialReq.includes('GROUP_DATA')
+        const groupData = isGroupMember ? parseGroupData(specialReq) : null
+        const groupId = groupData?.groupId || ''
+        // Room total of every booking in this group — used to prorate a
+        // group-wide legacy deposit back down to this one room.
+        const groupSubtotal = groupId ? (groupSubtotalMap.get(groupId) || 0) : 0
         const events = parsePaymentEvents(specialReq)
         if (events.length > 0) {
-          depositAmount = events
-            .filter((e) => e.stage === 'booking')
+          // A group's deposit is stored as a per-room share on each member
+          // booking, so this row must count ONLY its own share. Summing the
+          // whole group here (as this once did) counted the deposit again for
+          // every room in the group.
+          const bookingEvents = events.filter((e) => e.stage === 'booking')
+          depositAmount = bookingEvents.reduce((s, e) => s + e.amount, 0)
+          staffDepositAmount = bookingEvents
+            .filter((e) => isThisStaff(e.staffId, e.staffName))
             .reduce((s, e) => s + e.amount, 0)
-          const bookingEvent = events.find((e) => e.stage === 'booking')
+          // An event saved with no staff on it belongs to whoever created the
+          // booking — without this the money would belong to nobody and drop
+          // out of the company-wide total, which sums these per-staff figures.
+          if (creatorId === staffId) {
+            staffDepositAmount += bookingEvents
+              .filter((e) => !e.staffId && !e.staffName)
+              .reduce((s, e) => s + e.amount, 0)
+          }
+          const bookingEvent = bookingEvents[0]
           if (bookingEvent) {
             depositMethod = bookingEvent.method
             // Multi-method deposit → surface each method with its amount
@@ -408,18 +429,6 @@ export function calculateStaffWeekResultInternal(
               .map((t) => ({ method: normalizePaymentMethod(t.method), amount: t.amount }))
               .filter((t) => t.method)
             if (totals.length > 1) depositSplits = totals
-          }
-
-          if (isGroupMember && depositAmount > 0) {
-            const gdMatch = (specialReq as string).match(/<!-- GROUP_DATA:(.*?) -->/)
-            if (gdMatch?.[1]) {
-              try {
-                const gd = JSON.parse(gdMatch[1])
-                const gid = gd.groupId
-                const groupDep = gid ? (groupDepositMap.get(gid) || 0) : 0
-                if (groupDep > 0) depositAmount = groupDep
-              } catch { /* ignore */ }
-            }
           }
         }
 
@@ -430,34 +439,36 @@ export function calculateStaffWeekResultInternal(
               const pd = JSON.parse(pdMatch[1])
               if (pd.paymentMethod) depositMethod = pd.paymentMethod
               if (pd.paymentStatus === 'full') {
-                depositAmount = isGroupMember ? Number(pd.amountPaid || rawPrice) : rawPrice
+                // Paid in full = this room's own price, whatever the rest of
+                // the group paid.
+                depositAmount = rawPrice
               } else if (pd.amountPaid > 0) {
-                depositAmount = Number(pd.amountPaid)
+                // PAYMENT_DATA.amountPaid is written group-wide on every member
+                // booking, so prorate it by this room's share of the group.
+                depositAmount = isGroupMember && groupSubtotal > 0
+                  ? Math.round((rawPrice / groupSubtotal) * Number(pd.amountPaid) * 100) / 100
+                  : Number(pd.amountPaid)
               }
             } catch { /* ignore */ }
           }
+          // Legacy rows carry no per-payment staff stamp — the booking's
+          // creator is the one who collected the deposit.
+          if (creatorId === staffId) staffDepositAmount = depositAmount
         }
 
         let displayRoomNumber = room?.roomNumber || '—'
-        let displayTotalPrice = rawPrice
-        if (isGroupMember) {
-          const gdMatch2 = (specialReq as string).match(/<!-- GROUP_DATA:(.*?) -->/)
-          if (gdMatch2?.[1]) {
-            try {
-              const gd = JSON.parse(gdMatch2[1])
-              if (gd.groupReference) displayRoomNumber = `Group ${gd.groupReference}`
-              const gid = gd.groupId
-              const groupTotal = gid ? (groupSubtotalMap.get(gid) || 0) : 0
-              if (groupTotal > 0) displayTotalPrice = groupTotal
-            } catch { /* ignore */ }
-          }
+        if (groupData?.groupReference) {
+          // Keep the room visible alongside the group reference; every member
+          // row rendering as just "Group GRP-…" made the duplicate deposits
+          // impossible to tell apart.
+          displayRoomNumber = `${displayRoomNumber} · ${groupData.groupReference}`
         }
 
         return {
           id: b.id, guestName, roomNumber: displayRoomNumber,
-          checkIn: b.checkIn, checkOut: b.checkOut, totalPrice: displayTotalPrice,
-          discountAmount: 0, effectivePrice: displayTotalPrice,
-          staffAttributedRevenue: depositAmount, isDeposit: true, depositAmount,
+          checkIn: b.checkIn, checkOut: b.checkOut, totalPrice: rawPrice,
+          discountAmount: 0, effectivePrice: rawPrice,
+          staffAttributedRevenue: staffDepositAmount, isDeposit: true, depositAmount,
           status: b.status, createdAt: b.createdAt || b.created_at || '',
           createdBy: creatorId, checkInBy: '', checkInByName: '', checkOutBy: '', checkOutByName: '',
           paymentMethod: normalizePaymentMethod(depositMethod),
@@ -539,7 +550,10 @@ export function calculateStaffWeekResultInternal(
         grandTotal: effectivePrice + additionalChargesTotal,
       }
     })
-    .filter((b) => b.isDeposit || b.staffAttributedRevenue > 0 || b.effectivePrice === 0)
+    // A deposit row only belongs on this staff member's report when they
+    // actually collected part of it. Keeping every deposit row regardless of
+    // attribution is what put other people's bookings on this report.
+    .filter((b) => b.staffAttributedRevenue > 0 || (!b.isDeposit && b.effectivePrice === 0))
 
   const matchedIds = new Set(matched.map((b) => b.id))
   const orphanCharges: ChargeLineSummary[] = []
