@@ -407,10 +407,17 @@ class BookingEngine {
       (groupData.additionalCharges && groupData.additionalCharges.length > 0) ||
       !!groupData.discount
 
-    // Build payment tracking metadata
+    // Build payment tracking metadata.
+    //
+    // `perRoom` states that amountPaid is THIS room's own figure. Group
+    // bookings written before 2026-08-21 stamped the whole batch's payment on
+    // every room, and readers have to prorate those back down by guessing
+    // which rows are duplicates. The flag removes the guessing for every row
+    // written from here on — callers all pass a per-room amount.
     const paymentTrackingData = {
       amountPaid: bookingData.amountPaid ?? 0,
-      paymentStatus: bookingData.paymentStatus ?? 'pending'
+      paymentStatus: bookingData.paymentStatus ?? 'pending',
+      perRoom: true,
     }
     const hasPaymentTracking = paymentTrackingData.amountPaid > 0 || paymentTrackingData.paymentStatus !== 'pending'
 

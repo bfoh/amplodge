@@ -75,7 +75,10 @@ function ownBookingStageTotal(specialRequests) {
 }
 
 function writeAmountPaid(specialRequests, paymentData, amountPaid) {
-  const updated = { ...paymentData, amountPaid }
+  // `perRoom` marks the figure as this room's own so no later pass tries to
+  // split it again — equal-priced rooms booked together end up with equal
+  // shares, which looks exactly like a duplicated batch stamp.
+  const updated = { ...paymentData, amountPaid, perRoom: true }
   return specialRequests.replace(
     /<!-- PAYMENT_DATA:.*? -->/,
     `<!-- PAYMENT_DATA:${JSON.stringify(updated)} -->`
@@ -158,6 +161,8 @@ async function main() {
     for (const m of plainRows) {
       const pd = parseComment(m.special_requests, 'PAYMENT_DATA')
       const amount = Number(pd?.amountPaid) || 0
+      // Already declared per-room — nothing to reconstruct.
+      if (pd?.perRoom === true) continue
       if (!pd || amount <= 0) continue
       if (!byAmount.has(amount)) byAmount.set(amount, [])
       byAmount.get(amount).push(m)

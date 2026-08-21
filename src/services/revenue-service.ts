@@ -202,7 +202,14 @@ function buildLegacyGroupBatches(
     if (!pdMatch?.[1]) continue
     let amount = 0
     try {
-      amount = Number(JSON.parse(pdMatch[1]).amountPaid) || 0
+      const pd = JSON.parse(pdMatch[1])
+      // `perRoom` rows state outright that the figure is this room's own —
+      // no reconstruction, and no risk of re-splitting an already-correct
+      // amount that happens to match its neighbours (equal-priced rooms in
+      // one sitting hold equal shares, which is indistinguishable from a
+      // duplicated stamp by inspection alone).
+      if (pd.perRoom === true) continue
+      amount = Number(pd.amountPaid) || 0
     } catch { continue }
     if (amount <= 0) continue
 
