@@ -46,6 +46,7 @@ export type TypedDB = {
   roomTypes: TableWrapper<T.RoomType>
   guests: TableWrapper<T.Guest>
   bookings: TableWrapper<T.Booking>
+  reservationsList: TableWrapper<any>
   bookingCharges: TableWrapper<T.BookingCharge>
   invoices: TableWrapper<T.Invoice>
   activityLogs: TableWrapper<T.ActivityLog>

@@ -329,6 +329,9 @@ export const db = {
   roomTypes: createTableWrapper('room_types'),
   guests: createTableWrapper('guests'),
   bookings: createTableWrapper('bookings'),
+  // Read-only view: the reservations list with special_requests already parsed
+  // server-side. See 20260822_reservations_list_view.sql.
+  reservationsList: createTableWrapper('reservations_list'),
   bookingCharges: createTableWrapper('booking_charges'),
   invoices: createTableWrapper('invoices'),
   activityLogs: createTableWrapper('activity_logs'),

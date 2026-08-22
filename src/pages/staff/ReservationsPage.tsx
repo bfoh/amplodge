@@ -11,13 +11,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Download, Loader2, Calendar } from 'lucide-react'
-import { format, parseISO, isBefore, isAfter } from 'date-fns'
+import { format, parseISO, isBefore, isAfter, subDays } from 'date-fns'
 import { safeFormatDate, safeParseISO } from '@/lib/safe-date'
 import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { toast } from 'sonner'
 import { createInvoiceData, downloadInvoicePDF, createGroupInvoiceData, downloadGroupInvoicePDF, createPreInvoiceData, downloadPreInvoicePDF, generatePreInvoicePDF, buildGuestInvoiceUrl } from '@/services/invoice-service'
-import { parsePaymentEvents, formatMethodsLabel } from '@/lib/payment-events'
+import { parsePaymentEvents, formatMethodsLabel, displayMethodName } from '@/lib/payment-events'
 import { activityLogService } from '@/services/activity-log-service'
 import { bookingChargesService, CHARGE_CATEGORIES } from '@/services/booking-charges-service'
 import { BookingCharge } from '@/types'
@@ -107,6 +107,43 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
+/** How far back the list reaches before "Show older" is used. Older stays live on the History page. */
+const HISTORY_WINDOW_DAYS = 60
+
+/**
+ * A reservations_list row in the shape the page already speaks.
+ *
+ * The view returns the fields that used to be dug out of special_requests in
+ * the browser, so this is a rename rather than a parse.
+ */
+/**
+ * The methods a guest actually paid with — "Cash", or "Cash + Momo" when the
+ * deposit and the balance came in differently.
+ *
+ * The view returns the methods directly; the fallback path still has the
+ * payment events to read them from.
+ */
+const methodsLabel = (b: any): string => {
+  const fromView: string[] = b.paymentMethods || []
+  if (fromView.length) return fromView.map(displayMethodName).filter(Boolean).join(' + ')
+  return formatMethodsLabel(parsePaymentEvents(b._rawSpecialRequests || b.special_requests || ''))
+}
+
+const fromListRow = (r: any): any => ({
+  ...r,
+  guestNameSnapshot: r.guestName || undefined,
+  guestEmailSnapshot: r.guestEmail || undefined,
+  roomNumber: r.roomNumber || undefined,
+  groupId: r.groupId || undefined,
+  groupReference: r.groupReference || undefined,
+  amountPaid: Number(r.amountPaid || 0),
+  chargesTotal: Number(r.chargesTotal || 0),
+  paymentMethods: r.paymentMethods || [],
+  // The list never needs the blob itself; a dialog that does fetches its row.
+  _rawSpecialRequests: '',
+  special_requests: '',
+})
+
 export function ReservationsPage() {
   const navigate = useNavigate()
   const { currency } = useCurrency()
@@ -132,6 +169,9 @@ export function ReservationsPage() {
   // Filters
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<'all' | Booking['status']>('all')
+  // Off by default: the list covers recent and upcoming stays, which is what a
+  // reception desk needs. Turning it on re-fetches without the date window.
+  const [showOlder, setShowOlder] = useState(false)
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [loading, setLoading] = useState(true)
@@ -232,12 +272,42 @@ export function ReservationsPage() {
       if (inFlight) return
       inFlight = true
       try {
+        // The list reads from reservations_list, a view that returns the fields
+        // a row draws with special_requests already parsed server-side. Pulling
+        // the raw table meant 1,098 KB per load, two thirds of it a metadata
+        // blob the browser parsed and threw away.
+        //
+        // Only recent and upcoming stays are fetched. Older ones live on the
+        // History page, and "Show older" below lifts the window when needed.
+        const windowStart = showOlder ? null : format(subDays(new Date(), HISTORY_WINDOW_DAYS), 'yyyy-MM-dd')
+        const listRows = await db.reservationsList
+          .listAll({
+            ...(windowStart ? { where: { checkOut: { gte: windowStart } } } : {}),
+            orderBy: { createdAt: 'desc' },
+          })
+          .catch((err: any) => {
+            // The view may not exist yet on a database that has not taken the
+            // migration. Fall back rather than showing an empty page.
+            console.warn('[Reservations] reservations_list unavailable, falling back to the raw table:', err?.message)
+            return null
+          })
+
+        const usingView = Array.isArray(listRows)
+
         const [b, r, g, rt, charges, roomsTable, tasks] = await Promise.all([
-          db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
+          usingView
+            ? Promise.resolve(listRows!.map(fromListRow))
+            : db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
           db.properties.listAll(),
-          db.guests.listAll(),
+          // Only the guests on screen. Fetching the whole table cost 292 KB to
+          // resolve a few dozen names the view already carries.
+          usingView
+            ? db.guests.list({ where: { id: { in: [...new Set(listRows!.map((x: any) => x.guestId).filter(Boolean))] } } }).catch(() => [])
+            : db.guests.listAll(),
           db.roomTypes.list({ limit: 100 }),
-          db.bookingCharges.listAll() || Promise.resolve([]),
+          // The view sums charges per booking, so the whole charges table is
+          // only needed on the fallback path.
+          usingView ? Promise.resolve([]) : (db.bookingCharges.listAll() || Promise.resolve([])),
           (db as any).rooms.listAll().catch(() => []),
           db.housekeepingTasks.list({ limit: 1000 }).catch(() => [])
         ])
@@ -258,7 +328,8 @@ export function ReservationsPage() {
         // Store charges for calculating totals
         setAllCharges(charges || [])
 
-        const hydratedBookings = (b as Booking[]).map(hydrateBooking)
+        // Rows from the view arrive already hydrated; raw rows still need parsing.
+        const hydratedBookings = usingView ? (b as Booking[]) : (b as Booking[]).map(hydrateBooking)
 
         // Only deduplicate by ID (React keys) in case of rare DB sync overlaps.
         // We no longer aggressively deduplicate by guest/room/date client-side,
@@ -293,7 +364,7 @@ export function ReservationsPage() {
       }
     }
     load()
-  }, [user, updatedAtBks, updatedAtProp, updatedAtGuests, updatedAtChg, updatedAtTasks])
+  }, [user, showOlder, updatedAtBks, updatedAtProp, updatedAtGuests, updatedAtChg, updatedAtTasks])
 
   const roomMap = useMemo(() => new Map(rooms.map(r => [r.id, r])), [rooms])
   const guestMap = useMemo(() => new Map(guests.map(g => [g.id, g])), [guests])
@@ -331,7 +402,9 @@ export function ReservationsPage() {
     // 4. amountPaid (last resort for historical/partially corrupted records)
     const roomCost = (booking.finalAmount != null && booking.finalAmount > 0) ? booking.finalAmount :
                      (booking.totalPrice || (booking as any).amount || booking.amountPaid || 0)
-    const additionalCharges = chargesMap.get(booking.id) || 0
+    // The view sums charges per booking; chargesMap only has rows on the
+    // fallback path.
+    const additionalCharges = (booking as any).chargesTotal ?? (chargesMap.get(booking.id) || 0)
     return roomCost + additionalCharges
   }
 
@@ -1096,6 +1169,22 @@ export function ReservationsPage() {
                   </div>
                 </div>
               </div>
+              <div className="mt-3 flex items-center justify-between gap-3 border-t border-stone-200/60 pt-3">
+                <p className="text-xs text-stone-500">
+                  {showOlder
+                    ? 'Showing every reservation on record.'
+                    : `Showing stays from the last ${HISTORY_WINDOW_DAYS} days onwards.`}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowOlder(v => !v)}
+                  disabled={loading}
+                  className="border-stone-200"
+                >
+                  {showOlder ? 'Show recent only' : 'Show older reservations'}
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -1123,8 +1212,10 @@ export function ReservationsPage() {
                       {filtered.map((b) => {
                         const guest = guestMap.get(b.guestId)
                         const liveRoom = roomMap.get(b.roomId)
-                        let roomNumber = liveRoom?.roomNumber || 'N/A'
-                        
+                        // The view already resolves this; the blob parse below is the
+                        // fallback path only.
+                        let roomNumber = liveRoom?.roomNumber || (b as any).roomNumber || 'N/A'
+
                         if (roomNumber === 'N/A' && b.special_requests) {
                           const snapMatch = b.special_requests.match(/<!-- ROOM_SNAPSHOT:(.*?) -->/)
                           if (snapMatch) {
@@ -1190,9 +1281,7 @@ export function ReservationsPage() {
                                 // Prefer the recorded payment events — they carry every
                                 // method the guest actually paid with, across booking
                                 // and check-in stages (e.g. "Momo + Cash").
-                                const eventsLabel = formatMethodsLabel(
-                                  parsePaymentEvents((b as any)._rawSpecialRequests || (b as any).special_requests || '')
-                                )
+                                const eventsLabel = methodsLabel(b)
                                 const method = eventsLabel || b.paymentMethod || 'Not Paid'
                                 const isUnpaid = method === 'Not Paid' || method === 'Not paid' || method === 'not_paid'
 
@@ -1419,7 +1508,7 @@ export function ReservationsPage() {
                        <div className="space-y-0.5">
                          <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground">Payment</p>
                          <p className="text-[11px] font-medium text-stone-600">
-                           {formatMethodsLabel(parsePaymentEvents((b as any)._rawSpecialRequests || (b as any).special_requests || '')) || b.paymentMethod || 'Unpaid'}
+                           {methodsLabel(b) || b.paymentMethod || 'Unpaid'}
                          </p>
                        </div>
                     </div>
