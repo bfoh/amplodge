@@ -10,6 +10,8 @@ import {
     sendInvoiceEmail,
     buildGuestInvoiceUrl,
 } from '@/services/invoice-service'
+import { recordBookingPayment, outstandingBalance } from '@/services/booking-payment-service'
+import { bookingChargesService } from '@/services/booking-charges-service'
 
 // Unified check-out flow. Extracted from ReservationsPage.handleCheckOut (the
 // canonical, guest-facing-notification-complete implementation) so the AI
@@ -22,17 +24,55 @@ export interface CheckOutOptions {
     guest: Guest | any
     roomTypeName?: string // e.g. roomTypeMap.get(room.roomTypeId)?.name — falls back to 'Standard Room'
     user?: any
+    /**
+     * Money taken at the desk as the guest leaves. Omit it and the outstanding
+     * balance is recorded as settled, which is what a completed check-out means
+     * in practice — a guest does not leave owing money. Pass it explicitly to
+     * record a different amount or the method it came in on.
+     */
+    payment?: { amount: number; method: string; splits?: Array<{ method: string; amount: number }> }
 }
 
 export function useCheckOut() {
     const [isProcessing, setIsProcessing] = useState(false)
 
-    const checkOut = async ({ booking, room, guest, roomTypeName, user }: CheckOutOptions): Promise<boolean> => {
+    const checkOut = async ({ booking, room, guest, roomTypeName, user, payment }: CheckOutOptions): Promise<boolean> => {
         setIsProcessing(true)
         try {
             let housekeepingTaskCreated = false
             const staffName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'Staff'
             const nowIso = new Date().toISOString()
+
+            // Record what was collected BEFORE the status flips, so the money is
+            // on the row by the time the invoice is built from it. Check-out used
+            // to record nothing at all, leaving every balance settled at the desk
+            // invisible to the revenue reports.
+            try {
+                let collected = payment?.amount
+                let method = payment?.method
+                if (collected == null) {
+                    const charges = await bookingChargesService
+                        .getChargesForBooking(booking.id)
+                        .catch(() => [] as any[])
+                    const chargesTotal = (charges as any[]).reduce((sum: number, c: any) => sum + (Number(c.amount) || 0), 0)
+                    collected = outstandingBalance(booking, chargesTotal)
+                    method = method || booking.paymentMethod || booking.payment_method || booking.payment?.method || 'cash'
+                }
+                if (collected && collected > 0) {
+                    await recordBookingPayment({
+                        bookingId: booking.id,
+                        stage: 'checkout',
+                        amount: collected,
+                        method: method || 'cash',
+                        splits: payment?.splits,
+                        staffId: user?.id || '',
+                        staffName,
+                        booking,
+                    })
+                }
+            } catch (paymentErr) {
+                console.error('[useCheckOut] Failed to record check-out payment:', paymentErr)
+            }
 
             await db.bookings.update(booking.id, {
                 status: 'checked-out',

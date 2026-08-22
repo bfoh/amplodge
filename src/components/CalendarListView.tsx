@@ -20,7 +20,8 @@ import {
 import { Input } from './ui/input'
 import { toast } from 'sonner'
 import { CheckInDialog } from '@/components/dialogs/CheckInDialog'
-import { CheckOutDialog } from '@/components/dialogs/CheckOutDialog'
+import { CheckOutDialog, type CheckOutPayment } from '@/components/dialogs/CheckOutDialog'
+import { recordBookingPayment } from '@/services/booking-payment-service'
 import { ExtendStayDialog } from '@/components/dialogs/ExtendStayDialog'
 import { db, auth } from '@/lib/db'
 
@@ -100,10 +101,28 @@ export function CalendarListView({
   // Check-in handler removed (logic moved to CheckInDialog)
 
   // Check-out handler
-  const handleCheckOut = async (booking: any) => {
+  const handleCheckOut = async (booking: any, payment?: CheckOutPayment) => {
     setProcessing(true)
     try {
       const remoteId = booking.remoteId || booking.id
+
+      // Record the money taken at the desk before the status flips. Check-out
+      // recorded nothing at all before, so every balance settled on departure
+      // was invisible to the staff revenue reports.
+      if (payment && payment.amount > 0) {
+        try {
+          await recordBookingPayment({
+            bookingId: remoteId,
+            stage: 'checkout',
+            amount: payment.amount,
+            method: payment.method,
+            staffId: user?.id || '',
+            staffName: user?.user_metadata?.full_name || user?.email || 'Staff',
+          })
+        } catch (payErr) {
+          console.error('[CalendarListView] Failed to record check-out payment:', payErr)
+        }
+      }
 
       // Use booking engine to handle status update, timestamps, room status, logs, and cleanup tasks
       await bookingEngine.updateBookingStatus(remoteId, 'checked-out')
@@ -472,7 +491,7 @@ export function CalendarListView({
         booking={checkOutDialog}
         room={checkOutDialog ? getRoomForBooking(checkOutDialog) : null}
         guest={{ name: checkOutDialog?.guestName }}
-        onConfirm={() => handleCheckOut(checkOutDialog!)}
+        onConfirm={(payment) => handleCheckOut(checkOutDialog!, payment)}
         processing={processing}
       />
 

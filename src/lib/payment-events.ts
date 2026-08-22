@@ -178,15 +178,19 @@ export function formatMethodsLabel(events: PaymentEvent[]): string {
  * revenue is attributed to a specific staff member.
  *
  * Rules:
+ * Cash basis: only money that has actually been collected counts. A guest who
+ * is still in the room owing part of the bill is not revenue for anybody yet —
+ * crediting that balance to the check-in staff inflated what each person looked
+ * to have taken. The one exception is a COMPLETED check-out: a guest does not
+ * leave owing money, so an uncovered balance on a checked-out stay is treated as
+ * settled at the desk and credited to whoever checked them out.
+ *
  * - If there are recorded PaymentEvents, sum events where event.staffId === staffId.
- *   Any gap between effectivePrice and total events is attributed to checkOutBy staff.
  * - If there are NO recorded events (legacy booking), use amountPaidAtBooking and
  *   paymentStatus to attribute only what the creator actually collected:
  *     · 'full'    → effectivePrice to creator
  *     · 'part'    → amountPaidAtBooking to creator
  *     · 'pending' → 0 to creator (nothing collected at booking)
- *   Any unattributed remainder goes to the checkout staff (checkOutBy), who collected
- *   it at departure — or to checkInBy if that field is populated and checkOutBy is not.
  */
 export function computeStaffAttributedRevenue(
   events: PaymentEvent[],
@@ -197,8 +201,11 @@ export function computeStaffAttributedRevenue(
   checkInBy?: string,
   amountPaidAtBooking?: number,
   paymentStatus?: 'full' | 'part' | 'pending',
-  dateRange?: { from: Date; to: Date }
+  dateRange?: { from: Date; to: Date },
+  bookingStatus?: string
 ): number {
+  // A stay that has finished has been settled; one still in progress has not.
+  const settled = bookingStatus === 'checked-out'
   if (events.length === 0) {
     // Legacy booking — derive from stored amountPaid / paymentStatus
     const status = paymentStatus || 'pending'
@@ -211,12 +218,12 @@ export function computeStaffAttributedRevenue(
         ? paid
         : 0 // pending = nothing collected at booking time
 
-    // 2. Remaining balance is credited to the check-in staff.
-    // Fall back to the booking creator (not '') when no check-in/out staff is
-    // recorded, so the balance is never dropped — company-wide totals sum these
-    // per-staff figures (HRPage), and an unowned gap would silently undercount.
-    const remainder = Math.max(0, effectivePrice - creatorAmount)
-    const checkInStaff = checkInBy || checkOutBy || createdBy
+    // 2. Remaining balance counts only once the guest has actually left, when
+    // it must have been settled at the desk. It goes to the staff who handled
+    // the departure, falling back to the creator so it is never unowned —
+    // company-wide totals sum these per-staff figures (HRPage).
+    const remainder = settled ? Math.max(0, effectivePrice - creatorAmount) : 0
+    const checkInStaff = checkOutBy || checkInBy || createdBy
 
     let attributed = 0
     
@@ -261,17 +268,14 @@ export function computeStaffAttributedRevenue(
     }
   }
 
-  // Any remaining gap (unrecorded balance) is attributed to the check-in staff,
-  // falling back to the booking creator (not '') so it is never dropped from
-  // company-wide totals that sum these per-staff figures.
-  const gap = Math.max(0, effectivePrice - coveredTotal)
+  // An unrecorded balance counts only on a completed check-out, where the guest
+  // has left and therefore settled. While the guest is still in the room it is
+  // money nobody has collected, and counting it credited staff with revenue the
+  // hotel did not hold.
+  const gap = settled ? Math.max(0, effectivePrice - coveredTotal) : 0
   if (gap > 0) {
-    const gapStaff = checkInBy || checkOutBy || createdBy
-    if (gapStaff === staffId) {
-      // If dateRange is provided, we only count the gap if the booking was active this week.
-      // Since the gap is unattributed, we include it to avoid "losing" revenue in the grand total.
-      attributed += gap
-    }
+    const gapStaff = checkOutBy || checkInBy || createdBy
+    if (gapStaff === staffId) attributed += gap
   }
 
   return Math.round(attributed * 100) / 100
@@ -295,7 +299,8 @@ export function computeStaffAttributedByMethod(
   checkOutBy?: string,
   checkInBy?: string,
   amountPaidAtBooking?: number,
-  paymentStatus?: 'full' | 'part' | 'pending'
+  paymentStatus?: 'full' | 'part' | 'pending',
+  bookingStatus?: string
 ): Record<string, number> {
   const totals: Record<string, number> = {}
   const add = (method: string, amount: number) => {
@@ -308,7 +313,8 @@ export function computeStaffAttributedByMethod(
   if (events.length === 0) {
     // Legacy booking — one figure, one method.
     add(fallbackMethod, computeStaffAttributedRevenue(
-      events, staffId, effectivePrice, createdBy, checkOutBy, checkInBy, amountPaidAtBooking, paymentStatus
+      events, staffId, effectivePrice, createdBy, checkOutBy, checkInBy, amountPaidAtBooking, paymentStatus,
+      undefined, bookingStatus
     ))
     return totals
   }
@@ -330,8 +336,8 @@ export function computeStaffAttributedByMethod(
     }
   }
 
-  const gap = Math.max(0, effectivePrice - coveredTotal)
-  if (gap > 0 && (checkInBy || checkOutBy || createdBy) === staffId) {
+  const gap = bookingStatus === 'checked-out' ? Math.max(0, effectivePrice - coveredTotal) : 0
+  if (gap > 0 && (checkOutBy || checkInBy || createdBy) === staffId) {
     add(fallbackMethod, gap)
   }
 

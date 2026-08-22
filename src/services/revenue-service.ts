@@ -608,14 +608,17 @@ export function calculateStaffWeekResultInternal(
         if (!legacyPaymentStatus) legacyPaymentStatus = (b.paymentStatus || b.payment_status || 'pending') as 'full' | 'part' | 'pending'
       }
 
-      if (paymentEvents.length === 0 && legacyPaymentStatus === 'pending' && !legacyAmountPaid && !checkInById && !checkOutById && (b.status === 'checked-out' || b.status === 'checked-in')) {
+      // Old rows that record no payment at all, on a stay that has FINISHED:
+      // the guest left, so they paid. A stay still in progress gets no such
+      // benefit of the doubt — that is money nobody has collected yet.
+      if (paymentEvents.length === 0 && legacyPaymentStatus === 'pending' && !legacyAmountPaid && !checkInById && !checkOutById && b.status === 'checked-out') {
         legacyPaymentStatus = 'full'
       }
 
       const staffAttributedRevenue = computeStaffAttributedRevenue(
         paymentEvents, staffId, effectivePrice, creatorId,
         checkOutById, checkInById, legacyAmountPaid, legacyPaymentStatus,
-        { from, to }
+        { from, to }, b.status
       )
 
       // Payment methods across ALL stages (booking deposit + check-in balance
@@ -633,7 +636,7 @@ export function calculateStaffWeekResultInternal(
       const attributedByMethod = computeStaffAttributedByMethod(
         paymentEvents, staffId, effectivePrice, creatorId,
         eventPrimaryMethod || normalizePaymentMethod(primaryMethod),
-        checkOutById, checkInById, legacyAmountPaid, legacyPaymentStatus
+        checkOutById, checkInById, legacyAmountPaid, legacyPaymentStatus, b.status
       )
 
       return {
