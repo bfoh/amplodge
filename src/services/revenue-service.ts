@@ -11,7 +11,7 @@ import { startOfWeek, endOfWeek, format, subWeeks, addDays, parseISO } from 'dat
 import { standaloneSalesService } from './standalone-sales-service'
 import type { StandaloneSale, ActivityLog } from '@/types'
 import { CHARGE_CATEGORIES } from './booking-charges-service'
-import { parsePaymentEvents, computeStaffAttributedRevenue, aggregateMethodTotals } from '@/lib/payment-events'
+import { parsePaymentEvents, computeStaffAttributedRevenue, computeStaffAttributedByMethod, aggregateMethodTotals } from '@/lib/payment-events'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,6 +21,7 @@ export interface WeeklyRevenueReport {
   staffName: string
   weekStart: string     // YYYY-MM-DD  (always a Monday)
   weekEnd: string       // YYYY-MM-DD  (always a Sunday)
+  /** Grand revenue for the week: rooms + booking charges + standalone sales. */
   totalRevenue: number
   bookingCount: number
   bookingIds: string    // JSON-encoded string array of booking IDs
@@ -77,6 +78,14 @@ export interface BookingSummary {
   checkOutByName: string
   paymentMethod: string   // 'cash' | 'mobile_money' | 'card' | 'not_paid'
   paymentSplits?: Array<{ method: string; amount: number }>
+  /**
+   * staffAttributedRevenue broken out by the method it was collected with.
+   * Values sum to staffAttributedRevenue. Payment-method breakdowns must use
+   * this rather than re-deriving one from paymentSplits/paymentMethod, which
+   * carry the booking's whole figure regardless of who collected it or what a
+   * later discount reduced it to.
+   */
+  attributedByMethod: Record<string, number>
   additionalChargesTotal: number
   additionalCharges: ChargeLineSummary[]
   grandTotal: number       // effectivePrice + additionalChargesTotal
@@ -540,15 +549,37 @@ export function calculateStaffWeekResultInternal(
           displayRoomNumber = `${displayRoomNumber} · ${groupData.groupReference}`
         }
 
+        // A deposit can never be worth more than the booking it sits on — a
+        // discount recorded against the booking caps it, same as for a stay.
+        depositAmount = Math.min(depositAmount, effectivePrice)
+        staffDepositAmount = Math.min(staffDepositAmount, effectivePrice)
+
+        const depositPrimaryMethod = normalizePaymentMethod(depositMethod)
+        const splitsForMethods = depositSplits || paymentSplits
+        const splitsTotal = (splitsForMethods || []).reduce((s, p) => s + Number(p.amount || 0), 0)
+        const attributedByMethod: Record<string, number> = {}
+        if (splitsForMethods && splitsTotal > 0) {
+          // Share this staff's slice of the deposit across the methods it came in on.
+          for (const p of splitsForMethods) {
+            const method = normalizePaymentMethod(p.method)
+            if (!method) continue
+            const part = Math.round((Number(p.amount) / splitsTotal) * staffDepositAmount * 100) / 100
+            if (part > 0) attributedByMethod[method] = (attributedByMethod[method] || 0) + part
+          }
+        } else if (depositPrimaryMethod && staffDepositAmount > 0) {
+          attributedByMethod[depositPrimaryMethod] = staffDepositAmount
+        }
+
         return {
           id: b.id, guestName, roomNumber: displayRoomNumber,
           checkIn: b.checkIn, checkOut: b.checkOut, totalPrice: rawPrice,
-          discountAmount: 0, effectivePrice: rawPrice,
+          discountAmount: discountAmt, effectivePrice,
           staffAttributedRevenue: staffDepositAmount, isDeposit: true, depositAmount,
           status: b.status, createdAt: b.createdAt || b.created_at || '',
           createdBy: creatorId, checkInBy: '', checkInByName: '', checkOutBy: '', checkOutByName: '',
-          paymentMethod: normalizePaymentMethod(depositMethod),
-          paymentSplits: depositSplits || paymentSplits,
+          paymentMethod: depositPrimaryMethod,
+          paymentSplits: splitsForMethods,
+          attributedByMethod,
           additionalCharges: [], additionalChargesTotal: 0, grandTotal: depositAmount,
         }
       }
@@ -599,10 +630,17 @@ export function calculateStaffWeekResultInternal(
         : ''
       const eventSplits = methodTotals.length > 1 ? methodTotals : undefined
 
+      const attributedByMethod = computeStaffAttributedByMethod(
+        paymentEvents, staffId, effectivePrice, creatorId,
+        eventPrimaryMethod || normalizePaymentMethod(primaryMethod),
+        checkOutById, checkInById, legacyAmountPaid, legacyPaymentStatus
+      )
+
       return {
         id: b.id, guestName, roomNumber: room?.roomNumber || '—',
         checkIn: b.checkIn, checkOut: b.checkOut, totalPrice: rawPrice,
         discountAmount: discountAmt, effectivePrice, staffAttributedRevenue,
+        attributedByMethod,
         isDeposit: false, depositAmount: 0, status: b.status,
         createdAt: b.createdAt || b.created_at || '', createdBy: creatorId,
         checkInBy: checkInById, checkInByName: b.checkInByName || b.check_in_by_name || '',
@@ -741,12 +779,17 @@ export async function getOrCreateWeekReport(
     }
   )
 
-  // Always recalculate from live bookings so counts/revenue stay accurate
-  const { bookings, totalRevenue, bookingCount } = await fetchBookingsForStaffWeek(
+  // Always recalculate from live bookings so counts/revenue stay accurate.
+  // Persist the GRAND figure (rooms + charges + standalone sales): it is what
+  // the report shows while it is a draft, and submitting freezes whatever was
+  // stored here — storing rooms-only made a week's headline number drop the
+  // moment staff submitted it.
+  const { bookings, grandRevenue, bookingCount } = await fetchBookingsForStaffWeek(
     staffId,
     week.weekStart,
     week.weekEnd
   )
+  const totalRevenue = grandRevenue
   const bookingIds = JSON.stringify(bookings.map((b) => b.id))
   const now = new Date().toISOString()
 

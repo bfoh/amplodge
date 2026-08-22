@@ -129,23 +129,34 @@ export function DashboardPage() {
         (b.status === 'confirmed' || b.status === 'checked-in')
       )
 
-      // Calculate total revenue from all confirmed bookings
+      // Total revenue, on the same basis the Analytics page uses: a stay that
+      // has started earns its room price, a booking that has only been
+      // confirmed earns just the deposit collected against it. Amounts are
+      // discount-netted (b.amount) — totalPrice is the pre-discount figure and
+      // billed the hotel for money it had written off.
       const confirmedBookings = allBookings.filter((b: any) =>
         b.status === 'confirmed' || b.status === 'checked-in' || b.status === 'checked-out'
       )
-      const totalRevenue = confirmedBookings.reduce((sum: number, b: any) =>
-        sum + (Number(b.totalPrice) || 0), 0
-      )
+      const totalRevenue = confirmedBookings.reduce((sum: number, b: any) => {
+        if (b.status === 'confirmed') return sum + (Number(b.amountPaid) || 0)
+        return sum + (Number(b.amount ?? b.totalPrice) || 0)
+      }, 0)
 
-      // Compute avg nightly rate by total revenue / total nights across all bookings
-      const totalNights = confirmedBookings.reduce((sum: number, b: any) => {
+      // Average nightly rate: room money over room nights. Deposits on bookings
+      // that have not started are deliberately excluded from both sides — mixing
+      // a part-payment into the numerator without its nights understates the rate.
+      const stayedBookings = confirmedBookings.filter((b: any) => b.status !== 'confirmed')
+      const stayedRoomRevenue = stayedBookings.reduce(
+        (sum: number, b: any) => sum + (Number(b.amount ?? b.totalPrice) || 0), 0
+      )
+      const totalNights = stayedBookings.reduce((sum: number, b: any) => {
         const inD = new Date(b.dates.checkIn)
         const outD = new Date(b.dates.checkOut)
         const ms = Math.max(0, outD.getTime() - inD.getTime())
         const nights = Math.max(1, Math.round(ms / (1000 * 60 * 60 * 24)))
         return sum + nights
       }, 0)
-      const avgRate = totalNights > 0 ? totalRevenue / totalNights : 0
+      const avgRate = totalNights > 0 ? stayedRoomRevenue / totalNights : 0
 
       // Calculate total rooms using only Staff Rooms (properties)
       const propertyRoomNumbers = new Set(

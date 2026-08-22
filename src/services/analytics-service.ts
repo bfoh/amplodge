@@ -83,6 +83,20 @@ class AnalyticsService {
         })
         : bookings
 
+      // The same range has to reach charges and sales. Filtering only bookings
+      // left every charge and standalone sale ever recorded in the totals, so a
+      // one-week request reported all-time extras beside one week of rooms.
+      const inRequestedRange = (raw: string | undefined): boolean => {
+        if (!startDate || !endDate) return true
+        if (!raw) return false
+        const d = new Date(raw)
+        return !isNaN(d.getTime()) && d >= startDate && d <= endDate
+      }
+      const chargesForRequest = (allChargesRaw || []).filter((c: any) =>
+        inRequestedRange(c.createdAt || c.created_at))
+      const salesForRequest = (allStandaloneSales || []).filter((s: any) =>
+        inRequestedRange(s.saleDate || s.sale_date || s.createdAt || s.created_at))
+
       // Calculate total revenue from checked-in/checked-out bookings only
       const revenueBookings = filteredBookings.filter(
         b => ['checked-in', 'checked-out'].includes(b.status)
@@ -96,8 +110,11 @@ class AnalyticsService {
       const depositBookings = bookings.filter(b => {
         if (b.status !== 'confirmed') return false
         if ((b.amountPaid || 0) <= 0 && b.paymentStatus === 'pending') return false
-        // For groups: only the primary booking carries the deposit
-        if (b.groupId) {
+        // Groups: each room now records its own share of what the group paid,
+        // so every member counts. Only the pre-2026-08-21 rows that still hold
+        // the batch-wide figure on every room are collapsed to one member —
+        // adding those up would count the same payment once per room.
+        if (b.groupId && !b.paymentPerRoom) {
           if (!b.isPrimaryBooking) return false
           if (seenGroupDeposits.has(b.groupId)) return false
           seenGroupDeposits.add(b.groupId)
@@ -150,14 +167,15 @@ class AnalyticsService {
       )
 
       // Total deposits collected on confirmed bookings (cash already received)
-      const depositRevenueTotal = depositBookings.reduce((sum, b) => sum + getDepositAmount(b), 0)
+      const depositRevenueTotal = depositBookings.reduce(
+        (sum, b) => inRequestedRange(b.createdAt) ? sum + getDepositAmount(b) : sum, 0)
 
       // Additional revenue from booking charges
       const additionalRevenueByCategory: Record<string, number> = {}
       let roomExtensionRevenueTotal = 0
       let otherChargesTotal = 0
 
-      for (const c of (allChargesRaw || [])) {
+      for (const c of chargesForRequest) {
         const amt = Number(c.amount || 0)
         const cat = c.category || 'other'
         
@@ -171,10 +189,10 @@ class AnalyticsService {
       }
 
       // Standalone sales
-      const standaloneSalesTotal = (allStandaloneSales || []).reduce(
+      const standaloneSalesTotal = salesForRequest.reduce(
         (sum: number, s: any) => sum + Number(s.amount || 0), 0
       )
-      for (const s of (allStandaloneSales || [])) {
+      for (const s of salesForRequest) {
         const cat = s.category || 'other'
         additionalRevenueByCategory[cat] = (additionalRevenueByCategory[cat] || 0) + Number(s.amount || 0)
       }

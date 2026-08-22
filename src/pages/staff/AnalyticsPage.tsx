@@ -167,14 +167,16 @@ export function AnalyticsPage() {
       setGuests(guestData)
       setPerformance(performanceData)
       
-      // Confirmed bookings that collected a deposit — these are real cash received
-      // For groups: only the primary booking (to avoid double-counting)
+      // Confirmed bookings that collected a deposit — these are real cash received.
+      // Groups: each room records its own share now, so every member counts.
+      // Only pre-2026-08-21 rows still holding the batch-wide figure on every
+      // room collapse to one member (see analytics-service).
       const _seenDepositGroups = new Set<string>()
       setAllDepositBookings(
         allBookings.filter(b => {
           if (b.status !== 'confirmed') return false
           if ((b.amountPaid || 0) <= 0 && (b.paymentStatus || 'pending') === 'pending') return false
-          if (b.groupId) {
+          if (b.groupId && !(b as any).paymentPerRoom) {
             if (!b.isPrimaryBooking) return false
             if (_seenDepositGroups.has(b.groupId)) return false
             _seenDepositGroups.add(b.groupId)
@@ -256,12 +258,21 @@ export function AnalyticsPage() {
   // Sum of payment events whose paidAt falls inside the active period. This is the
   // cash actually collected in the period for a booking — the basis the HR
   // revenue-service uses (rule R1). See computeStaffAttributedRevenue / R1.
-  const eventInPeriodSum = (b: any): number =>
-    ((b.paymentEvents as any[]) || []).reduce((s: number, e: any) => {
+  const eventInPeriodSum = (b: any): number => {
+    const events = ((b.paymentEvents as any[]) || [])
+    const inPeriod = events.reduce((s: number, e: any) => {
       const d = (e?.paidAt || '').slice(0, 10)
       if (!d || d < periodStartStr || d > periodEndStr) return s
       return s + (Number(e?.amount) || 0)
     }, 0)
+    // A discount granted after the money came in leaves the events adding up to
+    // the pre-discount figure. Scale them back to what the booking is worth so
+    // the period never reports revenue the hotel wrote off.
+    const covered = events.reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0)
+    const worth = Number(b.amount ?? b.totalPrice ?? 0)
+    if (covered > worth && covered > 0) return Math.round(inPeriod * (worth / covered) * 100) / 100
+    return inPeriod
+  }
   // Payment method for an event booking: the in-period booking-stage event's method.
   const eventInPeriodMethod = (b: any): string => {
     const inP = ((b.paymentEvents as any[]) || []).filter((e: any) => {
@@ -279,7 +290,10 @@ export function AnalyticsPage() {
         if (!ci) return false
         return ci >= periodStartStr && ci <= periodEndStr
       })
-      .map(b => ({ ...b, _isDeposit: false, _displayAmount: Number(b.amount || b.totalPrice || 0) })),
+      // b.amount is already discount-netted. `??` not `||`: a fully discounted
+      // booking is worth 0, and falling back to totalPrice would resurrect the
+      // gross price for exactly those bookings.
+      .map(b => ({ ...b, _isDeposit: false, _displayAmount: Number(b.amount ?? b.totalPrice ?? 0) })),
     ...allDepositBookings
       .filter(b => {
         const ca = (b.createdAt || b.created_at || '').slice(0, 10)

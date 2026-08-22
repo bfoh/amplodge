@@ -59,8 +59,16 @@ export function CheckOutDialog({
 
     if (!booking) return null
 
-    // Calculate totals
-    const roomCost = booking.totalPrice || 0
+    // Calculate totals.
+    // Bill the DISCOUNTED room price: a discount granted at check-in lives in
+    // discountAmount/finalAmount, and charging totalPrice here asked the guest
+    // for money that had already been written off.
+    const grossRoomCost = Number(booking.totalPrice || 0)
+    const bookingDiscount = Number(booking.discountAmount ?? booking.discount_amount ?? 0)
+    const storedFinal = booking.finalAmount ?? booking.final_amount
+    const roomCost = bookingDiscount > 0
+        ? (storedFinal != null && storedFinal !== '' ? Math.max(0, Number(storedFinal)) : Math.max(0, grossRoomCost - bookingDiscount))
+        : grossRoomCost
     const chargesTotal = charges.reduce((sum, c) => sum + (c.amount || 0), 0)
     const priorAmountPaid = (() => {
         if (booking.amountPaid) return booking.amountPaid

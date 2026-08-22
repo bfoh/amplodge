@@ -37,6 +37,8 @@ export interface LocalBooking {
     paidAt?: string
   }
   amountPaid?: number
+  /** True when amountPaid is this room's own figure rather than a whole group batch's. */
+  paymentPerRoom?: boolean
   paymentStatus?: 'full' | 'part' | 'pending'
   notes?: string
   // Pre-built specialRequests metadata (e.g. a PAYMENT_EVENTS comment from the
@@ -1401,6 +1403,10 @@ class BookingEngine {
       // Extract payment tracking data from specialRequests metadata
       let amountPaid = 0
       let paymentStatus: 'full' | 'part' | 'pending' = 'pending'
+      // Whether amountPaid is this room's own figure. Group bookings written
+      // before 2026-08-21 stamped the whole batch's payment on every room, so
+      // consumers that add rooms up must know which shape they are looking at.
+      let paymentPerRoom = false
       const specialReq = b.special_requests || b.specialRequests || ''
       const paymentMatch = specialReq.match(/<!-- PAYMENT_DATA:(.*?) -->/)
       if (paymentMatch) {
@@ -1408,6 +1414,7 @@ class BookingEngine {
           const paymentData = JSON.parse(paymentMatch[1])
           amountPaid = paymentData.amountPaid || 0
           paymentStatus = paymentData.paymentStatus || 'pending'
+          paymentPerRoom = paymentData.perRoom === true
         } catch (e) {
           console.warn('[BookingEngine] Failed to parse payment data from specialRequests')
         }
@@ -1429,6 +1436,8 @@ class BookingEngine {
           if (amountPaid > 0) {
             const roomPrice = Number(b.totalPrice || 0)
             paymentStatus = amountPaid >= roomPrice ? 'full' : 'part'
+            // Payment events always carry this room's own share.
+            paymentPerRoom = true
           }
           // Derive payment method from the booking-stage event (or first event)
           const methodEvent = bookingStageEvents[0] || events[0]
@@ -1531,6 +1540,7 @@ class BookingEngine {
           amount: effectiveAmount
         } : undefined,
         amountPaid,
+        paymentPerRoom,
         paymentStatus,
         payment_method: b.paymentMethod || b.payment_method || paymentEventMethod,
         createdAt,

@@ -645,20 +645,16 @@ export function MyRevenuePage() {
               { key: 'card',         label: '💳 Card',          color: '#8b5cf6' },
               { key: 'not_paid',     label: '⏳ Not Paid',      color: '#f59e0b' },
             ]
+            // attributedByMethod already holds what this staff member collected
+            // per method, net of any discount — see revenue-service.
             const counts = methods.map(m => {
               let count = 0
               let revenue = 0
               for (const b of currentResult.bookings) {
-                if (b.paymentSplits && b.paymentSplits.length > 1) {
-                  const splitAmt = b.paymentSplits
-                    .filter((s: any) => s.method === m.key)
-                    .reduce((a: number, s: any) => a + Number(s.amount || 0), 0)
-                  if (splitAmt > 0) { count++; revenue += splitAmt }
-                } else if (b.paymentMethod === m.key) {
-                  count++; revenue += b.staffAttributedRevenue
-                }
+                const amt = b.attributedByMethod?.[m.key] || 0
+                if (amt > 0) { count++; revenue += amt }
               }
-              return { ...m, count, revenue }
+              return { ...m, count, revenue: Math.round(revenue * 100) / 100 }
             }).filter(m => m.count > 0)
             if (!counts.length) return null
             return (

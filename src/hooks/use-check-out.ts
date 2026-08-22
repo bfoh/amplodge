@@ -89,7 +89,10 @@ export function useCheckOut() {
                         last_check_in: booking.checkIn,
                         last_check_out: booking.checkOut,
                         last_source: booking.source || 'reception',
-                        total_revenue: (guest?.totalRevenue || 0) + Number(booking.totalPrice || 0),
+                        // What the guest actually owed, not the pre-discount price.
+                        total_revenue: (guest?.totalRevenue || 0) + Number(
+                            booking.amount ?? booking.finalAmount ?? booking.totalPrice ?? 0
+                        ),
                         total_stays: (guest?.totalStays || 0) + 1,
                     })
                 } catch (historyErr) {

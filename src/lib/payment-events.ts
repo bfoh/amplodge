@@ -233,7 +233,16 @@ export function computeStaffAttributedRevenue(
   // Modern booking with recorded PaymentEvents
   let attributed = 0
   const coveredTotal = events.reduce((sum, e) => sum + e.amount, 0)
-  
+
+  // A booking can never earn more than it is worth. When a discount is applied
+  // AFTER money was collected — the guest pays GHS 700 up front, reception
+  // discounts the stay to GHS 350 at check-in — the events still add up to the
+  // pre-discount figure, and crediting them whole reports revenue the hotel
+  // does not have. Scale every event down by the same factor so the shares
+  // still add up to what the booking is actually worth.
+  const overshoot = coveredTotal > effectivePrice && coveredTotal > 0
+  const scale = overshoot ? effectivePrice / coveredTotal : 1
+
   for (const e of events) {
     // If date range is provided, only count events in that range
     if (dateRange) {
@@ -243,12 +252,12 @@ export function computeStaffAttributedRevenue(
 
     if (e.stage === 'booking') {
       // Booking stage events go to whoever recorded them (usually creator)
-      if (e.staffId === staffId) attributed += e.amount
+      if (e.staffId === staffId) attributed += e.amount * scale
     } else {
       // checkin or checkout stage events go to the staff member who recorded the event
       // If the event staff is missing, fallback to checkInBy or checkOutBy
       const eventStaff = e.staffId || checkInBy || checkOutBy || ''
-      if (eventStaff === staffId) attributed += e.amount
+      if (eventStaff === staffId) attributed += e.amount * scale
     }
   }
 
@@ -265,5 +274,66 @@ export function computeStaffAttributedRevenue(
     }
   }
 
-  return attributed
+  return Math.round(attributed * 100) / 100
+}
+
+/**
+ * Per-payment-method totals of what THIS staff member collected on a booking.
+ *
+ * Same rules as computeStaffAttributedRevenue — only this staff's events count,
+ * and a post-payment discount scales them down — but kept split by method so a
+ * payment-method breakdown reports collections rather than raw booking totals.
+ * Any unrecorded balance credited to this staff lands under `fallbackMethod`
+ * (the booking's own payment method), since no event names a method for it.
+ */
+export function computeStaffAttributedByMethod(
+  events: PaymentEvent[],
+  staffId: string,
+  effectivePrice: number,
+  createdBy: string,
+  fallbackMethod: string,
+  checkOutBy?: string,
+  checkInBy?: string,
+  amountPaidAtBooking?: number,
+  paymentStatus?: 'full' | 'part' | 'pending'
+): Record<string, number> {
+  const totals: Record<string, number> = {}
+  const add = (method: string, amount: number) => {
+    if (!(amount > 0)) return
+    const key = method || fallbackMethod || ''
+    if (!key) return
+    totals[key] = Math.round(((totals[key] || 0) + amount) * 100) / 100
+  }
+
+  if (events.length === 0) {
+    // Legacy booking — one figure, one method.
+    add(fallbackMethod, computeStaffAttributedRevenue(
+      events, staffId, effectivePrice, createdBy, checkOutBy, checkInBy, amountPaidAtBooking, paymentStatus
+    ))
+    return totals
+  }
+
+  const coveredTotal = events.reduce((sum, e) => sum + e.amount, 0)
+  const scale = coveredTotal > effectivePrice && coveredTotal > 0 ? effectivePrice / coveredTotal : 1
+
+  for (const e of events) {
+    const eventStaff = e.stage === 'booking'
+      ? e.staffId
+      : (e.staffId || checkInBy || checkOutBy || '')
+    if (eventStaff !== staffId) continue
+
+    const parts = e.splits && e.splits.length > 0
+      ? e.splits
+      : [{ method: e.method, amount: e.amount }]
+    for (const p of parts) {
+      add(p.method, Number(p.amount) * scale)
+    }
+  }
+
+  const gap = Math.max(0, effectivePrice - coveredTotal)
+  if (gap > 0 && (checkInBy || checkOutBy || createdBy) === staffId) {
+    add(fallbackMethod, gap)
+  }
+
+  return totals
 }

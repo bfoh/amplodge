@@ -260,14 +260,25 @@ class StayExtensionService {
 
             await db.bookings.update(bookingId, updateData)
 
+            // Money collected for the extension, recorded ON the charge itself —
+            // the same way every other paid charge records its method. It must
+            // never become a charge row of its own: a payment is not a negative
+            // sale, and booking it as one cancelled out the extension revenue.
+            const extensionPaidTotal = (paymentSplits || []).reduce((s, p) => s + Math.max(0, Number(p.amount) || 0), 0)
+            const extensionPrimaryMethod = (paymentSplits || [])
+                .filter(p => Number(p.amount) > 0)
+                .reduce((a, p) => (!a || Number(p.amount) > Number(a.amount) ? p : a), undefined as undefined | { method: string; amount: number })
+                ?.method
+
             // Add extension charge
             const charge = await bookingChargesService.addCharge({
                 bookingId,
                 description: `Stay Extension (${additionalNights} night${additionalNights > 1 ? 's' : ''})`,
-                category: 'other',
+                category: 'room_extension',
                 quantity: additionalNights,
                 unitPrice: extensionCost / additionalNights,
                 notes: `Extended from ${currentCheckout.toLocaleDateString()} to ${newCheckout.toLocaleDateString()}`,
+                ...(extensionPrimaryMethod ? { paymentMethod: extensionPrimaryMethod } : {}),
                 createdBy: userId
             })
 
@@ -286,26 +297,14 @@ class StayExtensionService {
                 finalCost = Math.max(0, extensionCost - discountAmount)
             }
 
-            // Process split payments for extension if any
-            if (paymentSplits && paymentSplits.length > 0) {
-                for (const split of paymentSplits) {
-                    if (split.amount > 0) {
-                        try {
-                            await bookingChargesService.addCharge({
-                                bookingId,
-                                description: `Payment - Stay Extension`,
-                                category: 'other',
-                                quantity: 1,
-                                unitPrice: -split.amount,
-                                notes: `Payment for extension via ${split.method}`,
-                                paymentMethod: split.method,
-                                createdBy: userId
-                            })
-                            console.log(`[StayExtension] Recorded payment of ${split.amount} via ${split.method}`)
-                        } catch (payErr) {
-                            console.error(`[StayExtension] Failed to record payment of ${split.amount} via ${split.method}`, payErr)
-                        }
-                    }
+            // Roll what the guest paid for the extension into the booking's own
+            // payment record, so the balance owed at check-out reflects it.
+            if (extensionPaidTotal > 0) {
+                try {
+                    await this.recordExtensionPayment(bookingId, extensionPaidTotal)
+                    console.log(`[StayExtension] Recorded extension payment of ${extensionPaidTotal}`)
+                } catch (payErr) {
+                    console.error('[StayExtension] Failed to record extension payment', payErr)
                 }
             }
 
@@ -330,6 +329,39 @@ class StayExtensionService {
             console.error('[StayExtension] Extension failed:', error)
             return { success: false, error: error.message || 'Extension failed' }
         }
+    }
+
+    /**
+     * Add money collected for an extension to the booking's PAYMENT_DATA total.
+     *
+     * The booking's amountPaid is what check-out subtracts from the bill, so an
+     * extension payment has to land there or the guest is asked for it twice.
+     * PAYMENT_EVENTS is deliberately not touched: it holds one event per stage
+     * and appending would overwrite the check-in payment already recorded.
+     */
+    private async recordExtensionPayment(bookingId: string, amount: number): Promise<void> {
+        const booking: any = await db.bookings.get(bookingId)
+        const specialReq: string = booking?.special_requests || booking?.specialRequests || ''
+
+        const match = specialReq.match(/<!-- PAYMENT_DATA:(.*?) -->/)
+        let payment: any = { amountPaid: 0, paymentStatus: 'pending', perRoom: true }
+        if (match?.[1]) {
+            try {
+                payment = { ...payment, ...JSON.parse(match[1]) }
+            } catch { /* keep defaults */ }
+        }
+
+        const updated = {
+            ...payment,
+            amountPaid: Math.round(((Number(payment.amountPaid) || 0) + amount) * 100) / 100,
+            perRoom: true,
+        }
+        const comment = `<!-- PAYMENT_DATA:${JSON.stringify(updated)} -->`
+        const specialRequests = match
+            ? specialReq.replace(/<!-- PAYMENT_DATA:.*? -->/, comment)
+            : `${specialReq}\n\n${comment}`.trim()
+
+        await db.bookings.update(bookingId, { specialRequests })
     }
 }
 

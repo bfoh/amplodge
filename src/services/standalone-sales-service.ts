@@ -30,32 +30,31 @@ export const standaloneSalesService = {
       createdAt: new Date().toISOString(),
     }
     
+    // The insert is retried on its own. Retrying it together with the stock
+    // movement meant a failing reduceStock re-inserted a sale that had already
+    // been written — one sale on the shelf, two in the revenue figures.
     try {
       await db.standaloneSales.create(record)
-      
-      // If linked to inventory, reduce stock in real-time
-      if (data.inventoryId) {
-        await inventoryService.reduceStock(
-          data.inventoryId, 
-          data.quantity, 
-          { id: data.staffId, name: data.staffName },
-          `Linked to sale: ${data.description}`
-        )
-      }
     } catch (e) {
       console.warn('[standaloneSalesService] create failed (table may not exist yet):', e)
       // Retry once — wrapper occasionally races on first insert into a freshly cached table
       await db.standaloneSales.create(record)
-      
-      if (data.inventoryId) {
+    }
+
+    // Stock is adjusted separately: a failure here must never duplicate the sale.
+    if (data.inventoryId) {
+      try {
         await inventoryService.reduceStock(
-          data.inventoryId, 
-          data.quantity, 
+          data.inventoryId,
+          data.quantity,
           { id: data.staffId, name: data.staffName },
           `Linked to sale: ${data.description}`
         )
+      } catch (stockErr) {
+        console.error('[standaloneSalesService] sale recorded but stock not reduced:', stockErr)
       }
     }
+
     return record
   },
 
