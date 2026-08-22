@@ -80,6 +80,30 @@ interface BookingWithDetails {
  * get-invoice-data was auth-gated. Fetches the token by booking id; falls back
  * to a tokenless URL (staff sessions can still open it with their JWT).
  */
+/**
+ * Load the PDF libraries before anyone asks for a document.
+ *
+ * jspdf and html2canvas are 572 KB between them and are imported on demand, so
+ * the first invoice of the day pays for downloading and parsing them before any
+ * work starts — on a slow connection that is the difference between a button
+ * that responds and one that appears stuck. Called when a page that offers
+ * invoices goes idle; the modules are cached from then on.
+ *
+ * Safe to call repeatedly: a dynamic import resolves from cache after the
+ * first, and a failure here only means the download happens later as before.
+ */
+export function warmPdfLibraries(): void {
+  const warm = () => {
+    Promise.all([import('jspdf'), import('html2canvas')]).catch(() => {
+      /* the invoice path will load them itself if this did not work */
+    })
+  }
+  if (typeof window === 'undefined') return
+  const idle = (window as any).requestIdleCallback
+  if (typeof idle === 'function') idle(warm, { timeout: 4000 })
+  else setTimeout(warm, 2000)
+}
+
 export async function buildGuestInvoiceUrl(
   bookingId: string,
   invoiceNumber?: string,

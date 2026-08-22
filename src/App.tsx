@@ -60,6 +60,7 @@ const ClockPage = lazyWithRetry(() => import('./pages/staff/ClockPage').then(m =
 const QRDisplayPage = lazyWithRetry(() => import('./pages/staff/QRDisplayPage').then(m => ({ default: m.QRDisplayPage })))
 const InventoryPage = lazyWithRetry(() => import('./pages/staff/InventoryPage').then(m => ({ default: m.InventoryPage })))
 const InventoryTransactionsPage = lazyWithRetry(() => import('./pages/staff/InventoryTransactionsPage').then(m => ({ default: m.InventoryTransactionsPage })))
+const ConnectionCheckPage = lazyWithRetry(() => import('./pages/staff/ConnectionCheckPage').then(m => ({ default: m.ConnectionCheckPage })))
 // Guest portal + voice widget are lazy-loaded too — most visits to /staff/*
 // never touch them, so shipping them up-front wastes bandwidth (especially
 // painful on Ghanaian mobile networks).
@@ -278,6 +279,7 @@ function App() {
                 <Route path="log-sale" element={<LogSalePage />} />
                 <Route path="inventory" element={<InventoryPage />} />
                 <Route path="inventory/transactions" element={<InventoryTransactionsPage />} />
+                <Route path="connection-check" element={<ConnectionCheckPage />} />
               </Route>
 
               {/* Invoice debug route */}

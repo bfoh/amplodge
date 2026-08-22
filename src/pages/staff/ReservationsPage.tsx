@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db, auth, onTableUpdated } from '@/lib/db'
 import { useSubscription } from '@/hooks/use-subscription'
@@ -17,7 +17,7 @@ import { safeFormatDate, safeParseISO } from '@/lib/safe-date'
 import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { toast } from 'sonner'
-import { createInvoiceData, downloadInvoicePDF, createGroupInvoiceData, downloadGroupInvoicePDF, createPreInvoiceData, downloadPreInvoicePDF, generatePreInvoicePDF, buildGuestInvoiceUrl } from '@/services/invoice-service'
+import { warmPdfLibraries, createInvoiceData, downloadInvoicePDF, createGroupInvoiceData, downloadGroupInvoicePDF, createPreInvoiceData, downloadPreInvoicePDF, generatePreInvoicePDF, buildGuestInvoiceUrl } from '@/services/invoice-service'
 import { parsePaymentEvents, formatMethodsLabel, displayMethodName } from '@/lib/payment-events'
 import { activityLogService } from '@/services/activity-log-service'
 import { bookingChargesService, CHARGE_CATEGORIES } from '@/services/booking-charges-service'
@@ -111,6 +111,40 @@ function StatusBadge({ status }: { status: string }) {
 /** How far back the list reaches before "Show older" is used. Older stays live on the History page. */
 const HISTORY_WINDOW_DAYS = 60
 
+/** Rows added each time the end of the list comes into view. */
+const ROWS_PER_CHUNK = 50
+
+/**
+ * Marks the end of a rendered list and asks for more when it is scrolled to.
+ *
+ * Self-observing on purpose: the desktop table and the mobile cards are both in
+ * the DOM with one hidden by CSS, and a single shared ref would leave the
+ * observer watching whichever mounted last — quite possibly the hidden one,
+ * which never intersects and never loads anything.
+ */
+function LoadMoreSentinel({ shown, total, onVisible }: { shown: number; total: number; onVisible: () => void }) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const onVisibleRef = useRef(onVisible)
+  onVisibleRef.current = onVisible
+
+  useEffect(() => {
+    const node = ref.current
+    if (!node) return
+    const observer = new IntersectionObserver(
+      entries => { if (entries.some(e => e.isIntersecting)) onVisibleRef.current() },
+      { rootMargin: '400px' }
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [shown, total])
+
+  return (
+    <div ref={ref} className="py-6 text-center text-xs text-stone-500">
+      Showing {shown} of {total} — scroll for more
+    </div>
+  )
+}
+
 /**
  * A reservations_list row in the shape the page already speaks.
  *
@@ -173,6 +207,9 @@ export function ReservationsPage() {
   // Off by default: the list covers recent and upcoming stays, which is what a
   // reception desk needs. Turning it on re-fetches without the date window.
   const [showOlder, setShowOlder] = useState(false)
+  // Rows are built as they are scrolled to. Every row rendered at once is a
+  // second of layout on a mid-range phone at 250 rows, and far worse at 1,005.
+  const [renderLimit, setRenderLimit] = useState(ROWS_PER_CHUNK)
   // How many reservations exist in total, so a windowed list can say so rather
   // than just showing a smaller number.
   const [totalCount, setTotalCount] = useState<number | null>(null)
@@ -438,6 +475,10 @@ export function ReservationsPage() {
   // rows already loaded would be nonsense — "250 of 0" came from trusting it.
   const showTotal = !showOlder && totalCount !== null && totalCount >= bookings.length
 
+  // Invoices are downloaded from this page, so the PDF libraries are fetched
+  // while it sits idle rather than when someone is waiting on a click.
+  useEffect(() => { warmPdfLibraries() }, [])
+
   const roomMap = useMemo(() => new Map(rooms.map(r => [r.id, r])), [rooms])
   const guestMap = useMemo(() => new Map(guests.map(g => [g.id, g])), [guests])
   const roomTypeMap = useMemo(() => new Map(roomTypes.map(rt => [rt.id, rt])), [roomTypes])
@@ -565,6 +606,11 @@ export function ReservationsPage() {
       return true
     })
   }, [bookings, status, from, to, query, guestMap, roomMap])
+
+  // Only the rows scrolled to are built. Filtering or reloading starts the
+  // count again, so a search does not begin halfway down a previous list.
+  const visible = useMemo(() => filtered.slice(0, renderLimit), [filtered, renderLimit])
+  useEffect(() => { setRenderLimit(ROWS_PER_CHUNK) }, [status, from, to, query, showOlder])
 
   const cancelBooking = async (id: string, reason: string) => {
     const original = bookings
@@ -1295,7 +1341,7 @@ export function ReservationsPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filtered.map((b) => {
+                      {visible.map((b) => {
                         const guest = guestMap.get(b.guestId)
                         const liveRoom = roomMap.get(b.roomId)
                         // The view already resolves this; the blob parse below is the
@@ -1496,11 +1542,21 @@ export function ReservationsPage() {
             </CardContent>
           </Card>
 
+          {/* Building every row up front costs a second of layout on a phone at
+              250 rows. The next chunk is built when this comes into view. */}
+          {visible.length < filtered.length && (
+            <LoadMoreSentinel
+              shown={visible.length}
+              total={filtered.length}
+              onVisible={() => setRenderLimit(n => Math.min(n + ROWS_PER_CHUNK, filtered.length))}
+            />
+          )}
+
           <div className="md:hidden space-y-3 pb-24">
             {filtered.length === 0 ? (
               <p className="text-center text-muted-foreground py-12">No bookings found matching your filters.</p>
             ) : (
-              filtered.map((b) => {
+              visible.map((b) => {
                 const guest = guestMap.get(b.guestId)
                 const liveRoom = roomMap.get(b.roomId)
                 let roomNumber = liveRoom?.roomNumber || 'N/A'
@@ -1620,6 +1676,16 @@ export function ReservationsPage() {
                 )
               })
             )}
+
+          {/* Building every row up front costs a second of layout on a phone at
+              250 rows. The next chunk is built when this comes into view. */}
+          {visible.length < filtered.length && (
+            <LoadMoreSentinel
+              shown={visible.length}
+              total={filtered.length}
+              onVisible={() => setRenderLimit(n => Math.min(n + ROWS_PER_CHUNK, filtered.length))}
+            />
+          )}
           </div>
         </main>
       </div >

@@ -83,7 +83,8 @@ export const ROUTE_ACCESS: Record<string, StaffRole[]> = {
   '/staff/clock': ['owner', 'admin', 'manager', 'staff'],
   '/staff/qr-display': ['owner', 'admin'],
   '/staff/inventory': ['owner', 'admin', 'manager'],
-  '/staff/inventory/transactions': ['owner', 'admin', 'manager']
+  '/staff/inventory/transactions': ['owner', 'admin', 'manager'],
+  '/staff/connection-check': ['owner', 'admin']
 }
 
 // Navigation items visibility by role
