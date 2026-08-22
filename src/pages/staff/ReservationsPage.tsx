@@ -307,16 +307,22 @@ export function ReservationsPage() {
         }
         const usingView = viewShapeOk
 
+        // Guests are not on the critical path: the view already carries the name
+        // each row displays, and the guest record itself is only needed once a
+        // dialog opens. Fetching it alongside held first paint back by 85 KB.
+        const guestsPromise: Promise<any[]> = usingView
+          ? db.guests
+              .list({ where: { id: { in: [...new Set(listRows!.map((x: any) => x.guestId).filter(Boolean))] } } })
+              .catch(() => [])
+          : db.guests.listAll()
+        if (usingView) guestsPromise.then(rows => setGuests((rows || []) as any)).catch(() => {})
+
         const [b, r, g, rt, charges, roomsTable, tasks] = await Promise.all([
           usingView
             ? Promise.resolve(listRows!.map(fromListRow))
             : db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
           db.properties.listAll(),
-          // Only the guests on screen. Fetching the whole table cost 292 KB to
-          // resolve a few dozen names the view already carries.
-          usingView
-            ? db.guests.list({ where: { id: { in: [...new Set(listRows!.map((x: any) => x.guestId).filter(Boolean))] } } }).catch(() => [])
-            : db.guests.listAll(),
+          usingView ? Promise.resolve([]) : guestsPromise,
           db.roomTypes.list({ limit: 100 }),
           // The view sums charges per booking, so the whole charges table is
           // only needed on the fallback path.
@@ -367,7 +373,9 @@ export function ReservationsPage() {
         })
 
         setRooms(combinedRooms)
-        setGuests(g)
+        // On the view path guests arrive on their own promise above; writing the
+        // empty placeholder here would wipe them if they landed first.
+        if (!usingView) setGuests(g)
         setRoomTypes(rt)
       } catch (e) {
         console.error('Failed to load reservations', e)
