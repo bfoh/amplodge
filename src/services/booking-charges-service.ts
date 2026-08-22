@@ -145,6 +145,17 @@ class BookingChargesService {
         try {
             const amount = data.quantity * data.unitPrice
 
+            // Every charge must record who took the money. A caller that forgets
+            // to pass it used to store null, and a charge belonging to nobody is
+            // dropped from the revenue reports entirely while still showing on
+            // the analytics page — the same money counted in one place and not
+            // the other. Resolving the signed-in user here means no caller can
+            // reintroduce that.
+            const createdBy = data.createdBy || (await auth.me().catch(() => null))?.id || null
+            if (!data.createdBy && !createdBy) {
+                console.warn('[BookingChargesService] Charge saved with no staff attached — no signed-in user to attribute it to.')
+            }
+
             const charge = await db.bookingCharges.create({
                 bookingId: data.bookingId,
                 description: data.description,
@@ -154,7 +165,7 @@ class BookingChargesService {
                 amount: amount,
                 notes: data.notes || null,
                 paymentMethod: data.paymentMethod || 'cash',
-                createdBy: data.createdBy || null,
+                createdBy,
                 inventoryId: data.inventoryId || null,
                 createdAt: new Date().toISOString()
             })
@@ -164,8 +175,8 @@ class BookingChargesService {
                 try {
                     // Use staff info if provided, else try to get current user, else fallback to 'system'
                     let staffInfo = { id: 'system', name: 'System' }
-                    if (data.createdBy) {
-                        staffInfo = { id: data.createdBy, name: 'Staff' }
+                    if (createdBy) {
+                        staffInfo = { id: createdBy, name: 'Staff' }
                     } else {
                         const me = await auth.me().catch(() => null)
                         if (me) {

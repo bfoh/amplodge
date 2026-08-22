@@ -734,6 +734,15 @@ export interface CompanyPeriodRevenue {
   roomRevenue: number
   additionalRevenue: number
   standaloneSalesRevenue: number
+  /**
+   * Charges and sales that record no staff at all.
+   *
+   * Per-staff figures cannot show this money — there is nobody to show it
+   * against — but it is money the hotel took, so the company total must carry
+   * it. Leaving it out meant the analytics page counted it while the revenue
+   * reports did not.
+   */
+  unassignedRevenue: number
   grandRevenue: number
   bookingCount: number
   /** Per-staff detail, keyed by the canonical staff id, so a total can be explained. */
@@ -814,7 +823,7 @@ export function calculateCompanyPeriodRevenue(
 ): CompanyPeriodRevenue {
   const totals: CompanyPeriodRevenue = {
     roomRevenue: 0, additionalRevenue: 0, standaloneSalesRevenue: 0,
-    grandRevenue: 0, bookingCount: 0, byStaff: [], bookings: [],
+    unassignedRevenue: 0, grandRevenue: 0, bookingCount: 0, byStaff: [], bookings: [],
   }
   const round = (n: number) => Math.round(n * 100) / 100
   const merged = new Map<string, CompanyBookingRow>()
@@ -846,9 +855,29 @@ export function calculateCompanyPeriodRevenue(
   }
   totals.bookings = [...merged.values()].sort((a, b) => b.amount - a.amount)
 
+  // Money with no staff on it. Anything carrying a staff id has already been
+  // counted above — collectStaffIdentities picks creators up from the charges
+  // and sales themselves — so only the blank ones are still missing.
+  const inPeriod = (raw: string) => {
+    const day = (raw || '').slice(0, 10)
+    return !!day && day >= from && day <= to
+  }
+  for (const c of (shared.chargesRaw || [])) {
+    if (c.createdBy || c.created_by) continue
+    if (!inPeriod(c.createdAt || c.created_at)) continue
+    totals.unassignedRevenue += Number(c.amount) || 0
+  }
+  for (const sale of (shared.standaloneSales || [])) {
+    if ((sale as any).staffId || (sale as any).staff_id) continue
+    if (!inPeriod((sale as any).saleDate || (sale as any).sale_date || '')) continue
+    totals.unassignedRevenue += Number((sale as any).amount) || 0
+  }
+  totals.grandRevenue += totals.unassignedRevenue
+
   totals.roomRevenue = round(totals.roomRevenue)
   totals.additionalRevenue = round(totals.additionalRevenue)
   totals.standaloneSalesRevenue = round(totals.standaloneSalesRevenue)
+  totals.unassignedRevenue = round(totals.unassignedRevenue)
   totals.grandRevenue = round(totals.grandRevenue)
   totals.byStaff.sort((a, b) => b.grandRevenue - a.grandRevenue)
   return totals

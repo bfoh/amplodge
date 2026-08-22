@@ -346,12 +346,14 @@ export function AnalyticsPage() {
   const staffLookup = new Map(allStaff.map(s => [s.id, s.name]))
   const staffUserLookup = new Map(allStaff.map(s => [s.userId || s.user_id, s.name]))
   
+  // "System" reads as though something automated took the money. Nothing did —
+  // the row simply has no staff recorded on it, which is worth saying plainly.
   const resolveStaffName = (id?: string, name?: string) => {
     if (!id || id === 'system' || id === 'unknown') {
       if (name && name !== 'System' && name !== 'unknown') return name
-      return 'System'
+      return 'Unassigned'
     }
-    return staffLookup.get(id) || staffUserLookup.get(id) || name || 'System'
+    return staffLookup.get(id) || staffUserLookup.get(id) || name || 'Unassigned'
   }
 
   const chargeStaffMap: Record<string, { amount: number, name: string }> = {}
@@ -372,7 +374,14 @@ export function AnalyticsPage() {
     .sort((a, b) => b.amount - a.amount)
   
   // ── Combined Additional Entries for Table ──────────────────────────────
-  const bookingsMap = new Map(allRevenueBookings.concat(allDepositBookings).map(b => [b.id, b]))
+  // Bookings are keyed by every id they carry. Keying on `b.id` alone built a
+  // map of undefined — these objects identify themselves as `_id`/`remoteId` —
+  // so no charge could ever find its booking and every one showed "—" for the
+  // guest it belonged to.
+  const bookingsMap = new Map<string, any>()
+  for (const b of allRevenueBookings.concat(allDepositBookings)) {
+    for (const key of [b.id, b._id, b.remoteId]) if (key) bookingsMap.set(String(key), b)
+  }
   const allAdditionalEntries = [
     ...filteredCharges
       .filter(c => c.category !== 'room_extension') // Room extensions are in the Room track
@@ -389,6 +398,7 @@ export function AnalyticsPage() {
         type: 'Charge',
         paymentMethod: c.paymentMethod || c.payment_method || decodeChargePaymentMethod(c.notes) || '',
         guestName: b?.guestName || b?.guest?.fullName || c.guestName || '—',
+        bookingId: bId,
         roomNumber: b?.roomNumber || '—'
       }
     }),

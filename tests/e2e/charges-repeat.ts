@@ -79,6 +79,25 @@ async function chargeEdits() {
   check('stock fully restored after deleting', await stock(), 50)
 }
 
+
+async function chargesAlwaysNameTheirStaff() {
+  await seed()
+  const b = await makeStay()
+
+  // A caller that forgets to say who is adding the charge — which is how the
+  // guest folio dialog behaved, leaving GHS 940 of real money attributed to
+  // nobody and dropped from the revenue reports.
+  await bookingChargesService.addCharge({
+    bookingId: b.id, description: 'Beer', category: 'minibar',
+    quantity: 1, unitPrice: 15,
+  } as any)
+
+  const rows = await db.bookingCharges.list({})
+  check('a charge always records who added it', !!rows[0].createdBy, true)
+  check('and it is the signed-in user', rows[0].createdBy, A.id)
+  check('so it reaches that staff member\'s revenue', money((await revenue()).additionalRevenue), 15)
+}
+
 async function repeatedCheckOut() {
   await seed()
   const b = await makeStay()
@@ -131,6 +150,7 @@ async function stockNeverLost() {
 ;(async () => {
   for (const [name, fn] of [
     ['charge edits and deletes', chargeEdits],
+    ['charges always name their staff', chargesAlwaysNameTheirStaff],
     ['repeated check-out', repeatedCheckOut],
     ['repeated standalone sale', repeatedSale],
     ['concurrent stock movements', stockNeverLost],

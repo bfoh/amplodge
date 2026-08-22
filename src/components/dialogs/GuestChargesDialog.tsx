@@ -21,6 +21,7 @@ import { formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { BookingCharge, ChargeCategory } from '@/types'
 import { bookingChargesService, CHARGE_CATEGORIES, CreateChargeData } from '@/services/booking-charges-service'
+import { auth } from '@/lib/db'
 import { inventoryService } from '@/services/inventory-service'
 import { InventoryItem } from '@/types'
 
@@ -113,6 +114,15 @@ export function GuestChargesDialog({
         }
     }
 
+    /** Who is adding this charge. Recorded on the row so the revenue reports can attribute it. */
+    const currentStaffId = async (): Promise<string | undefined> => {
+        try {
+            return (await auth.me())?.id || undefined
+        } catch {
+            return undefined
+        }
+    }
+
     const handleAddCharge = async () => {
         if (!description.trim()) {
             toast.error('Please enter a description')
@@ -134,7 +144,8 @@ export function GuestChargesDialog({
                 unitPrice,
                 paymentMethod,
                 notes: notes.trim() || undefined,
-                inventoryId: inventoryId || undefined
+                inventoryId: inventoryId || undefined,
+                createdBy: await currentStaffId(),
             }
 
             await bookingChargesService.addCharge(chargeData)
@@ -180,6 +191,7 @@ export function GuestChargesDialog({
 
         setSubmitting(true)
         const bookingId = booking.remoteId || booking.id
+        const staffId = await currentStaffId()
         let ok = 0, fail = 0
         for (const c of staged) {
             try {
@@ -192,6 +204,7 @@ export function GuestChargesDialog({
                     paymentMethod,
                     notes: notes.trim() || undefined,
                     inventoryId: c.inventoryId,
+                    createdBy: staffId,
                 }
                 await bookingChargesService.addCharge(chargeData)
                 ok++

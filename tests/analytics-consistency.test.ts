@@ -42,6 +42,7 @@ const check = (label: string, got: any, want: any) => {
     chargesRaw: chargesRaw.map(camel), staffRows: staffRows.map(camel), standaloneSales: sales.map(camel),
   }
   const staff = staffRows.map(camel)
+  const chargesRaw2 = chargesRaw, salesRaw2 = sales
 
   const weeks = getPastWeeksBounds(12)
   let weeksChecked = 0
@@ -63,8 +64,8 @@ const check = (label: string, got: any, want: any) => {
     const offTable = company.byStaff
       .filter(x => !tableIds.has(x.staffId))
       .reduce((sum, x) => sum + x.grandRevenue, 0)
-    check(`${w.weekStart}: company total = staff-table total + staff with no table row`,
-      money(company.grandRevenue), money(tableTotal + offTable))
+    check(`${w.weekStart}: company total = staff-table total + off-table staff + unassigned`,
+      money(company.grandRevenue), money(tableTotal + offTable + company.unassignedRevenue))
 
     // The rows the breakdown card renders must add up to the room revenue above them.
     const rowsTotal = company.bookings.reduce((s, b) => s + b.amount, 0)
@@ -76,13 +77,29 @@ const check = (label: string, got: any, want: any) => {
     check(`${w.weekStart}: payment methods add up to room revenue`, money(methodTotal), money(company.roomRevenue))
 
     // And the components must make the grand total.
-    check(`${w.weekStart}: grand = rooms + charges + sales`,
+    check(`${w.weekStart}: grand = rooms + charges + sales + unassigned`,
       money(company.grandRevenue),
-      money(company.roomRevenue + company.additionalRevenue + company.standaloneSalesRevenue))
+      money(company.roomRevenue + company.additionalRevenue + company.standaloneSalesRevenue + company.unassignedRevenue))
 
-    // byStaff must reconcile too — it is what explains the total.
-    check(`${w.weekStart}: byStaff explains the total`,
-      money(company.byStaff.reduce((s, x) => s + x.grandRevenue, 0)), money(company.grandRevenue))
+    // Nothing the hotel took may fall outside the total. Every charge and sale
+    // in the period is either against a staff member or in the unassigned
+    // bucket — never in neither.
+    const inPeriod = (raw: string) => { const d = (raw || '').slice(0, 10); return !!d && d >= w.weekStart && d <= w.weekEnd }
+    const chargesInWeek = chargesRaw2
+      .filter((c: any) => inPeriod(c.created_at) && c.category !== 'room_extension')
+      .reduce((s: number, c: any) => s + Number(c.amount || 0), 0)
+    const salesInWeek = salesRaw2
+      .filter((x: any) => inPeriod(x.sale_date))
+      .reduce((s: number, x: any) => s + Number(x.amount || 0), 0)
+    const countedExtras = company.additionalRevenue + company.standaloneSalesRevenue + company.unassignedRevenue
+    check(`${w.weekStart}: every charge and sale is counted somewhere`,
+      money(countedExtras) >= money(chargesInWeek + salesInWeek) - 0.02, true)
+
+    // byStaff plus the unassigned bucket must explain the total. Money with no
+    // staff recorded on it belongs to the hotel but to nobody in particular.
+    check(`${w.weekStart}: byStaff + unassigned explains the total`,
+      money(company.byStaff.reduce((s, x) => s + x.grandRevenue, 0) + company.unassignedRevenue),
+      money(company.grandRevenue))
 
     // No booking may be credited beyond what it is worth once every identity
     // has had its share — the test that a person appearing under two ids would
