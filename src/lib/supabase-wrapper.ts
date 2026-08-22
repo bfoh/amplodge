@@ -303,8 +303,27 @@ function createTableWrapper(tableName: string) {
       return convertToCamelCase(data)
     },
 
-    async create(record: Record<string, any>) {
+    /**
+     * Insert a row.
+     *
+     * `returning: 'minimal'` skips reading the row back. That matters where the
+     * caller may write a row it is not allowed to read: the activity log accepts
+     * writes from the public booking page but only staff may read it, and
+     * PostgREST rolls the insert back entirely when the read-back is refused —
+     * so asking for a row you cannot see loses the write.
+     */
+    async create(record: Record<string, any>, options: { returning?: 'minimal' | 'representation' } = {}) {
       const snakeRecord = convertToSnakeCase(record)
+
+      if (options.returning === 'minimal') {
+        const { error: insertError } = await supabase.from(tableName).insert(snakeRecord)
+        if (insertError) {
+          console.error(`[SupabaseDB] Error creating ${tableName}:`, insertError)
+          throw insertError
+        }
+        emitTableUpdated(tableName)
+        return convertToCamelCase(snakeRecord)
+      }
 
       const { data, error } = await supabase
         .from(tableName)

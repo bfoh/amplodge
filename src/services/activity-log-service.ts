@@ -177,7 +177,10 @@ class ActivityLogService {
         return
       }
 
-      await db.activityLogs.create(logEntry)
+      // Written without reading the row back: the public booking page and the
+      // contact form log while nobody is signed in, and only staff may read the
+      // log. Asking for the row back would refuse the write outright.
+      await db.activityLogs.create(logEntry, { returning: 'minimal' })
       console.log('[ActivityLog] Activity logged successfully to activityLogs table')
     } catch (error) {
       console.error('[ActivityLog] Failed to log activity:', error)

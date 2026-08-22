@@ -39,7 +39,7 @@ export interface TableWrapper<TRow> {
   }): Promise<TRow[]>
   count(options?: { where?: Partial<Record<keyof TRow | string, any>> }): Promise<number | null>
   get(id: string): Promise<TRow>
-  create(data: Partial<TRow>): Promise<TRow>
+  create(data: Partial<TRow>, options?: { returning?: 'minimal' | 'representation' }): Promise<TRow>
   update(id: string, data: Partial<TRow>): Promise<TRow>
   delete(id: string): Promise<boolean>
 }
