@@ -201,7 +201,13 @@ class BookingChargesService {
             // reintroduce that.
             const createdBy = await resolveChargeStaffId(data.createdBy)
             if (!createdBy) {
-                console.warn('[BookingChargesService] Charge saved with no staff attached — nobody signed in to attribute it to.')
+                // The database refuses a charge that names nobody (see
+                // 20260822_require_staff_on_revenue.sql), so failing here with
+                // something reception can act on beats a bare "failed to add".
+                throw new Error(
+                    'Cannot add this charge: your account is not set up as a staff member. ' +
+                    'Ask an admin to add you under Employees, then try again.'
+                )
             }
 
             const charge = await db.bookingCharges.create({

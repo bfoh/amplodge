@@ -334,6 +334,15 @@ export function calculateStaffWeekResultInternal(
     }
   }
 
+  // A cancelled booking earns nothing — deposits are refunded on cancel, per
+  // the policy applied to the room price below. Its charges have to follow the
+  // same rule or the booking earns nothing and something at the same time.
+  const cancelledBookingIds = new Set(
+    allBookings.filter((b: any) => (b.status || '') === 'cancelled').map((b: any) => b.id)
+  )
+  const chargeIsOnCancelledBooking = (c: any) =>
+    cancelledBookingIds.has(c.bookingId || c.booking_id || '')
+
   const legacyGroupBatches = buildLegacyGroupBatches(allBookings)
 
   /**
@@ -673,6 +682,7 @@ export function calculateStaffWeekResultInternal(
   const orphanCharges: ChargeLineSummary[] = []
   for (const [bookingId, charges] of chargesByBookingId.entries()) {
     if (matchedIds.has(bookingId)) continue
+    if (cancelledBookingIds.has(bookingId)) continue
     for (const c of charges) {
       if (!isThisStaff(c.createdBy || c.created_by, '')) continue
       const createdAt = c.createdAt || c.created_at || ''
@@ -867,9 +877,13 @@ export function calculateCompanyPeriodRevenue(
     const day = (raw || '').slice(0, 10)
     return !!day && day >= from && day <= to
   }
+  const cancelledIds = new Set(
+    (shared.bookings || []).filter((b: any) => (b.status || '') === 'cancelled').map((b: any) => b.id)
+  )
   for (const c of (shared.chargesRaw || [])) {
     if (c.createdBy || c.created_by) continue
     if (!inPeriod(c.createdAt || c.created_at)) continue
+    if (cancelledIds.has(c.bookingId || c.booking_id || '')) continue
     totals.unassignedRevenue += Number(c.amount) || 0
   }
   for (const sale of (shared.standaloneSales || [])) {

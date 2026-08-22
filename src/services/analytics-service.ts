@@ -92,8 +92,15 @@ class AnalyticsService {
         const d = new Date(raw)
         return !isNaN(d.getTime()) && d >= startDate && d <= endDate
       }
+      // Charges on a cancelled booking are excluded for the same reason its room
+      // price is: the booking was refunded, so it earned nothing.
+      const cancelledBookingIds = new Set(
+        bookings.filter((b: any) => (b.status || '') === 'cancelled')
+          .map((b: any) => b._id || b.remoteId || b.id)
+      )
       const chargesForRequest = (allChargesRaw || []).filter((c: any) =>
-        inRequestedRange(c.createdAt || c.created_at))
+        inRequestedRange(c.createdAt || c.created_at) &&
+        !cancelledBookingIds.has(c.bookingId || c.booking_id || ''))
       const salesForRequest = (allStandaloneSales || []).filter((s: any) =>
         inRequestedRange(s.saleDate || s.sale_date || s.createdAt || s.created_at))
 
