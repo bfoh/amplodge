@@ -257,23 +257,42 @@ export function OnsiteBookingPage() {
         ? paymentSplits.filter(s => s.amount > 0).map(s => ({ method: s.method, amount: s.amount }))
         : undefined
 
+      // How much of the money collected belongs to each room in the cart.
+      //
+      // The amount actually handed over is grandTotal (rooms, plus any group
+      // charges, minus any group discount) for a full payment, or what the
+      // splits add up to for a part payment. Recording each room's own gross
+      // price instead — as this did for full payments — booked more money than
+      // the guest paid whenever the group carried a discount: GRP-2026-YCEA
+      // paid GHS 6,400 on GHS 6,600 of rooms and its rows recorded GHS 6,600.
+      //
+      // Shares are apportioned by room price and the rounding residual goes to
+      // the largest room, so they add up to the collected figure exactly.
+      const collectedTotal = paymentType === 'full'
+        ? grandTotal
+        : paymentType === 'part' ? splitsPaidTotal : 0
+      const cartRoomTotals = cart.map(item => Number(item.price) * differenceInDays(item.checkOut, item.checkIn))
+      const cartRoomsSum = cartRoomTotals.reduce((s, v) => s + v, 0)
+      const paidPerItem: number[] = cartRoomTotals.map(roomTotal =>
+        cartRoomsSum > 0 ? Math.round((roomTotal / cartRoomsSum) * collectedTotal * 100) / 100 : 0
+      )
+      if (collectedTotal > 0 && paidPerItem.length > 0) {
+        const assigned = paidPerItem.reduce((s, v) => s + v, 0)
+        const residual = Math.round((collectedTotal - assigned) * 100) / 100
+        if (residual !== 0) {
+          const biggest = cartRoomTotals.reduce((best, v, i) => (v > cartRoomTotals[best] ? i : best), 0)
+          paidPerItem[biggest] = Math.round((paidPerItem[biggest] + residual) * 100) / 100
+        }
+      }
+
       // Build a booking data object for a single cart item
       const staffName = user?.user_metadata?.full_name || user?.email || 'Staff'
       const buildBookingItem = (item: typeof cart[0], index: number) => {
         const itemNights = differenceInDays(item.checkOut, item.checkIn)
         const itemTotal = Number(item.price) * itemNights
 
-        // Payment amount belonging to THIS room: the whole part-payment for a
-        // single-room booking, this room's proportional share for a group.
-        const itemPaymentAmount = paymentType === 'full'
-          ? itemTotal
-          : paymentType === 'part'
-            ? (isSingleRoom
-                ? splitsPaidTotal
-                : grandTotal > 0
-                  ? Math.round((itemTotal / grandTotal) * splitsPaidTotal * 100) / 100
-                  : 0)
-            : 0
+        // Payment amount belonging to THIS room.
+        const itemPaymentAmount = paidPerItem[index] ?? 0
 
         const assigned = guestAssignments[item.id] || { name: guestInfo.name, email: guestInfo.email }
 
@@ -317,11 +336,8 @@ export function OnsiteBookingPage() {
           // Each room records only the money that belongs to it. Storing the
           // group-wide figure on every room made every consumer (revenue
           // reports, invoices, reservations) count the same deposit once per
-          // room. Single-room bookings keep the whole-booking figure, which
-          // includes charges/discount.
-          amountPaid: isSingleRoom
-            ? (paymentType === 'full' ? grandTotal : (paymentType === 'part' ? splitsPaidTotal : 0))
-            : itemPaymentAmount,
+          // room. For a single-room booking this is the whole collected figure.
+          amountPaid: itemPaymentAmount,
           paymentStatus: paymentType,
           createdBy: user?.id,
           createdByName: staffName,
