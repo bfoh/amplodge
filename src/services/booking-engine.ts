@@ -833,7 +833,7 @@ class BookingEngine {
     console.log(`[BookingEngine] Adding new member to group: ${groupId}`)
 
     // Find existing bookings in this group to get group metadata
-    const allBookings = await db.bookings.list({ limit: 500 })
+    const allBookings = await db.bookings.listAll()
     const groupBookings = allBookings.filter((b: any) => {
       // Check for groupId in the booking or in specialRequests metadata
       if (b.groupId === groupId) return true
@@ -911,7 +911,7 @@ class BookingEngine {
 
     // Try alternative ID formats if not found
     if (!booking) {
-      const allBookings = await db.bookings.list({ limit: 500 })
+      const allBookings = await db.bookings.listAll()
       booking = allBookings.find((b: any) =>
         b.id === bookingId ||
         b.id === bookingId.replace(/^booking_/, 'booking-') ||
@@ -955,7 +955,7 @@ class BookingEngine {
     }
 
     // Find all other bookings in this group
-    const allBookings = await db.bookings.list({ limit: 500 })
+    const allBookings = await db.bookings.listAll()
     const groupBookings = allBookings.filter((b: any) => {
       if (b.id === booking.id) return false // Exclude current booking
 
@@ -1063,7 +1063,7 @@ class BookingEngine {
 
         // If not found, try alternative ID formats
         if (!booking) {
-          const allBookings = await db.bookings.list({ limit: 500 })
+          const allBookings = await db.bookings.listAll()
           booking = allBookings.find((b: any) =>
             b.id === remoteId ||
             b.id === id ||
@@ -1192,9 +1192,9 @@ class BookingEngine {
       // Also delete any duplicate bookings with the same guest, room, and dates
       // Run this even if guest/room lookup didn't work - try to match by IDs
       try {
-        const allBookings = await db.bookings.list({ limit: 500 })
-        const allGuests = await db.guests.list({ limit: 500 })
-        const allRooms = await db.properties.list({ limit: 500 })
+        const allBookings = await db.bookings.listAll()
+        const allGuests = await db.guests.listAll()
+        const allRooms = await db.properties.listAll()
 
         const guestMap = new Map(allGuests.map((g: any) => [g.id, g]))
         const roomMap = new Map(allRooms.map((r: any) => [r.id, r]))
@@ -1295,7 +1295,7 @@ class BookingEngine {
       if (booking && booking.guestId && booking.status !== 'checked-out') {
         try {
           // Check if guest has any other bookings
-          const remainingBookings = await db.bookings.list({ limit: 500 })
+          const remainingBookings = await db.bookings.listAll()
           const guestOtherBookings = remainingBookings.filter((b: any) =>
             b.guestId === booking.guestId && b.id !== remoteId
           )
@@ -1375,7 +1375,7 @@ class BookingEngine {
     // page data — name, type, price), not the legacy `rooms` mirror, which
     // only ever carries id/roomNumber/status.
     const [bookings, rooms, guests] = await Promise.all([
-      db.bookings.list({ orderBy: { createdAt: 'desc' }, limit: 5000 }),
+      db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
       db.properties.listAll().catch(() => []),
       db.guests.list(),
     ])
@@ -1671,7 +1671,7 @@ class BookingEngine {
       // If booking not found with remoteId, try to find it by listing all bookings
       if (!booking) {
         console.log('[BookingEngine] Booking not found with ID:', remoteId, '- searching in all bookings...')
-        const allBookings = await db.bookings.list({ limit: 500 })
+        const allBookings = await db.bookings.listAll()
         // Try to find booking by matching the ID pattern
         booking = allBookings.find((b: any) =>
           b.id === remoteId ||

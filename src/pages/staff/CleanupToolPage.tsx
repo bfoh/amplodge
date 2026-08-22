@@ -210,7 +210,7 @@ export function CleanupToolPage() {
     setDeduplicatingBookings(true)
     try {
       console.log('🔍 Deduplicating bookings...')
-      const allBookings = await (db as any).bookings.list({ limit: 5000 })
+      const allBookings = await (db as any).bookings.listAll()
       const groups: Record<string, any[]> = {}
       
       // Group by logical identity

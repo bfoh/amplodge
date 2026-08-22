@@ -88,9 +88,15 @@ export async function initRealtimeUpdates(): Promise<void> {
 // Table wrapper
 // ---------------------------------------------------------------------------
 
+/** PostgREST refuses to return more than this in one response, whatever limit is asked for. */
+const SERVER_PAGE_LIMIT = 1000
+
 function createTableWrapper(tableName: string) {
   return {
     async list(options: { where?: Record<string, any>; limit?: number; orderBy?: Record<string, any> } = {}) {
+      // Rebuilt per page: a PostgREST builder executes when awaited and cannot
+      // be awaited twice.
+      const buildQuery = () => {
       let query = supabase.from(tableName).select('*')
 
       if (options.where) {
@@ -128,16 +134,38 @@ function createTableWrapper(tableName: string) {
         }
       }
 
-      if (options.limit) {
-        query = query.limit(options.limit)
+        return query
       }
 
-      const { data, error } = await query
-      if (error) {
-        console.error(`[SupabaseDB] Error listing ${tableName}:`, error)
-        throw error
+      // PostgREST caps a response at 1000 rows however large a limit is asked
+      // for, and says nothing about it — `limit: 5000` on a 1003-row table
+      // quietly returns 1000. Every revenue figure is computed from these
+      // fetches, so a silent truncation is money going missing from reports.
+      //
+      // Anything that could exceed the cap is therefore read page by page. A
+      // small limit (a lookup, a "latest 5") stays a single request.
+      const wanted = options.limit ?? Infinity
+      if (wanted <= SERVER_PAGE_LIMIT) {
+        const { data, error } = await buildQuery().limit(wanted)
+        if (error) {
+          console.error(`[SupabaseDB] Error listing ${tableName}:`, error)
+          throw error
+        }
+        return (data || []).map(convertToCamelCase)
       }
-      return (data || []).map(convertToCamelCase)
+
+      const rows: any[] = []
+      for (let from = 0; rows.length < wanted; from += SERVER_PAGE_LIMIT) {
+        const { data, error } = await buildQuery().range(from, from + SERVER_PAGE_LIMIT - 1)
+        if (error) {
+          console.error(`[SupabaseDB] Error listing ${tableName} (page from ${from}):`, error)
+          throw error
+        }
+        const page = data || []
+        rows.push(...page)
+        if (page.length < SERVER_PAGE_LIMIT) break
+      }
+      return (wanted === Infinity ? rows : rows.slice(0, wanted)).map(convertToCamelCase)
     },
 
     /**

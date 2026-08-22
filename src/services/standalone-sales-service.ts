@@ -65,7 +65,7 @@ export const standaloneSalesService = {
     weekEnd: string
   ): Promise<StandaloneSale[]> {
     try {
-      const rows = await db.standaloneSales.list({ limit: 2000 })
+      const rows = await db.standaloneSales.listAll()
       return ((rows || []) as StandaloneSale[]).filter((s) => {
         const sid = (s as any).staffId || (s as any).staff_id || ''
         const sd  = (s as any).saleDate || (s as any).sale_date || ''
@@ -83,7 +83,7 @@ export const standaloneSalesService = {
     weekEnd: string
   ): Promise<StandaloneSale[]> {
     try {
-      const rows = await db.standaloneSales.list({ limit: 2000 })
+      const rows = await db.standaloneSales.listAll()
       return ((rows || []) as StandaloneSale[]).filter((s) => {
         const sd = (s as any).saleDate || (s as any).sale_date || ''
         return sd >= weekStart && sd <= weekEnd
@@ -97,7 +97,7 @@ export const standaloneSalesService = {
   /** Fetch ALL sales ever (for analytics). */
   async getAllSales(): Promise<StandaloneSale[]> {
     try {
-      const rows = await db.standaloneSales.list({ limit: 5000 })
+      const rows = await db.standaloneSales.listAll()
       return (rows || []) as StandaloneSale[]
     } catch (e) {
       console.warn('[standaloneSalesService] getAllSales failed:', e)

@@ -682,11 +682,11 @@ async function toolApplyDiscount(args: any, staffCtx: StaffCtx): Promise<ToolRes
 /** One shared fetch reused across every staff member when computing an all-staff breakdown — avoids N redundant full-table fetches. */
 async function loadStaffRevenueSharedData(): Promise<StaffRevenueSharedData> {
   const [bookings, properties, guests, chargesRaw, staffRows, standaloneSales] = await Promise.all([
-    db.bookings.list({ limit: 5000 }),
-    db.properties.list({ limit: 500 }),
-    db.guests.list({ limit: 2000 }),
-    db.bookingCharges.list({ limit: 5000 }).catch(() => []),
-    db.staff.list({ limit: 200 }).catch(() => []),
+    db.bookings.listAll(),
+    db.properties.listAll(),
+    db.guests.listAll(),
+    db.bookingCharges.listAll().catch(() => []),
+    db.staff.listAll().catch(() => []),
     standaloneSalesService.getAllSales().catch(() => []),
   ])
   return { bookings, properties, guests, chargesRaw, staffRows, standaloneSales }
@@ -695,7 +695,7 @@ async function loadStaffRevenueSharedData(): Promise<StaffRevenueSharedData> {
 async function resolveStaff(query: string): Promise<{ id: string; userId?: string; name: string; role: string } | ToolResult> {
   const q = (query || '').trim().toLowerCase()
   if (!q) return { ok: false, error: 'No staff member specified.' }
-  const staffRows = await db.staff.list({ limit: 200 })
+  const staffRows = await db.staff.listAll()
   const matches = staffRows.filter((s: any) =>
     String(s.name || '').toLowerCase().includes(q) || String(s.email || '').toLowerCase().includes(q)
   )

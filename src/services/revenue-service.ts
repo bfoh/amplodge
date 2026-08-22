@@ -899,11 +899,11 @@ export async function fetchBookingsForStaffWeek(
 ): Promise<StaffWeekResult> {
   try {
     const [bookings, properties, guests, chargesRaw, staffRows, standaloneSales] = await Promise.all([
-      db.bookings.list({ limit: 2000 }),
-      db.properties.list({ limit: 500 }),
-      db.guests.list({ limit: 1000 }),
-      db.bookingCharges.list({ limit: 5000 }).catch(() => []),
-      db.staff.list({ limit: 200 }).catch(() => []),
+      db.bookings.listAll(),
+      db.properties.listAll(),
+      db.guests.listAll(),
+      db.bookingCharges.listAll().catch(() => []),
+      db.staff.listAll().catch(() => []),
       standaloneSalesService.getAllSales().catch(() => []),
     ])
     const shared: StaffRevenueSharedData = { bookings, properties, guests, chargesRaw, staffRows, standaloneSales }
@@ -932,7 +932,7 @@ export async function getOrCreateWeekReport(
   // Fetch all and filter client-side — wrapper's where-filter is unreliable for custom tables
   let allRows: WeeklyRevenueReport[] = []
   try {
-    const rows = await db.hr_weekly_revenue.list({ limit: 500 })
+    const rows = await db.hr_weekly_revenue.listAll()
     allRows = (rows || []) as WeeklyRevenueReport[]
   } catch (e) {
     console.warn('[getOrCreateWeekReport] list failed (table may not exist yet):', e)
@@ -942,7 +942,7 @@ export async function getOrCreateWeekReport(
   // so we match existing reports regardless of which ID variant was used when saving.
   const staffIdSet = new Set<string>([staffId])
   try {
-    const staffRows: any[] = await db.staff.list({ limit: 200 }).catch(() => [])
+    const staffRows: any[] = await db.staff.listAll().catch(() => [])
     for (const s of staffRows) {
       const sid = s.id || ''
       const uid = s.userId || s.user_id || ''
@@ -1061,12 +1061,12 @@ export async function getAllStaffReportsForWeek(weekStart: string): Promise<HRWe
     const to = new Date(weekEnd + 'T23:59:59.999Z')
 
     const [rows, bookings, properties, guests, chargesRaw, allStaff, standaloneSales] = await Promise.all([
-      db.hr_weekly_revenue.list({ limit: 1000 }),
-      db.bookings.list({ limit: 5000 }), // Increased limit for data parity
-      db.properties.list({ limit: 500 }),
+      db.hr_weekly_revenue.listAll(),
+      db.bookings.listAll(), // Increased limit for data parity
+      db.properties.listAll(),
       db.guests.list({ limit: 2000 }),
-      db.bookingCharges.list({ limit: 5000 }).catch(() => []),
-      db.staff.list({ limit: 200 }).catch(() => []),
+      db.bookingCharges.listAll().catch(() => []),
+      db.staff.listAll().catch(() => []),
       standaloneSalesService.getAllSales().catch(() => []),
     ])
 
@@ -1227,7 +1227,7 @@ export async function getAllStaffReportsForWeek(weekStart: string): Promise<HRWe
 /** Get a staff member's own report history, newest first. */
 export async function getStaffAllReports(staffId: string): Promise<WeeklyRevenueReport[]> {
   try {
-    const rows = await db.hr_weekly_revenue.list({ limit: 500 })
+    const rows = await db.hr_weekly_revenue.listAll()
     return ((rows || []) as WeeklyRevenueReport[])
       .filter((r) => {
         const sid = (r as any).staffId || (r as any).staff_id || ''

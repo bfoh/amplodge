@@ -104,7 +104,7 @@ class StayExtensionService {
             const allRooms = await db.properties.list({ limit: 100 })
 
             // Get all bookings that overlap with requested dates
-            const allBookings = await db.bookings.list({ limit: 500 })
+            const allBookings = await db.bookings.listAll()
 
             const requestStart = new Date(startDate)
             const requestEnd = new Date(endDate)

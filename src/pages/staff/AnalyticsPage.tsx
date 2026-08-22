@@ -163,7 +163,7 @@ export function AnalyticsPage() {
       // Raw booking rows for the shared revenue calculation. The mapped shape
       // above is for display; revenue-service reads the stored payment metadata,
       // and both pages must be answering with the same numbers.
-      const rawRows = await db.bookings.list({ limit: 3000 }).catch(() => [] as any[])
+      const rawRows = await db.bookings.listAll().catch(() => [] as any[])
       setRevenueShared({
         bookings: rawRows,
         properties: shared.properties || [],

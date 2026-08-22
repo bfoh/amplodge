@@ -37,12 +37,12 @@ class AnalyticsService {
     const [bookings, roomTypes, properties, chargesRaw, standaloneSales, guests, staff] =
       await Promise.all([
         bookingEngine.getAllBookings().catch(() => [] as any[]),
-        db.roomTypes.list().catch(() => [] as any[]),
-        db.properties.list().catch(() => [] as any[]),
-        (db.bookingCharges.list({ limit: 5000 }) as Promise<any[]>).catch(() => [] as any[]),
+        db.roomTypes.listAll().catch(() => [] as any[]),
+        db.properties.listAll().catch(() => [] as any[]),
+        (db.bookingCharges.listAll() as Promise<any[]>).catch(() => [] as any[]),
         standaloneSalesService.getAllSales().catch(() => [] as any[]),
-        db.guests.list().catch(() => [] as any[]),
-        db.staff.list().catch(() => [] as any[]),
+        db.guests.listAll().catch(() => [] as any[]),
+        db.staff.listAll().catch(() => [] as any[]),
       ])
     return { bookings, roomTypes, properties, chargesRaw, standaloneSales, guests, staff }
   }
@@ -60,9 +60,9 @@ class AnalyticsService {
       const [roomTypes, properties, allChargesRaw, allStandaloneSales] = shared
         ? [shared.roomTypes, shared.properties, shared.chargesRaw, shared.standaloneSales]
         : await Promise.all([
-            db.roomTypes.list(),
-            db.properties.list(),
-            (db.bookingCharges.list({ limit: 5000 }) as Promise<any[]>).catch(() => [] as any[]),
+            db.roomTypes.listAll(),
+            db.properties.listAll(),
+            (db.bookingCharges.listAll() as Promise<any[]>).catch(() => [] as any[]),
             standaloneSalesService.getAllSales().catch(() => [] as any[]),
           ])
 
@@ -608,8 +608,8 @@ class AnalyticsService {
       const [properties, roomTypes] = shared
         ? [shared.properties, shared.roomTypes]
         : await Promise.all([
-            db.properties.list(),
-            db.roomTypes.list()
+            db.properties.listAll(),
+            db.roomTypes.listAll()
           ])
 
       const totalRooms = new Set(
@@ -788,7 +788,7 @@ class AnalyticsService {
    */
   async getGuestAnalytics(shared?: AnalyticsSharedData): Promise<GuestAnalytics> {
     try {
-      const guests = shared?.guests ?? await db.guests.list()
+      const guests = shared?.guests ?? await db.guests.listAll()
       const bookings = shared?.bookings ?? await bookingEngine.getAllBookings()
 
       const totalGuests = guests.length
@@ -1001,7 +1001,7 @@ class AnalyticsService {
         : 0
 
       // Room status distribution
-      const rooms = shared?.properties ?? await db.properties.list()
+      const rooms = shared?.properties ?? await db.properties.listAll()
 
       const roomStatusDistribution = {
         available: rooms.filter((r: any) => r.status === 'available').length,

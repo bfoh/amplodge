@@ -47,6 +47,13 @@ if [[ "$filter" == "audit" || "$filter" == "live" ]]; then
     --define:import.meta.env.DEV=true --define:import.meta.env.MODE='"test"' --log-level=error
   printf '%-18s ' "analytics-vs-hr"
   node "$OUT/ac.mjs" | grep -E "^FAIL|ALL PASS|FAILURE" || fail=1
+
+  "$ESBUILD" "$ROOT/tests/pagination.test.ts" --bundle --platform=node --format=esm --outfile="$OUT/pg.mjs" \
+    --alias:@="$ROOT/src" --define:import.meta.env.VITE_SUPABASE_URL="\"$SUPABASE_URL\"" \
+    --define:import.meta.env.VITE_SUPABASE_ANON_KEY="\"$SUPABASE_SERVICE_ROLE_KEY\"" --define:import.meta.env.PROD=false \
+    --define:import.meta.env.DEV=true --define:import.meta.env.MODE='"test"' --log-level=error
+  printf '%-18s ' "row-cap"
+  node "$OUT/pg.mjs" | grep -E "^FAIL|ALL PASS|FAILURE" || fail=1
 fi
 
 if [[ "$filter" == "audit" ]]; then

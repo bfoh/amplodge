@@ -85,7 +85,7 @@ function enrichCharge(raw: any): BookingCharge {
  * before it can be written. Callers may pass either, or nothing at all.
  */
 async function resolveChargeStaffId(given?: string | null): Promise<string | null> {
-    const staffRows: any[] = await db.staff.list({ limit: 200 }).catch(() => [])
+    const staffRows: any[] = await db.staff.listAll().catch(() => [])
     const byRowId = new Set(staffRows.map((s) => s.id).filter(Boolean))
 
     const asStaffRow = (id?: string | null): string | null => {
