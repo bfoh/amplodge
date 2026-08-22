@@ -36,6 +36,19 @@ e2e() {
   node "$OUT/$name.mjs" 2>/dev/null | grep -E "^FAIL|ALL PASS|FAILURE" || { fail=1; node "$OUT/$name.mjs" 2>/dev/null | grep -E "^(FAIL|ERROR)" ; }
 }
 
+# Suites that read the live database. Credentials required; read-only.
+if [[ "$filter" == "audit" || "$filter" == "live" ]]; then
+  if [[ -z "${SUPABASE_URL:-}" || -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]]; then
+    echo "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY required for the live suites."; exit 1
+  fi
+  "$ESBUILD" "$ROOT/tests/analytics-consistency.test.ts" --bundle --platform=node --format=esm --outfile="$OUT/ac.mjs" \
+    --alias:@="$ROOT/src" --define:import.meta.env.VITE_SUPABASE_URL='"http://localhost"' \
+    --define:import.meta.env.VITE_SUPABASE_ANON_KEY='"anon"' --define:import.meta.env.PROD=false \
+    --define:import.meta.env.DEV=true --define:import.meta.env.MODE='"test"' --log-level=error
+  printf '%-18s ' "analytics-vs-hr"
+  node "$OUT/ac.mjs" | grep -E "^FAIL|ALL PASS|FAILURE" || fail=1
+fi
+
 if [[ "$filter" == "audit" ]]; then
   "$ESBUILD" "$ROOT/tests/audit-production.ts" --bundle --platform=node --format=esm --outfile="$OUT/audit.mjs" \
     --alias:@="$ROOT/src" --define:import.meta.env.VITE_SUPABASE_URL='"http://localhost"' \

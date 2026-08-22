@@ -714,6 +714,146 @@ export function calculateStaffWeekResultInternal(
   }
 }
 
+export interface CompanyBookingRow {
+  id: string
+  guestName: string
+  roomNumber: string
+  checkIn: string
+  checkOut: string
+  status: string
+  isDeposit: boolean
+  /** Revenue from this booking in the period, across everyone who collected it. */
+  amount: number
+  /** That amount split by the method it came in on. */
+  byMethod: Record<string, number>
+  /** Who collected it, in the order they appear. */
+  collectedBy: string[]
+}
+
+export interface CompanyPeriodRevenue {
+  roomRevenue: number
+  additionalRevenue: number
+  standaloneSalesRevenue: number
+  grandRevenue: number
+  bookingCount: number
+  /** Per-staff detail, keyed by the canonical staff id, so a total can be explained. */
+  byStaff: Array<{ staffId: string; staffName: string; grandRevenue: number }>
+  /** One row per booking, merged across staff — what the breakdown tables show. */
+  bookings: CompanyBookingRow[]
+}
+
+/**
+ * Every staff identity that could hold revenue in this data, canonicalised.
+ *
+ * One person can appear as a staff-table id, an auth user id, or just a name on
+ * a booking. They are collapsed to a single id so summing per staff cannot
+ * count the same money twice under two spellings of the same person.
+ */
+function collectStaffIdentities(shared: StaffRevenueSharedData): Array<{ id: string; name: string }> {
+  const canonicalOf = new Map<string, string>()
+  const nameOf = new Map<string, string>()
+
+  for (const s of (shared.staffRows || [])) {
+    const rowId = s.id || ''
+    const userId = s.userId || s.user_id || ''
+    const canonical = userId || rowId
+    if (!canonical) continue
+    if (rowId) canonicalOf.set(rowId, canonical)
+    if (userId) canonicalOf.set(userId, canonical)
+    const name = (s.name || s.staffName || s.staff_name || '').trim()
+    const email = (s.email || '').trim()
+    if (name) canonicalOf.set(name.toLowerCase(), canonical)
+    if (email) canonicalOf.set(email.toLowerCase(), canonical)
+    nameOf.set(canonical, name || email || canonical)
+  }
+
+  const add = (rawId: string, rawName: string) => {
+    const id = (rawId || '').trim()
+    const name = (rawName || '').trim()
+    const canonical = canonicalOf.get(id) || canonicalOf.get(name.toLowerCase()) || id || name
+    if (!canonical) return
+    if (id) canonicalOf.set(id, canonical)
+    if (name) canonicalOf.set(name.toLowerCase(), canonical)
+    if (!nameOf.has(canonical)) nameOf.set(canonical, name || canonical)
+  }
+
+  for (const b of (shared.bookings || [])) {
+    add(b.createdBy || b.created_by || '', b.createdByName || b.created_by_name || '')
+    add(b.checkInBy || b.check_in_by || '', b.checkInByName || b.check_in_by_name || '')
+    add(b.checkOutBy || b.check_out_by || '', b.checkOutByName || b.check_out_by_name || '')
+    for (const e of parsePaymentEvents(b.special_requests || b.specialRequests || '')) {
+      add(e.staffId || '', e.staffName || '')
+    }
+  }
+  for (const c of (shared.chargesRaw || [])) add(c.createdBy || c.created_by || '', '')
+  for (const sale of (shared.standaloneSales || [])) add((sale as any).staffId || (sale as any).staff_id || '', (sale as any).staffName || '')
+
+  const seen = new Set<string>()
+  const out: Array<{ id: string; name: string }> = []
+  for (const canonical of new Set(canonicalOf.values())) {
+    if (seen.has(canonical)) continue
+    seen.add(canonical)
+    out.push({ id: canonical, name: nameOf.get(canonical) || canonical })
+  }
+  return out
+}
+
+/**
+ * Company-wide revenue for any date range, on exactly the same rules as the
+ * per-staff figures — because it IS the per-staff figures, summed.
+ *
+ * Analytics used to compute its own totals from a different set of rules, so
+ * the number on the dashboard could not be reconciled with the number on
+ * anyone's revenue report. Deriving both from one calculation removes the
+ * question: the company total is what the staff totals add up to.
+ */
+export function calculateCompanyPeriodRevenue(
+  from: string,
+  to: string,
+  shared: StaffRevenueSharedData
+): CompanyPeriodRevenue {
+  const totals: CompanyPeriodRevenue = {
+    roomRevenue: 0, additionalRevenue: 0, standaloneSalesRevenue: 0,
+    grandRevenue: 0, bookingCount: 0, byStaff: [], bookings: [],
+  }
+  const round = (n: number) => Math.round(n * 100) / 100
+  const merged = new Map<string, CompanyBookingRow>()
+
+  for (const staff of collectStaffIdentities(shared)) {
+    const r = calculateStaffWeekResultInternal(staff.id, from, to, shared)
+    if (r.grandRevenue === 0 && r.bookingCount === 0) continue
+    totals.roomRevenue += r.totalRevenue
+    totals.additionalRevenue += r.additionalRevenue
+    totals.standaloneSalesRevenue += r.standaloneSalesRevenue
+    totals.grandRevenue += r.grandRevenue
+    totals.bookingCount += r.bookingCount
+    totals.byStaff.push({ staffId: staff.id, staffName: staff.name, grandRevenue: round(r.grandRevenue) })
+
+    // A booking two people collected money on appears once, holding both shares.
+    for (const b of r.bookings) {
+      const row = merged.get(b.id) || {
+        id: b.id, guestName: b.guestName, roomNumber: b.roomNumber,
+        checkIn: b.checkIn, checkOut: b.checkOut, status: b.status,
+        isDeposit: b.isDeposit, amount: 0, byMethod: {}, collectedBy: [],
+      }
+      row.amount = round(row.amount + b.staffAttributedRevenue)
+      for (const [method, amount] of Object.entries(b.attributedByMethod || {})) {
+        row.byMethod[method] = round((row.byMethod[method] || 0) + amount)
+      }
+      if (b.staffAttributedRevenue > 0 && !row.collectedBy.includes(staff.name)) row.collectedBy.push(staff.name)
+      merged.set(b.id, row)
+    }
+  }
+  totals.bookings = [...merged.values()].sort((a, b) => b.amount - a.amount)
+
+  totals.roomRevenue = round(totals.roomRevenue)
+  totals.additionalRevenue = round(totals.additionalRevenue)
+  totals.standaloneSalesRevenue = round(totals.standaloneSalesRevenue)
+  totals.grandRevenue = round(totals.grandRevenue)
+  totals.byStaff.sort((a, b) => b.grandRevenue - a.grandRevenue)
+  return totals
+}
+
 /**
  * Fetch all confirmed/checked-in/checked-out bookings created by a specific staff member
  * within a given week. Also fetches booking charges and standalone sales.

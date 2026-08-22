@@ -1,5 +1,5 @@
 /** Runs the money invariants over every week of real production data. */
-import { calculateStaffWeekResultInternal, getPastWeeksBounds } from '@/services/revenue-service'
+import { calculateStaffWeekResultInternal, calculateCompanyPeriodRevenue, getPastWeeksBounds } from '@/services/revenue-service'
 
 const U = process.env.SUPABASE_URL!, K = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const H = { apikey: K, Authorization: `Bearer ${K}` }
@@ -30,7 +30,16 @@ const fail = (msg: string) => { violations++; console.log('  VIOLATION ' + msg) 
     bookings: bookings.map(camel), properties: properties.map(camel), guests: guests.map(camel),
     chargesRaw: chargesRaw.map(camel), staffRows: staffRows.map(camel), standaloneSales: sales.map(camel),
   }
-  const staff = staffRows.map(camel)
+  // Every identity that holds revenue, including staff with no row in the staff
+  // table — a table-only sweep silently skips their bookings.
+  const identities = new Map<string, string>()
+  for (const s of staffRows.map(camel)) identities.set(s.userId || s.user_id || s.id, s.name || s.id)
+  {
+    const probe = calculateCompanyPeriodRevenue('2000-01-01', '2100-01-01', shared)
+    for (const s of probe.byStaff) if (!identities.has(s.staffId)) identities.set(s.staffId, s.staffName)
+  }
+  const staff = [...identities].map(([id, name]) => ({ id, userId: id, name }))
+  console.log(`identities holding revenue: ${staff.length} (${staffRows.length} in the staff table)`)
   const weeks = getPastWeeksBounds(26)
   console.log(`Auditing ${weeks.length} weeks × ${staff.length} staff over ${bookings.length} bookings\n`)
 

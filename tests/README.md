@@ -43,10 +43,26 @@ Asserted per booking row wherever revenue is computed:
 - grand revenue equals rooms + charges + standalone sales
 - across every staff member and week, one booking is never credited beyond its value
 
+## Live suites (credentials required, read-only)
+
+`analytics-consistency.test.ts` checks that the Analytics page and the staff
+revenue reports answer with the same numbers, over the last 12 weeks of real
+data: the company total equals the staff totals plus anyone holding revenue
+without a row in the staff table, the breakdown rows add up to the total above
+them, the payment methods add up to the same figure, and no booking is credited
+twice.
+
+```bash
+env $(npx netlify env:list --json | python3 -c "import json,sys; d=json.load(sys.stdin); print(' '.join(f'{k}={v}' for k,v in d.items() if k in ('SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY')))") \
+  ./tests/run.sh live
+```
+
 ## Production audit
 
 `tests/audit-production.ts` runs those invariants over the live database — every
-booking, 26 weeks, every staff member. Read-only.
+booking, 26 weeks, and every identity that holds revenue (which is more than the
+staff table contains: people who took money without a staff row still hold it).
+Read-only.
 
 ```bash
 env $(npx netlify env:list --json | python3 -c "import json,sys; d=json.load(sys.stdin); print(' '.join(f'{k}={v}' for k,v in d.items() if k in ('SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY')))") \

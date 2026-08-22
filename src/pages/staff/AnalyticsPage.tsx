@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import { usePermissions } from '@/hooks/use-permissions'
 import { analyticsService } from '@/services/analytics-service'
+import { calculateCompanyPeriodRevenue, type StaffRevenueSharedData } from '@/services/revenue-service'
 import { AnalyticsExportService } from '@/services/analytics-export-service'
 import { bookingEngine } from '@/services/booking-engine'
 import { db, auth, onTableUpdated } from '@/lib/db'
@@ -104,7 +105,6 @@ export function AnalyticsPage() {
   const [allDepositBookings, setAllDepositBookings] = useState<any[]>([])
   // All bookings (every status) — needed to attribute revenue by the period a
   // payment was actually collected (paidAt), matching the HR revenue-service.
-  const [allRawBookings, setAllRawBookings] = useState<any[]>([])
   const [breakdownMode, setBreakdownMode] = useState<'week' | 'month' | 'year'>('week')
   const [selectedWeekIdx, setSelectedWeekIdx] = useState(0)
   const [selectedMonthIdx, setSelectedMonthIdx] = useState(0)
@@ -114,6 +114,9 @@ export function AnalyticsPage() {
   const [allChargesRaw, setAllChargesRaw] = useState<any[]>([])
   const [allSalesRaw, setAllSalesRaw] = useState<any[]>([])
   const [allStaff, setAllStaff] = useState<any[]>([])
+  // Feeds calculateCompanyPeriodRevenue — the same calculation the staff revenue
+  // reports use, so the totals here reconcile with theirs exactly.
+  const [revenueShared, setRevenueShared] = useState<StaffRevenueSharedData | null>(null)
   const [chargePeriodMode, setChargePeriodMode] = useState<'week' | 'month' | 'year'>('week')
   const [chargeWeekIdx, setChargeWeekIdx] = useState(0)
   const [chargeMonthIdx, setChargeMonthIdx] = useState(0)
@@ -156,9 +159,21 @@ export function AnalyticsPage() {
       const chargesRaw = shared.chargesRaw || []
       const salesRaw = shared.standaloneSales || []
       const staffRaw = shared.staff || []
+
+      // Raw booking rows for the shared revenue calculation. The mapped shape
+      // above is for display; revenue-service reads the stored payment metadata,
+      // and both pages must be answering with the same numbers.
+      const rawRows = await db.bookings.list({ limit: 3000 }).catch(() => [] as any[])
+      setRevenueShared({
+        bookings: rawRows,
+        properties: shared.properties || [],
+        guests: shared.guests || [],
+        chargesRaw,
+        staffRows: staffRaw,
+        standaloneSales: salesRaw,
+      })
       
       setAllRevenueBookings(revenueData.bookings || [])
-      setAllRawBookings(allBookings)
       setAllChargesRaw(chargesRaw)
       setAllSalesRaw(salesRaw)
       setAllStaff(staffRaw)
@@ -255,95 +270,38 @@ export function AnalyticsPage() {
   const periodStartStr = format(activePeriod.start, 'yyyy-MM-dd')
   const periodEndStr   = format(activePeriod.end,   'yyyy-MM-dd')
 
-  // Sum of payment events whose paidAt falls inside the active period. This is the
-  // cash actually collected in the period for a booking — the basis the HR
-  // revenue-service uses (rule R1). See computeStaffAttributedRevenue / R1.
-  const eventInPeriodSum = (b: any): number => {
-    const events = ((b.paymentEvents as any[]) || [])
-    const inPeriod = events.reduce((s: number, e: any) => {
-      const d = (e?.paidAt || '').slice(0, 10)
-      if (!d || d < periodStartStr || d > periodEndStr) return s
-      return s + (Number(e?.amount) || 0)
-    }, 0)
-    // A discount granted after the money came in leaves the events adding up to
-    // the pre-discount figure. Scale them back to what the booking is worth so
-    // the period never reports revenue the hotel wrote off.
-    const covered = events.reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0)
-    const worth = Number(b.amount ?? b.totalPrice ?? 0)
-    if (covered > worth && covered > 0) return Math.round(inPeriod * (worth / covered) * 100) / 100
-    return inPeriod
-  }
-  // Payment method for an event booking: the in-period booking-stage event's method.
-  const eventInPeriodMethod = (b: any): string => {
-    const inP = ((b.paymentEvents as any[]) || []).filter((e: any) => {
-      const d = (e?.paidAt || '').slice(0, 10)
-      return d && d >= periodStartStr && d <= periodEndStr
-    })
-    const ev = inP.find((e: any) => e?.stage === 'booking') || inP[0]
-    return ev?.method || b.paymentMethod || b.payment?.method || ''
-  }
+  // The breakdown rows come from the same calculation as the totals and the
+  // staff revenue reports. This card used to assemble its own list — a booking
+  // valued one way here and another way there — so a total could not be
+  // explained by the rows under it.
+  const companyPeriod = revenueShared
+    ? calculateCompanyPeriodRevenue(periodStartStr, periodEndStr, revenueShared)
+    : null
+  const breakdownBookings = (companyPeriod?.bookings || []).map(b => ({
+    ...b,
+    _isDeposit: b.isDeposit,
+    _displayAmount: b.amount,
+    guestName: b.guestName,
+    paymentMethod: Object.entries(b.byMethod).sort((x, y) => y[1] - x[1])[0]?.[0] || '',
+    dates: { checkIn: b.checkIn, checkOut: b.checkOut },
+  }))
+  // Rooms only — charges and sales are shown in their own card below.
+  const breakdownTotal = companyPeriod?.roomRevenue ?? 0
 
-  const breakdownBase = [
-    ...allRevenueBookings
-      .filter(b => {
-        const ci = (b.dates?.checkIn || b.checkIn || '').slice(0, 10)
-        if (!ci) return false
-        return ci >= periodStartStr && ci <= periodEndStr
-      })
-      // b.amount is already discount-netted. `??` not `||`: a fully discounted
-      // booking is worth 0, and falling back to totalPrice would resurrect the
-      // gross price for exactly those bookings.
-      .map(b => ({ ...b, _isDeposit: false, _displayAmount: Number(b.amount ?? b.totalPrice ?? 0) })),
-    ...allDepositBookings
-      .filter(b => {
-        const ca = (b.createdAt || b.created_at || '').slice(0, 10)
-        if (!ca) return false
-        return ca >= periodStartStr && ca <= periodEndStr
-      })
-      .map(b => ({ ...b, _isDeposit: true, _displayAmount: Number(b.amountPaid || 0) })),
-  ]
-  // R1: bookings whose payment landed in the period but aren't already counted
-  // above (e.g. money taken on a reserved booking, or a deposit collected in a
-  // different period than the booking was created). Deduped by booking id so a
-  // booking already valued above is never double-counted.
-  const breakdownSeen = new Set(breakdownBase.map((b: any) => b._id || b.remoteId || b.id))
-  const breakdownEventBookings = allRawBookings
-    .filter((b: any) => !breakdownSeen.has(b._id || b.remoteId || b.id))
-    .map((b: any) => ({ b, amt: eventInPeriodSum(b) }))
-    .filter((x: any) => x.amt > 0)
-    .map((x: any) => ({
-      ...x.b,
-      _isDeposit: true,
-      _isEvent: true,
-      _displayAmount: x.amt,
-      paymentMethod: eventInPeriodMethod(x.b),
-      paymentSplits: undefined, // value is the in-period collected amount, attribute to one method
-    }))
-  const breakdownBookings = [...breakdownBase, ...breakdownEventBookings]
-  const breakdownTotal = breakdownBookings.reduce((s, b) => s + (b as any)._displayAmount, 0)
-
-  const normPay = (raw: string) => {
-    const s = (raw || '').trim().toLowerCase()
-    if (s === 'cash') return 'cash'
-    if (s === 'mobile_money' || s === 'mobile money' || s.includes('mobile') || s.includes('momo')) return 'mobile_money'
-    if (s === 'card' || s.includes('card') || s.includes('credit') || s.includes('debit')) return 'card'
-    return ''
-  }
   const bdAmounts = { cash: 0, mobile_money: 0, card: 0 }
   const bdCounts  = { cash: 0, mobile_money: 0, card: 0 }
-  for (const b of breakdownBookings) {
-    if ((b as any).paymentSplits?.length > 1) {
-      for (const s of (b as any).paymentSplits) {
-        const m = normPay(s.method)
-        if (m in bdAmounts) {
-          bdAmounts[m as keyof typeof bdAmounts] += Number(s.amount) || 0
-          bdCounts[m as keyof typeof bdCounts]++
-        }
-      }
-    } else {
-      const m = normPay(b.paymentMethod || b.payment?.method || '')
+  const normPay = (raw: string) => {
+    const t = (raw || '').trim().toLowerCase()
+    if (t === 'cash') return 'cash'
+    if (t === 'mobile_money' || t === 'mobile money' || t.includes('mobile') || t.includes('momo')) return 'mobile_money'
+    if (t === 'card' || t.includes('card') || t.includes('credit') || t.includes('debit')) return 'card'
+    return ''
+  }
+  for (const b of (companyPeriod?.bookings || [])) {
+    for (const [method, amount] of Object.entries(b.byMethod)) {
+      const m = normPay(method)
       if (m in bdAmounts) {
-        bdAmounts[m as keyof typeof bdAmounts] += ((b as any)._displayAmount ?? Number(b.amount)) || 0
+        bdAmounts[m as keyof typeof bdAmounts] += Number(amount) || 0
         bdCounts[m as keyof typeof bdCounts]++
       }
     }
@@ -467,39 +425,17 @@ export function AnalyticsPage() {
   // ── Page-computed Revenue Summary (uses same raw data as Booking Breakdown & Additional Revenue Sources) ──
   // This ensures the Revenue Summary is always consistent with the other two cards.
   // YYYY-MM-DD string compare keeps results stable across timezones (see breakdownBookings).
+  // One calculation, shared with the staff revenue reports. This page used to
+  // total the same money by its own rules — different discount handling,
+  // different treatment of uncollected balances — so the figure here could not
+  // be reconciled with anybody's revenue report.
   const computeRevForPeriod = (period: { start: Date; end: Date }) => {
-    const fromStr = format(period.start, 'yyyy-MM-dd')
-    const toStr   = format(period.end,   'yyyy-MM-dd')
-    const inRange = (raw: string) => {
-      const d = (raw || '').slice(0, 10)
-      return !!d && d >= fromStr && d <= toStr
-    }
-    const bookingKey = (b: any) => b._id || b.remoteId || b.id
-    const countedIds = new Set<string>()
-    const roomRev = allRevenueBookings
-      .filter(b => inRange(b.dates?.checkIn || b.checkIn || ''))
-      .reduce((s: number, b: any) => { countedIds.add(bookingKey(b)); return s + Number(b.amount || b.totalPrice || 0) }, 0)
-    const depositRev = allDepositBookings
-      .filter(b => inRange(b.createdAt || b.created_at || ''))
-      .reduce((s: number, b: any) => { countedIds.add(bookingKey(b)); return s + Number(b.amountPaid || 0) }, 0)
-    // R1: payments collected in the period on bookings not counted above (mirrors
-    // the HR revenue-service so the summary matches the Booking Breakdown card).
-    const eventRev = allRawBookings
-      .filter((b: any) => !countedIds.has(bookingKey(b)))
-      .reduce((s: number, b: any) => {
-        const amt = ((b.paymentEvents as any[]) || []).reduce((a: number, e: any) => {
-          const d = (e?.paidAt || '').slice(0, 10)
-          return (d && d >= fromStr && d <= toStr) ? a + (Number(e?.amount) || 0) : a
-        }, 0)
-        return s + amt
-      }, 0)
-    const chargesRev = allChargesRaw
-      .filter(c => inRange(c.createdAt || c.created_at || ''))
-      .reduce((s: number, c: any) => s + Number(c.amount || 0), 0)
-    const salesRev = allSalesRaw
-      .filter((s: any) => inRange(s.saleDate || s.sale_date || ''))
-      .reduce((s: number, sale: any) => s + Number(sale.amount || 0), 0)
-    return roomRev + depositRev + eventRev + chargesRev + salesRev
+    if (!revenueShared) return 0
+    return calculateCompanyPeriodRevenue(
+      format(period.start, 'yyyy-MM-dd'),
+      format(period.end, 'yyyy-MM-dd'),
+      revenueShared
+    ).grandRevenue
   }
   const pageRevThisWeek  = computeRevForPeriod(weekOptions[0])
   const pageRevThisMonth = computeRevForPeriod(monthOptions[0])
@@ -1269,10 +1205,8 @@ export function AnalyticsPage() {
             <>
               <div className="md:hidden space-y-3 p-4 bg-muted/20">
               {breakdownBookings.map((b, i) => {
-                const sId = b.checkInBy || b.checkOutBy || b.createdBy || b.created_by
-                const staffName = resolveStaffName(sId, b.checkInByName || b.checkOutByName || b.createdByName || b.created_by_name)
-                
-                const rawPay = (b.paymentMethod || b.payment?.method || (b as any).payment_method || '').trim().toLowerCase()
+                const staffName = b.collectedBy.join(', ')
+                const rawPay = (b.paymentMethod || '').trim().toLowerCase()
                 const payMap: Record<string, { label: string; cls: string; icon: string }> = {
                   cash:         { label: 'Cash',         icon: '💵', cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:ring-emerald-800' },
                   mobile_money: { label: 'Momo',         icon: '📱', cls: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:ring-blue-800' },
@@ -1288,7 +1222,7 @@ export function AnalyticsPage() {
                   <div key={b.id || i} className="bg-white border rounded-xl p-4 shadow-sm active:scale-[0.99] transition-transform">
                     <div className="flex justify-between items-start mb-3">
                       <div>
-                        <p className="font-bold text-stone-800 leading-tight">{b.guest?.fullName || '—'}</p>
+                        <p className="font-bold text-stone-800 leading-tight">{b.guestName || '—'}</p>
                         <div className="flex items-center gap-2 mt-1">
                           <span className="text-[10px] font-bold text-muted-foreground bg-stone-100 px-1.5 py-0.5 rounded">
                             Room {b.roomNumber || '—'}
@@ -1306,7 +1240,7 @@ export function AnalyticsPage() {
                         </div>
                       </div>
                       <p className="font-bold text-sm text-stone-900 tabular-nums">
-                        {formatCurrencySync((b as any)._displayAmount ?? Number(b.amount || b.totalPrice || 0), currency)}
+                        {formatCurrencySync(b.amount, currency)}
                       </p>
                     </div>
 
@@ -1364,9 +1298,10 @@ export function AnalyticsPage() {
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {breakdownBookings.map((b, i) => {
-                    const sId = b.checkInBy || b.checkOutBy || b.createdBy || b.created_by
-                    const staffName = resolveStaffName(sId, b.checkInByName || b.checkOutByName || b.createdByName || b.created_by_name)
-                    const rawPay = (b.paymentMethod || b.payment?.method || (b as any).payment_method || '').trim().toLowerCase()
+                    // collectedBy names everyone who took money on this booking
+                    // in the period — which is exactly who the revenue belongs to.
+                    const staffName = b.collectedBy.join(', ')
+                    const rawPay = (b.paymentMethod || '').trim().toLowerCase()
                     const payMap: Record<string, { label: string; cls: string }> = {
                       cash:         { label: '💵 Cash',         cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:ring-emerald-800' },
                       mobile_money: { label: '📱 Mobile Money', cls: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:ring-blue-800' },
@@ -1381,7 +1316,7 @@ export function AnalyticsPage() {
                       <tr key={b.id || i} className="hover:bg-muted/30 transition-colors">
                         <td className="px-4 py-3 text-xs text-muted-foreground">{i + 1}</td>
                         <td className="px-4 py-3">
-                          <span className="font-medium">{b.guest?.fullName || '—'}</span>
+                          <span className="font-medium">{b.guestName || '—'}</span>
                         </td>
                         <td className="px-4 py-3 text-muted-foreground">{b.roomNumber || '—'}</td>
                         <td className="px-4 py-3 text-muted-foreground tabular-nums">{b.dates.checkIn}</td>
@@ -1423,7 +1358,7 @@ export function AnalyticsPage() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                          {formatCurrencySync((b as any)._displayAmount ?? Number(b.amount || b.totalPrice || 0), currency)}
+                          {formatCurrencySync(b.amount, currency)}
                         </td>
                       </tr>
                     )
