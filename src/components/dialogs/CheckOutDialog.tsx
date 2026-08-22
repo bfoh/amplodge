@@ -16,11 +16,10 @@ import { useCurrency } from '@/hooks/use-currency'
 import { BookingCharge } from '@/types'
 import { bookingChargesService, CHARGE_CATEGORIES } from '@/services/booking-charges-service'
 import { calculateNights } from '@/lib/display'
+import { CheckOutPaymentFields, buildCheckOutPayment, type CheckOutPayment } from '@/components/CheckOutPaymentFields'
 
-export interface CheckOutPayment {
-    amount: number
-    method: string
-}
+export type { CheckOutPayment }
+
 
 interface CheckOutDialogProps {
     open: boolean
@@ -102,7 +101,6 @@ export function CheckOutDialog({
     })()
     const totalBeforePayment = roomCost + chargesTotal
     const remainingBalance = Math.max(0, totalBeforePayment - priorAmountPaid)
-    const collected = collectedAmount === '' ? remainingBalance : Math.max(0, parseFloat(collectedAmount) || 0)
 
     // Get values from booking (handle different data shapes)
     const guestName = guest?.name || booking.guestName || 'Guest'
@@ -227,51 +225,15 @@ export function CheckOutDialog({
                         </div>
                     )}
 
-                    {/* Payment collected now — the money that leaves the desk with
-                        this check-out. Recorded against the booking so it shows up
-                        in the staff revenue reports; nothing recorded it before. */}
-                    {remainingBalance > 0 && (
-                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
-                            <p className="text-sm font-medium text-amber-900">Payment collected now</p>
-                            <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                    <label className="text-xs text-amber-800" htmlFor="checkout-amount">Amount</label>
-                                    <input
-                                        id="checkout-amount"
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        className="w-full h-9 rounded-md border border-amber-300 bg-white px-2 text-sm"
-                                        value={collectedAmount === '' ? String(remainingBalance) : collectedAmount}
-                                        onChange={(e) => setCollectedAmount(e.target.value)}
-                                        disabled={processing}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-xs text-amber-800" htmlFor="checkout-method">Method</label>
-                                    <select
-                                        id="checkout-method"
-                                        className="w-full h-9 rounded-md border border-amber-300 bg-white px-2 text-sm"
-                                        value={collectedMethod}
-                                        onChange={(e) => setCollectedMethod(e.target.value)}
-                                        disabled={processing}
-                                    >
-                                        <option value="cash">💵 Cash</option>
-                                        <option value="mobile_money">📱 Mobile Money</option>
-                                        <option value="card">💳 Card</option>
-                                        <option value="not_paid">⏳ Nothing collected</option>
-                                    </select>
-                                </div>
-                            </div>
-                            {collectedMethod !== 'not_paid' && collected !== remainingBalance && (
-                                <p className="text-xs text-amber-700">
-                                    {collected < remainingBalance
-                                        ? `Leaves ${formatCurrencySync(remainingBalance - collected, currency)} outstanding.`
-                                        : `${formatCurrencySync(collected - remainingBalance, currency)} more than the balance due.`}
-                                </p>
-                            )}
-                        </div>
-                    )}
+                    <CheckOutPaymentFields
+                        balanceDue={remainingBalance}
+                        amount={collectedAmount}
+                        method={collectedMethod}
+                        onAmountChange={setCollectedAmount}
+                        onMethodChange={setCollectedMethod}
+                        currency={currency}
+                        disabled={processing}
+                    />
 
                     {/* What happens next */}
                     <div className="rounded-lg bg-blue-50 p-4 border border-blue-200">
@@ -290,11 +252,7 @@ export function CheckOutDialog({
                         Cancel
                     </Button>
                     <Button
-                        onClick={() => onConfirm(
-                            remainingBalance > 0 && collectedMethod !== 'not_paid'
-                                ? { amount: collected, method: collectedMethod }
-                                : { amount: 0, method: collectedMethod }
-                        )}
+                        onClick={() => onConfirm(buildCheckOutPayment(remainingBalance, collectedAmount, collectedMethod))}
                         disabled={processing}
                     >
                         {processing ? 'Processing...' : 'Confirm Check-Out'}

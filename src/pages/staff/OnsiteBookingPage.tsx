@@ -19,6 +19,7 @@ import { sendTransactionalEmail } from '@/services/email-service'
 import { sendBookingConfirmationSMS } from '@/services/sms-service'
 import { activityLogService } from '@/services/activity-log-service'
 import { buildBookingPaymentEvent, appendPaymentEvent } from '@/lib/payment-events'
+import { allocateByWeight } from '@/lib/money'
 import { ClockStatusWarning } from '@/components/ClockStatusWarning'
 import { createInvoiceData, buildOnsiteGroupReceiptData } from '@/services/invoice-service'
 import { promptPrintReceipt, promptPrintGroupReceipt } from '@/services/receipt-print'
@@ -272,18 +273,7 @@ export function OnsiteBookingPage() {
         ? grandTotal
         : paymentType === 'part' ? splitsPaidTotal : 0
       const cartRoomTotals = cart.map(item => Number(item.price) * differenceInDays(item.checkOut, item.checkIn))
-      const cartRoomsSum = cartRoomTotals.reduce((s, v) => s + v, 0)
-      const paidPerItem: number[] = cartRoomTotals.map(roomTotal =>
-        cartRoomsSum > 0 ? Math.round((roomTotal / cartRoomsSum) * collectedTotal * 100) / 100 : 0
-      )
-      if (collectedTotal > 0 && paidPerItem.length > 0) {
-        const assigned = paidPerItem.reduce((s, v) => s + v, 0)
-        const residual = Math.round((collectedTotal - assigned) * 100) / 100
-        if (residual !== 0) {
-          const biggest = cartRoomTotals.reduce((best, v, i) => (v > cartRoomTotals[best] ? i : best), 0)
-          paidPerItem[biggest] = Math.round((paidPerItem[biggest] + residual) * 100) / 100
-        }
-      }
+      const paidPerItem = allocateByWeight(cartRoomTotals, collectedTotal)
 
       // Build a booking data object for a single cart item
       const staffName = user?.user_metadata?.full_name || user?.email || 'Staff'

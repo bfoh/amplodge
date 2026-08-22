@@ -49,6 +49,8 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { CheckInDialog } from '@/components/dialogs/CheckInDialog'
+import { CheckOutPaymentFields, buildCheckOutPayment, type CheckOutPayment } from '@/components/CheckOutPaymentFields'
+import { recordBookingPayment, outstandingBalance } from '@/services/booking-payment-service'
 
 interface GroupManageDialogProps {
     open: boolean
@@ -453,11 +455,35 @@ export function GroupManageDialog({
     // ------------------------------------------------------------------
     const [checkInMember, setCheckInMember] = useState<GroupMember | null>(null)
     const [checkingOutId, setCheckingOutId] = useState<string | null>(null)
+    // Checking a room out takes the balance owed on it, so it is confirmed
+    // through the same payment capture every other check-out surface uses.
+    const [checkOutMember, setCheckOutMember] = useState<GroupMember | null>(null)
+    const [checkOutAmount, setCheckOutAmount] = useState<string>('')
+    const [checkOutMethod, setCheckOutMethod] = useState<string>('cash')
 
-    const handleCheckOut = async (member: GroupMember) => {
+    const handleCheckOut = async (member: GroupMember, payment?: CheckOutPayment) => {
         setCheckingOutId(member.id)
         try {
             const staffName = currentUser?.user_metadata?.full_name || currentUser?.email || 'Staff'
+
+            // Record what was collected. This path used to write the status and
+            // nothing else, so money taken when a group room checked out never
+            // reached the booking or the revenue reports.
+            if (payment && payment.amount > 0) {
+                try {
+                    await recordBookingPayment({
+                        bookingId: member.id,
+                        stage: 'checkout',
+                        amount: payment.amount,
+                        method: payment.method,
+                        staffId: currentUser?.id || '',
+                        staffName,
+                    })
+                } catch (payErr) {
+                    console.error('[GroupManageDialog] Failed to record check-out payment:', payErr)
+                }
+            }
+
             await db.bookings.update(member.id, {
                 status: 'checked-out',
                 actualCheckOut: new Date().toISOString(),
@@ -476,6 +502,7 @@ export function GroupManageDialog({
                 }).catch(() => {})
             }
             toast.success(`Checked out ${member.guestName} (Room ${member.roomNumber})`)
+            setCheckOutMember(null)
             onUpdate()
             await reload()
         } catch (error: any) {
@@ -1043,7 +1070,11 @@ export function GroupManageDialog({
                                                                     size="icon"
                                                                     variant="ghost"
                                                                     className="h-8 w-8 text-primary hover:bg-primary/10"
-                                                                    onClick={() => handleCheckOut(member)}
+                                                                    onClick={() => {
+                                                                        setCheckOutAmount('')
+                                                                        setCheckOutMethod('cash')
+                                                                        setCheckOutMember(member)
+                                                                    }}
                                                                     disabled={checkingOutId === member.id}
                                                                     title="Check out"
                                                                 >
@@ -1101,6 +1132,63 @@ export function GroupManageDialog({
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Check-out — confirms the room and records the money taken for it */}
+            {checkOutMember && (() => {
+                const balanceDue = outstandingBalance(
+                    { ...checkOutMember, totalPrice: checkOutMember.totalPrice, amountPaid: checkOutMember.amountPaid },
+                    0
+                )
+                return (
+                    <Dialog open={!!checkOutMember} onOpenChange={(o) => !o && setCheckOutMember(null)}>
+                        <DialogContent className="max-w-md">
+                            <DialogHeader>
+                                <DialogTitle>Check out Room {checkOutMember.roomNumber}</DialogTitle>
+                                <DialogDescription>{checkOutMember.guestName}</DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-3 py-2">
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">Room total</span>
+                                    <span className="font-medium">{formatCurrencySync(checkOutMember.totalPrice, currency)}</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">Already paid</span>
+                                    <span className="font-medium text-green-700">{formatCurrencySync(checkOutMember.amountPaid, currency)}</span>
+                                </div>
+                                {balanceDue > 0 && (
+                                    <div className="flex justify-between text-sm border-t pt-2">
+                                        <span className="font-medium">Balance due</span>
+                                        <span className="font-bold text-amber-600">{formatCurrencySync(balanceDue, currency)}</span>
+                                    </div>
+                                )}
+                                <CheckOutPaymentFields
+                                    balanceDue={balanceDue}
+                                    amount={checkOutAmount}
+                                    method={checkOutMethod}
+                                    onAmountChange={setCheckOutAmount}
+                                    onMethodChange={setCheckOutMethod}
+                                    currency={currency}
+                                    disabled={checkingOutId === checkOutMember.id}
+                                />
+                            </div>
+                            <DialogFooter>
+                                <Button variant="outline" onClick={() => setCheckOutMember(null)} disabled={checkingOutId === checkOutMember.id}>
+                                    Cancel
+                                </Button>
+                                <Button
+                                    onClick={() => handleCheckOut(
+                                        checkOutMember,
+                                        buildCheckOutPayment(balanceDue, checkOutAmount, checkOutMethod)
+                                    )}
+                                    disabled={checkingOutId === checkOutMember.id}
+                                >
+                                    {checkingOutId === checkOutMember.id ? 'Checking out…' : 'Confirm Check-Out'}
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+                )
+            })()}
 
             {/* Check-in — reuses the standard CheckInDialog/useCheckIn flow */}
             {checkInMember && (

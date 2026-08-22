@@ -33,6 +33,8 @@ import { LogIn, LogOut, CheckCircle2 } from 'lucide-react'
 import { calculateNights } from '@/lib/display'
 import { CheckInDialog } from '@/components/dialogs/CheckInDialog'
 import { useCheckOut } from '@/hooks/use-check-out'
+import { CheckOutPaymentFields, buildCheckOutPayment, type CheckOutPayment } from '@/components/CheckOutPaymentFields'
+import { outstandingBalance } from '@/services/booking-payment-service'
 import { ClockStatusWarning } from '@/components/ClockStatusWarning'
 import { GuestChargesDialog } from '@/components/dialogs/GuestChargesDialog'
 import { ExtendStayDialog } from '@/components/dialogs/ExtendStayDialog'
@@ -153,6 +155,9 @@ export function ReservationsPage() {
   // Checkout charges summary
   const [checkoutCharges, setCheckoutCharges] = useState<BookingCharge[]>([])
   const [checkoutLoading, setCheckoutLoading] = useState(false)
+  // Money taken at the desk as the guest leaves — recorded against the booking.
+  const [checkoutAmount, setCheckoutAmount] = useState<string>('')
+  const [checkoutMethod, setCheckoutMethod] = useState<string>('cash')
 
   // All booking charges for displaying totals
   const [allCharges, setAllCharges] = useState<BookingCharge[]>([])
@@ -168,6 +173,8 @@ export function ReservationsPage() {
   // Fetch charges when checkout dialog opens
   useEffect(() => {
     if (checkOutDialog) {
+      setCheckoutAmount('')
+      setCheckoutMethod((checkOutDialog as any).paymentMethod || (checkOutDialog as any).payment_method || 'cash')
       setCheckoutLoading(true)
       bookingChargesService.getChargesForBooking(checkOutDialog.id)
         .then(charges => setCheckoutCharges(charges))
@@ -628,7 +635,7 @@ export function ReservationsPage() {
     }
   }
   // Check-out handler
-  const handleCheckOut = async (booking: Booking) => {
+  const handleCheckOut = async (booking: Booking, payment?: CheckOutPayment) => {
     setProcessing(true)
     setCheckOutDialog(null) // Close dialog immediately
     try {
@@ -636,7 +643,7 @@ export function ReservationsPage() {
       const guest = guestMap.get(booking.guestId)
       const roomTypeName = room ? roomTypeMap.get(room.roomTypeId)?.name : undefined
 
-      const success = await checkOut({ booking, room, guest, roomTypeName, user })
+      const success = await checkOut({ booking, room, guest, roomTypeName, user, payment })
 
       if (success) {
         // Optimistic UI update — realtime subscriptions will reconcile shortly after.
@@ -843,6 +850,30 @@ export function ReservationsPage() {
                 </div>
               )}
 
+              {!checkoutLoading && (() => {
+                const chargesTotal = checkoutCharges.reduce((sum, c) => sum + c.amount, 0)
+                const balanceDue = outstandingBalance(checkOutDialog, chargesTotal)
+                return (
+                  <>
+                    {balanceDue > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Balance due</span>
+                        <span className="font-bold text-amber-600">{formatCurrencySync(balanceDue, currency)}</span>
+                      </div>
+                    )}
+                    <CheckOutPaymentFields
+                      balanceDue={balanceDue}
+                      amount={checkoutAmount}
+                      method={checkoutMethod}
+                      onAmountChange={setCheckoutAmount}
+                      onMethodChange={setCheckoutMethod}
+                      currency={currency}
+                      disabled={processing}
+                    />
+                  </>
+                )
+              })()}
+
               <div className="rounded-lg bg-blue-50 p-4 border border-blue-200">
                 <p className="text-sm font-medium text-blue-900">What happens next?</p>
                 <ul className="mt-2 text-sm text-blue-700 space-y-1">
@@ -859,7 +890,17 @@ export function ReservationsPage() {
             <Button variant="outline" onClick={() => setCheckOutDialog(null)} disabled={processing}>
               Cancel
             </Button>
-            <Button onClick={() => handleCheckOut(checkOutDialog!)} disabled={processing}>
+            <Button
+              onClick={() => handleCheckOut(
+                checkOutDialog!,
+                buildCheckOutPayment(
+                  outstandingBalance(checkOutDialog, checkoutCharges.reduce((sum, c) => sum + c.amount, 0)),
+                  checkoutAmount,
+                  checkoutMethod
+                )
+              )}
+              disabled={processing}
+            >
               {processing ? 'Processing...' : 'Confirm Check-Out'}
             </Button>
           </DialogFooter>

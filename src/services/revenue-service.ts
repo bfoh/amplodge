@@ -580,7 +580,12 @@ export function calculateStaffWeekResultInternal(
           paymentMethod: depositPrimaryMethod,
           paymentSplits: splitsForMethods,
           attributedByMethod,
-          additionalCharges: [], additionalChargesTotal: 0, grandTotal: depositAmount,
+          // Charges belong on this row even before the guest checks in. Zeroing
+          // them here dropped them from revenue altogether: the orphan-charge
+          // sweep below skips any booking that matched, so a drink sold to a
+          // guest with a reservation was counted by nobody.
+          additionalCharges, additionalChargesTotal,
+          grandTotal: depositAmount + additionalChargesTotal,
         }
       }
 
