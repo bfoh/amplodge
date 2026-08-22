@@ -292,7 +292,20 @@ export function ReservationsPage() {
             return null
           })
 
-        const usingView = Array.isArray(listRows)
+        // A view that exists but does not carry these fields is an older
+        // revision of the migration. Trusting it would quietly drop charges
+        // from every row total, so the raw path is used until it matches.
+        const VIEW_FIELDS = ['guestName', 'roomNumber', 'paymentMethods', 'chargesTotal']
+        const viewShapeOk = Array.isArray(listRows)
+          && (listRows.length === 0 || VIEW_FIELDS.every(f => f in (listRows[0] as any)))
+        if (Array.isArray(listRows) && !viewShapeOk) {
+          console.warn(
+            '[Reservations] reservations_list is an older revision — missing',
+            VIEW_FIELDS.filter(f => !(f in (listRows[0] as any))).join(', '),
+            '· re-run supabase/migrations/20260822_reservations_list_view.sql. Using the raw table meanwhile.'
+          )
+        }
+        const usingView = viewShapeOk
 
         const [b, r, g, rt, charges, roomsTable, tasks] = await Promise.all([
           usingView

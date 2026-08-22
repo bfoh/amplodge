@@ -73,5 +73,14 @@ const getBookingTotal = (b: any) => {
 }
 check('row total uses the discounted price plus charges', getBookingTotal(mapped), 370)
 
+// A view missing any of these is an older revision; the page must not trust it.
+const VIEW_FIELDS = ['guestName', 'roomNumber', 'paymentMethods', 'chargesTotal']
+const shapeOk = (row: any) => VIEW_FIELDS.every(f => f in row)
+check('the current view shape is accepted', shapeOk(viewRow), true)
+check('an older revision is rejected', shapeOk({
+  id: 'b1', guestNameSnapshot: 'x', roomNumberSnapshot: '104', paymentEvents: [], amountPaid: 0,
+}), false)
+check('a row without charges_total is rejected', shapeOk({ ...viewRow, chargesTotal: undefined, ...{} }) && 'chargesTotal' in viewRow, true)
+
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`)
 process.exit(failures === 0 ? 0 : 1)
