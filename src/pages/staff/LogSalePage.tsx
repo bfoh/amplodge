@@ -24,6 +24,7 @@ export function LogSalePage() {
       .catch(() => {})
   }, [])
 
+
   useEffect(() => {
     if (mode !== 'guest') return
     bookingEngine.getAllBookings()

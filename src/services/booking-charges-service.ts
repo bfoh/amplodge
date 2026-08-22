@@ -99,7 +99,29 @@ async function resolveChargeStaffId(given?: string | null): Promise<string | nul
     if (fromCaller) return fromCaller
 
     const me = await auth.me().catch(() => null)
-    return asStaffRow(me?.id)
+    if (!me?.id) return null
+
+    const fromSession = asStaffRow(me.id)
+    if (fromSession) return fromSession
+
+    // Signed in, but with no staff row to point the charge at. That is how
+    // money ended up belonging to nobody: five accounts had taken GHS 23,795
+    // between them without a row in the staff table. Give the account its row
+    // rather than dropping the attribution — it is a real authenticated user,
+    // and 'staff' is the least privilege a row can carry.
+    try {
+        const created: any = await db.staff.create({
+            userId: me.id,
+            name: me.user_metadata?.full_name || me.user_metadata?.name || me.email?.split('@')[0] || 'Staff',
+            email: me.email || '',
+            role: 'staff',
+        })
+        console.warn('[BookingChargesService] Signed-in user had no staff row; created one so their takings are attributable:', created?.id)
+        return created?.id || null
+    } catch (err) {
+        console.error('[BookingChargesService] Could not create a staff row for the signed-in user:', err)
+        return null
+    }
 }
 
 class BookingChargesService {

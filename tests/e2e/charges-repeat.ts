@@ -102,6 +102,30 @@ async function chargesAlwaysNameTheirStaff() {
   check('so it reaches that staff member\'s revenue', money((await revenue()).additionalRevenue), 15)
 }
 
+
+async function unknownStaffGetsARow() {
+  await seed()
+  const b = await makeStay()
+
+  // Somebody signed in who has no row in the staff table — the state five real
+  // accounts were in, holding GHS 23,795 that no report could name.
+  ;(globalThis as any).__TEST_USER__ = { id: 'auth-newcomer', email: 'newcomer@amp.com', user_metadata: { full_name: 'New Comer' } }
+
+  await bookingChargesService.addCharge({
+    bookingId: b.id, description: 'Beer', category: 'minibar', quantity: 1, unitPrice: 15,
+  } as any)
+
+  const staffRows: any[] = await db.staff.list({})
+  const created = staffRows.find(r => r.userId === 'auth-newcomer')
+  check('a staff row is created for them', !!created, true)
+  check('named from their account', created?.name, 'New Comer')
+  check('with the least privilege', created?.role, 'staff')
+
+  const charge: any = (await db.bookingCharges.list({}))[0]
+  check('and the charge is attributed to that row', charge.createdBy, created?.id)
+  ;(globalThis as any).__TEST_USER__ = A
+}
+
 async function repeatedCheckOut() {
   await seed()
   const b = await makeStay()
@@ -155,6 +179,7 @@ async function stockNeverLost() {
   for (const [name, fn] of [
     ['charge edits and deletes', chargeEdits],
     ['charges always name their staff', chargesAlwaysNameTheirStaff],
+    ['a signed-in user with no staff row', unknownStaffGetsARow],
     ['repeated check-out', repeatedCheckOut],
     ['repeated standalone sale', repeatedSale],
     ['concurrent stock movements', stockNeverLost],

@@ -109,6 +109,14 @@ export function LogSaleDialog({ open, onOpenChange, staffId, staffName, onSucces
     if (toSave.length === 0) { toast.error('Add at least one item'); return }
     for (const l of toSave) if (!validateLine(l)) return
 
+    // Refuse rather than record a sale against nobody: standalone_sales stores
+    // staff_id as an empty string when it is missing, which is money the
+    // revenue reports cannot attribute to anyone.
+    if (!staffId) {
+      toast.error('Cannot record this sale — no signed-in staff member. Sign in again and retry.')
+      return
+    }
+
     setSaving(true)
     let ok = 0, fail = 0
     for (const l of toSave) {

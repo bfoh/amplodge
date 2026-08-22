@@ -85,6 +85,20 @@ const fail = (msg: string) => { violations++; console.log('  VIOLATION ' + msg) 
     if (credited > worth + 0.02) { overCredited++; fail(`booking ${id.slice(0,8)} credited ${credited} across staff/weeks but is worth ${worth}`) }
   }
 
+  // Nothing recorded from here on may be unattributed. History is allowed its
+  // 24 honestly-contested charges; anything created after the day the write
+  // paths were fixed means a hole has reopened.
+  const ATTRIBUTION_ENFORCED_FROM = '2026-08-23'
+  const newOrphans = chargesRaw.filter((c: any) => !c.created_by && (c.created_at || '') >= ATTRIBUTION_ENFORCED_FROM)
+  const newOrphanSales = sales.filter((s: any) => !String(s.staff_id || '').trim() && (s.sale_date || '') >= ATTRIBUTION_ENFORCED_FROM)
+  if (newOrphans.length || newOrphanSales.length) {
+    fail(`${newOrphans.length} charge(s) and ${newOrphanSales.length} sale(s) recorded since ${ATTRIBUTION_ENFORCED_FROM} name no staff member`)
+    for (const c of newOrphans.slice(0, 10)) console.log(`    charge ${c.id} ${c.created_at?.slice(0, 10)} GHS ${c.amount} — ${c.description}`)
+    for (const s of newOrphanSales.slice(0, 10)) console.log(`    sale   ${s.id} ${s.sale_date} GHS ${s.amount} — ${s.description}`)
+  } else {
+    console.log(`unattributed since ${ATTRIBUTION_ENFORCED_FROM}: none`)
+  }
+
   console.log(`rows checked        : ${rowsChecked}`)
   console.log(`bookings credited   : ${bookingSeen.size}`)
   console.log(`weeks with revenue  : ${weeksWithRevenue}`)
