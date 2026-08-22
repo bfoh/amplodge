@@ -355,8 +355,13 @@ export function calculateStaffWeekResultInternal(
     chargesByBookingId.get(key)!.push(c)
   }
 
-  const from = new Date(weekStart + 'T00:00:00')
-  const to = new Date(weekEnd + 'T23:59:59')
+  // Week boundaries are anchored to the hotel's clock (Ghana, UTC+0), not the
+  // viewer's. Building them from local time made the same payment fall in
+  // different weeks depending on where the page was opened — a charge taken at
+  // 22:49 in Accra belongs to that day's takings whether the manager reads the
+  // report in Kumasi or abroad.
+  const from = new Date(weekStart + 'T00:00:00Z')
+  const to = new Date(weekEnd + 'T23:59:59.999Z')
 
   const checkedInOrOutIds = new Set(
     allBookings
@@ -1051,8 +1056,9 @@ export interface HRWeekData {
 export async function getAllStaffReportsForWeek(weekStart: string): Promise<HRWeekData> {
   const weekEnd = format(addDays(parseISO(weekStart), 6), 'yyyy-MM-dd')
   try {
-    const from = new Date(weekStart + 'T00:00:00')
-    const to = new Date(weekEnd + 'T23:59:59')
+    // Hotel time, as above — the same week wherever the page is opened.
+    const from = new Date(weekStart + 'T00:00:00Z')
+    const to = new Date(weekEnd + 'T23:59:59.999Z')
 
     const [rows, bookings, properties, guests, chargesRaw, allStaff, standaloneSales] = await Promise.all([
       db.hr_weekly_revenue.list({ limit: 1000 }),

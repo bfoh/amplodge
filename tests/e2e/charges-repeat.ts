@@ -94,7 +94,11 @@ async function chargesAlwaysNameTheirStaff() {
 
   const rows = await db.bookingCharges.list({})
   check('a charge always records who added it', !!rows[0].createdBy, true)
-  check('and it is the signed-in user', rows[0].createdBy, A.id)
+  // booking_charges.created_by is a foreign key to staff.id. Writing the auth
+  // user id there is rejected by the database and the charge is lost — so what
+  // gets stamped must be the STAFF ROW id, not the id auth.me() returns.
+  const staffRow: any = (await db.staff.list({}))[0]
+  check('and it is the staff row id, not the auth user id', rows[0].createdBy, staffRow.id)
   check('so it reaches that staff member\'s revenue', money((await revenue()).additionalRevenue), 15)
 }
 

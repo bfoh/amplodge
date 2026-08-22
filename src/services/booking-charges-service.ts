@@ -76,6 +76,32 @@ function enrichCharge(raw: any): BookingCharge {
     return { ...raw, notes: notes || undefined, paymentMethod: paymentMethod || undefined }
 }
 
+/**
+ * The staff id to stamp on a charge.
+ *
+ * booking_charges.created_by is a foreign key to staff.id — NOT the auth user
+ * id. Handing it an auth id is rejected by the database and the charge is lost,
+ * so an id from auth.me() has to be translated to the staff row it belongs to
+ * before it can be written. Callers may pass either, or nothing at all.
+ */
+async function resolveChargeStaffId(given?: string | null): Promise<string | null> {
+    const staffRows: any[] = await db.staff.list({ limit: 200 }).catch(() => [])
+    const byRowId = new Set(staffRows.map((s) => s.id).filter(Boolean))
+
+    const asStaffRow = (id?: string | null): string | null => {
+        if (!id) return null
+        if (byRowId.has(id)) return id                       // already a staff row id
+        const row = staffRows.find((s) => (s.userId || s.user_id) === id)
+        return row?.id || null                               // an auth user id — translate it
+    }
+
+    const fromCaller = asStaffRow(given)
+    if (fromCaller) return fromCaller
+
+    const me = await auth.me().catch(() => null)
+    return asStaffRow(me?.id)
+}
+
 class BookingChargesService {
 
     /**
@@ -151,9 +177,9 @@ class BookingChargesService {
             // the analytics page — the same money counted in one place and not
             // the other. Resolving the signed-in user here means no caller can
             // reintroduce that.
-            const createdBy = data.createdBy || (await auth.me().catch(() => null))?.id || null
-            if (!data.createdBy && !createdBy) {
-                console.warn('[BookingChargesService] Charge saved with no staff attached — no signed-in user to attribute it to.')
+            const createdBy = await resolveChargeStaffId(data.createdBy)
+            if (!createdBy) {
+                console.warn('[BookingChargesService] Charge saved with no staff attached — nobody signed in to attribute it to.')
             }
 
             const charge = await db.bookingCharges.create({
