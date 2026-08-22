@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db, auth, onTableUpdated } from '@/lib/db'
 import { useSubscription } from '@/hooks/use-subscription'
+import { useTableChanges } from '@/hooks/use-table-changes'
 import type { Booking, Room, Guest, RoomType, Property } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -157,10 +158,10 @@ export function ReservationsPage() {
   const [openTaskRoomKeys, setOpenTaskRoomKeys] = useState<Set<string>>(new Set())
 
   // Subscriptions
-  const updatedAtBks = useSubscription('bookings')
+  // bookings and booking_charges are handled by useTableChanges below, which
+  // patches the affected rows rather than reloading the page.
   const updatedAtProp = useSubscription('properties')
   const updatedAtGuests = useSubscription('guests')
-  const updatedAtChg = useSubscription('booking_charges')
   const updatedAtTasks = useSubscription('housekeeping_tasks')
 
   const [isPending, startTransition] = useTransition()
@@ -393,7 +394,44 @@ export function ReservationsPage() {
       }
     }
     load()
-  }, [user, showOlder, updatedAtBks, updatedAtProp, updatedAtGuests, updatedAtChg, updatedAtTasks])
+  }, [user, showOlder, updatedAtProp, updatedAtGuests, updatedAtTasks])
+
+  // A booking or one of its charges changing used to reload the entire page —
+  // every booking, every guest, every charge — on top of whatever the action
+  // itself had already done. Only the rows that moved are re-read now, from the
+  // same view the list is built from, so a check-out costs a few hundred bytes
+  // instead of a table.
+  const patchRows = async (ids: string[]) => {
+    const wanted = [...new Set(ids.filter(Boolean))]
+    if (!wanted.length) return
+    try {
+      const fresh = await db.reservationsList.list({ where: { id: { in: wanted } } })
+      const byId = new Map((fresh || []).map((r: any) => [r.id, fromListRow(r)]))
+      setBookings(prev => {
+        const next = prev.map(b => byId.get(b.id) ?? b)
+        // A row that no longer comes back has been deleted, or has moved out of
+        // the window this page is showing.
+        const gone = new Set(wanted.filter(id => !byId.has(id)))
+        const kept = gone.size ? next.filter(b => !gone.has(b.id)) : next
+        // Genuinely new rows land at the top, where the list is newest-first.
+        const known = new Set(kept.map(b => b.id))
+        const added = [...byId.values()].filter((r: any) => !known.has(r.id))
+        return added.length ? [...added, ...kept] : kept
+      })
+    } catch (err) {
+      console.warn('[Reservations] Could not patch changed rows:', err)
+    }
+  }
+
+  useTableChanges('bookings', changes => {
+    patchRows(changes.map(c => c.id).filter(Boolean) as string[])
+  })
+
+  // A charge changes what a row's total reads, so the booking it belongs to is
+  // re-read — not the whole charges table.
+  useTableChanges('booking_charges', changes => {
+    patchRows(changes.map(c => (c.new?.bookingId || c.old?.bookingId)).filter(Boolean) as string[])
+  })
 
   // The total is only worth saying when it is known and consistent with what is
   // on screen. A count that failed comes back null, and one smaller than the
@@ -757,9 +795,9 @@ export function ReservationsPage() {
         setBookings(prev => prev.map(b => (b.id === booking.id ? { ...b, status: 'checked-out' as const } : b)))
         if (room) setRooms(prev => prev.map(r => (r.id === room.id ? { ...r, status: 'cleaning' } : r)))
       } else {
-        // Reload data to restore correct state
-        const b = await db.bookings.listAll({ orderBy: { createdAt: 'desc' } })
-        setBookings(b)
+        // Put the row back the way the database has it, rather than re-reading
+        // every booking to correct one.
+        await patchRows([booking.id])
       }
     } finally {
       setProcessing(false)
@@ -814,9 +852,8 @@ export function ReservationsPage() {
         booking={chargesDialog}
         guest={chargesDialog ? guestMap.get(chargesDialog.guestId) : null}
         onChargesUpdated={async () => {
-          // Refresh charges data when charges are updated
-          const charges = await db.bookingCharges.listAll() || []
-          setAllCharges(charges)
+          // Only this booking's total can have moved.
+          if (chargesDialog) await patchRows([chargesDialog.id])
         }}
       />
 
@@ -836,13 +873,9 @@ export function ReservationsPage() {
               price: getRoomPrice(extendRoom)
             }}
             onExtensionComplete={async () => {
-              // Refresh bookings and charges data after extension
-              const [b, charges] = await Promise.all([
-                db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
-                db.bookingCharges.listAll() || Promise.resolve([])
-              ])
-              setBookings(b)
-              setAllCharges(charges || [])
+              // The extension changes this booking's dates and adds a charge to
+              // it; nothing else on the page moves.
+              await patchRows([extendStayDialog.id])
             }}
           />
         )
@@ -856,13 +889,26 @@ export function ReservationsPage() {
           groupId={manageGroupDialog.groupId}
           groupReference={manageGroupDialog.groupReference}
           onUpdate={async () => {
-            // Refresh bookings data
-            const [b, charges] = await Promise.all([
-              db.bookings.listAll({ orderBy: { createdAt: 'desc' } }),
-              db.bookingCharges.listAll() || Promise.resolve([])
-            ])
-            setBookings(b)
-            setAllCharges(charges || [])
+            // Re-read the group's own rows. A room may have been added or
+            // removed, so the group is queried rather than the rows we happen
+            // to hold.
+            try {
+              const rows = await db.reservationsList.list({
+                where: { groupId: manageGroupDialog.groupId },
+              })
+              const fresh = (rows || []).map(fromListRow)
+              setBookings(prev => {
+                const byId = new Map(fresh.map((r: any) => [r.id, r]))
+                const kept = prev
+                  .filter(b => (b as any).groupId !== manageGroupDialog.groupId || byId.has(b.id))
+                  .map(b => byId.get(b.id) ?? b)
+                const known = new Set(kept.map(b => b.id))
+                const added = fresh.filter((r: any) => !known.has(r.id))
+                return added.length ? [...added, ...kept] : kept
+              })
+            } catch (err) {
+              console.warn('[Reservations] Could not refresh the group:', err)
+            }
           }}
         />
       )}

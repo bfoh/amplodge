@@ -18,6 +18,8 @@ import {
   onTableUpdated as _onTableUpdated,
 } from './supabase-wrapper'
 
+export type { TableChange } from './supabase-wrapper'
+
 export { initRealtimeUpdates } from './supabase-wrapper'
 
 import * as T from '../types'

@@ -15,9 +15,25 @@ import { supabase } from './supabase'
 // Pages subscribe to table updates and re-run their loader when the realtime
 // channel reports a server-side change.
 
-const tableListeners = new Map<string, Set<() => void>>()
+/** What changed on a table, as reported by Postgres. */
+export interface TableChange {
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE'
+  /** The row's id, for the common case of patching one row. */
+  id?: string
+  new?: any
+  old?: any
+}
 
-export function onTableUpdated(table: string, cb: () => void): () => void {
+const tableListeners = new Map<string, Set<(change?: TableChange) => void>>()
+
+/**
+ * Called when a table changes.
+ *
+ * The change is passed through so a listener can patch the one row that moved
+ * rather than reloading everything — the Reservations page used to refetch its
+ * whole dataset on any change to any of five tables.
+ */
+export function onTableUpdated(table: string, cb: (change?: TableChange) => void): () => void {
   let set = tableListeners.get(table)
   if (!set) {
     set = new Set()
@@ -29,13 +45,13 @@ export function onTableUpdated(table: string, cb: () => void): () => void {
   }
 }
 
-function emitTableUpdated(table: string) {
+function emitTableUpdated(table: string, change?: TableChange) {
   const set = tableListeners.get(table)
   if (!set || set.size === 0) return
   // Fire async so the wrapper return value lands first
   queueMicrotask(() => {
     set.forEach(cb => {
-      try { cb() } catch (e) { console.warn(`[SupabaseDB] listener for ${table} threw:`, e) }
+      try { cb(change) } catch (e) { console.warn(`[SupabaseDB] listener for ${table} threw:`, e) }
     })
   })
 }
@@ -65,9 +81,17 @@ function initRealtimeSubscriptions() {
         // and camelCase in TypedDB. We emit both for safety.
         const camelTable = table.replace(/_([a-z])/g, (g) => g[1].toUpperCase())
 
-        emitTableUpdated(table)
+        const changed: any = payload.new && Object.keys(payload.new).length ? payload.new : payload.old
+        const change: TableChange = {
+          eventType: payload.eventType as TableChange['eventType'],
+          id: changed?.id,
+          new: payload.new && Object.keys(payload.new).length ? convertToCamelCase(payload.new) : undefined,
+          old: payload.old && Object.keys(payload.old).length ? convertToCamelCase(payload.old) : undefined,
+        }
+
+        emitTableUpdated(table, change)
         if (camelTable !== table) {
-          emitTableUpdated(camelTable)
+          emitTableUpdated(camelTable, change)
         }
       }
     )
