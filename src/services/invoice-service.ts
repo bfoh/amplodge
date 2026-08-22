@@ -1628,6 +1628,12 @@ export async function createGroupInvoiceData(bookings: BookingWithDetails[], bil
     const groupChargesTotal = groupAdditionalCharges.reduce((sum, c) => sum + (c.amount || 0), 0)
     let discountAmount = groupDiscount?.amount || 0
 
+    // One request for the whole group's charges. Asking per booking meant a
+    // round trip per room, each paying the proxy hop, before any PDF work began.
+    const chargesByBooking = await bookingChargesService.getChargesForBookings(
+      bookings.map((b: any) => b.id)
+    )
+
     const processedBookings = await Promise.all(bookings.map(async (booking) => {
       // Get ADDITIONAL SERVICES (e.g. food, spa) per booking - distinct from "Booking Charges" added at reception?
       // NOTE: "bookingChargesService" returns charges linked to the booking (e.g. minibar)
@@ -1640,7 +1646,7 @@ export async function createGroupInvoiceData(bookings: BookingWithDetails[], bil
       // Current implementation saves them ONLY in metadata (specialRequests).
       // So `bookingChargesService.getChargesForBooking` might return 0 if they weren't saved to `charges` table.
 
-      const dbCharges = await bookingChargesService.getChargesForBooking(booking.id)
+      const dbCharges = chargesByBooking.get(booking.id) || []
       const dbChargesTotal = dbCharges.reduce((sum, c) => sum + (c.amount || 0), 0)
 
       const checkIn = new Date(booking.checkIn)

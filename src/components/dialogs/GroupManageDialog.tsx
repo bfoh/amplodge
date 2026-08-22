@@ -166,31 +166,27 @@ export function GroupManageDialog({
     const reload = async () => {
         setLoading(true)
         try {
-            const [rawMembers, meta, guestsData, roomTypesData, propertiesData, everyBooking] = await Promise.all([
+            // Opening this dialog used to download every booking in the hotel —
+            // about 1.4 MB — to manage two to seven rooms. The members come from
+            // the group itself, and the bookings needed to judge room
+            // availability are fetched for the dates in question only, by the
+            // effect below.
+            const [rawMembers, meta, roomTypesData, propertiesData] = await Promise.all([
                 getGroupMembers(groupId),
                 getGroupMeta(groupId),
-                db.guests.list({ limit: 500 }),
                 db.roomTypes.list({ limit: 100 }),
                 db.properties.list({ limit: 500 }),
-                bookingEngine.getAllBookings(),
             ])
+
+            // Only the guests on this booking's rooms.
+            const guestIds = [...new Set((rawMembers as any[]).map(b => b.guestId).filter(Boolean))]
+            const guestsData = guestIds.length
+                ? await db.guests.list({ where: { id: { in: guestIds } } }).catch(() => [])
+                : []
 
             setGuests(guestsData)
             setRoomTypes(roomTypesData)
             setProperties(propertiesData)
-
-            // bookingEngine.getAllBookings() returns LocalBooking rows, which carry
-            // roomNumber but never roomId — getRoomAvailability() below matches
-            // bookings to rooms strictly by roomId, so without this backfill no
-            // booking ever matches its room and every room reads as available.
-            const roomIdByNumber = new Map(
-                (propertiesData as any[]).map((p: any) => [String(p.roomNumber || '').trim(), p.id])
-            )
-            const backfilledBookings = (everyBooking as any[]).map((b: any) => ({
-                ...b,
-                roomId: b.roomId || roomIdByNumber.get(String(b.roomNumber || '').trim()) || '',
-            }))
-            setAllBookings(backfilledBookings)
             setGroupMeta(meta)
 
             const guestMap = new Map(guestsData.map((g: any) => [g.id, g]))
@@ -261,6 +257,22 @@ export function GroupManageDialog({
         if (!ci || !co) return 0
         return differenceInDays(co, ci)
     }, [newCheckIn, newCheckOut])
+
+    // Bookings that overlap the dates being considered — the only ones that can
+    // make a room unavailable. Fetched server-side by date rather than pulling
+    // the whole table and filtering in the browser.
+    useEffect(() => {
+        if (!open || !newCheckIn || !newCheckOut) return
+        let cancelled = false
+        db.bookings
+            .list({
+                where: { checkOut: { gte: newCheckIn }, checkIn: { lte: newCheckOut } },
+                limit: 500,
+            })
+            .then(rows => { if (!cancelled) setAllBookings(rows || []) })
+            .catch(() => { if (!cancelled) setAllBookings([]) })
+        return () => { cancelled = true }
+    }, [open, newCheckIn, newCheckOut])
 
     // Real per-room availability for the add-member dates — same engine as
     // the Onsite Booking picker. Excludes rooms already in this group and

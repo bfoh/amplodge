@@ -129,6 +129,34 @@ class BookingChargesService {
     /**
      * Get all charges for a booking
      */
+    /**
+     * Charges for several bookings in one request.
+     *
+     * A group invoice asked for them one booking at a time — seven rooms meant
+     * seven round trips, each paying the proxy hop, before the PDF work even
+     * started.
+     */
+    async getChargesForBookings(bookingIds: string[]): Promise<Map<string, BookingCharge[]>> {
+        const byBooking = new Map<string, BookingCharge[]>()
+        const ids = [...new Set(bookingIds.filter(Boolean))]
+        if (ids.length === 0) return byBooking
+        try {
+            const rows = await db.bookingCharges.list({
+                where: { bookingId: { in: ids } },
+                orderBy: { createdAt: 'desc' },
+            })
+            for (const raw of (rows || [])) {
+                const charge = enrichCharge(raw)
+                const key = (charge as any).bookingId
+                if (!byBooking.has(key)) byBooking.set(key, [])
+                byBooking.get(key)!.push(charge)
+            }
+        } catch (error) {
+            console.error('[BookingChargesService] Failed to fetch charges for bookings:', error)
+        }
+        return byBooking
+    }
+
     async getChargesForBooking(bookingId: string): Promise<BookingCharge[]> {
         try {
             const charges = await db.bookingCharges.list({
