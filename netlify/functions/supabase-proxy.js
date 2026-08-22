@@ -14,8 +14,10 @@ const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
 
 const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, prefer, x-upsert',
+    'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, prefer, x-upsert, range',
+    // Without this the browser cannot read the count the server just returned.
+    'Access-Control-Expose-Headers': 'content-range, content-location',
 }
 
 exports.handler = async (event) => {
@@ -104,6 +106,7 @@ exports.handler = async (event) => {
         if (event.headers['authorization'])   forwardHeaders['authorization']   = event.headers['authorization']
         if (event.headers['x-client-info'])   forwardHeaders['x-client-info']   = event.headers['x-client-info']
         if (event.headers['prefer'])          forwardHeaders['prefer']          = event.headers['prefer']
+        if (event.headers['range'])           forwardHeaders['range']           = event.headers['range']
         if (event.headers['x-upsert'])        forwardHeaders['x-upsert']        = event.headers['x-upsert']
 
         // Forward the real client IP so Supabase rate-limits per-user not per-proxy.
@@ -143,6 +146,13 @@ exports.handler = async (event) => {
         if (ct) responseHeaders['Content-Type'] = ct
         const wa = response.headers.get('www-authenticate')
         if (wa) responseHeaders['WWW-Authenticate'] = wa
+        // PostgREST answers a count in Content-Range ("0-24/1005") and pages in
+        // Content-Location. Dropping them here made every count come back empty,
+        // which the client read as zero — a list of 250 rows reported "250 of 0".
+        const cr = response.headers.get('content-range')
+        if (cr) responseHeaders['Content-Range'] = cr
+        const cl = response.headers.get('content-location')
+        if (cl) responseHeaders['Content-Location'] = cl
 
         return { statusCode: response.status, headers: responseHeaders, body: responseBody }
     } catch (error) {

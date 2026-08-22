@@ -179,7 +179,7 @@ function createTableWrapper(tableName: string) {
      * Used to say "250 of 1,005" when a list is windowed — a count that drops
      * with no explanation reads as lost data.
      */
-    async count(options: { where?: Record<string, any> } = {}): Promise<number> {
+    async count(options: { where?: Record<string, any> } = {}): Promise<number | null> {
       let query = supabase.from(tableName).select('id', { count: 'exact', head: true })
       if (options.where) {
         Object.entries(options.where).forEach(([key, value]) => {
@@ -197,10 +197,12 @@ function createTableWrapper(tableName: string) {
       }
       const { count, error } = await query
       if (error) {
+        // null, not 0: a failed count is unknown, and reporting it as zero
+        // produced "250 of 0" on a page holding 250 rows.
         console.warn(`[SupabaseDB] Count failed for ${tableName}:`, error.message)
-        return 0
+        return null
       }
-      return count ?? 0
+      return count ?? null
     },
 
     async listAll(options: { where?: Record<string, any>; orderBy?: Record<string, any>; pageSize?: number } = {}) {

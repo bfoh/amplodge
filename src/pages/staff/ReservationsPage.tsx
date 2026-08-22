@@ -395,6 +395,11 @@ export function ReservationsPage() {
     load()
   }, [user, showOlder, updatedAtBks, updatedAtProp, updatedAtGuests, updatedAtChg, updatedAtTasks])
 
+  // The total is only worth saying when it is known and consistent with what is
+  // on screen. A count that failed comes back null, and one smaller than the
+  // rows already loaded would be nonsense — "250 of 0" came from trusting it.
+  const showTotal = !showOlder && totalCount !== null && totalCount >= bookings.length
+
   const roomMap = useMemo(() => new Map(rooms.map(r => [r.id, r])), [rooms])
   const guestMap = useMemo(() => new Map(guests.map(g => [g.id, g])), [guests])
   const roomTypeMap = useMemo(() => new Map(roomTypes.map(rt => [rt.id, rt])), [roomTypes])
@@ -1094,9 +1099,7 @@ export function ReservationsPage() {
               <div className="flex items-center gap-3">
                 <h1 className="text-2xl font-serif font-bold text-stone-800">Reservations</h1>
                 <span className="inline-flex items-center justify-center px-3 py-1 text-sm font-medium rounded-full bg-amber-100 text-amber-800 border border-amber-200/60">
-                  {totalCount !== null && !showOlder
-                    ? `${filtered.length} of ${totalCount.toLocaleString()}`
-                    : filtered.length}
+                  {showTotal ? `${filtered.length} of ${totalCount!.toLocaleString()}` : filtered.length}
                 </span>
               </div>
               <span className="hidden lg:block text-stone-400">|</span>
@@ -1204,8 +1207,8 @@ export function ReservationsPage() {
                 <p className="text-xs text-stone-500">
                   {showOlder
                     ? 'Showing every reservation on record.'
-                    : totalCount !== null
-                      ? `Showing stays from the last ${HISTORY_WINDOW_DAYS} days onwards — ${(totalCount - bookings.length).toLocaleString()} older ones are not loaded.`
+                    : showTotal
+                      ? `Showing stays from the last ${HISTORY_WINDOW_DAYS} days onwards — ${(totalCount! - bookings.length).toLocaleString()} older ones are not loaded.`
                       : `Showing stays from the last ${HISTORY_WINDOW_DAYS} days onwards.`}
                 </p>
                 <Button
@@ -1217,8 +1220,8 @@ export function ReservationsPage() {
                 >
                   {showOlder
                     ? 'Show recent only'
-                    : totalCount !== null
-                      ? `Load all ${totalCount.toLocaleString()}`
+                    : showTotal
+                      ? `Load all ${totalCount!.toLocaleString()}`
                       : 'Show older reservations'}
                 </Button>
               </div>
