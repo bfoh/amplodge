@@ -172,6 +172,9 @@ export function ReservationsPage() {
   // Off by default: the list covers recent and upcoming stays, which is what a
   // reception desk needs. Turning it on re-fetches without the date window.
   const [showOlder, setShowOlder] = useState(false)
+  // How many reservations exist in total, so a windowed list can say so rather
+  // than just showing a smaller number.
+  const [totalCount, setTotalCount] = useState<number | null>(null)
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [loading, setLoading] = useState(true)
@@ -306,6 +309,11 @@ export function ReservationsPage() {
           )
         }
         const usingView = viewShapeOk
+        if (usingView && !showOlder) {
+          db.reservationsList.count().then(setTotalCount).catch(() => setTotalCount(null))
+        } else {
+          setTotalCount(null)
+        }
 
         // Guests are not on the critical path: the view already carries the name
         // each row displays, and the guest record itself is only needed once a
@@ -1086,7 +1094,9 @@ export function ReservationsPage() {
               <div className="flex items-center gap-3">
                 <h1 className="text-2xl font-serif font-bold text-stone-800">Reservations</h1>
                 <span className="inline-flex items-center justify-center px-3 py-1 text-sm font-medium rounded-full bg-amber-100 text-amber-800 border border-amber-200/60">
-                  {filtered.length}
+                  {totalCount !== null && !showOlder
+                    ? `${filtered.length} of ${totalCount.toLocaleString()}`
+                    : filtered.length}
                 </span>
               </div>
               <span className="hidden lg:block text-stone-400">|</span>
@@ -1194,7 +1204,9 @@ export function ReservationsPage() {
                 <p className="text-xs text-stone-500">
                   {showOlder
                     ? 'Showing every reservation on record.'
-                    : `Showing stays from the last ${HISTORY_WINDOW_DAYS} days onwards.`}
+                    : totalCount !== null
+                      ? `Showing stays from the last ${HISTORY_WINDOW_DAYS} days onwards — ${(totalCount - bookings.length).toLocaleString()} older ones are not loaded.`
+                      : `Showing stays from the last ${HISTORY_WINDOW_DAYS} days onwards.`}
                 </p>
                 <Button
                   variant="outline"
@@ -1203,7 +1215,11 @@ export function ReservationsPage() {
                   disabled={loading}
                   className="border-stone-200"
                 >
-                  {showOlder ? 'Show recent only' : 'Show older reservations'}
+                  {showOlder
+                    ? 'Show recent only'
+                    : totalCount !== null
+                      ? `Load all ${totalCount.toLocaleString()}`
+                      : 'Show older reservations'}
                 </Button>
               </div>
             </CardContent>

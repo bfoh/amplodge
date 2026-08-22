@@ -173,6 +173,36 @@ function createTableWrapper(tableName: string) {
      * Supabase per-request row cap (default 1000). Use when you need the
      * complete table — counts, dedup passes, etc.
      */
+    /**
+     * How many rows match, without fetching any of them.
+     *
+     * Used to say "250 of 1,005" when a list is windowed — a count that drops
+     * with no explanation reads as lost data.
+     */
+    async count(options: { where?: Record<string, any> } = {}): Promise<number> {
+      let query = supabase.from(tableName).select('id', { count: 'exact', head: true })
+      if (options.where) {
+        Object.entries(options.where).forEach(([key, value]) => {
+          const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase()
+          if (value && typeof value === 'object' && !Array.isArray(value)) {
+            if ('gte' in value) query = query.gte(snakeKey, value.gte)
+            else if ('lte' in value) query = query.lte(snakeKey, value.lte)
+            else if ('gt' in value) query = query.gt(snakeKey, value.gt)
+            else if ('lt' in value) query = query.lt(snakeKey, value.lt)
+            else if ('in' in value) query = query.in(snakeKey, value.in)
+          } else {
+            query = query.eq(snakeKey, value)
+          }
+        })
+      }
+      const { count, error } = await query
+      if (error) {
+        console.warn(`[SupabaseDB] Count failed for ${tableName}:`, error.message)
+        return 0
+      }
+      return count ?? 0
+    },
+
     async listAll(options: { where?: Record<string, any>; orderBy?: Record<string, any>; pageSize?: number } = {}) {
       const pageSize = options.pageSize ?? 1000
 

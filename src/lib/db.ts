@@ -35,6 +35,7 @@ export interface TableWrapper<TRow> {
     orderBy?: any;
     pageSize?: number;
   }): Promise<TRow[]>
+  count(options?: { where?: Partial<Record<keyof TRow | string, any>> }): Promise<number>
   get(id: string): Promise<TRow>
   create(data: Partial<TRow>): Promise<TRow>
   update(id: string, data: Partial<TRow>): Promise<TRow>
