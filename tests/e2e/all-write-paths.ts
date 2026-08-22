@@ -217,6 +217,35 @@ async function cancelledEarnsNothing() {
   check('so the booking earns nothing, whole', money(c.grandRevenue), 0)
 }
 
+
+// ── 8. One person who both added a charge and made a sale ──
+async function onePersonOneRow() {
+  await seed()
+  const r = await room(350)
+  await bookViaForm({ roomId: r.id, roomNumber: r.roomNumber, price: 350, paid: 350, status: 'full' })
+  const booking: any = (await db.bookings.listAll())[0]
+
+  // A charge records the staff ROW id; a sale records the AUTH user id. The
+  // same person must not appear as two people because of it.
+  await bookingChargesService.addCharge({
+    bookingId: booking.id, description: 'Water', category: 'minibar', quantity: 1, unitPrice: 20,
+  } as any)
+  await standaloneSalesService.addSale({
+    description: 'Coke', category: 'drinks', quantity: 1, unitPrice: 10, amount: 10,
+    staffId: A.id, staffName: 'Staff A', saleDate: '2026-08-22', paymentMethod: 'cash', notes: '',
+  } as any)
+
+  const charge: any = (await db.bookingCharges.listAll())[0]
+  const sale: any = (await db.standaloneSales.listAll())[0]
+  check('the charge and the sale really do use different ids', charge.createdBy !== sale.staffId, true)
+
+  const c = await company()
+  const rows = c.byStaff.filter(x => x.grandRevenue > 0)
+  check('but the person is listed once', rows.length, 1)
+  check('holding both amounts', money(rows[0].grandRevenue), 380)
+  check('and their own week agrees', money((await forStaff(A.id)).grandRevenue), 380)
+}
+
 ;(async () => {
   const scenarios: Array<[string, () => Promise<void>]> = [
     ['reception takes full payment', receptionFullPayment],
@@ -226,6 +255,7 @@ async function cancelledEarnsNothing() {
     ['charges, sales and an extension', extrasOnAStay],
     ['payment recorded after the fact', laterPayment],
     ['cancelled booking', cancelledEarnsNothing],
+    ['one person, one row', onePersonOneRow],
   ]
   for (const [name, fn] of scenarios) {
     out.push(`\n── ${name}`)

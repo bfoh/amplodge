@@ -356,19 +356,36 @@ export function AnalyticsPage() {
     return staffLookup.get(id) || staffUserLookup.get(id) || name || 'Unassigned'
   }
 
+  // One person, one row.
+  //
+  // A charge stores the staff ROW id (booking_charges.created_by is a foreign
+  // key to staff.id) while a sale stores the AUTH user id, so grouping by the
+  // raw id split anyone who did both into two people — frimpomaa appeared
+  // twice, once for GHS 220 of charges and again for GHS 110 of sales.
+  const canonicalStaffId = (id: string): string => {
+    if (!id) return 'unknown'
+    const byRow = allStaff.find(s => s.id === id)
+    if (byRow) return (byRow.userId || byRow.user_id || byRow.id) as string
+    const byUser = allStaff.find(s => (s.userId || s.user_id) === id)
+    if (byUser) return (byUser.userId || byUser.user_id) as string
+    return id
+  }
+
   const chargeStaffMap: Record<string, { amount: number, name: string }> = {}
+  const addStaffRevenue = (rawId: string, name: string, amount: number) => {
+    const key = canonicalStaffId(rawId)
+    if (!chargeStaffMap[key]) chargeStaffMap[key] = { amount: 0, name }
+    chargeStaffMap[key].amount += amount
+  }
   for (const c of filteredCharges) {
     if (c.category === 'room_extension') continue // Extensions go to Room track
     const sId = c.createdBy || c.created_by || 'unknown'
-    const sName = resolveStaffName(sId, c.createdByName || c.created_by_name)
-    if (!chargeStaffMap[sId]) chargeStaffMap[sId] = { amount: 0, name: sName }
-    chargeStaffMap[sId].amount += Number(c.amount || 0)
+    addStaffRevenue(sId, resolveStaffName(sId, c.createdByName || c.created_by_name), Number(c.amount || 0))
   }
   for (const s of filteredSales) {
     const sId = (s as any).staffId || (s as any).staff_id || (s as any).createdBy || (s as any).created_by || 'unknown'
     const sName = resolveStaffName(sId, (s as any).staffName || (s as any).staff_name || (s as any).createdByName || (s as any).created_by_name)
-    if (!chargeStaffMap[sId]) chargeStaffMap[sId] = { amount: 0, name: sName }
-    chargeStaffMap[sId].amount += Number((s as any).amount || 0)
+    addStaffRevenue(sId, sName, Number((s as any).amount || 0))
   }
   const chargeStaffEntries = Object.values(chargeStaffMap)
     .sort((a, b) => b.amount - a.amount)
