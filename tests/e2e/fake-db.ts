@@ -26,6 +26,25 @@ function table(name: string) {
       const where = options.where || {}
       for (const [k, v] of Object.entries(where)) {
         const key = camelKey(k)
+        // Operator objects, as the real wrapper understands them.
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          const op = v as Record<string, any>
+          const val = (r: any) => r[key] ?? r[k]
+          if ('in' in op) out = out.filter(r => op.in.includes(val(r)))
+          else if ('gt' in op) out = out.filter(r => val(r) > op.gt)
+          else if ('gte' in op) out = out.filter(r => val(r) >= op.gte)
+          else if ('lt' in op) out = out.filter(r => val(r) < op.lt)
+          else if ('lte' in op) out = out.filter(r => val(r) <= op.lte)
+          else if ('neq' in op) out = out.filter(r => val(r) !== op.neq)
+          else if ('is' in op) out = out.filter(r => (val(r) ?? null) === op.is)
+          else if ('like' in op || 'ilike' in op) {
+            const raw = String(op.like ?? op.ilike)
+            const rx = new RegExp('^' + raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*') + '$',
+              'ilike' in op ? 'is' : 's')
+            out = out.filter(r => rx.test(String(val(r) ?? '')))
+          }
+          continue
+        }
         out = out.filter(r => r[key] === v || r[k] === v)
       }
       if (options.orderBy?.column) {

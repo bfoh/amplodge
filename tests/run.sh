@@ -68,7 +68,7 @@ fi
 echo "── unit"
 for s in group-bookings accounting allocation cash-basis reservations-view count-display row-patching; do unit "$s"; done
 echo "── end-to-end"
-for s in lifecycle groups-analytics charges-repeat all-write-paths; do e2e "$s"; done
+for s in lifecycle groups-analytics group-membership charges-repeat all-write-paths; do e2e "$s"; done
 rm -rf "$OUT"
 [[ $fail -eq 0 ]] && echo "everything passed" || echo "FAILURES"
 exit $fail

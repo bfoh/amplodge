@@ -505,6 +505,15 @@ class BookingEngine {
     try {
       const created = await db.bookings.create(bookingPayload)
       console.log('[BookingEngine] Booking created successfully:', created?.id || '(no id returned)')
+      // Adopt the id the database assigned. The locally-generated
+      // `booking-<timestamp>_<random>` is not a uuid and matches no row, so
+      // every later write addressed by it silently hit nothing: group_id was
+      // never set on a single booking in production, booking_groups
+      // .primary_booking_id stayed null, and the activity log recorded an
+      // entity id that resolves to nothing.
+      if (created?.id) {
+        remoteId = created.id
+      }
     } catch (bookingErr: any) {
       const msg = bookingErr?.message || ''
       const code = bookingErr?.code
@@ -600,6 +609,10 @@ class BookingEngine {
 
     const local: LocalBooking = {
       _id: localId,
+      // The database row's own id. Callers that go on to write to the booking
+      // — tagging it with a group, naming it a group's primary room — address
+      // it by this, and used to be handed the local id instead.
+      remoteId,
       guest: bookingData.guest,
       roomType: bookingData.roomType,
       roomNumber: bookingData.roomNumber,

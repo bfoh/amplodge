@@ -50,10 +50,26 @@ function parseGroupData(booking: any): any | null {
   }
 }
 
-/** Scan up to 500 bookings for GROUP_DATA.groupId === groupId (legacy path). */
+/**
+ * Find a group's rooms by the GROUP_DATA comment (legacy path).
+ *
+ * This used to fetch the first 500 bookings and filter them in the browser.
+ * Past 500 bookings that returns whichever members happen to fall inside the
+ * window — a six-room group showed one room, because the other five sat
+ * outside it and nothing said so. The comment is matched in the database
+ * instead, so the query returns the group's rooms and only those, however
+ * large the table gets.
+ *
+ * The `ilike` narrows to rows mentioning the id anywhere; the parse below is
+ * what actually decides membership, so a coincidental mention elsewhere in
+ * the text cannot add a room to the group.
+ */
 async function legacyGetGroupMembers(groupId: string): Promise<any[]> {
-  const all = await db.bookings.list({ limit: 500 })
-  return (all as any[]).filter((b) => parseGroupData(b)?.groupId === groupId)
+  if (!groupId) return []
+  const candidates = await db.bookings.list({
+    where: { specialRequests: { ilike: `%${groupId}%` } },
+  })
+  return (candidates as any[]).filter((b) => parseGroupData(b)?.groupId === groupId)
 }
 
 function pickPrimary(members: any[]): any | undefined {
@@ -71,18 +87,34 @@ function pickPrimary(members: any[]): any | undefined {
 // Reads
 // ---------------------------------------------------------------------------
 
-/** All booking rows belonging to a group, newest-first is not guaranteed — sort by checkIn if order matters. */
+/**
+ * All booking rows belonging to a group, newest-first is not guaranteed — sort
+ * by checkIn if order matters.
+ *
+ * Both routes to membership are read and merged, because a single group can
+ * use both: rooms booked before the group_id column existed carry only the
+ * GROUP_DATA comment, and a room added to that same group afterwards is
+ * tagged with the column. Trusting the column alone whenever it returns
+ * anything would show that one new room and hide the rest.
+ */
 export async function getGroupMembers(groupId: string): Promise<any[]> {
+  if (!groupId) return []
+
+  let tagged: any[] = []
   try {
-    const members = await db.bookings.list({ where: { groupId } })
-    if (members.length > 0) return members
-    // Column exists but nothing matched — either a pre-migration group
-    // (comment-only, group_id never set) or a genuinely empty/bad id.
-    return legacyGetGroupMembers(groupId)
+    tagged = await db.bookings.list({ where: { groupId } })
   } catch (err) {
     if (!isMissingSchema(err)) throw err
-    return legacyGetGroupMembers(groupId)
+    // Column not deployed yet — the comment is the only record of membership.
   }
+
+  const commented = await legacyGetGroupMembers(groupId)
+
+  const byId = new Map<string, any>()
+  for (const row of [...tagged, ...commented]) {
+    if (row?.id) byId.set(row.id, row)
+  }
+  return [...byId.values()]
 }
 
 /** Group-level metadata: billing contact, charges, discount, invoice number, status. */
