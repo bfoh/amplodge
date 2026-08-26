@@ -953,6 +953,11 @@ export default function HousekeepingPage() {
               <ProviderRow name="Brevo (email — primary)" data={diagResult.brevo} />
               <ProviderRow name="Resend (email — fallback)" data={diagResult.resend} />
               <ProviderRow name="Arkesel (SMS)" data={diagResult.arkesel} />
+              {/* Every provider key can be valid and notifications still not
+                  send: functions asking each other to send are refused unless
+                  INTERNAL_FUNCTION_SECRET is set, which is how confirmations
+                  went missing while this panel reported everything healthy. */}
+              <ProviderRow name="Functions calling each other" data={diagResult.internalSecret} />
               {diagResult.networkError && (
                 <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                   Network error: {diagResult.networkError}

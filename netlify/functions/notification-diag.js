@@ -29,10 +29,36 @@ export const handler = async (event) => {
     brevo: await checkBrevo(),
     resend: await checkResend(),
     arkesel: await checkArkesel(),
+    internalSecret: checkInternalSecret(),
     serverTime: new Date().toISOString(),
   }
 
   return jsonResponse(200, result)
+}
+
+/**
+ * Whether functions can call each other.
+ *
+ * send-email and send-sms accept a staff token OR INTERNAL_FUNCTION_SECRET.
+ * With the variable unset, isInternalCall fails closed and every notification
+ * one function asks another to send is refused with a 401 — which is exactly
+ * what had happened: the variable was never set in production, and
+ * create-booking's confirmations went nowhere while every provider key checked
+ * out fine on this very page. Presence only; the value is never returned.
+ */
+function checkInternalSecret() {
+  const secret = process.env.INTERNAL_FUNCTION_SECRET
+  if (!secret) {
+    return {
+      ok: false,
+      configured: false,
+      error: 'INTERNAL_FUNCTION_SECRET not set — functions cannot ask each other to send email or SMS, and those calls will 401.',
+    }
+  }
+  if (secret.length < 24) {
+    return { ok: false, configured: true, error: 'INTERNAL_FUNCTION_SECRET is set but suspiciously short.' }
+  }
+  return { ok: true, configured: true, message: 'Functions can call each other.' }
 }
 
 async function checkBrevo() {
