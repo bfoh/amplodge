@@ -14,6 +14,11 @@ import { createInvoiceData } from '@/services/invoice-service'
 import { useCheckIn } from '@/hooks/use-check-in'
 import { useCheckOut } from '@/hooks/use-check-out'
 import { db, __reset } from './fake-db'
+import { freezeClock } from './clock'
+
+// The week below is fixed, so the clock the fixtures are stamped with has to
+// be too — otherwise every figure reads zero from the following Monday on.
+freezeClock()
 
 const WS = '2026-08-17', WE = '2026-08-23'
 const STAFF_A = { id: 'staff-a', email: 'annor@amp.com', user_metadata: { full_name: 'Annor Ivy' } }
@@ -76,6 +81,15 @@ async function scenarioDepositThenBalance() {
   await seed()
   await makeBooking({ room: '101', roomId: 'r101', amount: 350, paid: 100 })
   const booking: any = (await db.bookings.list({}))[0]
+
+  // Guard, not a behaviour test. Revenue is attributed to the period the money
+  // was collected in, so a fixture stamped outside the week this suite asserts
+  // about reports zero everywhere and every check below fails at once, saying
+  // nothing about why. If this one fails, the clock is not frozen — the code
+  // under test is probably fine.
+  const stampedAt = String(booking.createdAt || booking.created_at || '')
+  check('fixtures are stamped inside the week the suite asserts about',
+    stampedAt >= WS && stampedAt <= `${WE}T23:59:59.999Z`, true)
 
   // Mid-stay: only the GHS 100 deposit is anyone's revenue.
   let a = await revenueFor(STAFF_A.id)

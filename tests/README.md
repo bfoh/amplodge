@@ -28,6 +28,14 @@ charges, extensions, sales, revenue, analytics, invoices — against an in-memor
 database (`fake-db.ts`) standing in for `@/lib/db`. Notifications, email and SMS
 are stubbed; nothing else is.
 
+The suites that assert on a week call `freezeClock()` from `clock.ts` first.
+Revenue is attributed to the period the money was collected in, read from the
+payment event's `paidAt` and the booking's `created_at` — both stamped with
+`new Date()` as the fixture runs. Without a fixed clock the fixtures drift out
+of the pinned week and every figure reads zero. `lifecycle` asserts that the
+fixtures landed inside the week before checking anything else, so an unfrozen
+clock says so in one line instead of failing fifteen assertions at once.
+
 | suite | covers |
 |---|---|
 | `lifecycle` | deposit → balance at check-in → settlement at check-out, discounts, unpaid stays, charges with linked stock, extensions, sales, cancellations, invoice totals and tax |

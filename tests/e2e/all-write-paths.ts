@@ -14,6 +14,11 @@ import { allocateByWeight } from '@/lib/money'
 import { useCheckIn } from '@/hooks/use-check-in'
 import { useCheckOut } from '@/hooks/use-check-out'
 import { db, __reset } from './fake-db'
+import { freezeClock } from './clock'
+
+// The week below is fixed, so the clock the fixtures are stamped with has to
+// be too — otherwise every figure reads zero from the following Monday on.
+freezeClock()
 
 const WS = '2026-08-17', WE = '2026-08-23'
 const A = { id: 'auth-a', email: 'a@amp.com', user_metadata: { full_name: 'Staff A' } }
