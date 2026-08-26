@@ -122,6 +122,166 @@ export function buildCheckOutPaymentEvent(opts: {
   }
 }
 
+// ---------------------------------------------------------------------------
+// What a booking, or a set of them, has actually collected
+// ---------------------------------------------------------------------------
+
+/** Parsed GROUP_DATA metadata, or null when the booking is not a group member. */
+export function parseGroupData(
+  specialRequests: string | undefined | null
+): { groupId?: string; groupReference?: string; isPrimaryBooking?: boolean } | null {
+  const match = (specialRequests || '').match(/<!-- GROUP_DATA:(.*?) -->/)
+  if (!match?.[1]) return null
+  try {
+    return JSON.parse(match[1])
+  } catch {
+    return null
+  }
+}
+
+/** The running total a booking's PAYMENT_DATA comment records, or 0. */
+export function parseAmountPaid(specialRequests: string | undefined | null): number {
+  const match = (specialRequests || '').match(/<!-- PAYMENT_DATA:(.*?) -->/)
+  if (!match?.[1]) return 0
+  try {
+    return Number(JSON.parse(match[1]).amountPaid) || 0
+  } catch {
+    return 0
+  }
+}
+
+/** Rooms booked in one sitting land within seconds of each other; days apart means a separate payment. */
+const GROUP_BATCH_GAP_MS = 30 * 60 * 1000
+
+export interface LegacyGroupBatch {
+  /** What the batch paid, in total. */
+  amount: number
+  /** The batch's combined room price, for apportioning that amount. */
+  subtotal: number
+  /** Identifies the batch, so a figure shared by its rooms is counted once. */
+  key: string
+}
+
+/**
+ * Find group-member bookings whose stored PAYMENT_DATA.amountPaid is really a
+ * whole batch's payment stamped onto every room booked in that sitting.
+ *
+ * Before 2026-08-21 the booking form wrote the batch-wide figure onto each
+ * room, so a 5-room batch that paid GHS 1,000 stored "1000" five times. Rooms
+ * added to the same group on a later day are a separate payment and must not
+ * be pooled with it — hence batches, not groups, are the unit here.
+ *
+ * A stored amount that appears on only one room of a group is left alone: it
+ * is already that room's own figure. Rows carrying PAYMENT_EVENTS are skipped
+ * entirely — those hold a real per-room share and need no reconstruction.
+ */
+export function buildLegacyGroupBatches(bookings: any[]): Map<string, LegacyGroupBatch> {
+  // groupId + stored amount → the member rows carrying it
+  const candidates = new Map<string, Array<{ id: string; price: number; at: number }>>()
+
+  for (const b of bookings) {
+    const specialReq = b.special_requests || b.specialRequests || ''
+    const gid = parseGroupData(specialReq)?.groupId
+    if (!gid) continue
+    if (parsePaymentEvents(specialReq).some((e) => e.stage === 'booking')) continue
+
+    const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
+    if (!pdMatch?.[1]) continue
+    let amount = 0
+    try {
+      const pd = JSON.parse(pdMatch[1])
+      // `perRoom` rows state outright that the figure is this room's own —
+      // no reconstruction, and no risk of re-splitting an already-correct
+      // amount that happens to match its neighbours (equal-priced rooms in
+      // one sitting hold equal shares, which is indistinguishable from a
+      // duplicated stamp by inspection alone).
+      if (pd.perRoom === true) continue
+      amount = Number(pd.amountPaid) || 0
+    } catch { continue }
+    if (amount <= 0) continue
+
+    const key = `${gid}|${amount}`
+    if (!candidates.has(key)) candidates.set(key, [])
+    candidates.get(key)!.push({
+      id: b.id,
+      price: Number(b.totalPrice ?? b.total_price ?? 0) || 0,
+      at: new Date(b.createdAt || b.created_at || 0).getTime() || 0,
+    })
+  }
+
+  const batches = new Map<string, LegacyGroupBatch>()
+
+  for (const [key, rows] of candidates.entries()) {
+    const amount = Number(key.split('|')[1])
+    rows.sort((a, b) => a.at - b.at)
+
+    // Chain rows into sittings: consecutive rows closer than the gap belong together.
+    let current: typeof rows = []
+    const flush = () => {
+      if (current.length > 1) {
+        const subtotal = current.reduce((s, r) => s + r.price, 0)
+        const batchKey = `${key}|${current[0].id}`
+        for (const r of current) batches.set(r.id, { amount, subtotal, key: batchKey })
+      }
+      current = []
+    }
+    for (const row of rows) {
+      const prev = current[current.length - 1]
+      if (prev && row.at - prev.at > GROUP_BATCH_GAP_MS) flush()
+      current.push(row)
+    }
+    flush()
+  }
+
+  return batches
+}
+
+/**
+ * How much money a set of bookings has actually taken in, counted once.
+ *
+ * Three records of a payment exist and they do not agree on what a figure
+ * means, so they are read in order of how much they can be trusted:
+ *
+ *   1. PAYMENT_EVENTS — one entry per stage, always this room's own share.
+ *      Where they exist they are the whole story for that room.
+ *   2. A legacy batch stamp — one payment written onto every room booked in
+ *      that sitting. Counted once for the batch, not once per room, or a
+ *      group's deposit multiplies by the number of rooms that share it.
+ *   3. PAYMENT_DATA.amountPaid — this room's own running total, which is what
+ *      the flag `perRoom` on newer rows asserts outright.
+ *
+ * Rows that carry no comment at all (the reservations list view returns the
+ * extracted figure instead of the blob) fall back to `amountPaid` on the row.
+ */
+export function totalCollected(bookings: any[]): number {
+  const batches = buildLegacyGroupBatches(bookings)
+  const countedBatches = new Set<string>()
+  let total = 0
+
+  for (const b of bookings) {
+    const specialReq = b.special_requests || b.specialRequests || ''
+
+    const events = parsePaymentEvents(specialReq)
+    if (events.length > 0) {
+      total += events.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
+      continue
+    }
+
+    const batch = batches.get(b.id)
+    if (batch) {
+      if (!countedBatches.has(batch.key)) {
+        countedBatches.add(batch.key)
+        total += batch.amount
+      }
+      continue
+    }
+
+    total += specialReq ? parseAmountPaid(specialReq) : Number(b.amountPaid ?? b.amount_paid ?? 0) || 0
+  }
+
+  return Math.round(total * 100) / 100
+}
+
 export interface MethodTotal { method: string; amount: number }
 
 /**

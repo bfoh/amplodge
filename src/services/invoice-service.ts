@@ -3,6 +3,7 @@ import { bookingChargesService } from './booking-charges-service'
 import { BookingCharge } from '@/types'
 import { sendTransactionalEmail } from '@/services/email-service'
 import { formatCurrencySync } from '@/lib/utils'
+import { totalCollected } from '@/lib/payment-events'
 
 interface InvoiceData {
   invoiceNumber: string
@@ -614,6 +615,8 @@ export async function buildOnsiteGroupReceiptData(input: {
   additionalCharges: { description: string; amount: number }[]
   discount?: { type: 'percentage' | 'fixed'; value: number; amount: number }
   billingContact: { name: string; email?: string; phone?: string; address?: string }
+  /** Taken at booking time, if anything was. */
+  amountPaid?: number
 }): Promise<GroupInvoiceData> {
   const hotelSettings = await hotelSettingsService.getHotelSettings()
   const roomSubtotal = input.rooms.reduce((s, r) => s + r.subtotal, 0)
@@ -659,7 +662,9 @@ export async function buildOnsiteGroupReceiptData(input: {
       taxSubTotal: tax.subTotal,
       vat: tax.vat,
       tourismLevy: tax.tourismLevy,
-      total: grandTotal
+      total: grandTotal,
+      amountPaid: Math.min(Number(input.amountPaid) || 0, grandTotal),
+      balanceDue: Math.max(0, grandTotal - (Number(input.amountPaid) || 0))
     },
     hotel: {
       name: hotelSettings.name,
@@ -683,11 +688,18 @@ export async function generateGroupReceipt80mmHTML(data: GroupInvoiceData, payme
   const d = (s: string) =>
     new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 
-  const paid = payment ? payment.amountPaid : data.summary.total
-  const balanceDue = payment ? Math.max(0, payment.balanceDue) : 0
+  // An explicit payment wins (the onsite flow knows what it just took). With
+  // none given, the group's own recorded figures stand in, so a deposit shows
+  // on the receipt whether or not the caller passed it.
+  const recorded = data.summary.amountPaid > 0
+    ? { amountPaid: data.summary.amountPaid, balanceDue: data.summary.balanceDue }
+    : undefined
+  const settlement = payment ?? recorded
+  const paid = settlement ? settlement.amountPaid : data.summary.total
+  const balanceDue = settlement ? Math.max(0, settlement.balanceDue) : 0
   const stamp = balanceDue <= 0 ? '*** PAID ***' : (paid > 0 ? '*** DEPOSIT ***' : '*** AMOUNT DUE ***')
   const noRefund = paid > 0 ? '<div class="norefund">This payment is not refundable</div>' : ''
-  const paymentRows = payment
+  const paymentRows = settlement
     ? `<tr><td>Paid</td><td class="r">${fmt(paid)}</td></tr><tr${balanceDue > 0 ? ' class="bal"' : ''}><td>Balance Due</td><td class="r">${fmt(balanceDue)}</td></tr>`
     : ''
 
@@ -1585,6 +1597,10 @@ export interface GroupInvoiceData {
     vat: number             // VAT (15%)
     tourismLevy: number     // Tourism Levy (1%)
     total: number           // Grand total (unchanged)
+    // What the group has already paid, and what is still owed. A group that
+    // left a deposit was being billed the whole total with no sign of it.
+    amountPaid: number
+    balanceDue: number      // never negative: an overpayment shows as settled
   }
   hotel: {
     name: string
@@ -1731,6 +1747,16 @@ export async function createGroupInvoiceData(bookings: BookingWithDetails[], bil
     // The Grand Total is what customer pays - we back-calculate tax components for display
     const taxBreakdown = calculateGhanaTaxBreakdown(grandTotal)
 
+    // 4. What the group has already handed over. Deposits are the norm here —
+    // a group reserves rooms weeks out and pays part up front — and the
+    // invoice billed the full total regardless, so the guest was asked twice
+    // for money already taken. Counted once across the group: a deposit
+    // stamped onto every room of a batch is one payment, not one per room.
+    const amountPaid = totalCollected(bookings as any[])
+    // A discount applied after payment can leave the collected figure above
+    // what the stay is now worth; the bill is settled, not in credit.
+    const balanceDue = Math.max(0, Math.round((grandTotal - amountPaid) * 100) / 100)
+
     return {
       invoiceNumber,
       invoiceDate,
@@ -1757,7 +1783,9 @@ export async function createGroupInvoiceData(bookings: BookingWithDetails[], bil
         taxSubTotal: taxBreakdown.subTotal,
         vat: taxBreakdown.vat,
         tourismLevy: taxBreakdown.tourismLevy,
-        total: grandTotal
+        total: grandTotal,
+        amountPaid,
+        balanceDue
       },
       hotel: {
         name: hotelSettings.name,
@@ -1778,6 +1806,15 @@ export async function generateGroupInvoiceHTML(data: GroupInvoiceData): Promise<
   const { formatCurrencySync } = await import('@/lib/utils')
   const settings = await hotelSettingsService.getHotelSettings()
   const currency = settings.currency || 'GHS'
+
+  // Says at a glance what the group still owes. Without it a deposit could only
+  // be found by reading down to the totals, and before that it was not on the
+  // invoice at all.
+  const paymentStatus = data.summary.amountPaid <= 0
+    ? ''
+    : data.summary.balanceDue > 0
+      ? `<p style="margin-top:6px"><strong style="background:#fff4ed;color:#c9542a;padding:2px 8px;border-radius:4px;font-size:10px;letter-spacing:0.5px">PART PAID &middot; ${formatCurrencySync(data.summary.balanceDue, currency)} DUE</strong></p>`
+      : `<p style="margin-top:6px"><strong style="background:#eefaf1;color:#16a34a;padding:2px 8px;border-radius:4px;font-size:10px;letter-spacing:0.5px">PAID IN FULL</strong></p>`
 
   return `
   <!DOCTYPE html>
@@ -1834,6 +1871,7 @@ export async function generateGroupInvoiceHTML(data: GroupInvoiceData): Promise<
           <p><strong>Date:</strong> ${new Date(data.invoiceDate).toLocaleDateString()}</p>
           <p><strong>Due Date:</strong> ${new Date(data.dueDate).toLocaleDateString()}</p>
           <p><strong>Reference:</strong> ${data.groupReference}</p>
+          ${paymentStatus}
         </div>
       </div>
 
@@ -1924,6 +1962,16 @@ export async function generateGroupInvoiceHTML(data: GroupInvoiceData): Promise<
             <td>Grand Total</td>
             <td class="text-right">${formatCurrencySync(data.summary.total, currency)}</td>
           </tr>
+          ${data.summary.amountPaid > 0 ? `
+            <tr style="color:#16a34a">
+              <td>Paid</td>
+              <td class="text-right">- ${formatCurrencySync(data.summary.amountPaid, currency)}</td>
+            </tr>
+            <tr style="${data.summary.balanceDue > 0 ? 'color:#c9542a;font-weight:700' : 'color:#16a34a;font-weight:700'}">
+              <td>${data.summary.balanceDue > 0 ? 'Balance Due' : 'Balance'}</td>
+              <td class="text-right">${formatCurrencySync(data.summary.balanceDue, currency)}</td>
+            </tr>
+          ` : ''}
           <tr>
             <td colspan="2" style="font-style:italic;color:#555;font-size:9px;padding-top:6px">This payment is not refundable</td>
           </tr>

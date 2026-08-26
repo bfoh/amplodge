@@ -32,6 +32,8 @@ are stubbed; nothing else is.
 | `lifecycle` | deposit → balance at check-in → settlement at check-out, discounts, unpaid stays, charges with linked stock, extensions, sales, cancellations, invoice totals and tax |
 | `groups-analytics` | group bookings with a discount, groups split across two staff, analytics agreeing with the per-staff figures, and the invariants below |
 | `charges-repeat` | charge edits and deletes returning stock, repeated check-outs and sales not double counting, concurrent stock movements |
+| `group-membership` | every room of a group is found by both routes — the indexed column and the GROUP_DATA comment — past the old 500-row window, and on a group that uses both |
+| `group-invoice` | a group's deposit reaches its invoice: payment events, per-room figures, a batch stamp counted once, a later sitting counted separately, and an overpayment leaving nothing owed |
 
 ## Invariants
 

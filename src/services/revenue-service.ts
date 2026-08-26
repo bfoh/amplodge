@@ -11,7 +11,7 @@ import { startOfWeek, endOfWeek, format, subWeeks, addDays, parseISO } from 'dat
 import { standaloneSalesService } from './standalone-sales-service'
 import type { StandaloneSale, ActivityLog } from '@/types'
 import { CHARGE_CATEGORIES } from './booking-charges-service'
-import { parsePaymentEvents, computeStaffAttributedRevenue, computeStaffAttributedByMethod, aggregateMethodTotals } from '@/lib/payment-events'
+import { parsePaymentEvents, computeStaffAttributedRevenue, computeStaffAttributedByMethod, aggregateMethodTotals, parseGroupData, buildLegacyGroupBatches } from '@/lib/payment-events'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -164,97 +164,6 @@ function parsePaymentSplits(rawBooking: any): Array<{ method: string; amount: nu
   } catch {
     return undefined
   }
-}
-
-/** Parsed GROUP_DATA metadata, or null when the booking is not a group member. */
-function parseGroupData(specialRequests: string): { groupId?: string; groupReference?: string; isPrimaryBooking?: boolean } | null {
-  const match = (specialRequests || '').match(/<!-- GROUP_DATA:(.*?) -->/)
-  if (!match?.[1]) return null
-  try {
-    return JSON.parse(match[1])
-  } catch {
-    return null
-  }
-}
-
-/** Rooms booked in one sitting land within seconds of each other; days apart means a separate payment. */
-const GROUP_BATCH_GAP_MS = 30 * 60 * 1000
-
-/**
- * Find group-member bookings whose stored PAYMENT_DATA.amountPaid is really a
- * whole batch's payment stamped onto every room booked in that sitting.
- *
- * Before 2026-08-21 the booking form wrote the batch-wide figure onto each
- * room, so a 5-room batch that paid GHS 1,000 stored "1000" five times. Rooms
- * added to the same group on a later day are a separate payment and must not
- * be pooled with it — hence batches, not groups, are the unit here.
- *
- * A stored amount that appears on only one room of a group is left alone: it
- * is already that room's own figure. Rows carrying PAYMENT_EVENTS are skipped
- * entirely — those hold a real per-room share and need no reconstruction.
- *
- * Returns bookingId → { amount: what the batch paid, subtotal: batch room total }.
- */
-function buildLegacyGroupBatches(
-  bookings: any[]
-): Map<string, { amount: number; subtotal: number }> {
-  // groupId + stored amount → the member rows carrying it
-  const candidates = new Map<string, Array<{ id: string; price: number; at: number }>>()
-
-  for (const b of bookings) {
-    const specialReq = b.special_requests || b.specialRequests || ''
-    const gid = parseGroupData(specialReq)?.groupId
-    if (!gid) continue
-    if (parsePaymentEvents(specialReq).some((e) => e.stage === 'booking')) continue
-
-    const pdMatch = (specialReq as string).match(/<!-- PAYMENT_DATA:(.*?) -->/)
-    if (!pdMatch?.[1]) continue
-    let amount = 0
-    try {
-      const pd = JSON.parse(pdMatch[1])
-      // `perRoom` rows state outright that the figure is this room's own —
-      // no reconstruction, and no risk of re-splitting an already-correct
-      // amount that happens to match its neighbours (equal-priced rooms in
-      // one sitting hold equal shares, which is indistinguishable from a
-      // duplicated stamp by inspection alone).
-      if (pd.perRoom === true) continue
-      amount = Number(pd.amountPaid) || 0
-    } catch { continue }
-    if (amount <= 0) continue
-
-    const key = `${gid}|${amount}`
-    if (!candidates.has(key)) candidates.set(key, [])
-    candidates.get(key)!.push({
-      id: b.id,
-      price: Number(b.totalPrice ?? b.total_price ?? 0) || 0,
-      at: new Date(b.createdAt || b.created_at || 0).getTime() || 0,
-    })
-  }
-
-  const batches = new Map<string, { amount: number; subtotal: number }>()
-
-  for (const [key, rows] of candidates.entries()) {
-    const amount = Number(key.split('|')[1])
-    rows.sort((a, b) => a.at - b.at)
-
-    // Chain rows into sittings: consecutive rows closer than the gap belong together.
-    let current: typeof rows = []
-    const flush = () => {
-      if (current.length > 1) {
-        const subtotal = current.reduce((s, r) => s + r.price, 0)
-        for (const r of current) batches.set(r.id, { amount, subtotal })
-      }
-      current = []
-    }
-    for (const row of rows) {
-      const prev = current[current.length - 1]
-      if (prev && row.at - prev.at > GROUP_BATCH_GAP_MS) flush()
-      current.push(row)
-    }
-    flush()
-  }
-
-  return batches
 }
 
 /**

@@ -40,6 +40,7 @@ import { ClockStatusWarning } from '@/components/ClockStatusWarning'
 import { GuestChargesDialog } from '@/components/dialogs/GuestChargesDialog'
 import { ExtendStayDialog } from '@/components/dialogs/ExtendStayDialog'
 import { GroupManageDialog } from '@/components/dialogs/GroupManageDialog'
+import { getGroupMembers } from '@/lib/booking-groups'
 import { Settings } from 'lucide-react'
 import { Receipt, CalendarPlus, MoreHorizontal, CreditCard, User, Users, Mail, Ban, MessageCircle, FileText } from 'lucide-react'
 import {
@@ -775,18 +776,31 @@ export function ReservationsPage() {
     try {
       console.log('📄 [ReservationsPage] Generating GROUP invoice...', { groupId: booking.groupId })
 
-      // Find all bookings for this group
-      // Ideally we should refetch to be sure, but using local state is faster
-      // and sufficient for now since we just loaded.
-      const groupBookings = bookings.filter(b => b.groupId === booking.groupId)
+      // Ask for the group's own rows rather than filtering the rows this page
+      // happens to be holding: the list is windowed by date, so a room outside
+      // the window would be left off the bill entirely. These carry
+      // special_requests too, which the list view deliberately does not — the
+      // invoice needs it to know what has already been paid.
+      const groupBookings = await getGroupMembers(booking.groupId)
 
       if (groupBookings.length === 0) {
         throw new Error('No bookings found for this group')
       }
 
+      // Guests for the group's rooms — the page may not hold all of them.
+      const groupGuestIds = [...new Set(groupBookings.map((b: any) => b.guestId).filter(Boolean))]
+      const missingGuestIds = groupGuestIds.filter(id => !guestMap.has(id))
+      const extraGuests = missingGuestIds.length
+        ? await db.guests.list({ where: { id: { in: missingGuestIds } } }).catch(() => [])
+        : []
+      const guestLookup = new Map<string, any>([
+        ...guestMap.entries(),
+        ...(extraGuests as any[]).map(g => [g.id, g] as [string, any]),
+      ])
+
       // Collect all necessary details for each booking
-      const fullBookingDetails = groupBookings.map(b => {
-        const guest = guestMap.get(b.guestId)
+      const fullBookingDetails = groupBookings.map((b: any) => {
+        const guest = guestLookup.get(b.guestId)
         const room = roomMap.get(b.roomId)
         return {
           ...b,

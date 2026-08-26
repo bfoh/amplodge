@@ -77,6 +77,8 @@ interface GroupMember {
     status: string
     isPrimary: boolean
     specialRequests: string
+    /** When the room was booked — tells one sitting's payment from another's. */
+    createdAt: string
 }
 
 /** Parse a booking row into a GroupMember, preferring the GUEST_SNAPSHOT taken
@@ -137,6 +139,7 @@ function toGroupMember(b: any, guestMap: Map<string, any>, propertyMap: Map<stri
         status: b.status,
         isPrimary,
         specialRequests: specialReq,
+        createdAt: b.createdAt || b.created_at || '',
     }
 }
 
@@ -546,6 +549,7 @@ export function GroupManageDialog({
                     checkIn: m.checkIn,
                     checkOut: m.checkOut,
                     totalPrice: m.totalPrice,
+                    createdAt: m.createdAt,
                     special_requests: m.specialRequests,
                     room: {
                         roomNumber: m.roomNumber,
