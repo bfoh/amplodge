@@ -146,6 +146,56 @@ async function main() {
   check('and books no rooms at all', (__store.bookings || []).length, before)
   check('and leaves no group row', (__store.bookingGroups || []).length, 0)
 
+  // ── What the guest is told when they book several rooms online ────────────
+  // Four rooms used to mean four confirmation emails, each carrying a
+  // pre-invoice for a quarter of the stay, none of them naming the total or
+  // the deposit just paid.
+  // Per-room confirmations are composed by the real notifications module and
+  // land in the email stub; the group confirmation is stubbed one level up,
+  // where the invoice data it was handed can be read back.
+  const sent = () => ({
+    rooms: ((globalThis as any).__SENT_EMAILS__ || [])
+      .filter((e: any) => String(e.subject || '').includes('Booking Confirmed')).length,
+    groups: (globalThis as any).__SENT_GROUP_CONFIRMATIONS__ || [],
+  })
+  const resetSent = () => {
+    ;(globalThis as any).__SENT_EMAILS__ = []
+    ;(globalThis as any).__SENT_GROUP_CONFIRMATIONS__ = []
+  }
+  /** The confirmation is fire-and-forget, so let the microtasks drain. */
+  const settle = async () => { for (let i = 0; i < 50; i++) await new Promise(r => setTimeout(r, 0)) }
+
+  await seed()
+  resetSent()
+  await createBookingGroup(
+    ROOMS.slice(0, 3).map((r, i) => ({
+      bookingData: { ...roomInput(r, i).bookingData, amountPaid: i === 0 ? 300 : 0, paymentStatus: 'part' },
+    })) as any,
+    { fullName: 'Anne B', email: 'anne@example.com', phone: '0240000000', address: '' } as any,
+    [], undefined,
+    { confirmation: 'group' },
+  )
+  await settle()
+  check('booking three rooms online sends no per-room emails', sent().rooms, 0)
+  check('and one confirmation for the reservation', sent().groups.length, 1)
+  check('naming every room', sent().groups[0]?.data?.summary?.totalRooms, 3)
+  check('the total for all of them', sent().groups[0]?.data?.summary?.total, 1050)
+  check('and the deposit against it', sent().groups[0]?.data?.summary?.amountPaid, 300)
+  check('so the guest is asked for the balance only', sent().groups[0]?.data?.summary?.balanceDue, 750)
+  check('addressed to the person who booked', sent().groups[0]?.data?.billingContact?.email, 'anne@example.com')
+
+  // Reception keeps the behaviour it has: a confirmation per room, and its own
+  // group summary sent by the page.
+  await seed()
+  resetSent()
+  await createBookingGroup(
+    ROOMS.slice(0, 3).map(roomInput),
+    { fullName: 'Anne B', email: 'anne@example.com', phone: '0240000000', address: '' } as any,
+  )
+  await settle()
+  check('a group booked at reception still confirms each room', sent().rooms, 3)
+  check('and sends no group confirmation of its own', sent().groups.length, 0)
+
   console.log(out.join('\n'))
   console.log(failures === 0 ? 'ALL PASS' : `FAILURE (${failures})`)
   process.exit(failures === 0 ? 0 : 1)

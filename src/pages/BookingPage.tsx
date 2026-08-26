@@ -588,6 +588,12 @@ export function BookingPage() {
       await createBookingGroup(
         bookingsToCreate.map((bookingData) => ({ bookingData: bookingData as any })),
         billingContact as any,
+        [],
+        undefined,
+        // One confirmation for the reservation, not one per room. Four rooms
+        // used to mean four emails, each with a pre-invoice for a quarter of
+        // the stay and no mention of the deposit just paid.
+        { confirmation: 'group' },
       )
 
       toast.success('Reservation successful!')

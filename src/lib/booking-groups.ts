@@ -183,6 +183,84 @@ async function createGroupRow(
   }
 }
 
+/**
+ * Send one confirmation for a whole group, with the group invoice attached.
+ *
+ * The rooms are already committed when this runs, so every step is
+ * best-effort: a failed PDF still leaves the guest with an email, and a failed
+ * email still leaves the guest with a booking.
+ *
+ * The rows are re-read rather than assembled from what createBooking returned,
+ * because the invoice needs the payment metadata the engine wrote into
+ * special_requests — that is where the deposit is recorded, and the deposit is
+ * the whole reason this email exists.
+ */
+async function sendGroupConfirmation(
+  groupId: string,
+  created: LocalBooking[],
+  billingContact: BillingContact
+): Promise<void> {
+  const [{ createGroupInvoiceData, generateGroupInvoicePDF, blobToBase64 }, { sendGroupBookingConfirmation }] =
+    await Promise.all([
+      import('@/services/invoice-service'),
+      import('@/services/notifications'),
+    ])
+
+  const rows = await getGroupMembers(groupId).catch(() => [] as any[])
+  const rowById = new Map(rows.map((r: any) => [r.id, r]))
+
+  const forInvoice = created.map((b) => {
+    const id = b.remoteId || b._id
+    const row: any = rowById.get(id) || {}
+    return {
+      id,
+      guestId: row.guestId || row.guest_id,
+      guest: { name: b.guest.fullName, email: b.guest.email, phone: b.guest.phone },
+      room: { roomNumber: b.roomNumber, roomType: b.roomType },
+      checkIn: b.dates.checkIn,
+      checkOut: b.dates.checkOut,
+      totalPrice: b.amount,
+      createdAt: row.createdAt || row.created_at || b.createdAt,
+      // Carries GROUP_DATA and the payment record the invoice reads.
+      special_requests: row.special_requests || row.specialRequests || '',
+    }
+  })
+
+  // Group-level charges and the discount are read by the invoice from the
+  // primary room's GROUP_DATA comment, which the rows above carry.
+  const data = await createGroupInvoiceData(forInvoice as any, billingContact)
+
+  let attachments: Array<{ filename: string; content: string; contentType: string }> | undefined
+  try {
+    const blob = await generateGroupInvoicePDF(data)
+    const base64 = await blobToBase64(blob)
+    attachments = [{
+      filename: `Group-Invoice-${data.groupReference}.pdf`,
+      content: base64.includes(',') ? base64.split(',')[1] : base64,
+      contentType: 'application/pdf',
+    }]
+  } catch (err) {
+    console.error('[booking-groups] Group invoice PDF failed; sending the email without it:', err)
+  }
+
+  await sendGroupBookingConfirmation(data, attachments)
+}
+
+export interface CreateBookingGroupOptions {
+  /**
+   * Who tells the guest the booking happened.
+   *
+   * 'per-room' (default) — the booking engine sends one confirmation per
+   *   room, as it always has. Reception's own flow sends its group summary on
+   *   top of that.
+   * 'group' — the rooms send nothing individually and one confirmation for
+   *   the whole reservation goes to the billing contact, carrying the group
+   *   invoice. Four rooms booked online used to mean four emails, each
+   *   showing a quarter of what was owed and none showing the deposit.
+   */
+  confirmation?: 'per-room' | 'group'
+}
+
 export interface CreateGroupRoomInput {
   bookingData: Omit<LocalBooking, '_id' | 'createdAt' | 'updatedAt' | 'synced' | 'groupId' | 'groupReference' | 'isPrimaryBooking'>
 }
@@ -199,7 +277,8 @@ export async function createBookingGroup(
   rooms: CreateGroupRoomInput[],
   billingContact: BillingContact,
   additionalCharges: AdditionalCharge[] = [],
-  discount: GroupDiscount | undefined = undefined
+  discount: GroupDiscount | undefined = undefined,
+  options: CreateBookingGroupOptions = {}
 ): Promise<LocalBooking[]> {
   if (rooms.length === 0) throw new Error('At least one room is required to create a group booking')
 
@@ -226,6 +305,7 @@ export async function createBookingGroup(
         groupReference,
         isPrimaryBooking: i === 0,
         billingContact,
+        suppressConfirmationEmail: options.confirmation === 'group',
         ...(i === 0 ? { additionalCharges, discount } : {}),
       }
       const booking = await bookingEngine.createBooking(bookingWithGroup as any)
@@ -239,6 +319,14 @@ export async function createBookingGroup(
         }
       }
     }
+
+    if (options.confirmation === 'group') {
+      // Fire-and-forget: the rooms are booked and committed by now, and a mail
+      // server or a PDF must never be able to undo that.
+      sendGroupConfirmation(groupId, created, billingContact)
+        .catch((err) => console.error('[booking-groups] Group confirmation failed:', err))
+    }
+
     return created
   } catch (error) {
     console.error('[booking-groups] Group creation failed mid-way — rolling back', created.length, 'already-created bookings')

@@ -3,6 +3,8 @@ import { hotelSettingsService } from '@/services/hotel-settings'
 import { sendTransactionalEmail } from '@/services/email-service'
 import { sendCheckInSMS, sendCheckOutSMS, sendBookingConfirmationSMS, sendManagerCheckInSMS } from '@/services/sms-service'
 import { generateEmailHtml, EMAIL_STYLES } from '@/services/email-template'
+import { safeLocaleDate } from '@/lib/safe-date'
+import type { GroupInvoiceData } from '@/services/invoice-service'
 
 interface Guest {
   id: string
@@ -997,3 +999,100 @@ export async function sendGroupMemberUpdatedNotification(
   }
 }
 
+
+/**
+ * One confirmation for a whole group, with the group invoice attached.
+ *
+ * A guest who books four rooms online used to get four confirmation emails,
+ * each carrying a pre-invoice for one room. None of them said what the
+ * reservation cost, what had been paid, or what was still owed — the guest had
+ * to add four PDFs together to find out. This sends the billing contact a
+ * single email that answers all three, with the group invoice on it.
+ *
+ * The invoice data is passed in already built (and already knows what has been
+ * collected), so this module keeps its existing shape: it composes and sends,
+ * it does not compute money.
+ */
+export async function sendGroupBookingConfirmation(
+  data: GroupInvoiceData,
+  attachments?: Array<{ filename: string; content: string; contentType: string }>
+): Promise<void> {
+  const to = data.billingContact.email
+  if (!to || to.includes('@guest.local')) {
+    console.warn('📧 [GroupBookingConfirmation] No usable billing email; skipping.')
+    return
+  }
+
+  try {
+    const settings = await hotelSettingsService.getHotelSettings()
+    const currency = settings.currency || 'GHS'
+    const money = (n: number) => formatCurrencySync(n, currency)
+    const day = (s: string) =>
+      safeLocaleDate(s, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })
+
+    const roomRows = data.bookings.map(b => `
+      <div style="${EMAIL_STYLES.infoRow}">
+        <span style="${EMAIL_STYLES.infoLabel}">Room ${b.roomNumber}${b.roomType ? ` (${b.roomType})` : ''}:</span>
+        ${day(b.checkIn)} &rarr; ${day(b.checkOut)} &middot; ${money(b.subtotal)}
+      </div>
+    `).join('')
+
+    // What is still owed, said plainly. A deposit that goes unmentioned is a
+    // deposit the guest pays twice.
+    const settlement = data.summary.amountPaid <= 0
+      ? `<p style="color:#78350f">Full payment of <strong>${money(data.summary.total)}</strong> is due upon check-in.</p>`
+      : data.summary.balanceDue > 0
+        ? `<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:12px;margin:10px 0">
+             <p style="margin:0;color:#92400e;font-weight:bold">Part payment received</p>
+             <p style="margin:4px 0 0;color:#78350f">Paid: <strong>${money(data.summary.amountPaid)}</strong></p>
+             <p style="margin:4px 0 0;color:#dc2626">Balance: <strong>${money(data.summary.balanceDue)}</strong> — due at check-in</p>
+             <p style="margin:4px 0 0;color:#555;font-style:italic">This payment is not refundable</p>
+           </div>`
+        : `<p style="color:#16a34a;font-weight:bold">Full payment of ${money(data.summary.amountPaid)} received. Thank you!</p>
+           <p style="color:#555;font-style:italic">This payment is not refundable</p>`
+
+    const html = generateEmailHtml({
+      title: 'Your Group Booking is Confirmed',
+      preheader: `${data.summary.totalRooms} room${data.summary.totalRooms === 1 ? '' : 's'} reserved at AMP Lodge`,
+      content: `
+        <p>Dear <strong>${data.billingContact.name}</strong>,</p>
+        <p>Your reservation for ${data.summary.totalRooms} room${data.summary.totalRooms === 1 ? '' : 's'} at AMP LODGE is confirmed.</p>
+
+        <div style="${EMAIL_STYLES.infoBox}">
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Reference:</span> ${data.groupReference}
+          </div>
+          ${roomRows}
+          <div style="${EMAIL_STYLES.infoRow}">
+            <span style="${EMAIL_STYLES.infoLabel}">Total:</span> <strong>${money(data.summary.total)}</strong>
+          </div>
+        </div>
+
+        ${settlement}
+
+        <p style="margin-top:20px"><strong>Before you arrive:</strong></p>
+        <ul>
+          <li>Check-in is from 2:00 PM</li>
+          <li>Please present valid ID for each guest on arrival</li>
+        </ul>
+
+        <p style="margin-top:30px">
+          We look forward to welcoming you.<br>
+          <strong>The AMP LODGE Team</strong>
+        </p>
+      `
+    })
+
+    await sendTransactionalEmail({
+      to,
+      subject: `Group Booking Confirmation - ${data.groupReference} | AMP Lodge`,
+      html,
+      text: `Your group booking at AMP LODGE is confirmed.\n\nReference: ${data.groupReference}\nRooms: ${data.summary.totalRooms}\nTotal: ${money(data.summary.total)}\nPaid: ${money(data.summary.amountPaid)}\nBalance due: ${money(data.summary.balanceDue)}\n\nCheck-in is from 2:00 PM.`,
+      ...(attachments && attachments.length ? { attachments } : {})
+    } as any)
+
+    console.log('✅ [GroupBookingConfirmation] Sent to', to)
+  } catch (error) {
+    console.error('❌ [GroupBookingConfirmation] Failed:', error)
+  }
+}

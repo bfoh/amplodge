@@ -46,6 +46,13 @@ export interface LocalBooking {
   specialRequests?: string
   createdBy?: string
   createdByName?: string
+  /**
+   * Skip this room's own confirmation email. Set when the room is one of
+   * several being booked together and the guest is getting a single
+   * confirmation for the whole group instead — four rooms should not mean
+   * four emails, each showing a quarter of what is owed.
+   */
+  suppressConfirmationEmail?: boolean
   checkInBy?: string
   checkInByName?: string
   checkOutBy?: string
@@ -688,7 +695,7 @@ class BookingEngine {
     // already committed at this point, so deferring the email/attachment
     // work has no effect on data integrity — the email simply lands a few
     // seconds later. UI gets the success toast immediately.
-    if (['confirmed', 'reserved'].includes(local.status)) {
+    if (['confirmed', 'reserved'].includes(local.status) && !bookingData.suppressConfirmationEmail) {
       const bookingForEmail = {
         id: local._id,
         checkIn: local.dates.checkIn,
