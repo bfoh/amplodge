@@ -127,6 +127,25 @@ async function main() {
   check('and returns each room once',
     new Set((await getGroupMembers(legacyGroupId)).map((b: any) => b.id)).size, ROOMS.length)
 
+  // ── A group that fails part-way leaves nothing behind ─────────────────────
+  // The public booking page used to create its rooms one by one with no
+  // rollback: a room that failed left the earlier ones booked and paid for
+  // under a group nobody could see.
+  await seed()
+  const before = (__store.bookings || []).length
+  let threw = false
+  try {
+    await createBookingGroup(
+      [...ROOMS.slice(0, 2).map(roomInput), { bookingData: { ...roomInput(ROOMS[0], 9).bookingData, roomNumber: '999' } }],
+      { fullName: 'Anne B', email: 'anne@example.com', phone: '0240000000', address: '' } as any,
+    )
+  } catch {
+    threw = true
+  }
+  check('a group that cannot be completed fails', threw, true)
+  check('and books no rooms at all', (__store.bookings || []).length, before)
+  check('and leaves no group row', (__store.bookingGroups || []).length, 0)
+
   console.log(out.join('\n'))
   console.log(failures === 0 ? 'ALL PASS' : `FAILURE (${failures})`)
   process.exit(failures === 0 ? 0 : 1)

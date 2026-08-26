@@ -7,6 +7,7 @@ import { safeFormatDate } from '@/lib/safe-date'
 import { formatCurrencySync, cn } from '../../lib/utils'
 import { useCurrency } from '../../hooks/use-currency'
 import { useSubscription } from '../../hooks/use-subscription'
+import { usePermissions } from '@/hooks/use-permissions'
 
 interface Stats {
   totalRooms: number
@@ -23,6 +24,12 @@ interface Stats {
 }
 export function DashboardPage() {
   const { currency } = useCurrency()
+  // Takings are management information. Reception staff book rooms and quote
+  // prices all day, but what the hotel has earned is not theirs to read — the
+  // same line the rest of the app already draws, since `analytics` is what
+  // gates the Analytics page and the reports.
+  const { can, isLoading: permissionsLoading } = usePermissions()
+  const canSeeRevenue = !permissionsLoading && can('analytics', 'read')
   const bookingsUpdate = useSubscription('bookings')
   const propertiesUpdate = useSubscription('properties')
   
@@ -254,7 +261,10 @@ export function DashboardPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Stats Grid - Premium Mobile Optimized */}
-      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-6">
+      <div className={cn(
+        'grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6',
+        canSeeRevenue && 'xl:grid-cols-4'
+      )}>
 
         {/* Available Rooms — blue */}
         <div className="relative overflow-hidden rounded-xl border bg-white p-4 sm:p-5 shadow-sm active:scale-[0.98] transition-all">
@@ -333,7 +343,8 @@ export function DashboardPage() {
           </p>
         </div>
 
-        {/* Total Revenue — green */}
+        {/* Total Revenue — green. Management only; see canSeeRevenue above. */}
+        {canSeeRevenue && (
         <div className="relative overflow-hidden rounded-xl border bg-white p-4 sm:p-5 shadow-sm active:scale-[0.98] transition-all">
           <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 via-transparent to-transparent pointer-events-none" />
           <div className="absolute top-0 left-0 w-full h-1 bg-emerald-500" />
@@ -353,6 +364,7 @@ export function DashboardPage() {
             All-time metrics
           </p>
         </div>
+        )}
 
       </div>
 

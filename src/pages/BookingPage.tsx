@@ -17,6 +17,7 @@ import { useCurrency } from '@/hooks/use-currency'
 import { useBookingCart } from '@/context/BookingCartContext'
 import { bookingEngine } from '@/services/booking-engine'
 import { buildBookingPaymentEvent, appendPaymentEvent } from '@/lib/payment-events'
+import { createBookingGroup } from '@/lib/booking-groups'
 
 export function BookingPage() {
   const { currency } = useCurrency()
@@ -574,7 +575,20 @@ export function BookingPage() {
         }
       })
 
-      await bookingEngine.createGroupBooking(bookingsToCreate, billingContact)
+      // createBookingGroup, not the booking engine's own group helper: it
+      // writes the booking_groups row and tags each booking with group_id, so
+      // a group booked here is the same shape as one booked at reception. It
+      // also rolls back what it created if a room fails part-way, instead of
+      // leaving half a group behind.
+      //
+      // A signed-out visitor cannot insert the group row — booking_groups is
+      // authenticated-only — so a public booking still lands as GROUP_DATA
+      // comments alone and is read through the fallback. Reception bookings
+      // made from this page, where there is a session, get the full record.
+      await createBookingGroup(
+        bookingsToCreate.map((bookingData) => ({ bookingData: bookingData as any })),
+        billingContact as any,
+      )
 
       toast.success('Reservation successful!')
       clearCart()
