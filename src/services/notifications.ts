@@ -1083,7 +1083,10 @@ export async function sendGroupBookingConfirmation(
       `
     })
 
-    await sendTransactionalEmail({
+    // sendTransactionalEmail reports failure in its return value rather than
+    // throwing, so the result has to be read. Logging "sent" regardless is how
+    // an end-to-end run looked like a success while the guest got nothing.
+    const result = await sendTransactionalEmail({
       to,
       subject: `Group Booking Confirmation - ${data.groupReference} | AMP Lodge`,
       html,
@@ -1091,6 +1094,10 @@ export async function sendGroupBookingConfirmation(
       ...(attachments && attachments.length ? { attachments } : {})
     } as any)
 
+    if (result && result.success === false) {
+      console.error('❌ [GroupBookingConfirmation] Not delivered to', to, '—', result.error)
+      return
+    }
     console.log('✅ [GroupBookingConfirmation] Sent to', to)
   } catch (error) {
     console.error('❌ [GroupBookingConfirmation] Failed:', error)
