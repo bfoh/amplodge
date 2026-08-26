@@ -180,3 +180,55 @@ If you have any questions, please contact your system administrator.
 // Export default sender email for backwards compatibility
 export const DEFAULT_FROM_EMAIL = 'AMP Lodge <noreply@updates.amplodge.org>'
 
+
+/**
+ * Ask the server to send the confirmation for a booking just made on the
+ * public site.
+ *
+ * A signed-out guest cannot use sendTransactionalEmail: send-email takes a
+ * recipient and a body from its caller, so it is staff-only, and every online
+ * booking confirmation was being refused with a 401 nobody read. This endpoint
+ * composes the message itself from the booking rows — we pass ids, not
+ * content, and not an address.
+ *
+ * Returns false when the server would not send; callers should log that rather
+ * than assume delivery.
+ */
+export async function requestBookingConfirmation(opts: {
+  bookingIds: string[]
+  /** The group invoice, rendered in the browser because jsPDF needs a DOM. */
+  invoicePdfBase64?: string
+}): Promise<boolean> {
+  const ids = opts.bookingIds.filter(Boolean)
+  if (ids.length === 0) return false
+
+  // The platform refuses an oversized request body before the function runs,
+  // which would lose the confirmation along with the invoice. Anything near
+  // that limit is left off here rather than gambling the email on it.
+  const MAX_PDF_BASE64 = 3 * 1024 * 1024
+  let pdf = opts.invoicePdfBase64
+  if (pdf && pdf.length > MAX_PDF_BASE64) {
+    console.warn('[EmailService] Invoice PDF too large to attach (' + Math.round(pdf.length / 1024) + ' KB); sending without it')
+    pdf = undefined
+  }
+  try {
+    const res = await fetch('/.netlify/functions/send-booking-confirmation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bookingIds: ids,
+        ...(pdf ? { invoicePdfBase64: pdf } : {}),
+      }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok || body?.success === false) {
+      console.error('[EmailService] Booking confirmation not sent:', res.status, body?.error)
+      return false
+    }
+    console.log('[EmailService] Booking confirmation sent for', ids.length, 'room(s)')
+    return true
+  } catch (err) {
+    console.error('[EmailService] Booking confirmation request failed:', err)
+    return false
+  }
+}

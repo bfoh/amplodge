@@ -200,11 +200,18 @@ async function sendGroupConfirmation(
   created: LocalBooking[],
   billingContact: BillingContact
 ): Promise<void> {
-  const [{ createGroupInvoiceData, generateGroupInvoicePDF, blobToBase64 }, { sendGroupBookingConfirmation }] =
+  const [{ createGroupInvoiceData, generateGroupInvoicePDF, blobToBase64 }, { sendGroupBookingConfirmation }, { requestBookingConfirmation }] =
     await Promise.all([
       import('@/services/invoice-service'),
       import('@/services/notifications'),
+      import('@/services/email-service'),
     ])
+
+  // A signed-out guest cannot send mail through send-email — it takes a
+  // recipient and a body from its caller and is staff-only, so every online
+  // confirmation was refused with a 401. Their booking is confirmed by the
+  // server instead, from the rows themselves.
+  const session = await auth.me().catch(() => null)
 
   const rows = await getGroupMembers(groupId).catch(() => [] as any[])
   const rowById = new Map(rows.map((r: any) => [r.id, r]))
@@ -230,19 +237,27 @@ async function sendGroupConfirmation(
   // primary room's GROUP_DATA comment, which the rows above carry.
   const data = await createGroupInvoiceData(forInvoice as any, billingContact)
 
-  let attachments: Array<{ filename: string; content: string; contentType: string }> | undefined
+  let invoicePdfBase64 = ''
   try {
     const blob = await generateGroupInvoicePDF(data)
     const base64 = await blobToBase64(blob)
-    attachments = [{
-      filename: `Group-Invoice-${data.groupReference}.pdf`,
-      content: base64.includes(',') ? base64.split(',')[1] : base64,
-      contentType: 'application/pdf',
-    }]
+    invoicePdfBase64 = base64.includes(',') ? base64.split(',')[1] : base64
   } catch (err) {
     console.error('[booking-groups] Group invoice PDF failed; sending the email without it:', err)
   }
 
+  if (!session) {
+    const sent = await requestBookingConfirmation({
+      bookingIds: created.map((b) => b.remoteId || b._id),
+      invoicePdfBase64: invoicePdfBase64 || undefined,
+    })
+    if (!sent) console.error('[booking-groups] The guest was not sent a confirmation')
+    return
+  }
+
+  const attachments = invoicePdfBase64
+    ? [{ filename: `Group-Invoice-${data.groupReference}.pdf`, content: invoicePdfBase64, contentType: 'application/pdf' }]
+    : undefined
   await sendGroupBookingConfirmation(data, attachments)
 }
 

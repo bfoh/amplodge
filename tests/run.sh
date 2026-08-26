@@ -66,7 +66,7 @@ if [[ "$filter" == "audit" ]]; then
 fi
 
 echo "── unit"
-for s in group-bookings accounting allocation cash-basis reservations-view count-display row-patching revenue-visibility; do unit "$s"; done
+for s in group-bookings accounting allocation cash-basis reservations-view count-display row-patching revenue-visibility booking-dates confirmation-email; do unit "$s"; done
 echo "── end-to-end"
 for s in lifecycle groups-analytics group-membership group-invoice charges-repeat all-write-paths; do e2e "$s"; done
 rm -rf "$OUT"

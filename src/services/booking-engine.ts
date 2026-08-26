@@ -733,6 +733,19 @@ class BookingEngine {
       Promise.resolve().then(async () => {
         console.log(`[BookingEngine] Attempting to send confirmation email for booking ${bgLocalId}…`)
 
+        // A signed-out guest booking on the public site cannot send mail:
+        // send-email takes its recipient and body from the caller and is
+        // therefore staff-only, so these confirmations were being refused with
+        // a 401 that nothing read. The server composes theirs instead, from
+        // the booking row — no attachment, since the pre-invoice is built for
+        // the authenticated path and this one has the figures inline.
+        if (!currentUser) {
+          const { requestBookingConfirmation } = await import('./email-service')
+          const sent = await requestBookingConfirmation({ bookingIds: [remoteId] })
+          if (!sent) console.error('[BookingEngine] The guest was not sent a confirmation')
+          return
+        }
+
         // Generate Pre-Invoice PDF
         let attachments: any[] | undefined = undefined
         try {

@@ -20,6 +20,8 @@ Run the real modules directly.
 | `allocation` | splitting one payment across rooms so the shares add back up exactly |
 | `cash-basis` | only collected money counts; balances settle on check-out |
 | `revenue-visibility` | who may see what the hotel has earned — reception may not, and still keeps the job they do |
+| `booking-dates` | the night a guest picks is the night that gets booked, whatever timezone they book from |
+| `confirmation-email` | the deposit in a guest's confirmation equals the deposit the app records — the rule is implemented twice, once in a netlify function, and this is what keeps the copies honest |
 
 ## End-to-end suites (`tests/e2e/*.ts`)
 

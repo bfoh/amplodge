@@ -433,9 +433,12 @@ export function BookingPage() {
 
       // Helper function to check room availability against fresh data
       const isRoomAvailableNow = (roomId: string, roomNumber: string, checkInDate: Date, checkOutDate: Date) => {
-        // Use ISO string split to match BookingEngine's UTC-based logic
-        const checkInStr = checkInDate.toISOString().split('T')[0]
-        const checkOutStr = checkOutDate.toISOString().split('T')[0]
+        // The calendar hands back local midnight. toISOString() converts that to
+        // UTC, which moves the date a day earlier for anyone east of Greenwich —
+        // a guest in Accra is fine, a guest in Lagos or London-in-summer is not.
+        // Format in local time so the day the guest picked is the day we use.
+        const checkInStr = format(checkInDate, 'yyyy-MM-dd')
+        const checkOutStr = format(checkOutDate, 'yyyy-MM-dd')
 
         const conflictingBooking = freshBookings.find((booking: any) => {
           if (booking.status === 'cancelled' || !['reserved', 'confirmed', 'checked-in'].includes(booking.status)) {
@@ -551,8 +554,12 @@ export function BookingPage() {
           roomType: item.roomTypeName,
           roomNumber: room.roomNumber,
           dates: {
-            checkIn: item.checkIn.toISOString(),
-            checkOut: item.checkOut.toISOString()
+            // Local time, not UTC: toISOString() on a local-midnight Date shifts
+            // the date back a day for every guest east of Greenwich. A booking
+            // made from Europe for 15–17 December was stored as 14–16.
+            // Matches how OnsiteBookingPage has always written these.
+            checkIn: format(item.checkIn, "yyyy-MM-dd'T'HH:mm:ss"),
+            checkOut: format(item.checkOut, "yyyy-MM-dd'T'HH:mm:ss")
           },
           numGuests: item.numGuests,
           amount: item.price,
