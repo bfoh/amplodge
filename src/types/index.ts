@@ -252,6 +252,18 @@ export interface BookingCharge {
   paymentMethod?: string  // 'cash' | 'mobile_money' | 'card'
   createdAt: string
   createdBy?: string
+  /**
+   * Name of the staff member who took the money, stored on the charge itself.
+   * created_by is a staff id with no foreign key behind it, so the row outlives
+   * the employee — this is what keeps the revenue reports able to name them.
+   */
+  createdByName?: string
+  /**
+   * Auth user id of the staff member in createdBy. Bookings and standalone
+   * sales record the auth id while a charge records the staff row id; this is
+   * what still joins them once the staff row is gone.
+   */
+  createdByUserId?: string
   updatedAt?: string
 }
 

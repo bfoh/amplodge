@@ -77,22 +77,27 @@ function enrichCharge(raw: any): BookingCharge {
 }
 
 /**
- * The staff id to stamp on a charge.
+ * The staff member to stamp on a charge: the staff row id, and their name.
  *
- * booking_charges.created_by is a foreign key to staff.id — NOT the auth user
- * id. Handing it an auth id is rejected by the database and the charge is lost,
- * so an id from auth.me() has to be translated to the staff row it belongs to
- * before it can be written. Callers may pass either, or nothing at all.
+ * booking_charges.created_by holds a staff.id — NOT the auth user id — so an id
+ * from auth.me() has to be translated to the staff row it belongs to before it
+ * can be written. Callers may pass either, or nothing at all.
+ *
+ * The name goes on the charge alongside the id because the id no longer has a
+ * foreign key behind it (see 20260915120000_employee_deletion.sql): an employee
+ * can be deleted, and when they are, this is the only thing left that can tell
+ * the revenue reports whose takings these were.
  */
-async function resolveChargeStaffId(given?: string | null): Promise<string | null> {
+async function resolveChargeStaff(given?: string | null): Promise<{ id: string; name: string; userId: string } | null> {
     const staffRows: any[] = await db.staff.listAll().catch(() => [])
-    const byRowId = new Set(staffRows.map((s) => s.id).filter(Boolean))
+    const byRowId = new Map(staffRows.filter((s) => s.id).map((s) => [s.id, s]))
 
-    const asStaffRow = (id?: string | null): string | null => {
+    const asStaffRow = (id?: string | null): { id: string; name: string; userId: string } | null => {
         if (!id) return null
-        if (byRowId.has(id)) return id                       // already a staff row id
-        const row = staffRows.find((s) => (s.userId || s.user_id) === id)
-        return row?.id || null                               // an auth user id — translate it
+        const row = byRowId.get(id)                          // already a staff row id
+            || staffRows.find((s) => (s.userId || s.user_id) === id)  // an auth id — translate
+        if (!row?.id) return null
+        return { id: row.id, name: (row.name || row.email || '').trim(), userId: row.userId || row.user_id || '' }
     }
 
     const fromCaller = asStaffRow(given)
@@ -110,14 +115,15 @@ async function resolveChargeStaffId(given?: string | null): Promise<string | nul
     // rather than dropping the attribution — it is a real authenticated user,
     // and 'staff' is the least privilege a row can carry.
     try {
+        const name = me.user_metadata?.full_name || me.user_metadata?.name || me.email?.split('@')[0] || 'Staff'
         const created: any = await db.staff.create({
             userId: me.id,
-            name: me.user_metadata?.full_name || me.user_metadata?.name || me.email?.split('@')[0] || 'Staff',
+            name,
             email: me.email || '',
             role: 'staff',
         })
         console.warn('[BookingChargesService] Signed-in user had no staff row; created one so their takings are attributable:', created?.id)
-        return created?.id || null
+        return created?.id ? { id: created.id, name, userId: me.id } : null
     } catch (err) {
         console.error('[BookingChargesService] Could not create a staff row for the signed-in user:', err)
         return null
@@ -199,6 +205,9 @@ class BookingChargesService {
                 paymentMethod: r.payment_method,
                 inventoryId: r.inventory_id,
                 createdAt: r.created_at,
+                createdBy: r.created_by,
+                createdByName: r.created_by_name,
+                createdByUserId: r.created_by_user_id,
             }))
         } catch (error) {
             console.error('[BookingChargesService] Fresh fetch failed, using cached:', error)
@@ -227,7 +236,8 @@ class BookingChargesService {
             // the analytics page — the same money counted in one place and not
             // the other. Resolving the signed-in user here means no caller can
             // reintroduce that.
-            const createdBy = await resolveChargeStaffId(data.createdBy)
+            const staffMember = await resolveChargeStaff(data.createdBy)
+            const createdBy = staffMember?.id || null
             if (!createdBy) {
                 // The database refuses a charge that names nobody (see
                 // 20260822_require_staff_on_revenue.sql), so failing here with
@@ -238,7 +248,7 @@ class BookingChargesService {
                 )
             }
 
-            const charge = await db.bookingCharges.create({
+            const row = {
                 bookingId: data.bookingId,
                 description: data.description,
                 category: data.category,
@@ -248,9 +258,29 @@ class BookingChargesService {
                 notes: data.notes || null,
                 paymentMethod: data.paymentMethod || 'cash',
                 createdBy,
+                createdByName: staffMember?.name || null,
+                createdByUserId: staffMember?.userId || null,
                 inventoryId: data.inventoryId || null,
                 createdAt: new Date().toISOString()
-            })
+            }
+
+            let charge
+            try {
+                charge = await db.bookingCharges.create(row)
+            } catch (err: any) {
+                // created_by_name and created_by_user_id arrive with
+                // 20260915120000_employee_deletion.sql. If the app is deployed
+                // before the migration is run, PostgREST rejects the whole insert
+                // for the unknown column — and a charge that cannot be saved is
+                // money the hotel does not record. Losing the attribution detail
+                // is survivable; losing the charge is not.
+                const missingColumn = err?.code === 'PGRST204' ||
+                    /created_by_name|created_by_user_id/.test(err?.message || '')
+                if (!missingColumn) throw err
+                console.warn('[BookingChargesService] booking_charges attribution columns not present yet; saving without them. Run the employee-deletion migration.')
+                const { createdByName: _name, createdByUserId: _userId, ...withoutAttribution } = row
+                charge = await db.bookingCharges.create(withoutAttribution)
+            }
 
             // Trigger real-time inventory reduction if inventoryId is provided
             if (data.inventoryId) {
@@ -258,7 +288,7 @@ class BookingChargesService {
                     // Use staff info if provided, else try to get current user, else fallback to 'system'
                     let staffInfo = { id: 'system', name: 'System' }
                     if (createdBy) {
-                        staffInfo = { id: createdBy, name: 'Staff' }
+                        staffInfo = { id: createdBy, name: staffMember?.name || 'Staff' }
                     } else {
                         const me = await auth.me().catch(() => null)
                         if (me) {

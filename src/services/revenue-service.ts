@@ -209,6 +209,60 @@ export function calculateStaffWeekResultInternal(
     }
   }
 
+  // One person is written down under two ids: bookings and standalone sales
+  // record the auth user id, booking charges record the staff ROW id, because
+  // booking_charges.created_by points at staff.id. The staff row above is the
+  // only thing tying the two together — and deleting an employee is precisely
+  // the act of removing it. Their charges would then answer to an id nothing
+  // recognises and the money on them would leave every total, without even
+  // landing in "unassigned" (that counts charges with no staff on them at all,
+  // and these have one). Last month's takings cannot change because of
+  // something done to the staff list today.
+  //
+  // What survives the employee is the name stamped on the rows themselves. So:
+  // collect the names this identity signed its work with, then re-adopt the ids
+  // stamped alongside those names.
+  {
+    // An id belonging to somebody else's staff row is never adopted, whatever
+    // the names say.
+    const otherStaffIds = new Set<string>()
+    for (const s of shared.staffRows) {
+      const sid = s.id || ''
+      const uid = s.userId || s.user_id || ''
+      if ((sid && staffIdSet.has(sid)) || (uid && staffIdSet.has(uid))) continue
+      if (sid) otherStaffIds.add(sid)
+      if (uid) otherStaffIds.add(uid)
+    }
+
+    const noteName = (id: string, name: string) => {
+      const n = (name || '').trim().toLowerCase()
+      if (id && n && staffIdSet.has(id)) staffNameSet.add(n)
+    }
+    for (const b of (shared.bookings || [])) {
+      noteName(b.createdBy || b.created_by || '', b.createdByName || b.created_by_name || '')
+      noteName(b.checkInBy || b.check_in_by || '', b.checkInByName || b.check_in_by_name || '')
+      noteName(b.checkOutBy || b.check_out_by || '', b.checkOutByName || b.check_out_by_name || '')
+      for (const e of parsePaymentEvents(b.special_requests || b.specialRequests || '')) {
+        noteName(e.staffId || '', e.staffName || '')
+      }
+    }
+    for (const s of (shared.standaloneSales || [])) {
+      noteName((s as any).staffId || (s as any).staff_id || '', (s as any).staffName || (s as any).staff_name || '')
+    }
+
+    for (const c of (shared.chargesRaw || [])) {
+      const id = c.createdBy || c.created_by || ''
+      if (!id || otherStaffIds.has(id)) continue
+      // The charge says outright whose auth account this was — take that.
+      const authId = (c.createdByUserId || c.created_by_user_id || '').trim()
+      if (authId && staffIdSet.has(authId)) { staffIdSet.add(id); continue }
+      if (authId) continue
+      // Older charges, written before that was recorded, have only the name.
+      const name = (c.createdByName || c.created_by_name || '').trim().toLowerCase()
+      if (name && staffNameSet.has(name)) staffIdSet.add(id)
+    }
+  }
+
   const roomMap = new Map((shared.properties as any[]).map((r: any) => [r.id, r]))
   const guestMap = new Map((shared.guests as any[]).map((g: any) => [g.id, g]))
 
@@ -686,6 +740,31 @@ function collectStaffIdentities(shared: StaffRevenueSharedData): Array<{ id: str
   const canonicalOf = new Map<string, string>()
   const nameOf = new Map<string, string>()
 
+  /**
+   * How good a label this is for a person, so a better one can replace a worse
+   * one. A person is named in several places and they do not agree: most
+   * payment events stamp the account's email, the charge and the staff row
+   * carry the name someone typed, and a booking often carries nothing at all.
+   * Keeping whichever arrived first meant the reports could show a raw id for
+   * somebody the data names three lines further down.
+   */
+  const nameRank = (candidate: string, canonical: string, fromStaffRecord = false): number => {
+    const n = (candidate || '').trim()
+    if (!n || n === canonical) return 0   // no name, or the id standing in for one
+    if (n.includes('@')) return 1         // an email address — recognisable, but not a name
+    if (!fromStaffRecord) return 2        // a name stamped on a booking or a payment event
+    return 3                              // the name on the staff record, which an admin typed
+  }
+  const rankOfStored = new Map<string, number>()
+  const rememberName = (canonical: string, candidate: string, fromStaffRecord = false) => {
+    const name = (candidate || '').trim()
+    const rank = nameRank(name, canonical, fromStaffRecord)
+    if (rank === 0) return
+    if (rank <= (rankOfStored.get(canonical) || 0)) return
+    rankOfStored.set(canonical, rank)
+    nameOf.set(canonical, name)
+  }
+
   for (const s of (shared.staffRows || [])) {
     const rowId = s.id || ''
     const userId = s.userId || s.user_id || ''
@@ -697,7 +776,8 @@ function collectStaffIdentities(shared: StaffRevenueSharedData): Array<{ id: str
     const email = (s.email || '').trim()
     if (name) canonicalOf.set(name.toLowerCase(), canonical)
     if (email) canonicalOf.set(email.toLowerCase(), canonical)
-    nameOf.set(canonical, name || email || canonical)
+    rememberName(canonical, name, true)
+    rememberName(canonical, email)
   }
 
   const add = (rawId: string, rawName: string) => {
@@ -707,7 +787,7 @@ function collectStaffIdentities(shared: StaffRevenueSharedData): Array<{ id: str
     if (!canonical) return
     if (id) canonicalOf.set(id, canonical)
     if (name) canonicalOf.set(name.toLowerCase(), canonical)
-    if (!nameOf.has(canonical)) nameOf.set(canonical, name || canonical)
+    rememberName(canonical, name)
   }
 
   for (const b of (shared.bookings || [])) {
@@ -718,8 +798,31 @@ function collectStaffIdentities(shared: StaffRevenueSharedData): Array<{ id: str
       add(e.staffId || '', e.staffName || '')
     }
   }
-  for (const c of (shared.chargesRaw || [])) add(c.createdBy || c.created_by || '', '')
-  for (const sale of (shared.standaloneSales || [])) add((sale as any).staffId || (sale as any).staff_id || '', (sale as any).staffName || '')
+  // A charge records the staff ROW id while everything above records the auth
+  // id, and the staff row that joined them is exactly what deleting an employee
+  // removes. The charge carries both, so say so here: otherwise one person's
+  // week is reported as two rows — their bookings under one label and their
+  // charges under another. The name is what an older charge has instead.
+  for (const c of (shared.chargesRaw || [])) {
+    const rowId = (c.createdBy || c.created_by || '').trim()
+    const authId = (c.createdByUserId || c.created_by_user_id || '').trim()
+    const name = c.createdByName || c.created_by_name || ''
+    if (authId) {
+      add(authId, name)
+      const canonical = canonicalOf.get(authId)
+      if (canonical && rowId) canonicalOf.set(rowId, canonical)
+      // created_by_name is copied from the staff record, so it carries that
+      // record's authority even after the record itself is gone.
+      if (canonical) rememberName(canonical, name, true)
+    } else {
+      add(rowId, name)
+      const canonical = canonicalOf.get(rowId)
+      if (canonical) rememberName(canonical, name, true)
+    }
+  }
+  for (const sale of (shared.standaloneSales || [])) {
+    add((sale as any).staffId || (sale as any).staff_id || '', (sale as any).staffName || (sale as any).staff_name || '')
+  }
 
   const seen = new Set<string>()
   const out: Array<{ id: string; name: string }> = []
@@ -1015,6 +1118,20 @@ export async function getAllStaffReportsForWeek(weekStart: string): Promise<HRWe
       if (semail) anyNameToCanonical.set(semail.trim().toLowerCase(), canonical)
       if (sname)  anyNameToCanonical.set(sname.trim().toLowerCase(),  canonical)
       if (sname)  canonicalToName.set(canonical, sname)
+    }
+
+    // A charge can name a staff member who has no row any more — the employee
+    // was deleted. The id still holds the money, so keep a name to print
+    // against it. Never overrides a live staff row's own name.
+    for (const c of (chargesRaw || []) as any[]) {
+      const rawId = c.createdBy || c.created_by || ''
+      const chargeName = (c.createdByName || c.created_by_name || '').trim()
+      if (!rawId || !chargeName) continue
+      const canonical = anyIdToCanonical.get(rawId) || rawId
+      if (!anyIdToCanonical.has(rawId)) anyIdToCanonical.set(rawId, canonical)
+      if (!canonicalToName.has(canonical)) canonicalToName.set(canonical, chargeName)
+      const nameKey = chargeName.toLowerCase()
+      if (!anyNameToCanonical.has(nameKey)) anyNameToCanonical.set(nameKey, canonical)
     }
 
     // Saved reports for this week

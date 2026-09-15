@@ -51,6 +51,7 @@ export function EmployeesPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [editingEmployee, setEditingEmployee] = useState<StaffMember | null>(null)
   const [deletingEmployee, setDeletingEmployee] = useState<StaffMember | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
   const [generatedPassword, setGeneratedPassword] = useState('')
@@ -166,79 +167,62 @@ export function EmployeesPage() {
     const employeeToDelete = deletingEmployee
     const deletedEmployee = { ...employeeToDelete }
 
+    setIsDeleting(true)
     try {
       const { data: { user: currentUser } } = await supabase.auth.getUser()
 
-      console.log('🗑️ [EmployeesPage] Starting cascade delete for employee:', deletedEmployee.name)
+      console.log('🗑️ [EmployeesPage] Deleting employee:', deletedEmployee.name, deletedEmployee.userId)
 
-      // Track what was deleted for comprehensive logging
-      const deletionSummary = {
-        staffRecord: false,
-        userAccount: false,
-        activityLogs: 0,
-        bookings: 0,
-        otherRecords: 0
-      }
-
-      console.log('🗑️ [EmployeesPage] Deleting employee:', deletingEmployee.userId)
-
-      // 1. Delete from Supabase Auth (via Netlify function)
-      if (deletingEmployee.userId && deletingEmployee.userId !== 'pending') {
-        try {
-          console.log('🗑️ [EmployeesPage] Deleting Auth user...')
-          await callFunction('delete-employee', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: deletingEmployee.userId })
-          })
-        } catch (authErr) {
-          console.warn('⚠️ [EmployeesPage] Failed to delete Auth user:', authErr)
-          // Continue to delete staff record anyway
-        }
-      }
-
-      // 2. Delete staff record
-      const { error: deleteError } = await supabase
-        .from('staff')
-        .delete()
-        .eq('id', deletingEmployee.id)
-
-      if (deleteError) {
-        console.error('❌ [EmployeesPage] Staff deletion error:', deleteError)
-        throw deleteError
-      }
-
-      // 3. Log activity
-      try {
-        await supabase.from('activity_logs').insert({
-          id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-          user_id: currentUser.id,
-          action: 'deleted',
-          entity_type: 'employee',
-          entity_id: deletingEmployee.id,
-          details: JSON.stringify({
-            adminEmail: currentUser.email,
-            employeeName: deletingEmployee.name,
-            employeeEmail: deletingEmployee.email,
-            deletedAt: new Date().toISOString()
-          }),
-          created_at: new Date().toISOString(),
+      // The staff record, the profile row and the login all go together, in one
+      // call, under the service role. Splitting them meant the row could vanish
+      // from this list while the account it belonged to stayed live — and since
+      // nothing here read the response, nobody was told.
+      const response = await callFunction('delete-employee', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          staffId: deletingEmployee.id,
+          userId: deletingEmployee.userId !== 'pending' ? deletingEmployee.userId : undefined,
         })
-        console.log('   ✅ Cascade deletion logged')
-      } catch (logErr) {
-        console.error('   ⚠️ Activity logging failed:', logErr)
+      })
+
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || `Delete failed (HTTP ${response.status})`)
       }
 
-      console.log('🎉 [EmployeesPage] Cascade delete completed:', deletionSummary)
+      console.log('🎉 [EmployeesPage] Delete completed:', result)
 
-      // Remove from UI optimistically
+      // Log it. activity_logs.id is a uuid column, so the old `log_<timestamp>`
+      // ids were rejected outright — and because insert() returns its error
+      // rather than throwing, the catch below never saw it. Every employee
+      // action this page tried to record was lost in silence: 15,389 rows in
+      // the log, not one of them an employee.
+      const { error: logError } = await supabase.from('activity_logs').insert({
+        id: crypto.randomUUID(),
+        user_id: currentUser?.id,
+        action: 'deleted',
+        entity_type: 'employee',
+        entity_id: deletingEmployee.id,
+        details: JSON.stringify({
+          adminEmail: currentUser?.email,
+          employeeName: deletingEmployee.name,
+          employeeEmail: deletingEmployee.email,
+          loginDeleted: result.authDeleted,
+          deletedAt: new Date().toISOString()
+        }),
+        created_at: new Date().toISOString(),
+      })
+      if (logError) console.error('⚠️ [EmployeesPage] Activity logging failed:', logError)
+
       setEmployees((prev) => prev.filter((emp) => emp.id !== deletedEmployee.id))
       setDeletingEmployee(null)
 
-      // Show toast with detailed summary (no undo for cascade delete)
       toast({
-        title: 'Employee completely removed',
-        description: `${deletedEmployee.name} and all related records have been deleted.`,
+        title: 'Employee removed',
+        description: result.warnings?.length
+          ? `${deletedEmployee.name} can no longer sign in. ${result.warnings.join(' ')}`
+          : `${deletedEmployee.name} has been removed and can no longer sign in.`,
       })
     } catch (err: any) {
       console.error('Failed to delete employee:', err)
@@ -247,6 +231,8 @@ export function EmployeesPage() {
         description: err?.message || 'An error occurred.',
         variant: 'destructive',
       })
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -297,21 +283,31 @@ export function EmployeesPage() {
         try {
           const { data: { user: currentUser } } = await supabase.auth.getUser()
 
-          const { error: updateError } = await supabase
-            .from('staff')
-            .update({
+          // The record and the login are updated together, in one call, under
+          // the service role. Email was on this form and editable, but the
+          // update never wrote it and never touched auth.users — so changing
+          // an employee's email appeared to work and changed nothing.
+          const response = await callFunction('update-employee', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              staffId: editingEmployee.id,
               name: values.name,
+              email: values.email,
+              phone: values.phone || '',
               role: values.role,
-              phone: values.phone
             })
-            .eq('id', editingEmployee.id)
+          })
 
-          if (updateError) throw updateError
+          const result = await response.json().catch(() => ({}))
+          if (!response.ok || !result.success) {
+            throw new Error(result.error || `Update failed (HTTP ${response.status})`)
+          }
 
           // Log activity
-          try {
-            await supabase.from('activity_logs').insert({
-              id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+          {
+            const { error: logError } = await supabase.from('activity_logs').insert({
+              id: crypto.randomUUID(),
               user_id: currentUser?.id,
               action: 'edited',
               entity_type: 'employee',
@@ -319,33 +315,38 @@ export function EmployeesPage() {
               details: JSON.stringify({
                 adminEmail: currentUser?.email,
                 employeeName: values.name,
-                employeeEmail: editingEmployee.email,
+                employeeEmail: values.email,
+                oldEmail: editingEmployee.email,
                 oldRole: editingEmployee.role,
                 newRole: values.role,
+                signInEmailChanged: result.loginEmailUpdated,
                 changes: {
                   name: editingEmployee.name !== values.name,
+                  email: editingEmployee.email !== values.email,
                   role: editingEmployee.role !== values.role,
-                  phone: editingEmployee.phone !== values.phone
+                  phone: (editingEmployee.phone || '') !== (values.phone || '')
                 },
               }),
               created_at: new Date().toISOString(),
             })
-          } catch (logErr) {
-            console.error('Activity logging failed:', logErr)
+            if (logError) console.error('⚠️ [EmployeesPage] Activity logging failed:', logError)
           }
 
-          // Update local state optimistically
           setEmployees((prev) =>
             prev.map((emp) =>
               emp.id === editingEmployee.id
-                ? { ...emp, name: values.name, role: values.role, phone: values.phone }
+                ? { ...emp, name: values.name, email: values.email, role: values.role, phone: values.phone }
                 : emp
             )
           )
 
+          const notes = [
+            result.loginEmailUpdated ? `They now sign in as ${values.email}.` : '',
+            ...(result.warnings || []),
+          ].filter(Boolean)
           toast({
             title: 'Employee updated',
-            description: `${values.name} has been updated successfully.`,
+            description: notes.length ? `${values.name} updated. ${notes.join(' ')}` : `${values.name} has been updated.`,
           })
 
           handleClose()
@@ -555,9 +556,9 @@ export function EmployeesPage() {
         console.log('✅ [EmployeesPage] Staff record created:', newStaff)
 
         // Log employee creation to activity logs
-        try {
-          await supabase.from('activity_logs').insert({
-            id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        {
+          const { error: logError } = await supabase.from('activity_logs').insert({
+            id: crypto.randomUUID(),
             user_id: currentUser.id,
             action: 'created',
             entity_type: 'employee',
@@ -571,9 +572,7 @@ export function EmployeesPage() {
             }),
             created_at: new Date().toISOString(),
           })
-          console.log('✅ [EmployeesPage] Employee creation logged to activity logs')
-        } catch (logErr) {
-          console.error('⚠️ [EmployeesPage] Activity logging failed:', logErr)
+          if (logError) console.error('⚠️ [EmployeesPage] Activity logging failed:', logError)
         }
 
         // Update optimistic entry with real userId
@@ -1344,11 +1343,13 @@ export function EmployeesPage() {
               <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm">
                 <p className="font-semibold text-amber-900 mb-2">⚠️ This will permanently delete:</p>
                 <ul className="text-amber-800 space-y-1 ml-4 list-disc">
-                  <li>Staff record</li>
-                  <li>User authentication account</li>
-                  <li>Activity logs created by this employee</li>
-                  <li>Employee references in bookings (anonymized)</li>
+                  <li>Their staff record — they leave this list</li>
+                  <li>Their login, so they can no longer sign in</li>
                 </ul>
+                <p className="text-amber-800 mt-2">
+                  Bookings, charges and revenue reports keep their name, so the
+                  money they took stays accounted for.
+                </p>
               </div>
               <p className="text-destructive font-medium">
                 This action cannot be undone.
@@ -1356,9 +1357,13 @@ export function EmployeesPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Delete Everything
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleDeleteConfirm() }}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Deleting...</>) : 'Delete Employee'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
