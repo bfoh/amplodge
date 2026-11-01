@@ -6,7 +6,8 @@ import { formatRate, useRooms } from '../data/rooms'
 /**
  * Phones and tablets: a slim booking action pinned to the bottom once the
  * visitor has scrolled past the opening screen. It steps aside near the
- * footer and on the booking page itself. Sets html[data-booking-bar] while
+ * footer, over the room deck (whose cards carry their own booking buttons)
+ * and on the booking page itself. Sets html[data-booking-bar] while
  * shown so the voice concierge button moves above it.
  */
 export function MobileBookingBar() {
@@ -14,6 +15,7 @@ export function MobileBookingBar() {
   const { rooms, status } = useRooms()
   const [visible, setVisible] = useState(false)
   const [nearEnd, setNearEnd] = useState(false)
+  const [overAside, setOverAside] = useState(false)
   const enabled = !pathname.startsWith('/booking')
 
   useEffect(() => {
@@ -21,6 +23,14 @@ export function MobileBookingBar() {
     const update = () => {
       raf = 0
       setVisible(window.scrollY > window.innerHeight * 0.55)
+      // Sections with their own booking actions (the room deck) may mount after
+      // this effect, so they are found on each scroll rather than observed.
+      let aside = false
+      for (const el of document.querySelectorAll('[data-booking-aside]')) {
+        const r = el.getBoundingClientRect()
+        if (r.top < window.innerHeight && r.bottom > 0) aside = true
+      }
+      setOverAside(aside)
     }
     const onScroll = () => {
       if (!raf) raf = requestAnimationFrame(update)
@@ -57,7 +67,7 @@ export function MobileBookingBar() {
     return () => io.disconnect()
   }, [enabled, pathname])
 
-  const shown = enabled && visible && !nearEnd
+  const shown = enabled && visible && !nearEnd && !overAside
   useEffect(() => {
     const html = document.documentElement
     if (shown) html.dataset.bookingBar = ''

@@ -331,13 +331,37 @@ html.amp-site-theme body {
   opacity: 0;
 }
 
-/* The room chips (phones, tablets) stick below the header while it shows, and
-   rise to the top of the screen when it hides on the way down. */
-[data-chip-nav] {
-  transition: top 0.6s var(--amp-ease-editorial);
+/* The room deck (RoomJourney): a room bar held under the header (which stays
+   shown over the deck: data-header-pin), then one card per room. Each card
+   rests a little lower than the one before, so the deck's edge shows, and is
+   sized to fit the screen below the bar. The motion and the room anchors
+   measure these same lengths. */
+[data-room-deck] {
+  --deck-nav-h: 3.25rem;
+  --deck-pad: 0.75rem;
+  --deck-off: 0.5rem;
+  --deck-gap: 50svh;
+  --deck-lead: calc(var(--amp-header-h) + env(safe-area-inset-top) + var(--deck-pad));
+  --deck-top: calc(var(--deck-lead) + var(--deck-nav-h));
+  --card-h: max(19rem, calc(100svh - var(--deck-top) - var(--deck-pad) - (var(--deck-count, 5) - 1) * var(--deck-off)));
 }
-html:has(.amp-header:not([data-hidden])) [data-chip-nav] {
-  top: calc(var(--amp-header-h) + env(safe-area-inset-top));
+@media (min-width: 64rem) {
+  [data-room-deck] {
+    --deck-nav-h: 3.75rem;
+    --deck-pad: 1rem;
+    --deck-off: 0.625rem;
+    --deck-gap: 55svh;
+  }
+}
+/* Landscape phones: the cards need the height more than the bar does. */
+@media (max-height: 30rem) {
+  [data-room-deck] {
+    --deck-nav-h: 0px;
+    --deck-off: 0.25rem;
+  }
+  [data-room-deck] [data-deck-nav] {
+    display: none;
+  }
 }
 
 /* Header logo is hidden while the intro holds the mark; the intro hands it over. */

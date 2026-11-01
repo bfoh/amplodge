@@ -1,11 +1,11 @@
 # Film: generation manifest
 
-The home page's scroll film has nine clips: four for the arrival and five rooms. Every clip was animated from **real photographs of the lodge**. Two stills were made by editing a real photograph, and both are recorded below. Nothing was generated from a text prompt alone, and no clip shows a place that no photograph shows.
+The home page's scroll film has nine clips: four for the arrival and five rooms. Every clip was animated from **real photographs of the lodge**. Three stills were made by editing real photographs, and all three are recorded below. Nothing was generated from a text prompt alone, and no clip shows a place that no photograph shows.
 
-These moves are **cuts made in the page**, not generated footage:
-- the gate opening (a bar wipe from the road shot into the forecourt);
+These moves are **made in the page**, not generated footage:
+- the dissolves into the road shot and through the gate (the outgoing shot keeps pushing in while the next fades up and settles, with a soft bloom of daylight through the gate);
 - the threshold (the camera leans into the glass doors and the corridor opens through them);
-- the moves between rooms (door, iris, rise, split and frame wipes, and a framed print for the portrait room).
+- the moves between rooms (each room's card rises over the last, which steps back and dims; the portrait room sits as a print on its card).
 
 No photograph shows how the forecourt connects to the corridor, so no footage of that route was generated.
 
@@ -15,7 +15,7 @@ No photograph shows how the forecourt connects to the corridor, so no footage of
 | --- | --- | --- | --- | --- |
 | `elevated` | 01 Arrival, 02 The façade | Kling `kling-video-v4_0`, first + tail frame | S2 (elevated still) → S1 (eye-level still) | 0–8 s (whole clip) |
 | `gate` | 03/04 The approach | Kling `kling-video-v3_0_turbo` | S1 | whole clip |
-| `forecourt` | Through the gate, the threshold | Kling `kling-video-v3_0_turbo` | `public/images/property/exterior-day-1024.jpg` | whole clip, warmed in the build |
+| `forecourt` | Through the gate, the threshold | Kling `kling-video-v3_0_turbo` | S3 (the forecourt photograph with the Tiwaah Executive wing added) | whole clip, warmed in the build |
 | `corridor` | Inside, the rooms | Seedance 2.5 (first phase) | `public/images/property/corridor-1024.jpg` | whole clip |
 | `standard-room` | Standard Room | Seedance 2.5 (first phase) | `room-standard-1024.jpg` | whole clip |
 | `executive-suite` | Executive Suite | Seedance 2.5 (first phase) | `room-executive-suite-1024.jpg` | first 4.0 s (see QC) |
@@ -23,13 +23,13 @@ No photograph shows how the forecourt connects to the corridor, so no footage of
 | `family-room` | Family Room | Seedance 2.5 (first phase) | `room-family-576.jpg` (portrait) | whole clip |
 | `presidential-suite` | Presidential Suite | Kling `kling-video-v3_0_turbo` | `suite-lounge-1024.jpg` | first 1.83 s (see QC) |
 
-**Retired:** the Seedance clips `arrival` (night push-in) and `approach` (night dolly) are no longer used. Their frames were removed from `public/film/`. Their masters are still in `media/`.
+**Retired:** the Seedance clips `arrival` (night push-in) and `approach` (night dolly), and the first Kling forecourt clip (V3, made from `exterior-day-1024.jpg`, which predates the right-hand wing), are no longer used. Their frames were removed or replaced in `public/film/`. Their masters are still in `media/` (V3 as `media/film-source/forecourt-v1-no-wing.mp4`).
 
 **Rooms are matched by URL slug.** A room type whose slug has frames in `public/film/<slug>/` gets its film. Any other room gets its photograph with a camera move made in the page. A room type with no photographs gets the exterior photograph and the note "Photographs of this room are coming soon."
 
 ## Kling (this phase)
 
-Account: Kling MCP (`https://kling.ai/mcp`), user id 155934032. The owner approved a plan of about 450 credits. **380 credits were spent**, with one generation per step and **no re-rolls**.
+Account: Kling MCP (`https://kling.ai/mcp`), user id 155934032. The owner approved a plan of about 450 credits. **450 credits were spent** (380 in the first round, 70 for the forecourt wing), with one generation per step and **no re-rolls**.
 
 | Step | Tool / model | Settings | Generation id | Credits | Output |
 | --- | --- | --- | --- | --- | --- |
@@ -37,12 +37,16 @@ Account: Kling MCP (`https://kling.ai/mcp`), user id 155934032. The owner approv
 | S2: elevated still | `image_to_image` / `gemini-3-pro-image`, inputs S1 + forecourt photo | 4:3, 2k, 1 image | `AXZ8Hkxs5Wv1oEpucwuDUVjLsJCib-CjkXvCHui4nM8mIP5in2rxqSplgsMonPAWg5w3VZYO` | 20 | `media/kling-out/s2-elevated-raw.png` → `s2-elevated.png` (sign fixed, below) |
 | V1: crane | `image_to_video` / `kling-video-v4_0`, first S2, tail S1 | 8 s, 1080p | `AU8eDPX7YJuhAylEnCVVczJnc0FT8QZInkHnPWtTU6Y-zpx17UKnMujUQrc3sUUTF7o6IZxm` | 120 | `v-elevated.mp4` → `media/film-source/elevated.mp4` |
 | V2: gate | `image_to_video` / `kling-video-v3_0_turbo`, first S1 | 6 s, 1080p | `AVbgp2khLxU00uswik9e9VElIXjGF31mj2wJqjMOsk4gWYsMN9V7GOgNJt1tp4EcGsePNiKF` | 60 | `v-gate.mp4` → `gate.mp4` |
-| V3: forecourt | `image_to_video` / `kling-video-v3_0_turbo` | 6 s, 1080p | `AQsC8zMyv57FfPUoZA_OHan2umqktU0D-iDMCuVP-VcHuUJK95hxqsgoWYBVnbJ1mxjK_xIr` | 60 | `v-forecourt.mp4` → `forecourt.mp4` |
+| V3: forecourt *(retired)* | `image_to_video` / `kling-video-v3_0_turbo` | 6 s, 1080p | `AQsC8zMyv57FfPUoZA_OHan2umqktU0D-iDMCuVP-VcHuUJK95hxqsgoWYBVnbJ1mxjK_xIr` | 60 | `v-forecourt.mp4` → `forecourt-v1-no-wing.mp4` |
 | Deluxe Room | `image_to_video` / `kling-video-v3_0_turbo` | 5 s, 1080p | `AbOU91P7cg-fP-F3uNO8_Q6Bsefax4uEzfSxXAnVi71dHy4gsr1Vn7UbN2PMhkTVHHQJXvDn` | 50 | `v-deluxe.mp4` → `deluxe-room.mp4` |
 | Presidential Suite | `image_to_video` / `kling-video-v3_0_turbo` | 5 s, 1080p | `Abg_rjuSDgX588gGye9nsuU6HZN5fSm8MIj7aIPAaWLoRFtBtq2S2RVaLkUT2Yc8FKAc2jP2` | 50 | `v-presidential.mp4` → `presidential-suite.mp4` |
-| **Total** | | | | **380** | |
+| S3: forecourt with the wing | `image_to_image` / `gemini-3-pro-image`, inputs forecourt photo + road photo | 3:2, 2k, 1 image | `AZl7P8I3pgL6n-gcpRC0z-wdgNiXlchA1JEdYwUaB2pSw60ycbglIqevWEywLh1H4nnJGJL_` | 20 | `media/kling-out/s3-forecourt-wing.png` (2528×1696) |
+| V3b: forecourt | `image_to_video` / `kling-video-v3_0_turbo`, first S3 | 5 s, 1080p | `Ac2e_fbMqyjsmtgFkz_QBYl4ZhXZ7M2is2eV_TaHf_bwrDMyra4pY5VZheY3J17YaHQt4Lcz` | 50 | `v-forecourt-wing.mp4` → `media/film-source/forecourt.mp4` (1756×1176, 5.04 s) |
+| **Total** | | | | **450** | |
 
-Trace ids: exterior `01a1971f-4bb6-7a26-a0e2-975df99538c4`, rooms `01a1971f-4bba-73a4-8d87-1c9e7bef07dd`.
+Trace ids: exterior `01a1971f-4bb6-7a26-a0e2-975df99538c4`, rooms `01a1971f-4bba-73a4-8d87-1c9e7bef07dd`, forecourt wing `01a19b2c-7d10-7c3e-9a4f-2b6e8d1c5f30`.
+
+S3 is also published, graded like the film, as the forecourt chapter's still (`public/images/property/forecourt-wing-{640,1280,1920}.webp`, `-1280.jpg`; `PHOTOS.forecourtWing`). It is shown until the frames arrive, on lite devices and in the reduced-motion sequence. Being an edited image, it is not in the gallery.
 
 The sources uploaded to Kling (`media/kling-source/`):
 - `exterior-road.jpg` is the owner's exterior photograph (`exteriorpic.jpeg`), the one also published as `public/images/property/exterior-road-*`.
@@ -77,13 +81,15 @@ Every clip was checked frame by frame against its source photograph. A contact s
 | S2 | Pass, after a fix | The model garbled the signboard ("RED & BREAKFAST", "MEETING VEQUE", a wrong number). **The real signboard was composited back from S1** (ffmpeg: `crop=272:246:260:1070,scale=274:249`, overlaid at 256:1202). The camera is below the roofline, and no floors or roofs were added. |
 | V1 crane | Pass | Smooth descent; the lettering stays stable and the end matches S1. |
 | V2 gate | Pass | Ends with the gate's bars filling the right side. The gate does not open. The flag parallax is consistent. |
-| V3 forecourt | Pass | Overcast light, so the build warms it (`colorbalance`). **The source photograph predates the right wing and the flags**, so this chapter shows the main building only. |
+| V3 forecourt *(retired)* | Pass | Overcast light, so the build warms it. **The source photograph predates the right wing and the flags**, so the owner asked for S3 and V3b. |
+| S3 | Pass, one detail unverified | The wing on the right matches the owner's road photograph: the same irregular stone, the small upper windows, the ground-floor overhang, and it hides the right-hand end of the main building as it should. The main building, lettering, doors and forecourt are unchanged. **Unverified:** the four air-conditioning units on the wing's ground floor. The prompt asked for units on its side wall and no photograph shows that wall, so their number and position are the model's. The flags are not in the frame. |
+| V3b forecourt | Pass | A slow dolly toward the glass doors with natural parallax on the wing; no warping, and the lettering stays stable. Warmed in the build like V3. Its audio track is ignored. |
 | Deluxe | Pass | Minor: at the far-left edge of the desk the tray's contents are revealed beyond the original frame. |
 | Presidential | Pass, trimmed | From about frame 44 a red footstool moves into view beyond the original frame. Red footstools do exist in the suite (see the suite photographs), but this one's position is unverified, so **the clip is cut at 1.83 s**. |
 | Corridor, Standard, Family | Pass | See the first-phase notes: no issues found. |
 | Executive | Pass, trimmed | In the last second an air-conditioning unit's edge appears outside the original frame. **The clip is cut at 4.0 s.** |
 
-On the page, the film rail says "Film animated from photographs of the lodge." (desktop), and the screen-reader description says the same. The phone room cards end with "Room films are animated from photographs of the lodge."
+On the page, the film rail says "Film animated from photographs of the lodge." (desktop), and the screen-reader description says the same. The room deck ends with "Room films are animated from photographs of the lodge."
 
 ## Where the files are
 
@@ -111,14 +117,14 @@ Frame weight (KB):
 | --- | --- | --- | --- | --- |
 | elevated | 48 | 3,754 | 36 | 921 |
 | gate | 36 | 2,846 | 28 | 747 |
-| forecourt | 32 | 2,612 | 24 | 712 |
+| forecourt | 32 | 2,498 | 24 | 620 |
 | corridor | 40 | 562 | 28 | 206 |
 | standard-room | 40 | 1,078 | 28 | 321 |
 | executive-suite | 40 | 928 | 28 | 314 |
 | deluxe-room | 40 | 1,396 | 28 | 443 |
 | family-room | 40 | 1,245 | 28 | 518 |
 | presidential-suite | 36 | 1,670 | 24 | 381 |
-| **Total** | | **≈ 15.7 MB** | | **≈ 4.5 MB** |
+| **Total** | | **≈ 15.6 MB** | | **≈ 4.4 MB** |
 
 A visitor downloads only the clips near where they are in the film: every 8th frame first, then the gaps. Nothing beyond the poster loads until the intro has finished, the page has loaded and the browser is idle, or the visitor starts scrolling. Visitors with reduced motion, Save-Data, 2G/3G connections or low-power devices download no frames; they get photographs.
 
@@ -138,8 +144,14 @@ A visitor downloads only the clips near where they are in the film: every 8th fr
 **V2, gate** (first frame S1):
 > Photorealistic architectural film shot based strictly on this photograph of the real AMP Lodge in Kumasi, Ghana, in warm late-afternoon light. Camera: a slow, perfectly stabilized forward dolly at eye level from the road toward the black sliding gate between the cream pillars on the right, with a gentle drift to the right, travelling only a short distance and ending on a calm, stable frame where the gate and its vertical bars fill the right half of the picture and the stone building is visible behind it. Preserve everything exactly as photographed: the two stone-clad buildings, their windows and air-conditioning units, the AMP LODGE and TIWAAH EXECUTIVE lettering, the flags on their poles, the stone boundary wall, the cream pillars and their wall lights, the black railings, the sliding gate, the black signboard and its lettering, the satellite dish, the palm tree, the power lines, the grass verge and the red earth road. The flags stir gently in a light breeze. Do not add or remove buildings, floors, windows, signs, text, people or vehicles. Do not open the gate. Do not change the shape of the buildings, the wall or the gate. No warping, morphing, flicker, lens flares or exaggerated motion.
 
-**V3, forecourt** (first frame: the real forecourt photograph):
+**V3, forecourt (retired)** (first frame: the real forecourt photograph):
 > Photorealistic architectural film shot based strictly on this real photograph of the forecourt and main building of AMP Lodge, Kumasi, taken from inside the gate. Camera: one slow, perfectly stabilized forward dolly at eye level across the gravel forecourt, straight toward the glass entrance doors in the centre of the ground-floor colonnade, travelling only part of the way and staying well short of the building. Preserve everything exactly as photographed: the three-storey building clad in multicoloured stone, the 'AMP' and 'LODGE' letters on the top edge, every window and its dark frame, the recessed beige panels, the air-conditioning units, the long horizontal window and the vertical louvres on the right, the ground-floor colonnade with its stone-clad pillars, the grey walls, the white doors, the vertical slatted window, the central glass double doors, the red fire extinguisher, the small potted plants, the yellow planter and the white box on the left, the pale gravel, the grass borders, the palm tree on the left, the neighbouring house on the right, the power line and the pale blue sky. Natural daylight with a restrained, slightly warm filmic grade. Do not add or remove buildings, floors, windows, doors, signs, text, plants, vehicles or people. Do not change the shape of the building. No warping, morphing, flicker or lens effects. End on a calm, stable, symmetrical frame of the entrance.
+
+**S3, forecourt with the wing** (inputs: the real forecourt photograph, and the owner's road photograph):
+> Edit the first image, a real photograph of the gravel forecourt and main building of AMP Lodge in Kumasi, Ghana, so that it shows the lodge as it stands today. The second image is a recent real photograph of the same property taken from the road outside the gate: it shows that a second, two-storey building clad in the same irregular multicoloured stone now stands to the right of the main building and closer to the road, with small dark square windows on each floor and white air-conditioning units on its long side wall, which faces the forecourt. In the first image, on the right-hand side of the frame, replace the grass verge, the low wall and the neighbouring house with the near end of that building's long side wall, exactly as it looks in the second image: the same stone cladding, the same small dark square windows in two rows and the same white air-conditioning units, in correct perspective, standing on the gravel at the right edge of the frame and receding toward the right end of the main building. Keep everything else exactly as it is in the first image: the three-storey main building with its 'AMP' and 'LODGE' letters, every window and its dark frame, the recessed beige panels, the air-conditioning units, the long horizontal window and the vertical louvres, the ground-floor colonnade with its stone-clad pillars, the grey walls, the central glass entrance doors, the white doors, the red fire extinguisher, the small potted plants, the yellow planter and the white box on the left, the palm tree on the left, the pale gravel, the grass on the left, the power line and the sky. Same camera position, framing, lens and natural daylight as the first image. Do not add any other buildings, floors, signs, text, people, vehicles, flags or plants. Photorealistic architectural photograph, no stylisation.
+
+**V3b, forecourt** (first frame S3):
+> Photorealistic architectural film shot based strictly on this photograph of the gravel forecourt of AMP Lodge, Kumasi, Ghana, with the three-storey main building ahead and the two-storey stone-clad wing on the right. Camera: one slow, perfectly stabilized forward dolly at eye level across the gravel forecourt, straight toward the glass entrance doors in the centre of the main building's ground-floor colonnade, travelling only part of the way and staying well short of the building, while the wing on the right slides gently past in natural parallax. Preserve everything exactly as photographed: the main building's multicoloured stone cladding, the 'AMP' and 'LODGE' letters, every window and its dark frame, the recessed beige panels, the air-conditioning units, the colonnade with its stone-clad pillars, the vertical slats, the central glass double doors, the white doors, the red fire extinguisher, the potted plants, the yellow planter and the white box on the left, the palm tree and the grass on the left; on the right, the wing's grey-blue stone wall, its windows, its overhang and its air-conditioning units; the pale gravel and the pale blue sky. Natural daylight with a restrained, slightly warm filmic grade. Do not add or remove buildings, floors, windows, doors, signs, text, plants, vehicles or people. Do not change the shape of either building. No warping, morphing, flicker or lens effects. End on a calm, stable, symmetrical frame of the entrance.
 
 **Deluxe Room:**
 > Photorealistic premium cinematic room film based strictly on this photograph of the real Deluxe Room at AMP Lodge, Kumasi. Camera: one extremely slow, perfectly stabilized lateral dolly from right to left with a very gentle push-in toward the bed, as if on a slider; the frame stays inside the room shown in the photograph. Preserve everything exactly as photographed: the soft grey-green walls, the tall pale curtains over the window on the left and the daylight through them, the dark wooden bed and headboard, the navy bedding with its copper geometric pattern and the two matching pillows, the white sheet, the bedside lamp on the left, the dark bedside table on the right, the dark wooden desk in the bottom left corner, the cream armchair with the blue checked blanket, the red patterned rug, the grey marble-look floor tiles, the wall socket and switches, and the shadow of the ceiling fan on the wall, which stays still. Natural daylight, restrained filmic colour grade. Do not enlarge the room, change the bed, or add or remove any furniture, objects, decorations, windows, doors, people or text. No warping, morphing, flicker, floating objects or lens effects. End on a calm, stable frame.

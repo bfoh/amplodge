@@ -41,6 +41,22 @@ export const PHOTOS = {
     category: 'Exterior',
     ...landscape(),
   },
+  /**
+   * The forecourt film's first frame: the daylight façade photograph with the
+   * Tiwaah Executive wing on the right, added with Kling from the owner's road
+   * photograph (the original predates the wing). Graded like the film. Not in
+   * the gallery, being an edited image. See FILM-MANIFEST.md.
+   */
+  forecourtWing: {
+    slug: 'forecourt-wing',
+    alt: 'The stone façade of AMP Lodge across the gravel forecourt, with the stone-clad Tiwaah Executive wing on the right',
+    caption: 'The forecourt',
+    category: 'Exterior',
+    width: 1920,
+    height: 1288,
+    webp: [640, 1280, 1920],
+    jpg: 1280,
+  },
   exteriorNight: {
     slug: 'exterior-night',
     alt: 'AMP Lodge lit at night, with flags flying in front of the stone building and the gated entrance',

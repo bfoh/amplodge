@@ -11,14 +11,43 @@ import { onIntro } from '../motion/intro-state'
 import { markPageReady } from '../motion/page-ready'
 import { DESKTOP, isLiteDevice, prefersReducedMotion } from '../motion/prefs'
 import { Reveal } from '../motion/Reveal'
-import { scrollToTarget } from '../motion/scroll-control'
 import { SplitHeading } from '../motion/SplitHeading'
-import { ROOMS_ANCHOR, roomAnchor } from './anchors'
+import { ROOMS_ANCHOR, roomAnchor, scrollToRoom, scrollToRooms } from './anchors'
 import { ARRIVAL, ARRIVAL_SCENES, FACADE_DETAIL, FILM_BASE, frameSet, type ArrivalClipId } from './film-data'
 import { FrameSequence } from './FrameSequence'
 
 const PHONE = '(max-width: 47.99rem)'
 const CLIP_ORDER: ArrivalClipId[] = ['elevated', 'gate', 'forecourt', 'corridor']
+
+/** A rectangle as fractions (0–1) of a picture. */
+interface Box {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
+/** The forecourt's glass doors on its clip's last frame (desktop frames) and on its still (the first frame). */
+const DOORS_LAST: Box = { x0: 0.535, y0: 0.6, x1: 0.625, y1: 0.764 }
+const DOORS_STILL: Box = { x0: 0.528, y0: 0.59, x1: 0.6, y1: 0.71 }
+/** Phone frames are a 2:3 crop of the clip around this point (scripts/build-film-frames.mjs). */
+const FORECOURT_PHONE_CROP_X = 0.56
+
+/**
+ * Where a box in a picture lands on a stage the picture covers (object-fit:
+ * cover), as percentages of the stage. `css` follows object-position (the
+ * still); otherwise the focal point is centred where it can be, as
+ * FrameSequence draws.
+ */
+function onStage(box: Box, stageW: number, stageH: number, iw: number, ih: number, fx: number, fy: number, css: boolean) {
+  const scale = Math.max(stageW / iw, stageH / ih)
+  const sw = stageW / scale
+  const sh = stageH / scale
+  const sx = css ? (iw - sw) * fx : Math.min(iw - sw, Math.max(0, iw * fx - sw / 2))
+  const sy = css ? (ih - sh) * fy : Math.min(ih - sh, Math.max(0, ih * fy - sh / 2))
+  const x = (v: number) => ((v * iw - sx) / sw) * 100
+  const y = (v: number) => ((v * ih - sy) / sh) * 100
+  return { left: x(box.x0), right: 100 - x(box.x1), top: y(box.y0), bottom: 100 - y(box.y1) }
+}
 
 
 /**
@@ -50,13 +79,14 @@ const TIMING = {
  * 02 The façade: eye level, the stone-clad lodge.
  * 03 In detail (desktop): the camera travels across the stone and lettering,
  *    then down the pillars and ironwork, on the full-resolution still.
- * 04 The approach: toward the gate.
- * 05 Through the gate: it slides open on the forecourt.
+ * 04 The approach: the road shot dissolves in; toward the gate.
+ * 05 Through the gate: the camera pushes on as the forecourt (with the
+ *    Tiwaah Executive wing on the right) fades up in a breath of daylight.
  * 06 The threshold: a door-shaped aperture opens from the glass doors onto
  *    the corridor, and the light warms. An editorial cut: no photograph shows
  *    the way from the doors to this corridor, so none is invented.
  * 07 Inside ("Comfort Begins Here."), then the accommodation introduction,
- *    which hands over to the room journey (RoomJourney.tsx).
+ *    over which the first room card rises (RoomJourney.tsx).
  *
  * Phones get their own, shorter timeline (no detail chapter, portrait frames).
  * Lite devices get the same film with real photographs and page-made camera
@@ -237,25 +267,50 @@ export function ArrivalFilm() {
           // clip-path tweens always state both ends: a browser's computed inset() drops
           // repeated sides (inset(24% 46.5% 12%)), which would pair the wrong numbers.
           const FULL = 'inset(0% 0% 0% 0% round 0px)'
-          const FROM_RIGHT = 'inset(0% 0% 0% 100% round 0px)'
-          // The forecourt's glass doors where its clip ends, in stage coordinates
-          // (measured on the last frame, as each screen shape crops it).
-          const DOORS = desktop ? 'inset(51.5% 38.2% 29.7% 52.7% round 2px)' : phone ? 'inset(56.5% 31% 27.9% 39.4% round 2px)' : 'inset(52% 37% 28% 53% round 2px)'
-          const DOORS_ORIGIN = desktop ? '57.2% 60.6%' : phone ? '54.2% 64.3%' : '57.5% 62%'
+          // The forecourt's glass doors on the stage, wherever this screen's shape crops
+          // them: on the clip's last frame once it has loaded, else on the still. Read
+          // when the threshold first plays and again on every refresh.
+          const doors = () => {
+            const stage = (q('[data-film-stage]')[0] as HTMLElement).getBoundingClientRect()
+            const set = frameSet('forecourt', phone)
+            const fc = ARRIVAL.forecourt
+            if (seqs.current.forecourt?.isReady && set) {
+              let box = DOORS_LAST
+              if (phone) {
+                const d = frameSet('forecourt', false)
+                const cw = Math.min(1, (2 / 3) * ((d?.h ?? set.h) / (d?.w ?? set.w)))
+                const cx = Math.min(1 - cw, Math.max(0, FORECOURT_PHONE_CROP_X - cw / 2))
+                box = { ...DOORS_LAST, x0: (DOORS_LAST.x0 - cx) / cw, x1: (DOORS_LAST.x1 - cx) / cw }
+              }
+              return onStage(box, stage.width, stage.height, set.w, set.h, phone ? 0.5 : fc.focusX, phone ? 0.5 : fc.focusY, false)
+            }
+            const photo = fc.still
+            return onStage(DOORS_STILL, stage.width, stage.height, photo?.width ?? 1920, photo?.height ?? 1288, 0.55, 0.55, true)
+          }
+          // Plain numbers: a trailing zero ("57.10%") is misread when GSAP interpolates the string.
+          const pct = (v: number) => `${Math.round(v * 100) / 100}%`
+          const doorsClip = () => {
+            const d = doors()
+            return `inset(${pct(d.top)} ${pct(d.right)} ${pct(d.bottom)} ${pct(d.left)} round 2px)`
+          }
+          const doorsOrigin = () => {
+            const d = doors()
+            return `${pct((d.left + 100 - d.right) / 2)} ${pct((d.top + 100 - d.bottom) / 2)}`
+          }
 
+          // The film plays over the track less its last screen; over that last screen
+          // the first room card rises over the accommodation title (the tail, below).
           const tl = gsap.timeline({
             defaults: { ease: 'none' },
             onUpdate: () => onTime(tl.time()),
             scrollTrigger: {
-              trigger: q('[data-film-track]')[0],
+              trigger: q('[data-film-main]')[0],
               start: 'top top',
               end: 'bottom bottom',
               scrub: 0.6,
               invalidateOnRefresh: true,
             },
           })
-          const clip = (el: HTMLElement, from: string, to: string, at: number, duration: number, ease = 'power3.inOut') =>
-            tl.fromTo(el, { clipPath: from }, { clipPath: to, duration, ease, immediateRender: false }, at)
           const scrub = (id: ArrivalClipId, at: number, duration: number) => {
             const proxy = { p: 0 }
             tl.fromTo(proxy, { p: 0 }, { p: 1, duration, onUpdate: () => seqs.current[id]?.setProgress(proxy.p) }, at)
@@ -270,22 +325,19 @@ export function ArrivalFilm() {
             tl.fromTo(el, { [prop]: 0, y: 28 }, { [prop]: 1, y: 0, duration: 0.22, ease: 'power2.out' }, from)
             if (to !== undefined) tl.to(el, { [prop]: 0, y: -24, duration: 0.18, ease: 'power2.in' }, to - 0.18)
           }
-          /** A full-width carrier whose left edge travels across the stage (transform only). */
-          const sweep = (sel: string, from: number, to: number, at: number, duration: number, ease: string) => {
-            tl.fromTo(q(sel), { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.03 }, at)
-            tl.fromTo(q(sel), { xPercent: from }, { xPercent: to, duration, ease }, at)
-            tl.to(q(sel), { autoAlpha: 0, duration: 0.03 }, at + duration - 0.03)
+          /** The next shot fades up and settles while the one it replaces keeps moving in: no wipe, no edge. */
+          const dissolve = (to: ArrivalClipId, at: number, duration: number, from = 1.12) => {
+            tl.fromTo(layer(to), { autoAlpha: 0 }, { autoAlpha: 1, duration, ease: 'power1.inOut', immediateRender: false }, at)
+            tl.fromTo(cam(to), { scale: from }, { scale: 1, duration: duration + 0.2, ease: 'power2.out', immediateRender: false }, at)
           }
 
           // Starting states (reverted by mm when the media query stops matching).
           gsap.set([layer('detail'), layer('gate'), layer('forecourt'), layer('corridor')], { autoAlpha: 0 })
-          gsap.set(layer('corridor'), { clipPath: DOORS })
-          if (desktop) gsap.set(layer('gate'), { clipPath: FROM_RIGHT })
 
           // 01 Arrival: the crane descends from first-floor height to the road; the copy recedes.
           scrub('elevated', 0, 1.3)
           tl.fromTo(q('[data-elevated-frames]'), { opacity: 0 }, { opacity: 1, duration: 0.06 }, 0.01)
-          tl.fromTo(cam('elevated'), { scale: 1.02 }, { scale: 1, duration: 1.3, ease: 'power1.out' }, 0)
+          tl.fromTo(cam('elevated'), { scale: 1.02 }, { scale: 1, duration: 1.2, ease: 'power1.out' }, 0)
           // Opacity only on the copy, so the page's h1 stays in the accessibility tree
           // for the whole film; the buttons leave the tab order once they have faded.
           tl.to(overlay('hero'), { opacity: 0, yPercent: -8, duration: 0.42 }, 0.22)
@@ -297,6 +349,7 @@ export function ArrivalFilm() {
           show('facade', 1.15, 1.95)
 
           let t = 1.95
+          let settled: number
           if (desktop) {
             // 03 In detail: the full-resolution still takes over from the last frame (the
             // same picture), then the camera travels from the stone and lettering down
@@ -306,35 +359,35 @@ export function ArrivalFilm() {
             tl.fromTo(d, { scale: 1, xPercent: 0, yPercent: 0 }, { scale: 1.6, xPercent: -10.8, yPercent: -7.6, duration: 0.5, ease: 'power2.inOut' }, 1.95)
             tl.to(d, { xPercent: -48, yPercent: -46, duration: 0.55, ease: 'power2.inOut' }, 2.45)
             show('detail', 2.05, 2.92)
-            // 04 The approach: the road shot wipes in from the right, led by a gold hairline.
+            // 04 The approach: the camera keeps travelling down the ironwork as the road
+            // shot dissolves in over it and settles.
             t = 2.95
-            tl.set(layer('gate'), { autoAlpha: 1 }, t - 0.05)
-            clip(layer('gate'), FROM_RIGHT, FULL, t, 0.5)
-            tl.to(d, { xPercent: -56, duration: 0.5, ease: 'power2.in' }, t)
-            sweep('[data-door-edge]', 100, 0, t, 0.5, 'power3.inOut')
-            tl.set([layer('elevated'), layer('detail')], { autoAlpha: 0 }, t + 0.55)
+            dissolve('gate', t, 0.5)
+            tl.to(d, { scale: 1.85, xPercent: -60, yPercent: -52, duration: 0.5, ease: 'power1.in' }, t)
+            tl.set([layer('elevated'), layer('detail')], { autoAlpha: 0 }, t + 0.52)
+            settled = t + 0.7
           } else {
             // The crane ends on the road shot's first frame, but the phone crops frame the
-            // two differently (the road shot looks toward the gate), so the road shot
-            // wipes in from the right, led by the gold hairline, rather than jumping.
-            tl.set(layer('gate'), { autoAlpha: 1, clipPath: FROM_RIGHT }, 1.18)
-            clip(layer('gate'), FROM_RIGHT, FULL, 1.2, 0.45)
-            sweep('[data-door-edge]', 100, 0, 1.2, 0.45, 'power3.inOut')
-            tl.set(layer('elevated'), { autoAlpha: 0 }, 1.68)
+            // two differently (the road shot looks toward the gate), so the crane pushes
+            // on as the road shot dissolves in over it, rather than jumping.
+            dissolve('gate', 1.2, 0.45, 1.1)
+            tl.to(cam('elevated'), { scale: 1.12, duration: 0.45, ease: 'power1.in' }, 1.2)
+            tl.set(layer('elevated'), { autoAlpha: 0 }, 1.67)
+            settled = t + 0.05
           }
 
           // The approach: toward the gate.
           scrub('gate', t + 0.05, 1.3)
-          tl.fromTo(cam('gate'), { scale: 1 }, { scale: 1.06, duration: 1.3, ease: 'power1.in' }, t + 0.05)
+          tl.to(cam('gate'), { scale: 1.06, duration: t + 1.35 - settled, ease: 'power1.in' }, settled)
           show('approach', t + 0.3, t + 1.2)
 
-          // Through the gate: it slides open to the right, revealing the forecourt.
+          // Through the gate: the camera carries on toward it while the forecourt beyond
+          // fades up, with a breath of daylight as it passes.
           const g = t + 1.35
-          tl.set(layer('forecourt'), { autoAlpha: 1 }, g - 0.02)
-          clip(layer('gate'), FULL, FROM_RIGHT, g, 0.6, 'power2.inOut')
-          tl.to(cam('gate'), { xPercent: 10, duration: 0.6, ease: 'power2.inOut' }, g)
-          sweep('[data-gate-leaf]', 0, 100, g, 0.6, 'power2.inOut')
-          tl.fromTo(cam('forecourt'), { scale: 1.12 }, { scale: 1, duration: 0.8, ease: 'power2.out' }, g)
+          dissolve('forecourt', g, 0.55, 1.14)
+          tl.to(cam('gate'), { scale: 1.32, duration: 0.6, ease: 'power2.in' }, g)
+          tl.fromTo(q('[data-bloom]'), { opacity: 0 }, { opacity: 1, duration: 0.28, ease: 'sine.inOut', immediateRender: false }, g + 0.04)
+          tl.to(q('[data-bloom]'), { opacity: 0, duration: 0.36, ease: 'sine.inOut' }, g + 0.32)
           tl.set(layer('gate'), { autoAlpha: 0 }, g + 0.62)
 
           // The forecourt: a slow dolly toward the glass doors.
@@ -343,10 +396,10 @@ export function ArrivalFilm() {
 
           // The threshold: the camera leans into the doors and the corridor opens through them.
           const th = g + 1.5
-          tl.set(cam('forecourt'), { transformOrigin: DOORS_ORIGIN }, th - 0.01)
+          tl.set(cam('forecourt'), { transformOrigin: doorsOrigin }, th - 0.01)
           tl.fromTo(cam('forecourt'), { scale: 1 }, { scale: 2.4, duration: 0.7, ease: 'power2.in', immediateRender: false }, th)
-          tl.set(layer('corridor'), { autoAlpha: 1 }, th + 0.1)
-          clip(layer('corridor'), DOORS, FULL, th + 0.12, 0.62, 'power2.inOut')
+          tl.set(layer('corridor'), { autoAlpha: 1 }, th + 0.12)
+          tl.fromTo(layer('corridor'), { clipPath: doorsClip }, { clipPath: FULL, duration: 0.62, ease: 'power2.inOut', immediateRender: false }, th + 0.12)
           tl.fromTo(cam('corridor'), { scale: 1.3 }, { scale: 1, duration: 0.8, ease: 'power2.out' }, th + 0.12)
           tl.fromTo(q('[data-warm]'), { opacity: 0.55 }, { opacity: 0, duration: 0.8 }, th + 0.2)
           tl.set(layer('forecourt'), { autoAlpha: 0 }, th + 0.78)
@@ -362,6 +415,16 @@ export function ArrivalFilm() {
           show('rooms', acc + 0.15)
           tl.to(q('[data-film-rail]'), { autoAlpha: 0, duration: 0.15 }, acc + 0.6)
           tl.to({}, { duration: 0.35 }, acc + 0.75)
+
+          // The tail: as the first room card rises over the title (RoomJourney), the
+          // title steps back and the stage fades to the deck's own dark, so nothing
+          // shows behind the deck once the film scrolls away.
+          const tail = gsap.timeline({
+            defaults: { ease: 'none' },
+            scrollTrigger: { trigger: q('[data-film-tail]')[0], start: 'top bottom', end: 'top top', scrub: 0.6, invalidateOnRefresh: true },
+          })
+          tail.fromTo(q('[data-rooms-intro]'), { autoAlpha: 1, yPercent: 0, scale: 1 }, { autoAlpha: 0, yPercent: -12, scale: 0.96, duration: 0.6, ease: 'power1.in' }, 0)
+          tail.fromTo(q('[data-film-fade]'), { opacity: 0 }, { opacity: 1, duration: 0.7 }, 0.3)
         },
       )
       return () => mm.revert()
@@ -369,14 +432,8 @@ export function ArrivalFilm() {
     { scope: root },
   )
 
-  const skipToRooms = () => {
-    const target = document.getElementById(ROOMS_ANCHOR)
-    if (target) scrollToTarget(target)
-  }
-  const jumpToRoom = (slug: string) => {
-    const target = document.getElementById(roomAnchor(slug)) ?? document.getElementById(ROOMS_ANCHOR)
-    if (target) scrollToTarget(target)
-  }
+  const skipToRooms = () => scrollToRooms()
+  const jumpToRoom = (slug: string) => scrollToRoom(slug)
 
   const stillOf = (photo: Photo | null, focus: string) =>
     photo && stills ? (
@@ -399,7 +456,12 @@ export function ArrivalFilm() {
 
   return (
     <section ref={root} className="amp-on-dark relative bg-amp-obsidian text-amp-ivory" aria-labelledby="hero-title" data-theme="dark" data-header-dark>
-      <div data-film-track className="relative motion-safe:h-[600svh] motion-safe:lg:h-[920svh]">
+      {/* The film plays over the track less its last screen (data-film-main); the
+          room deck rises over that last screen (data-film-tail; RoomJourney's
+          negative top margin). */}
+      <div data-film-track className="relative motion-safe:h-[700svh] motion-safe:lg:h-[1020svh]">
+        <div data-film-main aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-[calc(100%-100svh)]" />
+        <div data-film-tail aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-[100svh]" />
         <div data-film-stage className="sticky top-0 h-[100svh] min-h-[34rem] overflow-hidden motion-reduce:relative">
           {/* ── Layers, bottom to top ─────────────────────────────────────── */}
           <div data-layer="elevated" className="absolute inset-0 overflow-hidden">
@@ -459,16 +521,12 @@ export function ArrivalFilm() {
             <div data-shade className="pointer-events-none absolute inset-0 bg-amp-obsidian opacity-0" />
           </div>
 
-          {/* The gate leaf: a band of iron bars, led by a gold edge, that slides away as the gate opens. */}
-          <div data-gate-leaf aria-hidden="true" className="pointer-events-none invisible absolute inset-0 motion-reduce:!hidden">
-            <div className="absolute inset-y-0 left-0 w-[18vw] bg-[repeating-linear-gradient(90deg,rgba(18,19,18,0.9)_0_5px,rgba(18,19,18,0)_5px_36px)]">
-              <span className="absolute inset-y-0 left-0 w-px bg-amp-gold/80" />
-            </div>
-          </div>
-          {/* The door edge: a gold hairline leading the wipe onto the road. */}
-          <div data-door-edge aria-hidden="true" className="pointer-events-none invisible absolute inset-0 motion-reduce:!hidden">
-            <span className="absolute inset-y-0 left-0 w-px bg-amp-gold/80" />
-          </div>
+          {/* Daylight through the gate: a soft warm bloom as the forecourt fades up. */}
+          <div
+            data-bloom
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 opacity-0 mix-blend-screen bg-[radial-gradient(ellipse_75%_70%_at_60%_55%,rgba(255,238,210,0.42)_0%,rgba(255,238,210,0.14)_45%,rgba(255,238,210,0)_78%)] motion-reduce:!hidden"
+          />
 
           {/* Legibility. */}
           <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_top,rgba(10,10,9,0.9)_0%,rgba(10,10,9,0.58)_40%,rgba(10,10,9,0.06)_72%),linear-gradient(to_bottom,rgba(10,10,9,0.5),rgba(10,10,9,0)_22%)] md:bg-[linear-gradient(to_top,rgba(10,10,9,0.86)_0%,rgba(10,10,9,0.42)_36%,rgba(10,10,9,0.04)_66%),linear-gradient(to_bottom,rgba(10,10,9,0.5),rgba(10,10,9,0)_22%)]" />
@@ -568,27 +626,29 @@ export function ArrivalFilm() {
             <h2 className="amp-display mt-4 max-w-[13ch] text-[clamp(2.6rem,7vw,6.25rem)] leading-[0.96]">Comfort Begins Here.</h2>
           </div>
 
-          <div data-overlay="rooms" className="pointer-events-none invisible absolute inset-0 flex flex-col items-center justify-center px-gutter text-center motion-reduce:!hidden">
-            <p className="amp-eyebrow text-amp-gold-soft">Accommodation</p>
-            <h2 className="amp-display mt-5 max-w-[12ch] text-[clamp(2.6rem,8vw,7.25rem)] leading-[0.95]">Find Your Place to Unwind.</h2>
-            <p className="amp-lede mt-6 max-w-[30rem] text-amp-ivory/85">Explore our rooms and discover the comfort that feels right for you.</p>
-            {rooms.length > 0 && (
-              <nav aria-label="Jump to a room" className="pointer-events-auto mt-8 flex max-w-full flex-wrap justify-center gap-1 sm:mt-10">
-                {rooms.map((r) => (
-                  <a
-                    key={r.slug}
-                    href={`#${roomAnchor(r.slug)}`}
-                    onClick={(e) => {
-                      e.preventDefault()
-                      jumpToRoom(r.slug)
-                    }}
-                    className="amp-eyebrow amp-link inline-flex min-h-11 items-center px-3 !text-[0.6875rem] text-amp-ivory/85"
-                  >
-                    {r.name}
-                  </a>
-                ))}
-              </nav>
-            )}
+          <div data-overlay="rooms" className="pointer-events-none invisible absolute inset-0 motion-reduce:!hidden">
+            <div data-rooms-intro className="absolute inset-0 flex flex-col items-center justify-center px-gutter text-center">
+              <p className="amp-eyebrow text-amp-gold-soft">Accommodation</p>
+              <h2 className="amp-display mt-5 max-w-[12ch] text-[clamp(2.6rem,8vw,7.25rem)] leading-[0.95]">Find Your Place to Unwind.</h2>
+              <p className="amp-lede mt-6 max-w-[30rem] text-amp-ivory/85">Explore our rooms and discover the comfort that feels right for you.</p>
+              {rooms.length > 0 && (
+                <nav aria-label="Jump to a room" className="pointer-events-auto mt-8 flex max-w-full flex-wrap justify-center gap-1 sm:mt-10">
+                  {rooms.map((r) => (
+                    <a
+                      key={r.slug}
+                      href={`#${roomAnchor(r.slug)}`}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        jumpToRoom(r.slug)
+                      }}
+                      className="amp-eyebrow amp-link inline-flex min-h-11 items-center px-3 !text-[0.6875rem] text-amp-ivory/85"
+                    >
+                      {r.name}
+                    </a>
+                  ))}
+                </nav>
+              )}
+            </div>
           </div>
 
           {/* Progress rail: where you are in the film, and a way out of it. */}
@@ -610,6 +670,9 @@ export function ArrivalFilm() {
             </button>
             <p className="hidden max-w-[16rem] text-[0.625rem] leading-snug text-amp-ivory/50 lg:block">Film animated from photographs of the lodge.</p>
           </div>
+
+          {/* The stage fades to the deck's dark as the first room card rises over it. */}
+          <div data-film-fade aria-hidden="true" className="pointer-events-none absolute inset-0 bg-amp-obsidian opacity-0 motion-reduce:!hidden" />
         </div>
       </div>
 
@@ -633,7 +696,7 @@ function StaticStory() {
           </figcaption>
         </figure>
         <figure className="grid gap-6 lg:grid-cols-12 lg:items-end">
-          <Picture photo={PHOTOS.exteriorDay} sizes="(min-width: 64rem) 55vw, 100vw" className="aspect-[4/3] overflow-hidden lg:col-span-7" />
+          <Picture photo={PHOTOS.forecourtWing} sizes="(min-width: 64rem) 55vw, 100vw" className="aspect-[4/3] overflow-hidden lg:col-span-7" />
           <figcaption className="lg:col-span-5">
             <span className="amp-eyebrow text-amp-gold-soft">Through the gate</span>
             <span className="amp-display mt-2 block text-3xl">The forecourt and the glass doors.</span>

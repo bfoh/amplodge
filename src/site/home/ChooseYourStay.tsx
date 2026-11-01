@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { cn } from '@/lib/utils'
@@ -8,23 +9,55 @@ import { bookingHref, formatRate, useRooms } from '../data/rooms'
 import { setRoomChoice, useRoomChoice } from '../data/room-choice'
 import { SITE } from '../data/site'
 import { BOOKING_ANCHOR } from '../film/anchors'
+import { DESKTOP, useMediaQuery } from '../motion/prefs'
 import { Reveal } from '../motion/Reveal'
 import { SplitHeading } from '../motion/SplitHeading'
 
 /**
- * Chapter 09 — Choose your stay. Where the film hands over to booking.
+ * Chapter 09 — Choose your stay. Where the room deck hands over to booking.
  *
- * The room journey's last frame settles into the editorial frame on the right
- * (desktop); here it becomes the photograph of whichever room is chosen.
  * Every live room type is listed side by side with its guests and rate, and
- * the booking panel opens on the room the visitor last looked at in the film.
- * Choosing dates continues into the one booking flow, room preselected.
+ * the booking panel opens on the room the visitor last looked at in the deck.
+ * On desktop the photograph beside the list follows the room being read as
+ * the list scrolls past, and so does the panel's room until the visitor
+ * starts using the panel. Choosing dates continues into the one booking flow,
+ * room preselected.
  */
 export function ChooseYourStay() {
   const { rooms, status } = useRooms()
   const choice = useRoomChoice()
+  const desktop = useMediaQuery(DESKTOP)
+  const list = useRef<HTMLOListElement>(null)
+  const panelTouched = useRef(false)
+  const [inView, setInView] = useState<string | null>(null)
   const picked = rooms.find((r) => r.slug === choice) ?? rooms[0]
+  const shown = rooms.find((r) => r.slug === inView) ?? picked
   const loading = status === 'loading'
+
+  // Desktop: the room crossing the middle of the screen is the one pictured.
+  useEffect(() => {
+    const el = list.current
+    if (!desktop || !el) return
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue
+          const slug = (e.target as HTMLElement).dataset.slug
+          if (!slug) continue
+          setInView(slug)
+          if (!panelTouched.current) setRoomChoice(slug)
+        }
+      },
+      { rootMargin: '-42% 0px -52% 0px' },
+    )
+    el.querySelectorAll('[data-slug]').forEach((li) => io.observe(li))
+    return () => io.disconnect()
+  }, [desktop, rooms.length])
+
+  const pick = (slug: string) => {
+    setInView(slug)
+    setRoomChoice(slug)
+  }
 
   return (
     <section
@@ -61,12 +94,12 @@ export function ChooseYourStay() {
           {/* The comparison. */}
           <div className="lg:col-span-7">
             <h3 className="sr-only">Compare the rooms</h3>
-            <ol>
+            <ol ref={list}>
               {rooms.map((r, i) => {
-                const on = picked?.slug === r.slug
+                const on = shown?.slug === r.slug
                 const rate = formatRate(r.price)
                 return (
-                  <li key={r.slug} className={cn('relative border-t border-amp-ivory/15 py-7 first:border-t-0 first:pt-0 sm:pl-6')}>
+                  <li key={r.slug} data-slug={r.slug} className={cn('relative border-t border-amp-ivory/15 py-7 first:border-t-0 first:pt-0 sm:pl-6')}>
                     <span
                       aria-hidden="true"
                       className={cn('absolute left-0 hidden w-px bg-amp-gold transition-opacity duration-500 sm:block', i === 0 ? 'top-0 h-24' : 'top-7 h-24', on ? 'opacity-100' : 'opacity-0')}
@@ -74,8 +107,8 @@ export function ChooseYourStay() {
                     <div className="flex gap-5">
                       <button
                         type="button"
-                        onClick={() => setRoomChoice(r.slug)}
-                        aria-pressed={on}
+                        onClick={() => pick(r.slug)}
+                        aria-pressed={picked?.slug === r.slug}
                         className="relative aspect-[4/3] w-28 shrink-0 overflow-hidden rounded-[3px] bg-amp-charcoal sm:w-36"
                       >
                         <Picture photo={r.hero} sizes="9rem" alt="" className={cn('transition-transform duration-700 ease-editorial', on && 'scale-[1.04]')} />
@@ -100,7 +133,7 @@ export function ChooseYourStay() {
                       </div>
                     </div>
                     <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 sm:pl-[10.25rem]">
-                      <Link to={bookingHref(r)} onClick={() => setRoomChoice(r.slug)} className="amp-btn amp-btn--gold !min-h-11 !py-3 whitespace-nowrap">
+                      <Link to={bookingHref(r)} onClick={() => pick(r.slug)} className="amp-btn amp-btn--gold !min-h-11 !py-3 whitespace-nowrap">
                         Book This Room<span className="sr-only">: {r.name}</span>
                       </Link>
                       <Link to={`/rooms/${r.slug}`} className="amp-eyebrow amp-link inline-flex min-h-11 items-center text-amp-ivory">
@@ -114,7 +147,13 @@ export function ChooseYourStay() {
           </div>
 
           {/* The booking panel, on the chosen room. */}
-          <aside className="lg:col-span-5" aria-labelledby="stay-panel-title">
+          <aside
+            className="lg:col-span-5"
+            aria-labelledby="stay-panel-title"
+            // Once the visitor works with the panel, scrolling the list no longer changes its room.
+            onPointerDownCapture={() => (panelTouched.current = true)}
+            onFocusCapture={() => (panelTouched.current = true)}
+          >
             <div className="lg:sticky lg:top-[calc(var(--amp-header-h)+1.5rem)]">
               <div className="relative aspect-[16/10] overflow-hidden rounded-[6px] bg-amp-charcoal lg:[@media(max-height:60rem)]:aspect-[16/7]">
                 {rooms.map((r) => (
@@ -123,12 +162,12 @@ export function ChooseYourStay() {
                     photo={r.hero}
                     sizes="(min-width: 64rem) 38vw, 100vw"
                     alt=""
-                    className={cn('absolute inset-0 transition-[opacity,transform] duration-700 ease-editorial', r.slug === picked?.slug ? 'scale-100 opacity-100' : 'scale-[1.03] opacity-0')}
+                    className={cn('absolute inset-0 transition-[opacity,transform] duration-700 ease-editorial', r.slug === shown?.slug ? 'scale-100 opacity-100' : 'scale-[1.03] opacity-0')}
                   />
                 ))}
               </div>
               <p className="mt-3 min-h-[2.5rem] text-xs text-amp-ivory/60">
-                {picked ? `${picked.name}. ${picked.photoNote}` : ''}
+                {shown ? `${shown.name}. ${shown.photoNote}` : ''}
               </p>
               <h3 id="stay-panel-title" className="amp-display mt-4 text-[clamp(1.9rem,3vw,2.5rem)]">
                 Choose your dates

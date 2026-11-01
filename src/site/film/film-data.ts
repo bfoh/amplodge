@@ -32,7 +32,8 @@ export const ARRIVAL: Record<ArrivalClipId, FilmClip> = {
   elevated: { id: 'elevated', still: null, focusX: 0.5, focusY: 0.5 },
   // Starts on the retouched eye-level photograph, which ends the crane.
   gate: { id: 'gate', still: PHOTOS.exteriorRoad, focusX: 0.6, focusY: 0.55 },
-  forecourt: { id: 'forecourt', still: PHOTOS.exteriorDay, focusX: 0.55, focusY: 0.55 },
+  // Its first frame, with the Tiwaah Executive wing (see PHOTOS.forecourtWing).
+  forecourt: { id: 'forecourt', still: PHOTOS.forecourtWing, focusX: 0.55, focusY: 0.55 },
   corridor: { id: 'corridor', still: PHOTOS.corridor, focusX: 0.5, focusY: 0.5 },
 }
 

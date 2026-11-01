@@ -65,7 +65,7 @@ Pairings kept from the previous site:
 | Family | two-bed room (portrait) | the same photograph |
 | Presidential | suite (portrait hero) | the suite lounge (landscape) |
 
-Note: **`exterior-day` predates the right-hand wing and the flags.** The forecourt chapter, which is animated from it, therefore shows the main building only. A new forecourt photograph would fix this.
+Note: **`exterior-day` predates the right-hand (Tiwaah Executive) wing and the flags.** The forecourt chapter is therefore animated from an edit of it, S3, with the wing added from the owner's road photograph (below and in FILM-MANIFEST.md). `exterior-day` itself still shows the old view in the gallery. A new forecourt photograph would replace both.
 
 ### Logo
 
@@ -75,17 +75,18 @@ The only logo is a raster (`public/amp.png`). `src/site/brand/logo-geometry.ts` 
 
 Nine clips: four for the arrival and five rooms. Every clip, still, prompt, generation id, credit cost and QC verdict is in [FILM-MANIFEST.md](FILM-MANIFEST.md).
 
-- **Kling (Phase B):** two stills and five clips, **380 credits** of the ~450 the owner approved, one generation per step, no re-rolls.
+- **Kling (Phase B):** three stills and six clips (five in use), **450 credits**, the ~450 the owner approved: 380 in the first round, then 70 for the forecourt with the wing. One generation per step, no re-rolls.
 - **Seedance (Phase A):** four clips still in use (corridor, Standard, Executive, Family), about $9.00–9.30 in all, not verified against BytePlus billing. The Phase A arrival and approach clips are retired.
 - Masters are in `media/`, which is git-ignored. **Store `media/` somewhere safe:** Kling's download links expire after 24 hours.
 
-**Two images are edits of a real photograph, not photographs:**
+**Three images are edits of real photographs, not photographs:**
 - **S1**, the eye-level view used to end the crane and start the approach: the owner's photograph with the cement blocks and litter removed, relit to late afternoon.
 - **S2**, the elevated opening (and the hero poster): the same view with the camera raised to first-floor height, looking over the wall into the forecourt, which a real photograph documents. It stays below the roofline, so no roof or floor is invented. The model garbled the signboard, so **the real signboard was composited back in**.
+- **S3**, the forecourt chapter's first frame and still: the daylight forecourt photograph with the Tiwaah Executive wing added on the right, from the owner's road photograph. The wing's stone, upper windows and overhang match that photograph. **Unverified:** the four air-conditioning units on the wing's ground floor, which no photograph shows. Worth checking on site, or replacing with a real photograph.
 
 **What the film does not show, because no photograph exists:**
 - **The route from the forecourt to the corridor**, and any reception or lobby. The threshold is an **editorial cut**: the camera leans into the glass doors and the corridor opens through them.
-- **How the corridor leads to each room.** Rooms arrive through wipes and a framed print.
+- **How the corridor leads to each room.** Each room arrives as a card rising over the last.
 - **Bathrooms, dining or any facility.**
 
 **Known flaws, all minor, and trims:**

@@ -39,8 +39,8 @@ See also:
 | --- | --- | --- | --- | --- |
 | 00 | Intro | the logo draws itself, holds, and the curtain opens onto the hero | same | none |
 | 01–07 | The arrival film | one scroll-driven film: elevated opening, façade, detail, approach, through the gate, threshold, inside, the accommodation introduction | the same story on its own shorter timeline, with portrait frames and no detail chapter | captioned photographs |
-| 08 | The rooms | a sticky film stage: every room category arrives through its own mask, with a room index (any room directly, previous / next, skip to booking) | a sticky room selector and one cinematic card per room; native scrolling | the same cards, with photographs |
-| 09 | Choose your stay | the last room settles into an editorial frame and hands over to a side-by-side comparison and the booking panel, opened on the room last seen | stacked | static |
+| 08 | The rooms | a deck of room cards (film, guests, nightly rate, Book This Room) that rises over the film's last scene; each card rises over the last, which steps back and dims; a room bar (any room, previous / next, skip to booking) | the same deck, with portrait frames and a scrolling row of room chips | the same cards, unstacked, with photographs |
+| 09 | Choose your stay | a side-by-side comparison and the booking panel, opened on the room last seen; the photograph (and, until the panel is used, its room) follows the room being read | stacked | static |
 | 10 | Comfort in the details | sticky text; photos drift | 2-up grid | static |
 | 11 | Gallery | clip-path reveals; lightbox | same | static |
 | 12 | Hospitality | statement; real reviews only when they qualify | same | static |
@@ -50,10 +50,12 @@ See also:
 ## The arrival film (`ArrivalFilm.tsx`)
 
 **How it works:**
-- **One master timeline** per screen class (`gsap.matchMedia`), scrubbed (`scrub: 0.6`) by a single ScrollTrigger on a tall track (920svh on desktop, 600svh below 64 rem) holding a `position: sticky` stage. Nothing is pinned by JavaScript and nothing snaps. Scrolling back plays the film backwards.
+- **One master timeline** per screen class (`gsap.matchMedia`), scrubbed (`scrub: 0.6`) by a single ScrollTrigger on a tall track holding a `position: sticky` stage. Nothing is pinned by JavaScript and nothing snaps. Scrolling back plays the film backwards.
+- **The track** is 1020svh on desktop and 700svh below 64 rem. The film plays over all but its last screen (`data-film-main`: 920 / 600svh). Over that last screen (`data-film-tail`) the stage stays put while the first room card rises over the accommodation title: the room deck starts 100svh early (a negative top margin, transparent for that first screen), the title steps back and the stage fades to the deck's dark, so nothing shows behind the deck when the film scrolls away.
 - **Clips are WebP frame sequences drawn to a canvas** (`FrameSequence.ts`), so scrubbing is exact in both directions on every browser. Frames load coarse to fine (every 8th, 4th, 2nd, then all), and the player draws the nearest loaded frame. Desktop uses `d-` frames (≤ 1280 px wide), phones `m-` frames (480×720 crops at each clip's focal point).
 - **Loading order.** Nothing beyond the poster loads until the intro has finished, the page has loaded and the browser is idle (plus 1.2 s), or the visitor first scrolls, touches, clicks or presses a key. Then the crane and the approach load, and every scene change loads the current clip and the next two. Measured on a throttled phone: the first frame request starts at 6.7 s, after LCP (5.6 s on that run).
-- **Transitions are made in the page**, not generated: a wipe led by a gold hairline, the gate's bars sliding away, the camera leaning into the glass doors while the corridor opens through them, a light shift from cool to warm. No photograph shows how the forecourt connects to the corridor, so the film cuts rather than inventing a route.
+- **Transitions are made in the page**, not generated, and have no visible edges: push dissolves (the outgoing shot keeps moving in while the next fades up and settles) onto the road and through the gate, with a soft bloom of daylight as the gate is passed; then the camera leans into the glass doors while the corridor opens through them, and the light shifts from cool to warm. No photograph shows how the forecourt connects to the corridor, so the film cuts rather than inventing a route.
+- **The doors are measured, not guessed.** The aperture starts on the glass doors as they fall on this screen: their box on the forecourt's last frame (or on its still, before the frames arrive) goes through the same cover-and-focal-point maths the frame player uses (`onStage` in `ArrivalFilm.tsx`), and is read again on every refresh. Percentages are written without trailing zeros: GSAP misread `57.10%` as `571.0%`.
 
 Desktop beats (timeline units, 8.75 in all; phones run the same beats without the detail chapter, 7.75 in all):
 
@@ -62,11 +64,11 @@ Desktop beats (timeline units, 8.75 in all; phones run the same beats without th
 | 01 Arrival | 0–1.3 | the poster (the film's first frame) gives way to the crane: from first-floor height, looking over the wall into the forecourt, down to eye level on the road | "Your comfort. Our priority." / "Arrive. Unwind. / Feel at Home.", the hero sentence, Book Your Stay, Explore Rooms. The copy recedes on the first scroll. |
 | 02 The façade | 1.15–1.95 | eye level, the stone-clad lodge | "A stone-clad lodge on the Kumasi–Sunyani Road." |
 | 03 In detail (desktop) | 1.95–2.95 | the full-resolution still: the camera travels across the stone and lettering, then down the pillars and ironwork | "Stone walls, cream pillars and black ironwork." |
-| 04 The approach | 2.95–4.3 | the road shot wipes in from the right behind a gold hairline; a dolly toward the gate | "Abuakwa DKC Junction. The gate is just ahead." |
-| 05 Through the gate | 4.3–5.8 | the gate slides open to the right on the forecourt; a dolly toward the glass doors | "Across the forecourt to the glass doors." |
+| 04 The approach | 2.95–4.3 | the camera travels on down the ironwork as the road shot dissolves in and settles; a dolly toward the gate | "Abuakwa DKC Junction. The gate is just ahead." |
+| 05 Through the gate | 4.3–5.8 | the camera pushes on toward the gate as the forecourt fades up, with a breath of daylight; a dolly across the forecourt, the Tiwaah Executive wing on the right, toward the glass doors | "Across the forecourt to the glass doors." |
 | 06 The threshold | 5.8–6.4 | the camera leans into the doors; the corridor opens through them and the light warms | — |
 | 07 Inside | 6.4–7.65 | the corridor dolly | "THE AMP LODGE EXPERIENCE" / "Comfort Begins Here." |
-| 07 The rooms | 7.65–8.75 | the corridor dims | "Find Your Place to Unwind." / "Explore our rooms and discover the comfort that feels right for you.", then a link to every room |
+| 07 The rooms | 7.65–8.75, then the tail | the corridor dims; over the tail the first room card rises, the title steps back and the stage fades to dark | "Find Your Place to Unwind." / "Explore our rooms and discover the comfort that feels right for you.", then a link to every room |
 
 A progress rail shows the scene number and name, a "Skip to the rooms" button, and "Film animated from photographs of the lodge." (desktop).
 
@@ -83,16 +85,14 @@ A progress rail shows the scene number and name, a "Skip to the rooms" button, a
 
 **Every live room category, however many there are.** The list comes from the booking system (`useRooms`), de-duplicated and in price order. A room type with frames in `public/film/<slug>/` gets its film. Any other room gets its photograph with a slow camera move made in the page. A room with no photographs gets the lodge's and says so.
 
-**Desktop (≥ 64 rem, motion allowed):**
-- A sticky stage on a track of `(0.3 + rooms × 1.5 + 1.0) × 80 + 100` svh (804svh for five rooms).
-- Each room arrives through a different mask in turn: a door (with a gold edge), an iris, a rise, a split, a frame. Portrait films (the Family Room) open as a framed print. The room it replaces steps back the way the new one arrives.
-- Each room's film scrubs with the scroll. Beside it: the room's number of the total, name, tagline, guests, live rate, **Book This Room** and **View Room Details**.
-- **The room index** (right): the current room highlighted, any room directly, previous / next, and "Skip to booking". A jump lands after that room's entrance has settled.
-- **The hand-off:** the last room contracts into an editorial frame, and "Every room, side by side." with a "Compare and book" button takes the visitor to chapter 09.
+**One deck for every screen.** Each room is a card: its film (or photograph), its number of the total, guests, name, tagline, live nightly rate, **Book This Room** and **View Room Details**. On desktop the copy sits in a panel low on the left of the card; on phones and tablets it sits low across the card over a gradient.
+- **Stacking is CSS.** The cards are `position: sticky` list items, each resting a little lower than the one before (`--deck-off`), so the deck's edge shows above the current card. Every length lives in `site.css` under `[data-room-deck]`: the room bar's height, the card height (the screen below the header and the bar), and the scroll each card rests for (`--deck-gap`, 50svh on phones, 55svh on desktop). Scrolling stays native on every device.
+- **The motion** (GSAP, scrubbed): as a card rises, its camera settles (scale 1.16 → 1) and its copy comes up line by line, while the card beneath steps back (scale 0.93) and dims. Each film plays from the moment its card appears until the next card has covered it. Each card's stretch of scroll is an invisible marker (`data-room-zone`), which also serves as the room's anchor (`#stay-<slug>`).
+- **The room bar** sits under the header, which stays shown over the deck (`data-header-pin`). It shows the current room, jumps to any room (to where its card has just come to rest: `scrollToRoom` in `anchors.ts`), and offers previous / next and "Skip to booking". On phones the room chips scroll sideways and keep the current one in view. Landscape phones drop the bar to give the cards the height.
+- **Portrait films** (the Family Room) sit as a print on a blurred, enlarged copy of the photograph on desktop; on phones they fill the card.
+- **Tabbing** into a card that is not on top brings it to rest first. The phones' quick-booking bar steps aside over the deck (`data-booking-aside`), since every card has its own booking button.
 
-**Phones and tablets:** no pinned scene and no horizontal scrolling. A sticky room selector (under the header while it shows) and one 4:5 card per room. Each card's frame opens and its film plays as the card crosses the screen. The selector follows the card in the middle of the screen.
-
-**Reduced motion:** the same cards, with photographs and no movement.
+**Reduced motion:** the same cards, unstacked, with photographs and no movement; the room bar still follows the room in view.
 
 ## Booking: one workflow
 

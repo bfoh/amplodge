@@ -31,24 +31,31 @@ export function SiteHeader() {
     // Over the dark sections (marked data-header-dark) the header keeps light type,
     // however far the page has scrolled: transparent over full-bleed film, and a
     // dark bar over dark sections of text and lists (data-header-dark="solid").
-    const darkUnderHeader = (): 'film' | 'solid' | null => {
+    // Sections can overlap (the room deck rises over the end of the film), so the
+    // last one in the page, the one painted on top, wins. A section marked
+    // data-header-pin keeps the header shown (the room deck's bar sits under it).
+    const sectionUnderHeader = (): HTMLElement | null => {
       const probe = 34
+      let hit: HTMLElement | null = null
       for (const el of document.querySelectorAll<HTMLElement>('[data-header-dark]')) {
         const r = el.getBoundingClientRect()
-        if (r.top <= probe && r.bottom > probe) return el.dataset.headerDark === 'solid' ? 'solid' : 'film'
+        if (r.top <= probe && r.bottom > probe) hit = el
       }
-      return null
+      return hit
     }
     const update = () => {
       raf = 0
       const y = window.scrollY
-      const under = darkUnderHeader()
-      const dark = !!under
+      const section = sectionUnderHeader()
+      const dark = !!section
       setOverDark(dark)
-      setDarkSolid(under === 'solid')
+      setDarkSolid(section?.dataset.headerDark === 'solid')
       setSolid(!dark && (!overlay || y > 48))
       const delta = y - lastY
-      if (Math.abs(delta) > 6) {
+      if (section?.hasAttribute('data-header-pin')) {
+        setHidden(false)
+        lastY = y
+      } else if (Math.abs(delta) > 6) {
         setHidden(delta > 0 && y > window.innerHeight * 0.6)
         lastY = y
       }

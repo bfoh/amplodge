@@ -30,7 +30,7 @@ import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync }
 import { join } from 'node:path'
 
 const root = new URL('..', import.meta.url).pathname
-// Warms the overcast forecourt clip toward the late-afternoon light of the exterior shots.
+// Warms the hazy forecourt clip toward the late-afternoon light of the exterior shots.
 const WARM = 'colorbalance=rs=0.05:bs=-0.07:rm=0.07:gm=0.01:bm=-0.08:rh=0.08:gh=0.02:bh=-0.08,eq=saturation=1.05:contrast=1.03:brightness=0.01'
 const CLIPS = [
   // The arrival: an elevated crane down to eye level, the road to the gate, the forecourt, the corridor.
