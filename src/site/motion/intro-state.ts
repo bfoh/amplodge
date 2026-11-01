@@ -1,7 +1,7 @@
 /**
  * Coordinates the brand intro with page intros. BrandIntro calls
  * `releaseIntro()` as its curtain opens; hero animations wait on `onIntro()`.
- * When the intro is not playing (desktop, seen this session, reduced motion,
+ * When the intro is not playing (seen this session, reduced motion,
  * client-side navigation) intros run straight away.
  */
 type Listener = () => void

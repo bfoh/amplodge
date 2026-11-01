@@ -4,7 +4,7 @@ import path from 'path';
 import { introCriticalCss, introHeadScript, introMarkup } from './src/site/intro/intro-document';
 
 /**
- * Injects the mobile brand intro into index.html: the pre-paint head script,
+ * Injects the brand intro into index.html: the pre-paint head script,
  * the intro's critical CSS and its markup. Generated from the same logo
  * geometry the React components use (src/site/brand/logo-geometry.ts), so the
  * logo starts drawing on first paint, before the JS bundle has downloaded.

@@ -36,7 +36,7 @@ html.amp-site-theme {
   --amp-limestone: #e9e0d2;
   --amp-gold: #bc9354;
   --amp-bronze: #795532;
-  --amp-burgundy: #5d2f31;
+  --amp-burgundy: #653a3b;
   --amp-gutter: clamp(1rem, 4.2vw, 3.5rem);
   --amp-header-h: 4.25rem;
   --amp-ease-editorial: cubic-bezier(0.22, 1, 0.36, 1);
@@ -303,6 +303,15 @@ html.amp-site-theme body {
   -webkit-backdrop-filter: saturate(140%) blur(14px);
   backdrop-filter: saturate(140%) blur(14px);
 }
+.amp-header[data-dark-solid] {
+  background: rgba(18, 19, 18, 0.9);
+  box-shadow: 0 1px 0 rgba(245, 240, 232, 0.08);
+  -webkit-backdrop-filter: saturate(140%) blur(14px);
+  backdrop-filter: saturate(140%) blur(14px);
+}
+.amp-header[data-dark-solid] .amp-header__scrim {
+  opacity: 0;
+}
 .amp-header[data-hidden] {
   transform: translateY(-110%);
 }
@@ -320,6 +329,15 @@ html.amp-site-theme body {
 .amp-header[data-solid] .amp-header__scrim,
 .amp-header[data-tone='light'] .amp-header__scrim {
   opacity: 0;
+}
+
+/* The room chips (phones, tablets) stick below the header while it shows, and
+   rise to the top of the screen when it hides on the way down. */
+[data-chip-nav] {
+  transition: top 0.6s var(--amp-ease-editorial);
+}
+html:has(.amp-header:not([data-hidden])) [data-chip-nav] {
+  top: calc(var(--amp-header-h) + env(safe-area-inset-top));
 }
 
 /* Header logo is hidden while the intro holds the mark; the intro hands it over. */

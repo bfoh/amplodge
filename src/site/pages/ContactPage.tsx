@@ -7,7 +7,7 @@ import { activityLogService } from '@/services/activity-log-service'
 import { MapEmbed } from '../components/MapEmbed'
 import { PageHero } from '../components/PageHero'
 import { PHOTOS } from '../data/photos'
-import { findRoom } from '../data/rooms'
+import { findKnownRoom } from '../data/rooms'
 import { SITE } from '../data/site'
 import { Reveal } from '../motion/Reveal'
 import { useDocumentMeta } from '../seo/useDocumentMeta'
@@ -19,7 +19,7 @@ import { useDocumentMeta } from '../seo/useDocumentMeta'
  */
 export default function ContactPage() {
   const [params] = useSearchParams()
-  const room = findRoom(params.get('room') ?? undefined)
+  const room = findKnownRoom(params.get('room') ?? undefined)
   const id = useId()
   const [formData, setFormData] = useState(() => ({
     name: '',

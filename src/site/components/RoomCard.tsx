@@ -14,8 +14,7 @@ interface RoomCardProps {
 
 /**
  * A room: photograph, name, guests and nightly rate from the live system,
- * and the next step. Executive Suite is not bookable online (see rooms.ts), so
- * it offers an enquiry instead of a dead end.
+ * and the next step. Every room books through the same flow (rooms.ts).
  */
 export function RoomCard({ room, loading, className, sizes = '(min-width: 64rem) 30vw, 80vw', headingLevel: H = 'h3' }: RoomCardProps) {
   const rate = formatRate(room.price)
@@ -23,9 +22,6 @@ export function RoomCard({ room, loading, className, sizes = '(min-width: 64rem)
     <article className={cn('group amp-zoom-parent relative flex flex-col', className)}>
       <div className="relative aspect-[4/5] overflow-hidden bg-amp-limestone">
         <Picture photo={room.hero} sizes={sizes} imgClassName="amp-zoom" />
-        {!room.bookable && (
-          <span className="amp-eyebrow absolute left-3 top-3 bg-amp-ivory/95 px-2.5 py-1.5 !text-[0.625rem] text-amp-ink">Book by enquiry</span>
-        )}
       </div>
       <div className="flex flex-1 flex-col pt-5">
         <div className="flex items-baseline justify-between gap-4">
@@ -40,24 +36,18 @@ export function RoomCard({ room, loading, className, sizes = '(min-width: 64rem)
                 <span className="font-semibold text-amp-ink">{rate}</span> / night
               </>
             ) : loading ? (
-              <span className="inline-block h-4 w-20 animate-pulse bg-amp-limestone" aria-label="Loading rate" />
+              <span className="inline-block h-4 w-20 animate-pulse bg-amp-limestone"><span className="sr-only">Loading rate</span></span>
             ) : null}
           </p>
         </div>
         <p className="mt-2 text-sm text-amp-ink-muted">{room.maxGuests ? `Up to ${room.maxGuests} guests` : ' '}</p>
         <div className="relative z-10 mt-5 flex flex-wrap items-center gap-x-6 gap-y-2">
-          <Link to={`/rooms/${room.slug}`} className="amp-eyebrow amp-link inline-flex min-h-11 items-center text-amp-ink" aria-label={`View the ${room.name}`}>
-            View room
+          <Link to={`/rooms/${room.slug}`} className="amp-eyebrow amp-link inline-flex min-h-11 items-center text-amp-ink">
+            View room<span className="sr-only">: {room.name}</span>
           </Link>
-          {room.bookable ? (
-            <Link to={bookingHref(room)} className="amp-eyebrow amp-link inline-flex min-h-11 items-center text-amp-bronze" aria-label={`Book the ${room.name}`}>
-              Book
-            </Link>
-          ) : (
-            <Link to={`/contact?room=${room.slug}`} className="amp-eyebrow amp-link inline-flex min-h-11 items-center text-amp-bronze" aria-label={`Enquire about the ${room.name}`}>
-              Enquire
-            </Link>
-          )}
+          <Link to={bookingHref(room)} className="amp-eyebrow amp-link inline-flex min-h-11 items-center text-amp-bronze">
+            Book<span className="sr-only">: {room.name}</span>
+          </Link>
         </div>
       </div>
     </article>

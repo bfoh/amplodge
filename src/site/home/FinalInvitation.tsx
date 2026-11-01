@@ -1,16 +1,16 @@
 import { useRef } from 'react'
 import { Link } from 'react-router-dom'
 
-import { Picture } from '../components/Picture'
-import { PHOTOS } from '../data/photos'
+import { HERO_MEDIA } from '../data/photos'
 import { gsap, useGSAP } from '../lib/gsap'
 import { DESKTOP, MOTION_OK } from '../motion/prefs'
 import { Reveal } from '../motion/Reveal'
 
 /**
- * Chapter 14 — the final invitation, the film's closing frame: the lodge at
- * night, dimmed almost to black. Two lines drift in opposite directions as the
- * section passes and a hairline draws beneath; then one clear action.
+ * Chapter 14 — the final invitation. The film comes full circle: its opening
+ * frame (the lodge from above the road), dimmed almost to black. Two lines
+ * drift in opposite directions as the section passes and a hairline draws
+ * beneath; then one clear action.
  */
 export function FinalInvitation() {
   const root = useRef<HTMLElement>(null)
@@ -40,7 +40,17 @@ export function FinalInvitation() {
       data-final-cta
     >
       <div aria-hidden="true" className="absolute inset-0">
-        <Picture photo={PHOTOS.exteriorNight} sizes="100vw" alt="" className="opacity-35" imgClassName="[object-position:50%_40%]" />
+        <img
+          src={`${HERO_MEDIA.base}-1280.webp`}
+          srcSet={HERO_MEDIA.widths.map((w) => `${HERO_MEDIA.base}-${w}.webp ${w}w`).join(', ')}
+          sizes="100vw"
+          alt=""
+          width={HERO_MEDIA.width}
+          height={HERO_MEDIA.height}
+          loading="lazy"
+          decoding="async"
+          className="h-full w-full object-cover opacity-30 [object-position:50%_45%]"
+        />
         <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(18,19,18,0.92),rgba(18,19,18,0.55)_45%,rgba(18,19,18,0.9))]" />
       </div>
       <div className="relative mx-auto max-w-site px-gutter">

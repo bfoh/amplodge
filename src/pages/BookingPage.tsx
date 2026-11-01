@@ -120,9 +120,10 @@ export function BookingPage() {
         bookingEngine.getAllBookings()
       ])
       // room_types holds many duplicate rows per name (repeated seeding); only
-      // one row per name has rooms linked. Keep that row, drop types with no
-      // rooms, and keep Executive Suite off online booking (since 99d5d77).
-      // Same rule as the public site (src/site/data/rooms.ts).
+      // one row per name has rooms linked. Keep that row and drop types with no
+      // rooms. Every remaining type books online, the Executive Suite included
+      // (enquiry-only until 2026-11-01). Same rule as the public site
+      // (src/site/data/rooms.ts), so a room preselected there is always here.
       const filteredTypes = dedupeRoomTypes(
         typesData as unknown as Array<Record<string, unknown>>,
         propertiesData as unknown as Array<Record<string, unknown>>,
@@ -725,7 +726,7 @@ export function BookingPage() {
                       <label className="block text-sm font-medium mb-2">Check-in Date</label>
                       <Popover>
                         <PopoverTrigger asChild>
-                          <Button variant="outline" className="w-full justify-start" aria-label={`Check-in date: ${checkIn ? format(checkIn, 'PPP') : 'not selected'}`}>
+                          <Button variant="outline" className="w-full justify-start" aria-label={`Check-in date: ${checkIn ? format(checkIn, 'PPP') : 'Select date'}`}>
                             <CalendarIcon className="mr-2 h-4 w-4" />
                             {checkIn ? format(checkIn, 'PPP') : 'Select date'}
                           </Button>
@@ -748,7 +749,7 @@ export function BookingPage() {
                       <label className="block text-sm font-medium mb-2">Check-out Date</label>
                       <Popover>
                         <PopoverTrigger asChild>
-                          <Button variant="outline" className="w-full justify-start" aria-label={`Check-out date: ${checkOut ? format(checkOut, 'PPP') : 'not selected'}`}>
+                          <Button variant="outline" className="w-full justify-start" aria-label={`Check-out date: ${checkOut ? format(checkOut, 'PPP') : 'Select date'}`}>
                             <CalendarIcon className="mr-2 h-4 w-4" />
                             {checkOut ? format(checkOut, 'PPP') : 'Select date'}
                           </Button>

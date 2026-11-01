@@ -21,27 +21,31 @@ export function SiteHeader() {
   const [solid, setSolid] = useState(!overlay)
   const [hidden, setHidden] = useState(false)
   const [overDark, setOverDark] = useState(false)
+  const [darkSolid, setDarkSolid] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const menuButton = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     let lastY = window.scrollY
     let raf = 0
-    // Over the arrival film and the room selection (marked data-header-dark) the
-    // header stays transparent with light type, however far the page has scrolled.
-    const darkUnderHeader = () => {
+    // Over the dark sections (marked data-header-dark) the header keeps light type,
+    // however far the page has scrolled: transparent over full-bleed film, and a
+    // dark bar over dark sections of text and lists (data-header-dark="solid").
+    const darkUnderHeader = (): 'film' | 'solid' | null => {
       const probe = 34
       for (const el of document.querySelectorAll<HTMLElement>('[data-header-dark]')) {
         const r = el.getBoundingClientRect()
-        if (r.top <= probe && r.bottom > probe) return true
+        if (r.top <= probe && r.bottom > probe) return el.dataset.headerDark === 'solid' ? 'solid' : 'film'
       }
-      return false
+      return null
     }
     const update = () => {
       raf = 0
       const y = window.scrollY
-      const dark = darkUnderHeader()
+      const under = darkUnderHeader()
+      const dark = !!under
       setOverDark(dark)
+      setDarkSolid(under === 'solid')
       setSolid(!dark && (!overlay || y > 48))
       const delta = y - lastY
       if (Math.abs(delta) > 6) {
@@ -68,6 +72,7 @@ export function SiteHeader() {
         data-solid={solid ? '' : undefined}
         data-hidden={hidden && !menuOpen ? '' : undefined}
         data-tone={lightTone ? 'dark-bg' : 'light'}
+        data-dark-solid={lightTone && darkSolid ? '' : undefined}
       >
         <div className="amp-header__scrim" aria-hidden="true" />
         <div className="mx-auto flex h-[var(--amp-header-h)] max-w-site items-center justify-between gap-6 px-gutter">

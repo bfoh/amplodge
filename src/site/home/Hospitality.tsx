@@ -34,8 +34,9 @@ export function Hospitality() {
             <ul className="grid gap-6 md:grid-cols-3">
               {reviews.map((r) => (
                 <li key={r.id} data-reveal-item className="flex flex-col border-t border-amp-ink/15 pt-6">
-                  <p className="text-amp-bronze" aria-label={`Rated ${r.rating} out of 5`}>
+                  <p className="text-amp-bronze">
                     <span aria-hidden="true">{'★'.repeat(r.rating)}</span>
+                    <span className="sr-only">Rated {r.rating} out of 5</span>
                   </p>
                   <blockquote className="mt-4 flex-1">
                     <p className="amp-display text-[1.5rem] leading-snug text-amp-ink">“{r.comment}”</p>

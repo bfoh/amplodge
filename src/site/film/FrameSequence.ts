@@ -40,7 +40,8 @@ export class FrameSequence {
   }
 
   private url(i: number) {
-    return `${this.base}/${this.prefix}-${String(i + 1).padStart(3, '0')}.webp`
+    const v = this.set.v ? `?v=${this.set.v}` : ''
+    return `${this.base}/${this.prefix}-${String(i + 1).padStart(3, '0')}.webp${v}`
   }
 
   /** Loads every frame, coarse first. Safe to call more than once. */

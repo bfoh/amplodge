@@ -68,7 +68,7 @@ export function MobileBookingBar() {
   }, [shown])
 
   if (!enabled) return null
-  const rates = status === 'ready' ? rooms.filter((r) => r.bookable && r.price !== null).map((r) => r.price as number) : []
+  const rates = status === 'ready' ? rooms.filter((r) => r.price !== null).map((r) => r.price as number) : []
   const from = rates.length ? formatRate(Math.min(...rates)) : null
 
   return (

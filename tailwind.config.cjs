@@ -23,7 +23,7 @@ module.exports = {
   				gold: '#BC9354',
   				'gold-soft': '#D4B47C',
   				bronze: '#795532',
-  				burgundy: '#5D2F31',
+  				burgundy: '#653A3B',
   				olive: '#B9B065'
   			},
   			border: 'hsl(var(--border))',

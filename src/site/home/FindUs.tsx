@@ -18,7 +18,8 @@ export function FindUs() {
           </SplitHeading>
           <Reveal stagger={0.1} className="mt-10 space-y-8">
             <p data-reveal-item className="amp-lede text-amp-ivory/85">
-              At Abuakwa DKC Junction on the Kumasi–Sunyani Road, north-west of the city centre.
+              At Abuakwa DKC Junction on the Kumasi–Sunyani Road, north-west of the city centre. Look for the stone wall, the cream pillars and
+              our sign: “Accommodation and Bed &amp; Breakfast · Meeting Venue”.
             </p>
             <dl data-reveal-item className="grid gap-6 text-sm sm:grid-cols-2">
               <div>

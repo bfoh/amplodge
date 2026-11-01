@@ -1,5 +1,3 @@
-import { Link } from 'react-router-dom'
-
 import { PageHero } from '../components/PageHero'
 import { RoomCard } from '../components/RoomCard'
 import { PHOTOS } from '../data/photos'
@@ -12,7 +10,7 @@ export default function RoomsPage() {
   const { rooms, status } = useRooms()
   useDocumentMeta({
     title: 'Rooms & Suites | AMP Lodge, Kumasi',
-    description: 'Standard, Deluxe and Family rooms and two suites at AMP Lodge, Abuakwa, Kumasi. See live nightly rates and book directly.',
+    description: 'Every room and suite at AMP Lodge, Abuakwa, Kumasi, with live nightly rates from our booking system. Choose your dates and book directly.',
     path: '/rooms',
   })
   return (
@@ -54,11 +52,15 @@ export default function RoomsPage() {
             <ul className="space-y-4 text-amp-ink-muted lg:col-span-7">
               <li>Rates are per room, per night, in Ghana cedis, and are confirmed before you pay.</li>
               <li>
-                The Executive Suite is booked by enquiry. <Link className="amp-link text-amp-ink" to="/contact?room=executive-suite">Send us a message</Link> or call{' '}
+                Every room books the same way: choose your dates online, or call us on{' '}
                 <a className="amp-link text-amp-ink" href={SITE.phone.href}>
                   {SITE.phone.display}
                 </a>
                 .
+              </li>
+              <li>
+                The sign at our gate reads “Accommodation and Bed &amp; Breakfast · Meeting Venue”. Ask us about breakfast or a meeting when you book:
+                what is included depends on your booking.
               </li>
               <li>Photographs show rooms of each type; furnishings can differ between rooms.</li>
             </ul>

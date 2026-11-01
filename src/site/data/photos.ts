@@ -23,6 +23,17 @@ export interface Photo {
 const landscape = (w = 1024, h = 684) => ({ width: w, height: h, webp: [640, w], jpg: w })
 
 export const PHOTOS = {
+  /** Supplied by the owner on 2026-11-01 (exteriorpic.jpeg). Light colour correction only. */
+  exteriorRoad: {
+    slug: 'exterior-road',
+    alt: 'AMP Lodge from the road: two stone-clad buildings behind a stone wall with cream pillars, black railings, a sliding gate, flags and the AMP Lodge signboard',
+    caption: 'The lodge from the road',
+    category: 'Exterior',
+    width: 1080,
+    height: 810,
+    webp: [640, 1080],
+    jpg: 1080,
+  },
   exteriorDay: {
     slug: 'exterior-day',
     alt: 'The three-storey stone façade of AMP Lodge in daylight, behind a gravel forecourt',
@@ -191,6 +202,7 @@ export function photoJpg(p: Photo): string {
 
 /** Gallery order: arrival, rooms, details, bathrooms, shared spaces. */
 export const GALLERY: Photo[] = [
+  PHOTOS.exteriorRoad,
   PHOTOS.exteriorDay,
   PHOTOS.exteriorNight,
   PHOTOS.roomExecutive,
@@ -213,10 +225,21 @@ export const GALLERY: Photo[] = [
   PHOTOS.eventHall,
 ]
 
+/**
+ * The film's first frame: the lodge from first-floor height above the road,
+ * looking over the wall into the forecourt. Made from the owner's photograph
+ * (exteriorpic.jpeg) with Kling: cleaned up, then raised to that height; the
+ * signboard is the real one, composited back in. See FILM-MANIFEST.md.
+ * Landscape for tablets and desktop; a 2:3 crop for phones that matches the
+ * phone frames exactly.
+ */
 export const HERO_MEDIA = {
-  poster960: '/videos/hero/amp-lodge-hero-poster-960',
-  poster1920: '/videos/hero/amp-lodge-hero-poster-1920',
+  base: '/images/hero/amp-lodge-arrival',
+  widths: [1280, 1600, 1920],
   width: 1920,
-  height: 1080,
-  alt: 'AMP Lodge at dusk: the stone façade lit by warm wall lights, flags flying behind the iron fence, and the AMP LODGE sign',
+  height: 1434,
+  portrait: '/images/hero/amp-lodge-arrival-portrait-720',
+  portraitWidth: 720,
+  portraitHeight: 1080,
+  alt: 'AMP Lodge in late-afternoon light, seen from above the road: two stone-clad buildings, flags in the forecourt, and the stone wall with cream pillars, black railings, the sliding gate and the AMP Lodge signboard',
 } as const

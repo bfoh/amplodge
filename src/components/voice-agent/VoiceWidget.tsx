@@ -41,7 +41,9 @@ export default function VoiceWidget() {
                             <h3 className="font-medium">Concierge AI</h3>
                         </div>
                         <button
+                            type="button"
                             onClick={() => setIsOpen(false)}
+                            aria-label="Close the concierge"
                             className="hover:bg-amber-800 p-1 rounded-full transition-colors"
                         >
                             <X size={18} />
@@ -99,7 +101,10 @@ export default function VoiceWidget() {
 
                         <div className="flex items-center gap-2">
                             <button
+                                type="button"
                                 onClick={toggleListening}
+                                aria-label={isListening ? 'Stop listening' : 'Speak to the concierge'}
+                                aria-pressed={isListening}
                                 className={`p-3 rounded-full transition-all duration-300 ${isListening
                                     ? 'bg-red-500 text-white shadow-lg ring-4 ring-red-100 scale-110'
                                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -114,11 +119,13 @@ export default function VoiceWidget() {
                                     value={inputText}
                                     onChange={(e) => setInputText(e.target.value)}
                                     placeholder="Type or speak..."
+                                    aria-label="Message the concierge"
                                     className="flex-1 px-4 py-2 bg-gray-100 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50 transition-all"
                                 />
                                 <button
                                     type="submit"
                                     disabled={!inputText.trim()}
+                                    aria-label="Send message"
                                     className="p-2 bg-amber-600 text-white rounded-full hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                 >
                                     <MessageSquare size={18} />
@@ -133,7 +140,9 @@ export default function VoiceWidget() {
             {/* Floating Toggle Button */}
             {!isOpen && (
                 <button
+                    type="button"
                     onClick={handleOpen}
+                    aria-label="Ask the concierge"
                     className="group relative flex items-center justify-center w-14 h-14 bg-gradient-to-br from-amber-600 to-amber-800 text-white rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300"
                 >
                     <span className="absolute -top-1 -right-1 flex h-3 w-3">

@@ -1,135 +1,156 @@
-# AMP Lodge redesign: audit (Phase A)
+# AMP Lodge redesign: audit
 
-Date: 2026-11-01 · Branch: `feat/cinematic-redesign`
+| Phase | Date | Branch | Status |
+| --- | --- | --- | --- |
+| A: cinematic public site | 2026-11-01 | `feat/cinematic-redesign` | merged to `main` (7bf0ad1) |
+| B: the cinematic journey (elevated opening, every room as film, film-to-booking) | 2026-11-01 | `feat/cinematic-journey` | pushed for review, **not merged** |
 
-This records what the redesign found in the existing site, code and data, what it could verify, and what the owner still needs to confirm or supply. Anything listed here as **unverified** is either kept off the site or shown with the wording described.
+This records what the redesign found in the site, code and data, what it could verify, and what the owner still needs to confirm or supply. Anything listed as **unverified** is either kept off the site or shown with the wording described.
 
 ## 1. Live data (Supabase, read-only checks)
 
+### Room inventory
+
+| Room type | Rate / night | Max guests | Rooms (by number) |
+| --- | --- | --- | --- |
+| Standard Room | GH₵350 | 2 | 101–107 (7) |
+| Executive Suite | GH₵450 | 2 | 109 |
+| Deluxe Room | GH₵550 | 2 | 110 |
+| Family Room | GH₵700 | 4 | 108, 111 |
+| Presidential Suite | GH₵1,200 | 5 | "110+109", "3000" |
+
+13 rooms in all. These rates match www.amplodge.org on 2026-11-01. The 100/200/250 prices in the brief are stale.
+
 | Finding | Detail | What the site does |
 | --- | --- | --- |
-| Duplicate room types | `room_types` has **70 rows** for 5 names (Standard ×19, Executive ×17, Deluxe ×13, Presidential ×11, Family ×10). Only one row per name has rooms linked. | Grouped by name. The row with the most linked rooms wins, and types with no rooms are dropped (`dedupeRoomTypes` in `src/site/data/rooms.ts`). The booking flow uses the same rule. **Recommend deleting the 65 orphan rows** in the staff tools. |
-| Rooms | 13 rooms: Standard 7, Family 2, Presidential 2, Deluxe 1, Executive 1. The previous site said "24 rooms", which is **unverified**. | No room count is claimed anywhere. |
-| Prices | Standard GH₵350, Executive Suite GH₵450, Deluxe GH₵550, Family GH₵700, Presidential Suite GH₵1,200. These match www.amplodge.org on 2026-11-01. The 100/200/250 prices in the brief are stale. | Rates are read live from `room_types.base_price`; nothing is hard-coded. While loading, a placeholder shows; on error, a notice appears and no rate is shown. |
-| Max guests | 2, 2, 2, 4, 5 (`max_occupancy`) | Shown live. |
-| Descriptions | Empty for all types except Presidential: "Our most luxurious accommodation with exclusive amenities and premium services". | When a description exists it is shown, since it is the owner's own content. Otherwise the line is "A private room for up to N guests." **Confirm** the Presidential wording ("exclusive amenities", "premium services"). |
-| Amenities | Empty for every type. | No per-room amenity lists. Chapter 05 shows only what the photographs show and says furnishings differ by room. |
-| Room images in DB | None (`image_url` empty). | Uses the photo the previous site already paired with each type (see §3). |
-| Executive Suite | Excluded from online booking in code since commit `99d5d77` (2025-12-13). | Kept. The site shows "Book by enquiry" with message and call options. The rule is shared by `isBookableOnline()`. **Confirm** this is still intended. |
-| Reviews | 3 approved reviews, all 5★: two with **empty comments**, one reading "Hhhh". These look like test entries. | Only approved reviews with a written comment of 30 characters or more are shown, so **no testimonials appear today**. Nothing is invented. A Google Maps link stands in. |
+| Duplicate room types | `room_types` has **70 rows** for 5 names. Only one row per name has rooms linked. | Grouped by name. The row with the most linked rooms wins, and types with no rooms are dropped (`dedupeRoomTypes` in `src/site/data/rooms.ts`). The booking flow uses the same rule. **Recommend deleting the 65 orphan rows** in the staff tools. |
+| Room categories are dynamic | Nothing in the site fixes the number or names of categories. | Every type with at least one room appears in the room film, the comparison, `/rooms`, `/rooms/:slug` and `/booking`, in price order. A new type gets the lodge's photograph and "Photographs of this room are coming soon." until photographs are added to `KNOWN` in `rooms.ts`. A type with frames in `public/film/<slug>/` gets its film automatically. |
+| **Executive Suite is now bookable online** | It was enquiry-only from commit `99d5d77` (2025-12-13). **The owner decided on 2026-11-01 to make it bookable.** | `isBookableOnline()` is now true for every type. The enquiry branches on the room card, room page and `/rooms` are removed. |
+| **Double-booking risk: the "110+109" unit** | The Presidential Suite's unit "110+109" appears to be the Deluxe Room (110) and the Executive Suite (109) let together. Every overlap check works **per room record**: the client engine (`src/services/booking-engine.ts`, around line 345), `netlify/functions/create-booking.js`, `netlify/functions/rooms-availability.js` and the database constraint `bookings_no_room_overlap` (`supabase/migrations/20260719000000_prevent_room_overlap.sql`). So "110+109" can be booked for the same nights as 110 or 109. The risk already existed for 110. Making the Executive Suite bookable extends it to 109. | **Not changed** (booking logic was out of scope, and the owner accepted the risk). **Recommended fix:** record which physical rooms a combined unit occupies (for example a `component_room_ids` column), and make all four checks treat a booking of the unit as a booking of each component, and a booking of a component as a booking of the unit. Until then, staff should check 109 and 110 by hand before confirming "110+109". |
+| **Room "3000"** | A Presidential Suite room numbered "3000". It does not follow the 1xx numbering. | Counted as a real room, because the booking system offers it. **Confirm** whether it exists. If it is a test row, delete it, or the suite will show availability the lodge doesn't have. |
+| Descriptions | Empty for all types except Presidential: "Our most luxurious accommodation with exclusive amenities and premium services". | Shown when present, since it is the owner's own content. **Confirm** the Presidential wording. |
+| Amenities and bed configuration | Empty for every type. No bed sizes or counts are recorded. | No amenity lists and no bed claims. Each room shows a one-line note of what its photographs show ("Pictured: …"), and that furnishings differ between rooms. **Supply** beds and amenities per type. |
+| Room images in DB | None (`image_url` empty). | Uses the photo the previous site paired with each type (§3). |
+| Reviews | 3 approved reviews, all 5★: two with **empty comments**, one reading "Hhhh". These look like test entries. | Only approved reviews with a written comment of 30 characters or more are shown, so **none appear today**. Nothing is invented. |
+| Booking while rates load | The room links carry the booking system's type id, which arrives with the rates (usually well under a second). | A visitor who taps "Book This Room" before the rates have loaded lands on `/booking` without the room preselected, and picks it there. |
 
 ## 2. Contact and location facts
 
 | Fact | Source | Status |
 | --- | --- | --- |
 | Abuakwa DKC Junction, Kumasi–Sunyani Road, Kumasi, Ghana | previous ContactPage and footer | used |
-| +233 55 500 9697 | previous ContactPage | used |
-| info@amplodge.org, bookings@amplodge.org | previous ContactPage | used. The previous HomePage had a placeholder `hello@amplodge.example`, which has been removed. |
-| Hours: Mon–Fri 8 AM–8 PM, Sat–Sun 9 AM–6 PM | previous ContactPage ("Hours") | **Unverified.** Are these reception, office or phone hours? Labelled only "Hours". |
+| +233 55 500 9697 | previous ContactPage; also on the signboard ("0555009697") | used |
+| info@amplodge.org, bookings@amplodge.org | previous ContactPage | used |
+| **Signboard:** "Welcome · AMP LODGE · ACCOMMODATION AND BED & BREAKFAST · MEETING VENUE · 0555009697" | the owner's exterior photograph (`exteriorpic.jpeg`, 2026-11-01) | **Used, as approved by the owner** ("Both"): the Find Us lede and `/rooms` quote the sign, the home page's meta description says "accommodation, bed & breakfast and a meeting venue". `/rooms` adds "Ask us about breakfast or a meeting when you book: what is included depends on your booking." No rate claims to include breakfast. |
+| Hours: Mon–Fri 8 AM–8 PM, Sat–Sun 9 AM–6 PM | previous ContactPage ("Hours") | **Unverified.** Reception, office or phone hours? |
 | "north-west of the city centre" | geography of Abuakwa | **Confirm** wording. |
-| "minutes from the heart of Kumasi" (previous site) | previous HomePage | **Not used.** The new copy says "a short drive away"; **confirm**. |
 | Check-in and check-out times, cancellation policy | not found anywhere | **Missing.** Not shown. Please supply. |
-| Google Business Profile URL | not found | **Missing.** The site links to a Google Maps search for the address. Supply the profile's review link to replace it. |
+| Google Business Profile URL | not found | **Missing.** The site links to a Google Maps search. |
 
 ## 3. Assets
 
 ### Photographs
 
-The originals were 12 Firebase-hosted images plus 3 in `public/static/images/rooms`, at most **1024 px wide**. All are re-encoded locally in `public/images/property/` as `{slug}-640.webp`, `{slug}-1024.webp` and `{slug}-1024.jpg`, or at native width when smaller. Nothing is upscaled. On large, high-DPI screens the photos look soft. **Recommend a professional shoot** delivered at ≥ 2400 px: façade at dusk, each room type, bathrooms, any dining or bar area.
+All photographs are at most **1080 px wide** (most 1024 px), re-encoded in `public/images/property/` as `{slug}-640.webp`, `{slug}-1024.webp` and `.jpg`, at native width when smaller. Nothing is upscaled. On large, high-DPI screens they look soft. **Recommend a professional shoot** at ≥ 2400 px: the façade, the gate and forecourt, reception if there is one, the corridor, each room type, the bathrooms.
+
+New in Phase B: **`exterior-road`**, the owner's photograph of the lodge from the road (`exteriorpic.jpeg`, 1080×810, light colour correction only). It is the gallery's first photograph, the still behind the approach chapter, and the stand-in for a room type with no photographs.
 
 Pairings kept from the previous site:
 
-| Room type | Photo used |
-| --- | --- |
-| Standard | green room |
-| Executive Suite | amber room |
-| Deluxe | grey room |
-| Family | two-bed room |
-| Presidential | suite lounge |
+| Room type | Photo used | Film starts on |
+| --- | --- | --- |
+| Standard | green room | the same photograph |
+| Executive Suite | amber room | the same photograph |
+| Deluxe | grey room | the same photograph |
+| Family | two-bed room (portrait) | the same photograph |
+| Presidential | suite (portrait hero) | the suite lounge (landscape) |
 
-Bug fixed: the previous HomePage showed the **event hall** as the Family Room. The hall now appears only as "The hall" in the gallery and tour.
-
-Excluded: one CCTV still that the old virtual-tour slider showed.
+Note: **`exterior-day` predates the right-hand wing and the flags.** The forecourt chapter, which is animated from it, therefore shows the main building only. A new forecourt photograph would fix this.
 
 ### Logo
 
-The only logo is a raster (`public/amp.png`). `src/site/brand/logo-geometry.ts` is a **traced stand-in** (potrace) used for the inline SVG logo and the intro's pen-drawn reveal. Coverage is verified at 0 % uncovered pixels. **Supply the master SVG** and replace the paths, keeping the same layer split: `a`, `m`, `p`, `dots`, `bar`. The logo has no crown, so the intro doesn't invent one.
+The only logo is a raster (`public/amp.png`). `src/site/brand/logo-geometry.ts` is a **traced stand-in** (potrace) for the inline SVG logo and the intro's pen-drawn reveal. **Supply the master SVG** and replace the paths, keeping the layer split `a`, `m`, `p`, `dots`, `bar`.
 
-### The arrival film (AI-animated)
+### The film (AI-animated from photographs)
 
-The home page's film is six clips generated with BytePlus Seedance (Dreamina Seedance 2.5). Each is animated from **one real photograph**:
-- the exterior at dusk
-- the exterior at night
-- the corridor
-- the Standard, Family and Executive rooms
+Nine clips: four for the arrival and five rooms. Every clip, still, prompt, generation id, credit cost and QC verdict is in [FILM-MANIFEST.md](FILM-MANIFEST.md).
 
-Every clip, its prompt, task ID, cost and QC notes are in [FILM-MANIFEST.md](FILM-MANIFEST.md). Total generation cost was about $9.00–9.30, not verified against BytePlus billing. The masters are in `media/`, which is not for committing.
+- **Kling (Phase B):** two stills and five clips, **380 credits** of the ~450 the owner approved, one generation per step, no re-rolls.
+- **Seedance (Phase A):** four clips still in use (corridor, Standard, Executive, Family), about $9.00–9.30 in all, not verified against BytePlus billing. The Phase A arrival and approach clips are retired.
+- Masters are in `media/`, which is git-ignored. **Store `media/` somewhere safe:** Kling's download links expire after 24 hours.
+
+**Two images are edits of a real photograph, not photographs:**
+- **S1**, the eye-level view used to end the crane and start the approach: the owner's photograph with the cement blocks and litter removed, relit to late afternoon.
+- **S2**, the elevated opening (and the hero poster): the same view with the camera raised to first-floor height, looking over the wall into the forecourt, which a real photograph documents. It stays below the roofline, so no roof or floor is invented. The model garbled the signboard, so **the real signboard was composited back in**.
 
 **What the film does not show, because no photograph exists:**
-- **The entrance, reception and lobby.** No photograph shows the inside of the gate, the door or a reception area. The threshold is therefore an **editorial cut**: an aperture from the night gate into the corridor, not a walk through a door.
-- **How the corridor leads to each room.** Rooms appear through wipes and a framed print, not by walking in.
+- **The route from the forecourt to the corridor**, and any reception or lobby. The threshold is an **editorial cut**: the camera leans into the glass doors and the corridor opens through them.
+- **How the corridor leads to each room.** Rooms arrive through wipes and a framed print.
 - **Bathrooms, dining or any facility.**
 
-**Known flaws in the generated clips:**
-- Arrival: invented, blurry lettering behind the green flag. An inpainting smudge in the sky for the first ~2 s, also visible in the poster. The "A" of the AMP sign crops out during the push.
-- Approach: the flags flap across the "AMP" lettering.
-- Executive Suite: an air-conditioning unit's edge appears top left in the last second, outside the original frame. **Owner to confirm** that a unit is there in the real room; otherwise trim the clip's last second.
+**Known flaws, all minor, and trims:**
+- Deluxe: at the far-left edge of the desk, the tray's contents extend beyond the original frame.
+- Presidential: an unverified red footstool moves in from about frame 44, so the clip is **cut at 1.83 s**.
+- Executive: an air-conditioning unit's edge appears outside the original frame in the last second, so the clip is **cut at 4.0 s** (this resolves Phase A's open question).
 
-The site labels the film "Film animated from photographs of the lodge." (desktop), and the screen-reader description says so. Reduced-motion visitors, Save-Data, slow connections and low-power devices get the photographs only.
+Disclosure on the page: the film rail says "Film animated from photographs of the lodge." (desktop), the screen-reader description says the same, and the phone room cards end with "Room films are animated from photographs of the lodge." Reduced-motion visitors, Save-Data, slow connections and low-power devices get photographs only.
 
-**Replace with real gimbal or drone footage when available.** The frame pipeline (`scripts/build-film-frames.mjs`) takes any clip.
-
-The removed hero video (`public/videos/hero/*.mp4` and `.webm`) was the arrival clip's earlier encode. Its posters are still used.
+**Replace with real gimbal or drone footage when available.** `scripts/build-film-frames.mjs` takes any clip; see the end of FILM-MANIFEST.md.
 
 ### Open Graph image
 
-`public/images/og/amp-lodge-og.jpg`, 1200×630, made from the exterior photo.
+`public/images/og/amp-lodge-og.jpg`, 1200×630, from the exterior photo. Not changed in Phase B.
 
 ## 4. Claims removed or kept off the site
 
 | Claim on the previous site | Status |
 | --- | --- |
-| Fine Dining, on-site restaurant serving local and continental dishes | **unverified**: not shown (a dining-table photo exists; whether a restaurant operates is unknown) |
-| Café & Bar | **unverified**: not shown (the event-hall photo has a counter; purpose unknown) |
+| Fine Dining, on-site restaurant | **unverified**: not shown |
+| Café & Bar | **unverified**: not shown |
 | Fitness Center | **unverified**: removed |
-| Free WiFi, Free Parking | **unverified**: not shown. **Confirm** and they can be added to the room pages. |
-| Breakfast | never claimed; not shown |
+| Free WiFi, Free Parking | **unverified**: not shown. **Confirm** and they can be added. |
+| Breakfast | **Only as the sign says it** (§2): the sign is quoted, and guests are told to ask what their booking includes. No rate is said to include breakfast. |
+| Meeting venue | **Only as the sign says it.** The event-hall photograph appears in the gallery as "The hall". No capacity or equipment is claimed. |
 | "Relaxing lounge and garden area" | **unverified**: not shown |
-| Air conditioning, wall-mounted TV, desk, en-suite shower | **visible in photographs** of some rooms. Shown only as photo captions, with "furnishings differ from room to room". |
+| Air conditioning, wall-mounted TV, desk, en-suite shower | **visible in photographs** of some rooms; shown only in "Pictured: …" notes and captions |
+| A count of rooms or room categories | Never stated. The brief's "Three Ways to Feel at Home." was replaced by "Find Your Place to Unwind." |
 
-## 5. Copy written for the redesign (owner to approve)
+## 5. Copy (owner to approve)
 
-Brief-supplied lines are used verbatim:
-- "Arrive. Unwind. Feel at Home." and the hero sentence
-- "Your comfort. Our priority."
-- "The AMP Lodge experience" / "Comfort begins the moment you arrive."
-- "The rooms" / "Three Ways to Feel at Home." / "Discover your perfect space."
-- the room taglines: "Comfort in its simplest form.", "More room for moments together.", "Settle into something special."
-- "Book Your Stay", "Explore Rooms", "Book This Room"
-- "Find the room that feels just right."
-- "Spaces Made for Rest." (the rooms page)
-- "Hospitality You Can Feel."
+Used verbatim from the brief:
+- "Arrive. Unwind. / Feel at Home.", "Your comfort. Our priority." and "Your welcoming retreat in Kumasi, where thoughtful comfort meets genuine hospitality."
+- "THE AMP LODGE EXPERIENCE" / "Comfort Begins Here."
+- "Find Your Place to Unwind." / "Explore our rooms and discover the comfort that feels right for you."
+- "Book Your Stay", "Explore Rooms", "Book This Room", "View Room Details"
 - "Your Stay Begins Here."
+- Earlier-phase lines still in use: "Find the room that feels just right.", "Spaces Made for Rest.", "Hospitality You Can Feel."
 
 New supporting copy to review:
 
 | Where | New copy |
 | --- | --- |
-| Film, scene 02 | "The approach", then the address from `site.ts` and "on the Kumasi–Sunyani Road." |
-| Film, hand-off | "Choose your stay / Five rooms. One warm welcome. / From GH₵350 a night, booked directly with us." The count and the rate come from the live room list. |
-| Film rail | the scene names, "Skip to rooms & rates", "Film animated from photographs of the lodge." |
-| Executive Suite action | "Enquire about this suite" (the suite stays enquiry-only, as decided) |
-| Choose your stay | "Every room is booked directly with us. Rates and guest numbers come live from our booking system." The two rooms the film doesn't show use their description from the booking system. |
-| Hospitality paragraph | "Good hospitality is mostly small things done well … That is the standard we hold ourselves to." |
-| Virtual tour captions | one per photograph |
+| Intro | "Your comfort. Our priority." under the logo (the brief's line) |
+| Film, 02 | "The façade" / "A stone-clad lodge on the Kumasi–Sunyani Road." |
+| Film, 03 (desktop) | "In detail" / "Stone walls, cream pillars and black ironwork." |
+| Film, approach | "The approach" / "Abuakwa DKC Junction. The gate is just ahead." |
+| Film, gate | "Through the gate" / "Across the forecourt to the glass doors." |
+| Film rail | the scene names, "Skip to the rooms" |
+| Room taglines, new | Deluxe "A quieter kind of comfort.", Presidential "Room to gather, and room to rest." (Standard, Family and Executive keep the brief's lines) |
+| Room film hand-off | "Choose your stay" / "Every room, side by side." / "Compare rates and guest numbers, then choose your dates." / "Compare and book" |
+| Room index | "Skip to booking", "Previous room", "Next room" |
+| Booking panel | "Check availability", "Next you'll see availability for your dates. Nothing is booked until you confirm." |
+| Find Us | "Look for the stone wall, the cream pillars and our sign: “Accommodation and Bed & Breakfast · Meeting Venue”." |
+| A room type with no photographs | "Photographs of this room are coming soon. Pictured: the lodge." |
 
 ## 6. Blocked or out of scope
 
-- **Availability on the public pages.** It is not shown, to avoid stale or misleading scarcity. The booking flow (existing logic) computes availability for the chosen dates.
-- **Reviews.** Nothing qualifies (see §1).
-- **Payments.** The booking flow is unchanged apart from presentation, de-duplication and deep-link parameters.
-- **Analytics and consent.** None added. Google Maps loads only on request (click-to-load).
+- **The "110+109" composite-unit guard** (§1). Documented with a recommended fix; booking logic not changed.
+- **Availability on the public pages.** Not shown, to avoid stale or misleading scarcity. The booking flow computes it for the chosen dates.
+- **Reviews.** Nothing qualifies (§1).
+- **Payments.** The booking flow is unchanged apart from presentation, de-duplication, deep links and the Executive Suite.
+- **Analytics and consent.** None added. Google Maps loads only on request.
+- **Field performance data.** Only lab measurements exist (README, Performance).
 
 ## 7. Security note
 
-During setup a BytePlus API key was saved into the **tracked** file `.env.local.example`, which now shows as modified in `git status`. Remove that line, or revert the file, before committing, and consider rotating the key. The key is not used by the website.
+**Resolved.** During Phase A setup a BytePlus API key was written into the tracked `.env.local.example`. The committed file carries only an empty placeholder (`BYTEPLUS_MODELARK_API_KEY=`), and no commit contains the key. The key lives only in `~/mcp-servers/byteplus-seedance-mcp/.env`, outside this repository. The website doesn't use it.

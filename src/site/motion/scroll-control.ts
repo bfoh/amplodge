@@ -43,3 +43,13 @@ export function scrollToTarget(target: HTMLElement, offset = 0) {
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   window.scrollTo({ top, behavior: reduce ? 'auto' : 'smooth' })
 }
+
+/** Scrolls to an absolute page offset (used to jump within a scroll-driven track). */
+export function scrollToY(top: number) {
+  if (lenis) {
+    lenis.scrollTo(top)
+    return
+  }
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  window.scrollTo({ top, behavior: reduce ? 'auto' : 'smooth' })
+}

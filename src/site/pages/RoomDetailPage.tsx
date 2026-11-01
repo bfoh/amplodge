@@ -1,27 +1,28 @@
-import { useId, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useState } from 'react'
+import { useParams } from 'react-router-dom'
 
+import { BookingPanel } from '../components/BookingPanel'
 import { Lightbox } from '../components/Lightbox'
 import { PageHero } from '../components/PageHero'
 import { Picture } from '../components/Picture'
 import { RoomCard } from '../components/RoomCard'
-import { bookingHref, findRoom, formatRate, useRooms } from '../data/rooms'
-import { SITE } from '../data/site'
+import { findKnownRoom, formatRate, useRooms } from '../data/rooms'
 import { ImageReveal } from '../motion/ImageReveal'
 import { Reveal } from '../motion/Reveal'
 import { useDocumentMeta } from '../seo/useDocumentMeta'
 import NotFoundPage from './NotFoundPage'
 
-const iso = (d: Date) => {
-  const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-  return z.toISOString().slice(0, 10)
-}
-
+/**
+ * One page per live room type (/rooms/:slug). The list comes from the booking
+ * system, so a type added there gets its page too; while it loads, a known
+ * type renders at once and an unknown slug waits rather than showing "not
+ * found" too early.
+ */
 export default function RoomDetailPage() {
   const { slug } = useParams()
-  const entry = findRoom(slug)
   const { rooms, status } = useRooms()
   const room = rooms.find((r) => r.slug === slug)
+  const entry = room ?? findKnownRoom(slug)
   const [open, setOpen] = useState<number | null>(null)
 
   useDocumentMeta({
@@ -34,7 +35,8 @@ export default function RoomDetailPage() {
     noindex: !entry,
   })
 
-  if (!entry || !room) return <NotFoundPage />
+  if (!room && status === 'loading') return <div className="min-h-[100svh] bg-amp-obsidian" aria-busy="true" />
+  if (!room) return <NotFoundPage />
 
   const rate = formatRate(room.price)
   const others = rooms.filter((r) => r.slug !== room.slug).slice(0, 3)
@@ -50,7 +52,7 @@ export default function RoomDetailPage() {
                 <span className="amp-display text-3xl text-amp-ivory">{rate}</span> / night
               </>
             ) : status === 'loading' ? (
-              <span className="inline-block h-6 w-28 animate-pulse bg-amp-ivory/15" aria-label="Loading rate" />
+              <span className="inline-block h-6 w-28 animate-pulse bg-amp-ivory/15"><span className="sr-only">Loading rate</span></span>
             ) : (
               'Rate shown when you choose dates'
             )}
@@ -63,6 +65,11 @@ export default function RoomDetailPage() {
         <div className="mx-auto grid max-w-site gap-14 px-gutter lg:grid-cols-12 lg:gap-12">
           <div className="lg:col-span-7">
             <h2 className="sr-only">Photographs</h2>
+            {room.gallery.length === 0 && (
+              <div className="aspect-[16/10] overflow-hidden bg-amp-limestone">
+                <Picture photo={room.hero} sizes="(min-width: 64rem) 55vw, 100vw" className="h-full" />
+              </div>
+            )}
             <ul className="grid grid-cols-2 gap-3 sm:gap-4">
               {room.gallery.map((p, i) => (
                 <li key={p.slug} className={i === 0 ? 'col-span-2' : ''}>
@@ -75,31 +82,19 @@ export default function RoomDetailPage() {
                 </li>
               ))}
             </ul>
-            <p className="mt-4 text-sm text-amp-ink-muted">{room.photoNote} Furnishings can differ between rooms of the same type.</p>
+            <p className="mt-4 text-sm text-amp-ink-muted">
+              {room.photoNote}
+              {room.photographed ? ' Furnishings can differ between rooms of the same type.' : ''}
+            </p>
             <Lightbox photos={room.gallery} index={open} onIndexChange={setOpen} />
           </div>
 
           <div className="lg:col-span-5">
             <div className="lg:sticky lg:top-28">
               <h2 id="room-book" className="amp-display text-[clamp(2rem,4vw,3rem)] text-amp-ink">
-                {room.bookable ? 'Check your dates' : 'Book by enquiry'}
+                Check your dates
               </h2>
-              {room.bookable ? (
-                <BookingForm roomTypeId={room.typeId} maxGuests={room.maxGuests ?? 4} />
-              ) : (
-                <div className="mt-6 space-y-4">
-                  <p className="text-amp-ink-muted">
-                    The {room.name} isn't available to book online. Send us your dates and we'll confirm availability and the rate with you
-                    directly.
-                  </p>
-                  <Link to={`/contact?room=${room.slug}`} className="amp-btn amp-btn--block">
-                    Enquire about this suite
-                  </Link>
-                  <a href={SITE.phone.href} className="amp-btn amp-btn--ghost amp-btn--block">
-                    Call {SITE.phone.display}
-                  </a>
-                </div>
-              )}
+              <BookingPanel rooms={[room]} className="mt-6" />
               <dl className="mt-10 divide-y divide-amp-ink/10 border-y border-amp-ink/10 text-sm">
                 <div className="flex justify-between gap-4 py-3">
                   <dt className="text-amp-ink-muted">Nightly rate</dt>
@@ -111,7 +106,7 @@ export default function RoomDetailPage() {
                 </div>
                 <div className="flex justify-between gap-4 py-3">
                   <dt className="text-amp-ink-muted">Booking</dt>
-                  <dd className="font-semibold text-amp-ink">{room.bookable ? 'Online or by phone' : 'By enquiry'}</dd>
+                  <dd className="font-semibold text-amp-ink">Online or by phone</dd>
                 </div>
               </dl>
               <p className="mt-4 text-xs leading-relaxed text-amp-ink-muted">Rates come from our booking system and are confirmed before you pay.</p>
@@ -137,93 +132,5 @@ export default function RoomDetailPage() {
         </section>
       )}
     </>
-  )
-}
-
-function BookingForm({ roomTypeId, maxGuests }: { roomTypeId: string | null; maxGuests: number }) {
-  const navigate = useNavigate()
-  const id = useId()
-  const today = useMemo(() => iso(new Date()), [])
-  const [checkIn, setCheckIn] = useState('')
-  const [checkOut, setCheckOut] = useState('')
-  const [guests, setGuests] = useState(Math.min(2, maxGuests))
-  const [error, setError] = useState('')
-
-  const minOut = checkIn ? iso(new Date(new Date(`${checkIn}T00:00:00`).getTime() + 86400000)) : today
-
-  return (
-    <form
-      className="mt-6 space-y-5"
-      noValidate
-      onSubmit={(e) => {
-        e.preventDefault()
-        if (checkIn && checkOut && checkOut <= checkIn) {
-          setError('Check-out must be after check-in.')
-          return
-        }
-        setError('')
-        navigate(bookingHref({ typeId: roomTypeId }, { checkIn: checkIn || undefined, checkOut: checkOut || undefined, guests }))
-      }}
-    >
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label htmlFor={`${id}-in`} className="amp-eyebrow block text-amp-ink-muted">
-            Check-in
-          </label>
-          <input
-            id={`${id}-in`}
-            type="date"
-            min={today}
-            value={checkIn}
-            onChange={(e) => {
-              setCheckIn(e.target.value)
-              if (checkOut && e.target.value && checkOut <= e.target.value) setCheckOut('')
-            }}
-            className="mt-2 h-12 w-full border border-amp-ink/30 bg-amp-ivory px-3 text-base text-amp-ink"
-          />
-        </div>
-        <div>
-          <label htmlFor={`${id}-out`} className="amp-eyebrow block text-amp-ink-muted">
-            Check-out
-          </label>
-          <input
-            id={`${id}-out`}
-            type="date"
-            min={minOut}
-            value={checkOut}
-            onChange={(e) => setCheckOut(e.target.value)}
-            aria-invalid={!!error}
-            aria-describedby={error ? `${id}-err` : undefined}
-            className="mt-2 h-12 w-full border border-amp-ink/30 bg-amp-ivory px-3 text-base text-amp-ink"
-          />
-        </div>
-      </div>
-      <div>
-        <label htmlFor={`${id}-guests`} className="amp-eyebrow block text-amp-ink-muted">
-          Guests
-        </label>
-        <select
-          id={`${id}-guests`}
-          value={guests}
-          onChange={(e) => setGuests(Number(e.target.value))}
-          className="mt-2 h-12 w-full border border-amp-ink/30 bg-amp-ivory px-3 text-base text-amp-ink"
-        >
-          {Array.from({ length: maxGuests }, (_, i) => i + 1).map((n) => (
-            <option key={n} value={n}>
-              {n} {n === 1 ? 'guest' : 'guests'}
-            </option>
-          ))}
-        </select>
-      </div>
-      {error && (
-        <p id={`${id}-err`} role="alert" className="text-sm font-medium text-[#8a1c1c]">
-          {error}
-        </p>
-      )}
-      <button type="submit" className="amp-btn amp-btn--block">
-        Continue to booking <span className="amp-arrow" aria-hidden="true">→</span>
-      </button>
-      <p className="text-xs text-amp-ink-muted">Next you'll see availability for your dates. Nothing is booked until you confirm.</p>
-    </form>
   )
 }

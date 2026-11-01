@@ -21,13 +21,17 @@ import { INTRO_SESSION_KEY } from './intro-document'
  * - done: html[data-intro-done] restores scrolling, shows the header logo and
  *   the voice widget, and the intro's nodes are removed.
  *
- * Plays once per tab session, only on the home page, below 64 rem, with motion
- * allowed (decided by the head script before first paint).
+ * Plays once per tab session, only on the home page, on every screen size,
+ * with motion allowed (decided by the head script before first paint).
+ *
+ * Length: the owner asked (2026-11-01) for the mark to stay a few seconds
+ * longer, so the drawing and its hold run to 4.2 s (1.9 s on low-power
+ * devices) and the curtain has opened by ≈5.2 s. Skip is always available.
  */
-const DRAW_END_MS = 1400
-const DRAW_END_LITE_MS = 700
+const DRAW_END_MS = 4200
+const DRAW_END_LITE_MS = 1900
 /** Never hold the visitor longer than this waiting for the poster. */
-const HOLD_CAP_MS = 2500
+const HOLD_CAP_MS = 6500
 
 /**
  * A finished `animation-fill-mode: forwards` outranks inline styles, so GSAP
@@ -83,7 +87,7 @@ export function BrandIntro() {
       const curtains = root.querySelectorAll<HTMLElement>('.amp-intro__curtain')
       const [left, right] = Array.from(curtains)
       tl = gsap.timeline({ onComplete: finish })
-      tl.to(freeze(root.querySelectorAll<HTMLElement>('.amp-intro__rule, .amp-intro__caption, .amp-intro__skip')), { opacity: 0, duration: 0.3, ease: ease.soft }, 0)
+      tl.to(freeze(root.querySelectorAll<HTMLElement>('.amp-intro__rule, .amp-intro__caption, .amp-intro__motto, .amp-intro__skip')), { opacity: 0, duration: 0.3, ease: ease.soft }, 0)
       tl.to(freeze(root.querySelectorAll<HTMLElement>('.amp-intro__atmos, .amp-intro__glow')), { opacity: 0, duration: 0.6, ease: ease.soft }, 0.05)
       if (left && right) {
         tl.to(left, { xPercent: -101, duration: 0.95, ease: ease.mask }, 0.1)
@@ -149,7 +153,7 @@ export function BrandIntro() {
       if (state !== 'done') {
         tl?.kill()
         tl = null
-        root.querySelectorAll<HTMLElement>('.amp-intro__curtain, .amp-intro__stage, .amp-intro__atmos, .amp-intro__glow, .amp-intro__rule, .amp-intro__caption, .amp-intro__skip').forEach((el) => el.removeAttribute('style'))
+        root.querySelectorAll<HTMLElement>('.amp-intro__curtain, .amp-intro__stage, .amp-intro__atmos, .amp-intro__glow, .amp-intro__rule, .amp-intro__caption, .amp-intro__motto, .amp-intro__skip').forEach((el) => el.removeAttribute('style'))
         root.removeAttribute('style')
       }
     }
