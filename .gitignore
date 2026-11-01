@@ -16,3 +16,6 @@ Thumbs.db
 *.log
 *.local
 scratch/
+
+# Generated video masters (see docs/redesign/FILM-MANIFEST.md); kept out of git
+media/

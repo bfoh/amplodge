@@ -18,6 +18,8 @@ import { useBookingCart } from '@/context/BookingCartContext'
 import { bookingEngine } from '@/services/booking-engine'
 import { buildBookingPaymentEvent, appendPaymentEvent } from '@/lib/payment-events'
 import { createBookingGroup } from '@/lib/booking-groups'
+import { dedupeRoomTypes, isBookableOnline } from '@/site/data/rooms'
+import { useDocumentMeta } from '@/site/seo/useDocumentMeta'
 
 export function BookingPage() {
   const { currency } = useCurrency()
@@ -81,11 +83,33 @@ export function BookingPage() {
     initializeData()
   }, [])
 
+  useDocumentMeta({
+    title: 'Book Your Stay | AMP Lodge, Kumasi',
+    description: 'Book a room at AMP Lodge, Abuakwa, Kumasi directly: choose your dates, pick a room and confirm in a few steps.',
+    path: '/booking',
+  })
+
+  // Deep links from the public site: /booking?roomType=&checkIn=yyyy-MM-dd&checkOut=yyyy-MM-dd&guests=
   useEffect(() => {
     const roomTypeParam = searchParams.get('roomType')
     if (roomTypeParam) {
       setSelectedRoomTypeId(roomTypeParam)
     }
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const parseDay = (v: string | null) => {
+      if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return undefined
+      const d = parseISO(v)
+      return isNaN(d.getTime()) ? undefined : d
+    }
+    const inParam = parseDay(searchParams.get('checkIn'))
+    const outParam = parseDay(searchParams.get('checkOut'))
+    if (inParam && inParam >= today) {
+      setCheckIn(inParam)
+      if (outParam && outParam > inParam) setCheckOut(outParam)
+    }
+    const guestsParam = parseInt(searchParams.get('guests') || '', 10)
+    if (guestsParam >= 1 && guestsParam <= 10) setNumGuests(guestsParam)
   }, [searchParams])
 
   const loadData = async () => {
@@ -95,11 +119,17 @@ export function BookingPage() {
         db.properties.list({ orderBy: { createdAt: 'desc' } }),
         bookingEngine.getAllBookings()
       ])
-      const normalize = (s: string) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
-      const filteredTypes = (typesData as RoomType[]).filter(t => {
-        const n = normalize((t as any).name)
-        return n && !n.includes('executive suite')
-      })
+      // room_types holds many duplicate rows per name (repeated seeding); only
+      // one row per name has rooms linked. Keep that row, drop types with no
+      // rooms, and keep Executive Suite off online booking (since 99d5d77).
+      // Same rule as the public site (src/site/data/rooms.ts).
+      const filteredTypes = dedupeRoomTypes(
+        typesData as unknown as Array<Record<string, unknown>>,
+        propertiesData as unknown as Array<Record<string, unknown>>,
+      )
+        .map((g) => g.type as unknown as RoomType)
+        .filter((t) => t.name && isBookableOnline(t.name))
+        .sort((a, b) => (Number(a.basePrice) || 0) - (Number(b.basePrice) || 0))
 
       // Process properties data to match room types
       const propertiesWithPrices = propertiesData.map((prop: any) => {
@@ -619,10 +649,13 @@ export function BookingPage() {
 
   return (
     <>
-      <div className="min-h-screen pt-12 sm:pt-20 pb-20 bg-gradient-to-b from-secondary/30 to-secondary/60">
+      <div className="min-h-screen bg-amp-limestone pb-24 pt-[calc(var(--amp-header-h)+3rem)] sm:pt-[calc(var(--amp-header-h)+4.5rem)]">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 sm:mb-12 gap-4">
-            <h1 className="text-3xl sm:text-5xl font-serif font-bold tracking-tight text-foreground">Book Your Stay</h1>
+          <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between mb-8 sm:mb-12 gap-4">
+            <div>
+              <p className="amp-eyebrow text-amp-bronze">Book direct</p>
+              <h1 className="amp-display mt-3 text-[clamp(2.6rem,7vw,4.75rem)] text-amp-ink">Book Your Stay</h1>
+            </div>
             {window.location.search.includes('admin=true') && (
               <Button
                 variant="outline"
@@ -635,23 +668,25 @@ export function BookingPage() {
           </div>
 
           {/* Progress Steps */}
-          <div className="flex items-center justify-start sm:justify-center mb-10 sm:mb-16 pb-4 sm:pb-0 overflow-x-auto no-scrollbar mask-fade-right">
+          <ol aria-label="Booking steps" className="flex items-center justify-center mb-10 sm:mb-16">
             {[1, 2, 3, 4, 5].map((s) => (
-              <div key={s} className="flex items-center shrink-0">
+              <li key={s} className="flex items-center shrink-0" aria-current={step === s ? 'step' : undefined}>
                 <div
-                  className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center font-bold text-sm sm:text-base transition-all duration-300 ${step >= s ? 'bg-gradient-to-br from-primary to-accent text-white shadow-lg scale-110' : 'bg-white border-2 border-secondary text-muted-foreground'
+                  className={`w-9 h-9 sm:w-12 sm:h-12 rounded-full flex items-center justify-center font-semibold text-sm sm:text-base transition-colors duration-300 ${step >= s ? 'bg-amp-ink text-amp-ivory' : 'bg-amp-ivory border border-amp-ink/25 text-amp-ink-muted'
                     }`}
                 >
-                  {step > s ? <Check className="w-5 h-5 sm:w-6 sm:h-6" /> : s}
+                  <span className="sr-only">Step {s}: {['Choose a room', 'Your reservation', 'Billing', 'Guests', 'Confirm and pay'][s - 1]}{step > s ? ', done' : ''}</span>
+                  <span aria-hidden="true">{step > s ? <Check className="w-5 h-5 sm:w-6 sm:h-6" /> : s}</span>
                 </div>
                 {s < 5 && (
                   <div
-                    className={`w-6 sm:w-16 h-0.5 sm:h-1 mx-2 rounded-full transition-all duration-300 ${step > s ? 'bg-gradient-to-r from-primary to-accent' : 'bg-secondary/50'}`}
+                    aria-hidden="true"
+                    className={`w-3 sm:w-16 h-px mx-1.5 sm:mx-2 transition-colors duration-300 ${step > s ? 'bg-amp-bronze' : 'bg-amp-ink/20'}`}
                   />
                 )}
-              </div>
+              </li>
             ))}
-          </div>
+          </ol>
 
           {/* global cart summary (mini) if not on cart page */}
           {step !== 2 && cartItems.length > 0 && (
@@ -663,9 +698,9 @@ export function BookingPage() {
           )}
 
           {/* Step Content */}
-          <Card className="border-primary/10 shadow-xl bg-white">
+          <Card className="border-amp-ink/10 shadow-[0_30px_60px_-30px_rgba(36,33,30,0.25)] bg-card">
             <CardHeader className="pb-6">
-              <CardTitle className="text-3xl font-serif mb-2">
+              <CardTitle role="heading" aria-level={2} className="amp-display text-4xl mb-2">
                 {step === 1 && 'Select Room'}
                 {step === 2 && 'Your Reservation Cart'}
                 {step === 3 && 'Billing Information'}
@@ -690,7 +725,7 @@ export function BookingPage() {
                       <label className="block text-sm font-medium mb-2">Check-in Date</label>
                       <Popover>
                         <PopoverTrigger asChild>
-                          <Button variant="outline" className="w-full justify-start">
+                          <Button variant="outline" className="w-full justify-start" aria-label={`Check-in date: ${checkIn ? format(checkIn, 'PPP') : 'not selected'}`}>
                             <CalendarIcon className="mr-2 h-4 w-4" />
                             {checkIn ? format(checkIn, 'PPP') : 'Select date'}
                           </Button>
@@ -713,7 +748,7 @@ export function BookingPage() {
                       <label className="block text-sm font-medium mb-2">Check-out Date</label>
                       <Popover>
                         <PopoverTrigger asChild>
-                          <Button variant="outline" className="w-full justify-start">
+                          <Button variant="outline" className="w-full justify-start" aria-label={`Check-out date: ${checkOut ? format(checkOut, 'PPP') : 'not selected'}`}>
                             <CalendarIcon className="mr-2 h-4 w-4" />
                             {checkOut ? format(checkOut, 'PPP') : 'Select date'}
                           </Button>
@@ -731,8 +766,9 @@ export function BookingPage() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium mb-2">Number of Guests (for this room)</label>
+                    <label htmlFor="booking-num-guests" className="block text-sm font-medium mb-2">Number of Guests (for this room)</label>
                     <Input
+                      id="booking-num-guests"
                       type="number"
                       min={1}
                       max={10}
@@ -740,7 +776,7 @@ export function BookingPage() {
                       onChange={(e) => setNumGuests(parseInt(e.target.value))}
                     />
                                       <div className="space-y-3 sm:space-y-4 pt-4 border-t">
-                      <h3 className="font-medium text-lg">Available Rooms</h3>
+                      <h2 className="font-medium text-lg">Available Rooms</h2>
                       {roomTypes.map((roomType) => {
                         const available = getCurrentAvailability(roomType.id)
                         const isSelected = selectedRoomTypeId === roomType.id
@@ -806,7 +842,7 @@ export function BookingPage() {
                         {cartItems.map((item, idx) => (
                           <div key={item.tempId} className="border p-3 sm:p-4 rounded-xl flex justify-between items-center bg-secondary/5 hover:bg-secondary/10 transition-colors">
                             <div className="space-y-0.5">
-                              <h4 className="font-serif font-bold text-sm sm:text-base">{item.roomTypeName}</h4>
+                              <h3 className="font-serif font-bold text-sm sm:text-base">{item.roomTypeName}</h3>
                               <p className="text-[10px] sm:text-sm text-muted-foreground">
                                 {format(item.checkIn, 'MMM dd')} - {format(item.checkOut, 'MMM dd')} ({differenceInDays(item.checkOut, item.checkIn)} nights)
                               </p>
@@ -912,12 +948,12 @@ export function BookingPage() {
                       const assigned = guestAssignments[item.tempId] || { name: '', email: '' }
                       return (
                         <div key={item.tempId} className="border p-6 rounded-lg">
-                          <h4 className="font-bold mb-4 flex justify-between">
+                          <h3 className="font-bold mb-4 flex justify-between">
                             <span>Room {idx + 1}: {item.roomTypeName}</span>
                             <span className="text-sm font-normal text-muted-foreground">
                               {format(item.checkIn, 'MMM dd')} - {format(item.checkOut, 'MMM dd')}
                             </span>
-                          </h4>
+                          </h3>
 
                           <div className="space-y-4">
                             <div className="flex items-center space-x-2 mb-4">

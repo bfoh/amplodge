@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /staff
+Disallow: /guest
+Disallow: /invoice
+Disallow: /invoice-debug
+Disallow: /receipt-preview
+Disallow: /task-complete
+Disallow: /review
+
+Sitemap: https://amplodge.org/sitemap.xml

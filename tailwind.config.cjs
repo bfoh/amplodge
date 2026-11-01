@@ -8,6 +8,24 @@ module.exports = {
   theme: {
   	extend: {
   		colors: {
+  			/* AMP Lodge public site palette (src/site/styles/site.css documents
+  			   contrast pairs). gold is for dark backgrounds only; on ivory use
+  			   bronze or ink-muted for text. */
+  			amp: {
+  				obsidian: '#121312',
+  				charcoal: '#1D1C1A',
+  				ink: '#24211E',
+  				'ink-muted': '#5E564D',
+  				taupe: '#8A8074',
+  				ivory: '#F5F0E8',
+  				limestone: '#E9E0D2',
+  				sand: '#D9CDB9',
+  				gold: '#BC9354',
+  				'gold-soft': '#D4B47C',
+  				bronze: '#795532',
+  				burgundy: '#5D2F31',
+  				olive: '#B9B065'
+  			},
   			border: 'hsl(var(--border))',
   			input: 'hsl(var(--input))',
   			ring: 'hsl(var(--ring))',
@@ -65,6 +83,8 @@ module.exports = {
   			sm: 'calc(var(--radius) - 4px)'
   		},
   		fontFamily: {
+  			display: ['"Cormorant Garamond"', '"Iowan Old Style"', 'Georgia', 'serif'],
+  			ui: ['"Manrope Variable"', 'Manrope', 'system-ui', '-apple-system', 'sans-serif'],
   			sans: [
   				'var(--font-sans)'
   			],
@@ -76,7 +96,16 @@ module.exports = {
   			]
   		},
   		maxWidth: {
-  			container: '80rem'
+  			container: '80rem',
+  			site: '90rem'
+  		},
+  		transitionTimingFunction: {
+  			editorial: 'cubic-bezier(0.22, 1, 0.36, 1)',
+  			mask: 'cubic-bezier(0.76, 0, 0.24, 1)',
+  			soft: 'cubic-bezier(0.4, 0, 0.2, 1)'
+  		},
+  		spacing: {
+  			gutter: 'var(--amp-gutter)'
   		},
   		animation: {
   			'fade-in': 'fade-in 0.5s ease-out',

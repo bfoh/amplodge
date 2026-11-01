@@ -1,0 +1,562 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   AMP Lodge public site — tokens, theme scope, motion layer and components.
+
+   Loaded only with the public site chunk (src/site/layout/PublicSite.tsx), so
+   the staff and guest portals never download these fonts or rules.
+   Plain CSS on purpose: this file is not the Tailwind entry, so it cannot use
+   @layer. Component classes (.amp-btn, .amp-eyebrow …) have single-class
+   specificity and load after Tailwind, so they beat a plain utility on the
+   same element: override them with important utilities (`!px-5`).
+
+   Contrast pairs (WCAG 2.2, normal text):
+     ivory   #F5F0E8 on obsidian #121312 ≈ 17 : 1
+     gold    #BC9354 on obsidian         ≈ 6.6 : 1   (gold text only on dark)
+     taupe   #8A8074 on obsidian         ≈ 4.8 : 1   (dark only)
+     ink-muted #5E564D on ivory          ≈ 6.3 : 1
+     bronze  #795532 on ivory            ≈ 5.9 : 1
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@import '@fontsource/cormorant-garamond/400.css';
+@import '@fontsource/cormorant-garamond/500.css';
+@import '@fontsource/cormorant-garamond/600.css';
+@import '@fontsource/cormorant-garamond/400-italic.css';
+@import '@fontsource-variable/manrope/wght.css';
+
+/* ───────────────────────────── Theme scope ─────────────────────────────
+   html.amp-site-theme is set while the public layout is mounted, so Radix
+   portals (selects, popovers, dialogs used by the booking flow) pick up the
+   same tokens. The shadcn variables are HSL triplets. */
+
+html.amp-site-theme {
+  --amp-obsidian: #121312;
+  --amp-charcoal: #1d1c1a;
+  --amp-ink: #24211e;
+  --amp-ink-muted: #5e564d;
+  --amp-ivory: #f5f0e8;
+  --amp-limestone: #e9e0d2;
+  --amp-gold: #bc9354;
+  --amp-bronze: #795532;
+  --amp-burgundy: #5d2f31;
+  --amp-gutter: clamp(1rem, 4.2vw, 3.5rem);
+  --amp-header-h: 4.25rem;
+  --amp-ease-editorial: cubic-bezier(0.22, 1, 0.36, 1);
+  --amp-ease-mask: cubic-bezier(0.76, 0, 0.24, 1);
+  --amp-ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+
+  --background: 38 41% 93%; /* ivory */
+  --foreground: 30 9% 13%;
+  --card: 40 45% 97%;
+  --card-foreground: 30 9% 13%;
+  --popover: 40 45% 97%;
+  --popover-foreground: 30 9% 13%;
+  --primary: 30 9% 13%; /* ink buttons */
+  --primary-foreground: 38 41% 93%;
+  --secondary: 37 33% 87%; /* limestone */
+  --secondary-foreground: 30 9% 13%;
+  --muted: 37 33% 88%;
+  --muted-foreground: 30 10% 33%; /* ≈ ink-muted, AA on ivory and on card */
+  --accent: 37 38% 84%;
+  --accent-foreground: 30 9% 13%;
+  --border: 35 22% 78%;
+  --input: 35 18% 66%;
+  --ring: 30 42% 33%; /* bronze */
+  --radius: 0.25rem;
+  --font-sans: 'Manrope Variable', Manrope, system-ui, -apple-system, sans-serif;
+  --font-serif: 'Cormorant Garamond', 'Iowan Old Style', Georgia, serif;
+
+  background: #121312;
+  scroll-padding-top: calc(var(--amp-header-h) + 1rem);
+}
+html.amp-site-theme body {
+  background: var(--amp-ivory);
+  color: var(--amp-ink);
+  font-family: var(--font-sans);
+  overflow-x: clip;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.amp-site {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  background: var(--amp-ivory);
+  color: var(--amp-ink);
+  overflow-x: clip;
+}
+.amp-site ::selection {
+  background: rgba(188, 147, 84, 0.35);
+  color: inherit;
+}
+
+/* Keyboard focus is always visible and never relies on colour alone. */
+.amp-site :focus-visible {
+  outline: 2px solid var(--amp-bronze);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+.amp-site [data-theme='dark'] :focus-visible,
+.amp-site .amp-on-dark :focus-visible {
+  outline-color: var(--amp-gold);
+}
+
+.amp-skip-link {
+  position: fixed;
+  left: 1rem;
+  top: 0.75rem;
+  z-index: 200;
+  padding: 0.85rem 1.1rem;
+  background: var(--amp-ivory);
+  color: var(--amp-ink);
+  font-weight: 600;
+  font-size: 0.875rem;
+  transform: translateY(-160%);
+}
+.amp-skip-link:not(:focus-visible) {
+  /* Visually hidden until focused (rather than parked off-screen), so it never
+     sits over another off-screen control such as the hidden header's logo. */
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+.amp-skip-link:focus-visible {
+  transform: none;
+}
+
+/* ───────────────────────────── Type ───────────────────────────── */
+
+:where(.amp-site) .amp-display {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  letter-spacing: -0.012em;
+  line-height: 0.98;
+  text-wrap: balance;
+}
+:where(.amp-site) .amp-eyebrow {
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  line-height: 1.3;
+}
+:where(.amp-site) .amp-lede {
+  font-size: clamp(1.0625rem, 0.98rem + 0.4vw, 1.25rem);
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+:where(.amp-site) .amp-chapter-no {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+}
+
+/* ───────────────────────────── Buttons ─────────────────────────────
+   Fill wipe on hover (pointer devices only), a pressed state for touch,
+   44 px minimum target. Variants set the colour variables. */
+
+:where(.amp-site) .amp-btn {
+  --btn-fg: var(--amp-ivory);
+  --btn-bg: var(--amp-ink);
+  --btn-border: var(--amp-ink);
+  --btn-fill: var(--amp-bronze);
+  --btn-fill-fg: var(--amp-ivory);
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  min-height: 3rem;
+  padding: 0.9rem 1.6rem;
+  overflow: hidden;
+  border: 1px solid var(--btn-border);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  text-align: center;
+  transition: color 0.5s var(--amp-ease-editorial), border-color 0.5s var(--amp-ease-editorial), transform 0.2s var(--amp-ease-soft);
+  -webkit-tap-highlight-color: transparent;
+}
+:where(.amp-site) .amp-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--btn-fill);
+  transform: scaleY(0);
+  transform-origin: 50% 100%;
+  transition: transform 0.6s var(--amp-ease-editorial);
+}
+:where(.amp-site) .amp-btn:active {
+  transform: scale(0.985);
+}
+:where(.amp-site) .amp-btn[aria-disabled='true'],
+:where(.amp-site) .amp-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+@media (hover: hover) {
+  :where(.amp-site) .amp-btn:hover::before {
+    transform: scaleY(1);
+  }
+  :where(.amp-site) .amp-btn:hover {
+    color: var(--btn-fill-fg);
+    border-color: var(--btn-fill);
+  }
+  :where(.amp-site) .amp-btn:hover .amp-arrow {
+    transform: translateX(0.3rem);
+  }
+}
+:where(.amp-site) .amp-btn--gold {
+  --btn-bg: var(--amp-gold);
+  --btn-border: var(--amp-gold);
+  --btn-fg: var(--amp-obsidian);
+  --btn-fill: var(--amp-ivory);
+  --btn-fill-fg: var(--amp-obsidian);
+}
+:where(.amp-site) .amp-btn--ghost-light {
+  --btn-bg: transparent;
+  --btn-border: rgba(245, 240, 232, 0.55);
+  --btn-fg: var(--amp-ivory);
+  --btn-fill: var(--amp-ivory);
+  --btn-fill-fg: var(--amp-obsidian);
+}
+:where(.amp-site) .amp-btn--ghost {
+  --btn-bg: transparent;
+  --btn-border: rgba(36, 33, 30, 0.45);
+  --btn-fg: var(--amp-ink);
+  --btn-fill: var(--amp-ink);
+  --btn-fill-fg: var(--amp-ivory);
+}
+:where(.amp-site) .amp-btn--block {
+  width: 100%;
+}
+:where(.amp-site) .amp-arrow {
+  display: inline-block;
+  transition: transform 0.5s var(--amp-ease-editorial);
+}
+
+/* Underline that redraws from the left on hover. */
+:where(.amp-site) .amp-link {
+  background: linear-gradient(currentColor, currentColor) 0 100% / 100% 1px no-repeat;
+  padding-bottom: 0.15em;
+  transition: background-size 0.6s var(--amp-ease-editorial);
+}
+@media (hover: hover) {
+  :where(.amp-site) .amp-link:hover {
+    animation: amp-link-redraw 0.9s var(--amp-ease-editorial);
+  }
+}
+@keyframes amp-link-redraw {
+  0% { background-size: 100% 1px; background-position: 100% 100%; }
+  45% { background-size: 0% 1px; background-position: 100% 100%; }
+  46% { background-size: 0% 1px; background-position: 0 100%; }
+  100% { background-size: 100% 1px; background-position: 0 100%; }
+}
+
+/* Photograph zoom inside a fixed frame. */
+@media (hover: hover) {
+  :where(.amp-site) .amp-zoom-parent:hover .amp-zoom,
+  :where(.amp-site) .amp-zoom-parent:focus-visible .amp-zoom {
+    transform: scale(1.045);
+  }
+}
+:where(.amp-site) .amp-zoom {
+  transition: transform 1.4s var(--amp-ease-editorial);
+}
+
+/* Hairline rule that draws in (used by Reveal-adjacent markup). */
+:where(.amp-site) .amp-rule {
+  height: 1px;
+  background: currentColor;
+  opacity: 0.25;
+}
+
+/* ───────────────────────────── Header ───────────────────────────── */
+
+.amp-header {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 60;
+  padding-top: env(safe-area-inset-top);
+  color: var(--amp-ivory);
+  transition: transform 0.6s var(--amp-ease-editorial), background-color 0.5s var(--amp-ease-soft), color 0.5s var(--amp-ease-soft), box-shadow 0.5s var(--amp-ease-soft);
+}
+.amp-header[data-tone='light'] {
+  color: var(--amp-ink);
+}
+.amp-header[data-solid] {
+  background: rgba(245, 240, 232, 0.92);
+  color: var(--amp-ink);
+  box-shadow: 0 1px 0 rgba(36, 33, 30, 0.1);
+  -webkit-backdrop-filter: saturate(140%) blur(14px);
+  backdrop-filter: saturate(140%) blur(14px);
+}
+.amp-header[data-hidden] {
+  transform: translateY(-110%);
+}
+.amp-header:focus-within {
+  transform: none;
+}
+.amp-header__scrim {
+  position: absolute;
+  inset: 0 0 -2.5rem 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(to bottom, rgba(10, 10, 9, 0.55), rgba(10, 10, 9, 0));
+  transition: opacity 0.5s var(--amp-ease-soft);
+}
+.amp-header[data-solid] .amp-header__scrim,
+.amp-header[data-tone='light'] .amp-header__scrim {
+  opacity: 0;
+}
+
+/* Header logo is hidden while the intro holds the mark; the intro hands it over. */
+html[data-intro='play']:not([data-intro-done]) [data-header-logo] {
+  opacity: 0;
+}
+
+/* Voice concierge: out of the way during the intro, and above the mobile booking bar. */
+html[data-intro='play']:not([data-intro-done]) [data-voice-widget] {
+  display: none !important;
+}
+@media (max-width: 63.98rem) {
+  html.amp-site-theme:not([data-scrolled]) [data-voice-widget] {
+    visibility: hidden;
+    opacity: 0;
+  }
+  html.amp-site-theme [data-voice-widget] {
+    transition: opacity 0.4s var(--amp-ease-soft), visibility 0.4s, bottom 0.5s var(--amp-ease-editorial);
+  }
+  html.amp-site-theme[data-booking-bar] [data-voice-widget] {
+    bottom: calc(5.25rem + env(safe-area-inset-bottom)) !important;
+    right: 1rem !important;
+  }
+}
+
+/* ───────────────────────────── Mobile menu ───────────────────────────── */
+
+.amp-menu {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--amp-obsidian);
+  color: var(--amp-ivory);
+  overflow: hidden;
+}
+.amp-menu::backdrop {
+  background: rgba(10, 10, 9, 0.6);
+}
+.amp-menu[open] {
+  display: flex;
+  flex-direction: column;
+}
+.amp-menu__inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: calc(env(safe-area-inset-top) + 0.75rem) max(var(--amp-gutter), env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 1.5rem) max(var(--amp-gutter), env(safe-area-inset-left));
+}
+
+/* ───────────────────────────── Mobile booking bar ───────────────────────────── */
+
+.amp-booking-bar {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 55;
+  padding: 0.65rem var(--amp-gutter) calc(env(safe-area-inset-bottom) + 0.65rem);
+  background: rgba(18, 19, 18, 0.94);
+  color: var(--amp-ivory);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid rgba(245, 240, 232, 0.1);
+  transform: translateY(105%);
+  transition: transform 0.6s var(--amp-ease-editorial);
+}
+.amp-booking-bar[data-visible] {
+  transform: none;
+}
+@media (min-width: 64rem) {
+  .amp-booking-bar {
+    display: none;
+  }
+}
+
+/* ───────────────────────────── Motion gating & failsafes ─────────────────────────────
+   The head script sets html[data-motion="full"] when motion is allowed. Intro
+   elements are pre-hidden only then; GSAP reveals them. If scripts never boot,
+   a failsafe shows everything after 6 s. SmoothScroll sets data-motion-ready,
+   which stands the failsafe down. Opacity only, never visibility. */
+
+html[data-motion='full'] .amp-site [data-intro] {
+  opacity: 0;
+  animation: amp-intro-failsafe 0.8s var(--amp-ease-soft) 6s forwards;
+}
+html[data-motion='full'][data-motion-ready] .amp-site [data-intro] {
+  animation: none;
+}
+@keyframes amp-intro-failsafe {
+  to { opacity: 1; }
+}
+
+html[data-scroll-locked] {
+  overflow: hidden;
+}
+
+/* Lenis */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+.lenis:not(.lenis-autoToggle).lenis-stopped {
+  overflow: clip;
+}
+.lenis [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+.lenis.lenis-smooth iframe {
+  pointer-events: none;
+}
+
+/* Inner-page hero: the photograph settles from a slight zoom, held paused until
+   the app has booted so it never competes with hydration. */
+.amp-page-hero__media {
+  transform: scale(1.08);
+  animation: amp-settle 2.4s var(--amp-ease-editorial) forwards;
+  animation-play-state: paused;
+}
+html[data-motion-ready] .amp-page-hero__media {
+  animation-play-state: running;
+}
+html:not([data-motion='full']) .amp-page-hero__media {
+  transform: none;
+  animation: none;
+}
+@keyframes amp-settle {
+  to { transform: scale(1); }
+}
+
+/* Hero line under the CTA: a slow scroll cue. */
+.amp-scroll-cue {
+  position: relative;
+  width: 1px;
+  height: 3.25rem;
+  overflow: hidden;
+  background: rgba(245, 240, 232, 0.2);
+}
+.amp-scroll-cue::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--amp-gold);
+  transform: translateY(-100%);
+  animation: amp-cue 2.6s var(--amp-ease-mask) infinite;
+}
+@keyframes amp-cue {
+  0% { transform: translateY(-100%); }
+  55% { transform: translateY(0); }
+  100% { transform: translateY(100%); }
+}
+
+/* Native swipe rows (reduced motion, phones). */
+.amp-swipe-row {
+  display: flex;
+  gap: 0.875rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: var(--amp-gutter);
+  padding-inline: var(--amp-gutter);
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.amp-swipe-row::-webkit-scrollbar {
+  display: none;
+}
+.amp-swipe-row > * {
+  scroll-snap-align: start;
+  flex: none;
+}
+
+/* ───────────────────────────── Lightbox ───────────────────────────── */
+
+.amp-lightbox {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: rgba(10, 10, 9, 0.97);
+  color: var(--amp-ivory);
+}
+.amp-lightbox::backdrop {
+  background: rgba(10, 10, 9, 0.9);
+}
+.amp-lightbox[open] {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+.amp-lightbox[open] img {
+  animation: amp-fade-in 0.5s var(--amp-ease-editorial);
+}
+@keyframes amp-fade-in {
+  from { opacity: 0; transform: scale(0.985); }
+}
+
+/* ───────────────────────────── Arrival film ─────────────────────────────
+   Frame canvases stay transparent until their first frame is drawn (an opaque
+   canvas is black before that), so the real photograph underneath shows. */
+
+.amp-film-canvas {
+  opacity: 0;
+  transition: opacity 0.45s var(--amp-ease-soft);
+}
+.amp-film-canvas[data-ready] {
+  opacity: 1;
+}
+
+/* ───────────────────────────── Reduced motion ─────────────────────────────
+   Not "off": layouts that depend on scrubbing switch to static alternatives in
+   the components; here, CSS motion stops and nothing is pre-hidden. */
+
+@media (prefers-reduced-motion: reduce) {
+  .amp-site *,
+  .amp-site *::before,
+  .amp-site *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .amp-scroll-cue::after {
+    transform: none;
+    animation: none;
+  }
+  .amp-booking-bar,
+  .amp-header {
+    transition: none;
+  }
+}

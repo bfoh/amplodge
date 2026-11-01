@@ -59,6 +59,26 @@
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
+# Public-site photographs and the hero film/poster. Not content-hashed, so a
+# week rather than forever: rename a file to change it immediately. Being
+# cacheable also lets the hero <img> reuse the poster the head script started
+# downloading, instead of revalidating it on the critical path.
+[[headers]]
+  for = "/images/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800, stale-while-revalidate=86400"
+
+[[headers]]
+  for = "/videos/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800, stale-while-revalidate=86400"
+
+# The arrival film's frame sequences (scripts/build-film-frames.mjs).
+[[headers]]
+  for = "/film/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800, stale-while-revalidate=86400"
+
 [[headers]]
   for = "/index.html"
   [headers.values]

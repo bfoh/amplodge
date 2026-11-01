@@ -1,0 +1,102 @@
+#!/usr/bin/env node
+/**
+ * Turns the arrival film's source clips (media/film-source/*.mp4, plus the hero
+ * master) into the scroll-scrubbed frame sequences the home page draws on a
+ * canvas, and writes src/site/film/frames.generated.ts with their counts and
+ * sizes.
+ *
+ *   FFMPEG=/path/to/ffmpeg node scripts/build-film-frames.mjs
+ *   (without FFMPEG it uses `uv run --with imageio-ffmpeg`, or ffmpeg on PATH)
+ *
+ * Each clip gets two sets of WebP frames in public/film/<id>/:
+ *   d-NNN.webp  desktop and tablet: the full frame, at most 1280 px wide
+ *   m-NNN.webp  phones: a 2:3 portrait crop around the clip's focal point,
+ *               480×720 (portrait clips are only scaled)
+ *
+ * To replace a clip with real footage: drop the new file in media/film-source/
+ * under the same name, adjust `focusX` if the subject moved, and run this again.
+ */
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+const root = new URL('..', import.meta.url).pathname
+const CLIPS = [
+  // id, source, desktop frames, phone frames, phone crop centre (0–1 of width)
+  { id: 'arrival', src: 'media/hero-source/amp-lodge-hero-master-hevc10.mp4', d: 48, m: 32, focusX: 0.3 },
+  { id: 'approach', src: 'media/film-source/approach.mp4', d: 48, m: 32, focusX: 0.5 },
+  { id: 'corridor', src: 'media/film-source/corridor.mp4', d: 48, m: 32, focusX: 0.5 },
+  { id: 'standard', src: 'media/film-source/standard-room.mp4', d: 48, m: 32, focusX: 0.42 },
+  { id: 'family', src: 'media/film-source/family-room.mp4', d: 48, m: 32, focusX: 0.5 },
+  { id: 'executive', src: 'media/film-source/executive-suite.mp4', d: 48, m: 32, focusX: 0.5 },
+]
+
+function ffmpegBin() {
+  if (process.env.FFMPEG) return process.env.FFMPEG
+  try {
+    return execFileSync('uv', ['run', '-q', '--with', 'imageio-ffmpeg', 'python', '-c', 'import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())'], { encoding: 'utf8' }).trim()
+  } catch {
+    return 'ffmpeg'
+  }
+}
+const FF = ffmpegBin()
+
+function probe(file) {
+  let out = ''
+  try {
+    execFileSync(FF, ['-hide_banner', '-i', file], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  } catch (e) {
+    out = String(e.stderr)
+  }
+  const dur = /Duration: (\d+):(\d+):([\d.]+)/.exec(out)
+  const size = /Video: .*?, (\d{2,5})x(\d{2,5})/.exec(out)
+  if (!dur || !size) throw new Error(`could not read ${file}`)
+  return { duration: +dur[1] * 3600 + +dur[2] * 60 + +dur[3], width: +size[1], height: +size[2] }
+}
+
+function extract(file, outDir, prefix, count, duration, filter) {
+  // Evenly spaced frames: fps = count / duration, then keep exactly `count`.
+  const fps = (count / duration).toFixed(5)
+  execFileSync(FF, ['-v', 'error', '-y', '-i', file, '-vf', `fps=${fps},${filter}`, '-frames:v', String(count), '-c:v', 'libwebp', '-quality', prefix === 'd' ? '62' : '58', '-compression_level', '6', join(outDir, `${prefix}-%03d.webp`)])
+  const files = readdirSync(outDir).filter((f) => f.startsWith(`${prefix}-`)).sort()
+  return { count: files.length, bytes: files.reduce((n, f) => n + statSync(join(outDir, f)).size, 0) }
+}
+
+const manifest = {}
+for (const clip of CLIPS) {
+  const file = join(root, clip.src)
+  try {
+    statSync(file)
+  } catch {
+    console.warn(`skip ${clip.id}: ${clip.src} not found`)
+    continue
+  }
+  const info = probe(file)
+  const outDir = join(root, 'public/film', clip.id)
+  rmSync(outDir, { recursive: true, force: true })
+  mkdirSync(outDir, { recursive: true })
+  const portrait = info.height > info.width
+
+  // Desktop: full frame, at most 1280 wide (portrait clips: at most 1280 tall).
+  const dFilter = portrait ? "scale=-2:'min(1280,ih)':flags=lanczos" : "scale='min(1280,iw)':-2:flags=lanczos"
+  const d = extract(file, outDir, 'd', clip.d, info.duration, dFilter)
+  const dw = portrait ? Math.round((Math.min(1280, info.height) * info.width) / info.height / 2) * 2 : Math.min(1280, info.width)
+  const dh = portrait ? Math.min(1280, info.height) : Math.round((dw * info.height) / info.width / 2) * 2
+
+  // Phones: 2:3 portrait crop around focusX, 480×720.
+  const cropW = Math.min(info.width, Math.round((info.height * 2) / 3))
+  const x = Math.max(0, Math.min(info.width - cropW, Math.round(info.width * clip.focusX - cropW / 2)))
+  const mFilter = portrait ? 'scale=480:-2:flags=lanczos' : `crop=${cropW}:${info.height}:${x}:0,scale=480:720:flags=lanczos`
+  const m = extract(file, outDir, 'm', clip.m, info.duration, mFilter)
+  const mh = portrait ? Math.round((480 * info.height) / info.width / 2) * 2 : 720
+
+  manifest[clip.id] = { d: { count: d.count, w: dw, h: dh }, m: { count: m.count, w: 480, h: mh } }
+  console.log(`${clip.id.padEnd(10)} ${info.width}x${info.height} ${info.duration.toFixed(2)}s  desktop ${d.count} frames ${(d.bytes / 1024).toFixed(0)} KB  phone ${m.count} frames ${(m.bytes / 1024).toFixed(0)} KB`)
+}
+
+const ts = `// Generated by scripts/build-film-frames.mjs. Do not edit by hand.
+export interface FrameSet { count: number; w: number; h: number }
+export const FILM_FRAMES: Record<string, { d: FrameSet; m: FrameSet }> = ${JSON.stringify(manifest, null, 2)}
+`
+writeFileSync(join(root, 'src/site/film/frames.generated.ts'), ts)
+console.log('wrote src/site/film/frames.generated.ts')

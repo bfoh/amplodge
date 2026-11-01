@@ -15,6 +15,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Public website: the head script adds this class on public routes before
+   first paint, so text rendered before the site's own stylesheet arrives (the
+   voice widget, for example) never asks for the staff portal's Inter and
+   Playfair fonts. The full theme lives in src/site/styles/site.css. */
+html.amp-site-theme {
+  --font-sans: 'Manrope Variable', Manrope, system-ui, -apple-system, sans-serif;
+  --font-serif: 'Cormorant Garamond', 'Iowan Old Style', Georgia, serif;
+}
+
 @layer base {
   :root {
     /* Colors - Premium Lodge Aesthetic */

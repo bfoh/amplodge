@@ -1,8 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Suspense, lazy, useEffect, useState, useRef } from 'react'
 import { Toaster } from 'sonner'
-import { Navbar } from './components/Navbar'
-import { Footer } from './components/Footer'
 import { db, auth, initRealtimeUpdates } from '@/lib/db'
 import { activityLogService } from './services/activity-log-service'
 import { StaffLoginPage } from './pages/staff/StaffLoginPage'
@@ -76,12 +74,9 @@ const VoiceWidget = lazyWithRetry(() => import('./components/voice-agent/VoiceWi
 // kiosk display).
 const StaffAssistantWidget = lazyWithRetry(() => import('./components/staff-assistant/StaffAssistantWidget'))
 
-const HomePage = lazyWithRetry(() => import('./pages/HomePage').then(m => ({ default: m.HomePage })))
-const RoomsPage = lazyWithRetry(() => import('./pages/RoomsPage').then(m => ({ default: m.RoomsPage })))
-const GalleryPage = lazyWithRetry(() => import('./pages/GalleryPage').then(m => ({ default: m.GalleryPage })))
-const ContactPage = lazyWithRetry(() => import('./pages/ContactPage').then(m => ({ default: m.ContactPage })))
-const BookingPage = lazyWithRetry(() => import('./pages/BookingPage').then(m => ({ default: m.BookingPage })))
-const VirtualTourPage = lazyWithRetry(() => import('./pages/VirtualTourPage').then(m => ({ default: m.VirtualTourPage })))
+// The public website (cinematic redesign): its own chunk with its own shell,
+// motion system and routes. See src/site/ and docs/redesign/.
+const PublicSite = lazyWithRetry(() => import('./site/layout/PublicSite'))
 
 import { BookingCartProvider } from './context/BookingCartContext'
 
@@ -215,24 +210,13 @@ function App() {
                 <Route path="help" element={<ServicesPage />} />
               </Route>
 
-              {/* Guest Portal - Legacy/Public Web Handling */}
+              {/* Public website: /, /rooms, /rooms/:slug, /gallery, /virtual-tour, /contact, /booking, 404 */}
               <Route
                 path="/*"
                 element={
-                  <div className="flex flex-col min-h-screen">
-                    <Navbar />
-                    <main className="flex-1">
-                      <Routes>
-                        <Route path="/" element={<HomePage />} />
-                        <Route path="/rooms" element={<RoomsPage />} />
-                        <Route path="/gallery" element={<GalleryPage />} />
-                        <Route path="/virtual-tour" element={<VirtualTourPage />} />
-                        <Route path="/contact" element={<ContactPage />} />
-                        <Route path="/booking" element={<BookingPage />} />
-                      </Routes>
-                    </main>
-                    <Footer />
-                  </div>
+                  <Suspense fallback={<div className="min-h-screen bg-[#121312]" aria-busy="true" />}>
+                    <PublicSite />
+                  </Suspense>
                 }
               />
 
