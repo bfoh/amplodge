@@ -284,7 +284,7 @@ export async function sendCheckInNotification(
           <h3 style="margin: 0 0 15px 0; font-size: 18px; color: #8B4513;">Guest Information</h3>
           <ul style="margin: 0; padding-left: 20px;">
             <li><strong>WiFi:</strong> AMPLODGE FREE INTERNET / Password: 987654321</li>
-            <li><strong>Breakfast:</strong> 7:00 AM - 10:00 AM</li>
+            <li><strong>Breakfast:</strong> 8:00 AM - 10:00 AM</li>
             <li><strong>Check-out:</strong> 11:00 AM</li>
             <li><strong>Reception:</strong> Dial +233555009697</li>
           </ul>
@@ -320,7 +320,7 @@ ${paymentDetails || (priorPayment && priorPayment.amountPaid > 0) ? '- This paym
 
 Important Information:
 - WiFi: AMPLODGE FREE INTERNET / Password: 987654321
-- Breakfast served daily 7:00 AM - 10:00 AM
+- Breakfast served daily 8:00 AM - 10:00 AM
 - Check-out time is 11:00 AM
 - For assistance, dial +233555009697 from your room phone
 
