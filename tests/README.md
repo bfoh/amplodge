@@ -47,6 +47,17 @@ clock says so in one line instead of failing fifteen assertions at once.
 | `group-membership` | every room of a group is found by both routes — the indexed column and the GROUP_DATA comment — past the old 500-row window, on a group that uses both, and a group that fails part-way leaving nothing behind |
 | `group-invoice` | a group's deposit reaches its invoice: payment events, per-room figures, a batch stamp counted once, a later sitting counted separately, and an overpayment leaving nothing owed |
 
+## Function suites (`tests/functions/*.test.ts`)
+
+Run the **real Netlify function handlers** against an in-memory PostgREST
+(`fake-supabase-js.ts`, aliased over `@supabase/supabase-js`) that enforces the
+booking foreign key to `rooms` and the `bookings_no_room_overlap` constraint.
+pdfkit is stubbed and `fetch` (the confirmation email/SMS calls) answers 200.
+
+| suite | covers |
+|---|---|
+| `concierge-rooms` | the AI concierge's availability and booking use the website's rooms, room types, prices and overlap rule: no orphaned `rooms` rows, no duplicate types, checked-out stays don't block, new rooms get their `rooms` row before they are booked |
+
 ## Invariants
 
 Asserted per booking row wherever revenue is computed:

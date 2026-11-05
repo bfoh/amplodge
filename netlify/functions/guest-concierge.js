@@ -11,6 +11,36 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { jsonResponse, handleCors } from './_lib/auth.js'
 import { checkRateLimit, tooManyRequests } from './_lib/rate-limit.js'
+import { createClient } from '@supabase/supabase-js'
+import { loadCatalog, typeCapacity, typePrice } from './_lib/room-catalog.js'
+
+// The room categories the concierge describes come from the booking system,
+// so a type the owner adds on Set Prices is offered once it has a room, at
+// its live price. Cached briefly: one read per five minutes per instance.
+const ROOMS_TTL_MS = 5 * 60 * 1000
+let roomsCache = { at: 0, text: null }
+
+async function roomCategoriesText() {
+  if (roomsCache.text && Date.now() - roomsCache.at < ROOMS_TTL_MS) return roomsCache.text
+  try {
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)
+    const catalog = await loadCatalog(supabase)
+    if (catalog.length === 0) return null
+    const text = catalog
+      .map(({ type }, i) => {
+        const capacity = typeCapacity(type)
+        const price = typePrice(type)
+        const description = String(type.description || '').trim()
+        return `${i + 1}. ${type.name}${description ? ` - ${description}` : ''}${capacity ? ` (up to ${capacity} guests)` : ''}${price ? `, from GHS ${price} per night` : ''}`
+      })
+      .join('\n')
+    roomsCache = { at: Date.now(), text }
+    return text
+  } catch (error) {
+    console.error('[guest-concierge] Could not load room categories:', error)
+    return roomsCache.text
+  }
+}
 
 const CONCIERGE_TOOLS = [
   {
@@ -43,7 +73,7 @@ const CONCIERGE_TOOLS = [
   },
 ]
 
-function buildSystemPrompt() {
+function buildSystemPrompt(roomCategories) {
   const now = new Date()
   const dateInfo = { year: now.getFullYear(), formatted: now.toISOString().split('T')[0] }
 
@@ -69,14 +99,9 @@ Our tagline: "Your Premium Retreat in the Heart of Ghana"
 - Relaxing lounge and garden area for unwinding after your day
 
 === ROOM TYPES ===
-We offer several room categories:
-1. Standard Room - Comfortable and affordable, perfect for budget travelers (capacity: 2 guests)
-2. Executive Suite - Premium accommodation with extra space and luxury features (capacity: 2 guests)
-3. Deluxe Room - More spacious with upgraded amenities (capacity: 2 guests)
-4. Family Room - Ideal for families, accommodates more guests (capacity: 4 guests)
-5. Presidential Suite - Our most luxurious accommodation with exclusive amenities and premium services (capacity: 5 guests)
-
-Note: Use the checkRoomAvailability function to get current prices and availability.
+${roomCategories
+    ? `These are all the room categories we offer:\n${roomCategories}\n\nOnly offer these categories. Prices and availability for particular dates come from the checkRoomAvailability function; use its figures when they differ from the above.`
+    : 'Use the checkRoomAvailability function to find the room categories we offer, their prices and their availability. Do not name a room category until it has returned.'}
 
 === CONTACT INFORMATION ===
 - Phone: +233 55 500 9697 (say: plus two three three, five five, five zero zero, nine six nine seven)
@@ -176,7 +201,7 @@ export const handler = async (event) => {
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-5',
       max_tokens: 500,
-      system: buildSystemPrompt(),
+      system: buildSystemPrompt(await roomCategoriesText()),
       messages: history,
       tools: CONCIERGE_TOOLS,
     })

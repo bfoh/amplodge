@@ -36,6 +36,23 @@ e2e() {
   node "$OUT/$name.mjs" 2>/dev/null | grep -E "^FAIL|ALL PASS|FAILURE" || { fail=1; node "$OUT/$name.mjs" 2>/dev/null | grep -E "^(FAIL|ERROR)" ; }
 }
 
+# Netlify function suites: the real handlers against an in-memory database
+# (tests/functions/fake-supabase-js.ts) and a stubbed pdfkit.
+fn() {
+  local name="$1"
+  [[ -n "$filter" && "$name" != *"$filter"* ]] && return 0
+  "$ESBUILD" "$ROOT/tests/functions/$name.test.ts" --bundle --platform=node --format=esm --outfile="$OUT/$name.mjs" \
+    --alias:@supabase/supabase-js="$ROOT/tests/functions/fake-supabase-js.ts" \
+    --alias:pdfkit="$ROOT/tests/functions/pdfkit-stub.ts" \
+    --alias:@="$ROOT/src" \
+    --define:import.meta.env.VITE_SUPABASE_URL='"http://localhost"' \
+    --define:import.meta.env.VITE_SUPABASE_ANON_KEY='"anon"' \
+    --define:import.meta.env.PROD=false --define:import.meta.env.DEV=true \
+    --define:import.meta.env.MODE='"test"' --log-level=error || { echo "BUILD FAILED $name"; fail=1; return; }
+  printf '%-18s ' "$name"
+  node "$OUT/$name.mjs" 2>/dev/null | grep -E "^FAIL|ALL PASS|FAILURE" || { fail=1; node "$OUT/$name.mjs" 2>&1 | grep -E "^(FAIL|ERROR)" ; }
+}
+
 # Suites that read the live database. Credentials required; read-only.
 if [[ "$filter" == "audit" || "$filter" == "live" ]]; then
   if [[ -z "${SUPABASE_URL:-}" || -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]]; then
@@ -69,6 +86,8 @@ echo "── unit"
 for s in room-types group-bookings accounting allocation cash-basis reservations-view count-display row-patching revenue-visibility booking-dates confirmation-email employee-deletion; do unit "$s"; done
 echo "── end-to-end"
 for s in lifecycle groups-analytics group-membership group-invoice charges-repeat all-write-paths; do e2e "$s"; done
+echo "── functions"
+for s in concierge-rooms; do fn "$s"; done
 rm -rf "$OUT"
 [[ $fail -eq 0 ]] && echo "everything passed" || echo "FAILURES"
 exit $fail

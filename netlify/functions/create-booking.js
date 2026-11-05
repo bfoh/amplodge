@@ -59,6 +59,7 @@ import { createClient } from '@supabase/supabase-js';
 import PDFDocument from 'pdfkit';
 import { Buffer } from 'node:buffer';
 import { checkRateLimit, tooManyRequests } from './_lib/rate-limit.js';
+import { busyRoomIds, ensureRoomMirror, findEntry, freeRooms, loadCatalog, typePrice } from './_lib/room-catalog.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
@@ -300,18 +301,14 @@ export const handler = async (event, context) => {
             }
         }
 
-        const { data: roomsOfType, error: roomsError } = await supabase
-            .from('rooms')
-            .select('id, room_number, price, room_types(name, base_price)')
-            .eq('room_type_id', validRoomTypeId) // Use validated ID
-            .in('status', ['clean', 'available']);
+        // The room type's rooms, from the Rooms page, as the website books
+        // them (see _lib/room-catalog.js). An old duplicate type id, which an
+        // earlier availability answer may have handed the agent, books the
+        // live type of the same name at the live price.
+        const catalog = await loadCatalog(supabase);
+        const entry = findEntry(catalog, validRoomTypeId);
 
-        if (roomsError) {
-            console.error('[CreateBooking] Rooms Fetch Error:', roomsError);
-            throw roomsError;
-        }
-
-        if (!roomsOfType || roomsOfType.length === 0) {
+        if (!entry) {
             console.log('[CreateBooking] No rooms found for type:', validRoomTypeId);
             return {
                 statusCode: 404,
@@ -320,26 +317,16 @@ export const handler = async (event, context) => {
             };
         }
 
-        // Check conflicts for these specific rooms
-        const candidateRoomIds = roomsOfType.map(r => r.id);
-        const { data: busyBookings, error: busyError } = await supabase
-            .from('bookings')
-            .select('room_id')
-            .in('room_id', candidateRoomIds)
-            .neq('status', 'cancelled')
-            .lt('check_in', checkOut)
-            .gt('check_out', checkIn);
-
-        if (busyError) {
-            console.error('[CreateBooking] Busy Bookings Error:', busyError);
-            throw busyError;
-        }
-
-        // Rooms this read believes are free, in stable order. This read is only
-        // a fast pre-filter — the DB exclusion constraint (bookings_no_room_overlap)
-        // is the actual source of truth against concurrent bookings.
-        const busyRoomIds = new Set(busyBookings.map(b => b.room_id));
-        const candidateRooms = roomsOfType.filter(r => !busyRoomIds.has(r.id));
+        // Rooms this read believes are free, in room-number order. This read is
+        // only a fast pre-filter — the DB exclusion constraint
+        // (bookings_no_room_overlap) is the actual source of truth against
+        // concurrent bookings.
+        const busy = await busyRoomIds(supabase, checkIn, checkOut, entry.rooms.map((r) => r.id));
+        const candidateRooms = freeRooms(entry, busy).map((r) => ({
+            id: r.id,
+            room_number: r.room_number,
+            room_types: { name: entry.type.name, base_price: typePrice(entry.type) }
+        }));
 
         if (candidateRooms.length === 0) {
             console.log('[CreateBooking] All rooms busy for dates:', { checkIn, checkOut });
@@ -398,6 +385,12 @@ export const handler = async (event, context) => {
             const candidateTotal = pricePerNight * nights;
 
             console.log('[CreateBooking] Attempting room:', room.room_number);
+            try {
+                await ensureRoomMirror(supabase, room, entry.type);
+            } catch (mirrorError) {
+                console.error(`[CreateBooking] Room ${room.room_number} could not be prepared for booking; trying next.`, mirrorError);
+                continue;
+            }
             const { data, error: bookingError } = await supabase
                 .from('bookings')
                 .insert({
