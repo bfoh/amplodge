@@ -175,7 +175,7 @@ You are checked in to Room ${roomNumber}.
 Checkout: ${new Date(checkOutDate).toLocaleDateString()} @ 11AM
 ${totalAmount && paymentMethod ? `Paid: ${totalAmount} (${paymentMethod})\nThis payment is not refundable.` : ''}
 WiFi: AMPLODGE FREE INTERNET / Pass: 987654321
-BFast: 7-10AM
+Breakfast: 8-10AM
 Dial +233555009697 for help.
 
 Enjoy your stay @ AMP Lodge!
