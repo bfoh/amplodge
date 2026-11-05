@@ -4,256 +4,252 @@ import type { RoomType } from '@/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useCurrency } from '@/hooks/use-currency'
 import { activityLogService } from '@/services/activity-log-service'
-import { RefreshCw, Plus, Tag } from 'lucide-react'
+import { RefreshCw, Plus, Tag, Pencil } from 'lucide-react'
+import {
+  canonicalRoomTypes,
+  findTypeNamed,
+  mirrorPriceUpdate,
+  newRoomTypeRow,
+  normalizeName,
+  roomPriceUpdate,
+  roomTypeDetailsUpdate,
+  roomTypePriceUpdate,
+  typeCapacity,
+  typePrice,
+  type RoomTypeGroup,
+} from '@/lib/room-types'
+
+type TypeRow = RoomType & Record<string, any>
+
+/** The add / edit room type form. `id` is null when adding. */
+interface TypeForm {
+  id: string | null
+  originalName: string
+  name: string
+  capacity: string
+  price: string
+  description: string
+}
+
+const NEW_TYPE: TypeForm = { id: null, originalName: '', name: '', capacity: '2', price: '', description: '' }
+
+const MAX_CAPACITY = 100
+
+/** A nightly price typed into the page, or null if it isn't one. */
+const parsePrice = (value: string | undefined): number | null => {
+  const n = Number(value)
+  return value !== undefined && value.trim() !== '' && Number.isFinite(n) && n > 0 ? n : null
+}
 
 export function SetPricesPage() {
-  const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
+  const [types, setTypes] = useState<TypeRow[]>([])
+  const [rooms, setRooms] = useState<Record<string, any>[]>([])
   const [edited, setEdited] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState<TypeForm | null>(null)
   const { currency } = useCurrency()
 
-  // Default room types to seed if none exist
-  const defaultRoomTypes = [
-    { name: 'Standard Room', capacity: 2, basePrice: 100 },
-    { name: 'Executive Suite', capacity: 2, basePrice: 250 },
-    { name: 'Deluxe Room', capacity: 2, basePrice: 150 },
-    { name: 'Family Room', capacity: 4, basePrice: 200 },
-    { name: 'Presidential Suite', capacity: 5, basePrice: 500 }
-  ]
-
-  const loadRoomTypes = async () => {
+  const load = async () => {
     setLoading(true)
+    setLoadError(null)
     try {
-      const types = await db.roomTypes.list({ orderBy: { column: 'createdAt', ascending: true } })
-      console.log('📊 [SetPrices] Loaded room types:', types.length)
-      console.log('📊 [SetPrices] Room types data:', JSON.stringify(types, null, 2))
-      if (types.length > 0) {
-        console.log('📊 [SetPrices] First room type keys:', Object.keys(types[0]))
-        console.log('📊 [SetPrices] First room type capacity:', types[0].capacity)
-      }
-      setRoomTypes(types || [])
-    } catch (err) {
-      console.error('Failed to load room types', err)
-      toast.error('Failed to load room types')
-      setRoomTypes([])
+      const [typeRows, roomRows] = await Promise.all([
+        db.roomTypes.list({ orderBy: { column: 'createdAt', ascending: true } }),
+        db.properties.list(),
+      ])
+      setTypes((typeRows || []) as TypeRow[])
+      setRooms(roomRows || [])
+    } catch (err: any) {
+      console.error('[SetPrices] Failed to load room types', err)
+      setLoadError(err?.message || 'Could not load room types')
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    loadRoomTypes()
+    load()
   }, [])
 
-  const seedDefaultTypes = async () => {
-    setSaving(true)
+  // One row per room type: the row the website shows and bookings charge.
+  // Older duplicate rows (left by the Rooms page's old auto-seeding) are hidden.
+  // Oldest first, so rows stay put when a price changes and new types go last.
+  const groups = useMemo(
+    () => canonicalRoomTypes(types, rooms).sort((a, b) => String(a.type.createdAt ?? '').localeCompare(String(b.type.createdAt ?? ''))),
+    [types, rooms],
+  )
+  const hiddenDuplicates = groups.reduce((n, g) => n + g.duplicates.length, 0)
+  const stranded = groups.filter((g) => g.strandedRooms > 0)
+
+  const dirtyIds = Object.keys(edited).filter((id) => {
+    const group = groups.find((g) => g.type.id === id)
+    return group && parsePrice(edited[id]) !== typePrice(group.type)
+  })
+
+  const currentUserId = async () => (await auth.me().catch(() => null))?.id || 'system'
+
+  /**
+   * Bring every room's stored copy of the price into line. Bookings charge the
+   * type's price, so a failure here leaves a stale copy, never a wrong charge.
+   */
+  const syncRoomPrices = async (typeId: string, price: number): Promise<boolean> => {
     try {
-      toast.info('Creating room types...')
-      console.log('🔧 [SetPrices] Starting to create default room types...')
-
-      // Check which types already exist
-      let existingTypes: RoomType[] = []
-      try {
-        existingTypes = await db.roomTypes.list() || []
-        console.log('📊 [SetPrices] Existing room types:', existingTypes.length)
-      } catch (listErr) {
-        console.warn('⚠️ [SetPrices] Could not list existing room types:', listErr)
-        // Continue anyway - table might not exist yet
-      }
-
-      const existingNames = new Set(existingTypes.map((t: RoomType) => t.name?.toLowerCase()))
-
-      let created = 0
-      const errors: string[] = []
-
-      for (const type of defaultRoomTypes) {
-        const existingType = existingTypes.find((t: RoomType) => t.name?.toLowerCase() === type.name.toLowerCase())
-
-        if (!existingType) {
-          // Create new room type
-          try {
-            console.log(`📝 [SetPrices] Creating room type: ${type.name}`)
-            const result = await db.roomTypes.create({
-              id: crypto.randomUUID(),
-              name: type.name,
-              capacity: type.capacity,
-              basePrice: type.basePrice,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            })
-            console.log(`✅ [SetPrices] Created: ${type.name}`, result)
-            created++
-          } catch (createErr: any) {
-            console.error(`❌ [SetPrices] Failed to create ${type.name}:`, createErr)
-            errors.push(`${type.name}: ${createErr?.message || 'Unknown error'}`)
-          }
-        } else if (!existingType.capacity) {
-          // Update existing room type that's missing capacity
-          try {
-            console.log(`🔄 [SetPrices] Updating ${type.name} with capacity: ${type.capacity}`)
-            await db.roomTypes.update(existingType.id, { capacity: type.capacity })
-            console.log(`✅ [SetPrices] Updated: ${type.name}`)
-            created++
-          } catch (updateErr: any) {
-            console.error(`❌ [SetPrices] Failed to update ${type.name}:`, updateErr)
-            errors.push(`${type.name}: ${updateErr?.message || 'Unknown error'}`)
-          }
-        } else {
-          console.log(`ℹ️ [SetPrices] Skipping ${type.name} - already exists with capacity`)
-        }
-      }
-
-      if (created > 0) {
-        toast.success(`Created ${created} room types`)
-      } else if (errors.length > 0) {
-        toast.error(`Failed to create room types: ${errors[0]}`)
-        console.error('❌ [SetPrices] All errors:', errors)
-      } else {
-        toast.info('All room types already exist')
-      }
-
-      // Reload room types
-      await loadRoomTypes()
-    } catch (error: any) {
-      console.error('❌ [SetPrices] Failed to seed room types:', error)
-      toast.error(`Failed to create room types: ${error?.message || 'Check console for details'}`)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const dirtyCount = useMemo(() => Object.keys(edited).length, [edited])
-
-  const handleChange = (id: string, value: string) => {
-    setEdited((prev) => ({ ...prev, [id]: value }))
-  }
-
-  // Sync price update to all properties that use this room type
-  const syncPriceToRooms = async (roomTypeId: string, newPrice: number) => {
-    try {
-      // Also update properties that reference this room type
-      const properties = await db.properties.list({ where: { propertyTypeId: roomTypeId } })
-      for (const prop of properties) {
-        await db.properties.update(prop.id, { basePrice: newPrice, price: newPrice })
-      }
-
-      console.log(`✅ Synced price to ${properties.length} properties`)
+      const [typeRooms, mirrors] = await Promise.all([
+        db.properties.list({ where: { propertyTypeId: typeId } }),
+        db.rooms.list({ where: { roomTypeId: typeId } }),
+      ])
+      await Promise.all([
+        ...typeRooms.map((r: any) => db.properties.update(r.id, roomPriceUpdate(price))),
+        ...mirrors.map((r: any) => db.rooms.update(r.id, mirrorPriceUpdate(price))),
+      ])
+      return true
     } catch (err) {
-      console.warn('Failed to sync price to properties:', err)
+      console.warn('[SetPrices] Rooms of type', typeId, 'kept an old copy of the price:', err)
+      return false
     }
   }
 
-  const saveOne = async (id: string) => {
-    const newValue = Number(edited[id])
-    if (!isFinite(newValue) || newValue <= 0) {
-      toast.error('Enter a valid price')
+  /** Price one type. Throws if the type itself could not be saved. */
+  const applyPrice = async (group: RoomTypeGroup<TypeRow>, price: number) => {
+    await db.roomTypes.update(group.type.id, roomTypePriceUpdate(price))
+    setTypes((prev) => prev.map((t) => (t.id === group.type.id ? { ...t, basePrice: price } : t)))
+    setEdited((prev) => {
+      const copy = { ...prev }
+      delete copy[group.type.id]
+      return copy
+    })
+    const roomsSynced = group.roomCount === 0 || (await syncRoomPrices(group.type.id, price))
+    activityLogService
+      .log({
+        action: 'updated',
+        entityType: 'room',
+        entityId: group.type.id,
+        details: {
+          roomTypeName: group.type.name,
+          oldPrice: typePrice(group.type) ?? 0,
+          newPrice: price,
+          priceChange: true,
+          updatedAt: new Date().toISOString(),
+        },
+        userId: await currentUserId(),
+      })
+      .catch((logError: unknown) => console.error('Activity logging failed:', logError))
+    return roomsSynced
+  }
+
+  const saveOne = async (group: RoomTypeGroup<TypeRow>) => {
+    const price = parsePrice(edited[group.type.id])
+    if (price === null) {
+      toast.error('Enter a nightly price above zero')
       return
     }
     setSaving(true)
     try {
-      // Update room type
-      await db.roomTypes.update(id, {
-        basePrice: newValue,
-        updatedAt: new Date().toISOString()
-      })
-
-      // Sync to all rooms using this type
-      await syncPriceToRooms(id, newValue)
-
-      // Optimistic UI update
-      setRoomTypes((prev) => prev.map((rt) => (rt.id === id ? { ...rt, basePrice: newValue } as RoomType : rt)))
-      setEdited((prev) => {
-        const copy = { ...prev }
-        delete copy[id]
-        return copy
-      })
-      toast.success('Price updated globally')
-
-      // Log price change
-      try {
-        const user = await auth.me().catch(() => null)
-        const roomType = roomTypes.find(rt => rt.id === id)
-        await activityLogService.log({
-          action: 'updated',
-          entityType: 'room',
-          entityId: id,
-          details: {
-            roomTypeName: roomType?.name || 'Unknown',
-            oldPrice: roomType?.basePrice || 0,
-            newPrice: newValue,
-            priceChange: true,
-            updatedAt: new Date().toISOString()
-          },
-          userId: user?.id || 'system'
-        })
-      } catch (logError) {
-        console.error('Activity logging failed:', logError)
-      }
-    } catch (err) {
-      console.error('Update failed', err)
-      toast.error('Failed to update price')
+      const roomsSynced = await applyPrice(group, price)
+      if (roomsSynced) toast.success(`${group.type.name} is now ${formatCurrencySync(price, currency)} a night`)
+      else toast.warning(`${group.type.name}'s price is saved, but some rooms still list the old price. Press Refresh, then save it again.`)
+    } catch (err: any) {
+      console.error('[SetPrices] Price update failed', err)
+      toast.error(`Could not save the price for ${group.type.name}`, { description: err?.message })
     } finally {
       setSaving(false)
     }
   }
 
   const saveAll = async () => {
-    if (dirtyCount === 0) return
+    const pending = dirtyIds.map((id) => groups.find((g) => g.type.id === id)!).filter(Boolean)
+    const invalid = pending.filter((g) => parsePrice(edited[g.type.id]) === null)
+    if (invalid.length) {
+      toast.error(`Enter a nightly price above zero for ${invalid.map((g) => g.type.name).join(', ')}`)
+      return
+    }
+    setSaving(true)
+    const failed: string[] = []
+    let staleRooms = false
+    for (const group of pending) {
+      try {
+        if (!(await applyPrice(group, parsePrice(edited[group.type.id])!))) staleRooms = true
+      } catch (err) {
+        console.error('[SetPrices] Price update failed for', group.type.name, err)
+        failed.push(group.type.name)
+      }
+    }
+    setSaving(false)
+    const saved = pending.length - failed.length
+    if (failed.length) toast.error(`Could not save: ${failed.join(', ')}`, { description: saved ? `${saved} other price${saved === 1 ? '' : 's'} saved.` : undefined })
+    else if (staleRooms) toast.warning('Prices saved, but some rooms still list an old price. Press Refresh, then save again.')
+    else toast.success(`${saved} price${saved === 1 ? '' : 's'} saved`)
+  }
+
+  const openEdit = (group: RoomTypeGroup<TypeRow>) =>
+    setForm({
+      id: group.type.id,
+      originalName: group.type.name,
+      name: group.type.name,
+      capacity: String(typeCapacity(group.type) ?? ''),
+      price: String(typePrice(group.type) ?? ''),
+      description: group.type.description || '',
+    })
+
+  const submitForm = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!form) return
+    const name = form.name.trim().replace(/\s+/g, ' ')
+    const capacity = Number(form.capacity)
+    const price = parsePrice(form.price)
+
+    if (!name) return void toast.error('Give the room type a name')
+    if (normalizeName(name) !== normalizeName(form.originalName) && findTypeNamed(types, name)) {
+      return void toast.error(`There is already a room type called "${name}"`)
+    }
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > MAX_CAPACITY) {
+      return void toast.error(`Max guests must be a whole number from 1 to ${MAX_CAPACITY}`)
+    }
+    if (!form.id && price === null) return void toast.error('Enter a nightly price above zero')
+
     setSaving(true)
     try {
-      for (const [id, val] of Object.entries(edited)) {
-        const price = Number(val)
-        if (isFinite(price) && price > 0) {
-          await db.roomTypes.update(id, {
-            basePrice: price,
-            updatedAt: new Date().toISOString()
-          })
-          await syncPriceToRooms(id, price)
-        }
-      }
-
-      // Optimistic UI
-      setRoomTypes((prev) => prev.map((rt) => (edited[rt.id] ? { ...rt, basePrice: Number(edited[rt.id]) } : rt)))
-      setEdited({})
-      toast.success('All prices updated globally')
-
-      // Log bulk price update
-      try {
-        const user = await auth.me().catch(() => null)
-        const changes = Object.entries(edited).map(([id, val]) => {
-          const rt = roomTypes.find(r => r.id === id)
-          return `${rt?.name || 'Unknown'}: ${rt?.basePrice || 0} → ${val}`
-        }).join(', ')
-        await activityLogService.log({
-          action: 'updated',
-          entityType: 'room',
-          entityId: 'bulk-price-update',
-          details: {
-            bulkUpdate: true,
-            changes,
-            count: dirtyCount,
-            updatedAt: new Date().toISOString()
-          },
-          userId: user?.id || 'system'
+      let typeId = form.id
+      if (typeId) {
+        await db.roomTypes.update(typeId, roomTypeDetailsUpdate({ name, capacity, description: form.description }))
+        toast.success(`${name} updated`)
+      } else {
+        const row = newRoomTypeRow({ name, capacity, basePrice: price!, description: form.description })
+        await db.roomTypes.create(row)
+        typeId = row.id
+        toast.success(`${name} added at ${formatCurrencySync(price!, currency)} a night`, {
+          description: 'Add its rooms on the Rooms page. It appears on the website once it has a room.',
         })
-      } catch (logError) {
-        console.error('Activity logging failed:', logError)
       }
-    } catch (err) {
-      console.error('Bulk save failed', err)
-      toast.error('Failed to save all changes')
+      activityLogService
+        .log({
+          action: form.id ? 'updated' : 'created',
+          entityType: 'room',
+          entityId: typeId,
+          details: { roomTypeName: name, capacity, ...(form.id ? {} : { basePrice: price }), roomType: true },
+          userId: await currentUserId(),
+        })
+        .catch((logError: unknown) => console.error('Activity logging failed:', logError))
+      setForm(null)
+      await load()
+    } catch (err: any) {
+      console.error('[SetPrices] Saving room type failed', err)
+      toast.error(form.id ? 'Could not update the room type' : 'Could not add the room type', { description: err?.message })
     } finally {
       setSaving(false)
     }
   }
 
-  if (loading) {
+  if (loading && types.length === 0) {
     return (
       <div className="flex items-center justify-center py-16">
         <div className="flex items-center gap-3 text-muted-foreground">
@@ -266,7 +262,7 @@ export function SetPricesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <div className="p-1.5 rounded-lg bg-primary/10">
@@ -274,79 +270,195 @@ export function SetPricesPage() {
             </div>
             <h1 className="text-2xl font-bold tracking-tight">Set Prices</h1>
           </div>
-          <p className="text-sm text-muted-foreground">Manage base prices for each room type. These prices appear on the public Rooms page.</p>
+          <p className="text-sm text-muted-foreground">
+            Each room type has one nightly price. Every room of that type, the website and all bookings use it.
+          </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={loadRoomTypes} disabled={loading}>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={load} disabled={loading || saving}>
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Button onClick={saveAll} disabled={saving || dirtyCount === 0}>
-            {saving ? 'Saving…' : dirtyCount > 0 ? `Save all (${dirtyCount})` : 'Save all'}
+          <Button variant="outline" onClick={() => setForm(NEW_TYPE)} disabled={saving || !!loadError}>
+            <Plus className="w-4 h-4 mr-2" />
+            Add room type
+          </Button>
+          <Button onClick={saveAll} disabled={saving || dirtyIds.length === 0}>
+            {saving ? 'Saving…' : dirtyIds.length > 0 ? `Save all (${dirtyIds.length})` : 'Save all'}
           </Button>
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Room types</CardTitle>
-          <CardDescription>Edit the base price per night</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {roomTypes.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <p className="text-muted-foreground mb-4">No room types found in the database.</p>
-              <Button onClick={seedDefaultTypes} disabled={saving}>
-                <Plus className="w-4 h-4 mr-2" />
-                {saving ? 'Creating...' : 'Create Default Room Types'}
-              </Button>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/50 hover:bg-muted/50">
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Type</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Capacity</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Current Price</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">New Price</TableHead>
-                  <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3 w-32">Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {roomTypes.map((rt) => (
-                  <TableRow key={rt.id}>
-                    <TableCell className="font-medium">{rt.name}</TableCell>
-                    <TableCell>{rt.capacity || '-'}</TableCell>
-                    <TableCell>{formatCurrencySync(rt.basePrice, currency)}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground">{getCurrencySymbol(currency)}</span>
-                        <Input
-                          type="number"
-                          min={0}
-                          step={1}
-                          inputMode="decimal"
-                          className="w-40"
-                          value={edited[rt.id] ?? String(rt.basePrice ?? '')}
-                          onChange={(e) => handleChange(rt.id, e.target.value)}
-                        />
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Button variant="outline" size="sm" onClick={() => saveOne(rt.id)} disabled={saving}>
-                        Save
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+      {loadError ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center gap-4 py-12 text-center">
+            <p className="text-sm text-red-700">Room types could not be loaded: {loadError}</p>
+            <Button variant="outline" onClick={load}>
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Try again
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Room types</CardTitle>
+            <CardDescription>Edit the price per night, then press Save. To sell rooms at a different price, add a room type for them.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {groups.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <p className="text-muted-foreground mb-4">No room types yet.</p>
+                <Button onClick={() => setForm(NEW_TYPE)} disabled={saving}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add your first room type
+                </Button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50 hover:bg-muted/50">
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Type</TableHead>
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Rooms</TableHead>
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Max guests</TableHead>
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">Current price</TableHead>
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3">New price</TableHead>
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground py-3 w-40">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {groups.map((group) => {
+                      const rt = group.type
+                      const price = typePrice(rt)
+                      const draft = edited[rt.id]
+                      const changed = draft !== undefined && parsePrice(draft) !== price
+                      return (
+                        <TableRow key={rt.id}>
+                          <TableCell className="font-medium">{rt.name}</TableCell>
+                          <TableCell className="text-muted-foreground">{group.roomCount || 'None yet'}</TableCell>
+                          <TableCell>{typeCapacity(rt) ?? '-'}</TableCell>
+                          <TableCell>{price !== null ? formatCurrencySync(price, currency) : 'Not set'}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <span className="text-muted-foreground">{getCurrencySymbol(currency)}</span>
+                              <Input
+                                type="number"
+                                min={1}
+                                step="any"
+                                inputMode="decimal"
+                                aria-label={`New price per night for ${rt.name}`}
+                                className="w-32"
+                                value={draft ?? String(price ?? '')}
+                                onChange={(e) => setEdited((prev) => ({ ...prev, [rt.id]: e.target.value }))}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && changed && !saving) saveOne(group)
+                                }}
+                              />
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <Button variant={changed ? 'default' : 'outline'} size="sm" onClick={() => saveOne(group)} disabled={saving || !changed}>
+                                Save
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => openEdit(group)} disabled={saving} aria-label={`Edit ${rt.name}`}>
+                                <Pencil className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+            {stranded.length > 0 && (
+              <p className="mt-4 text-sm text-amber-700">
+                Some rooms are linked to an old duplicate of {stranded.map((g) => g.type.name).join(', ')}, so they can't be booked online.
+                On the Rooms page, edit each of them and press Save Changes to fix it.
+              </p>
+            )}
+            {hiddenDuplicates > 0 && (
+              <p className="mt-4 text-xs text-muted-foreground">
+                {hiddenDuplicates} old duplicate {hiddenDuplicates === 1 ? 'entry is' : 'entries are'} hidden. The website and bookings don't use them.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <Dialog open={!!form} onOpenChange={(open) => !open && !saving && setForm(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{form?.id ? `Edit ${form.originalName}` : 'Add room type'}</DialogTitle>
+            <DialogDescription>
+              {form?.id
+                ? 'Change the price in the table. A new name shows on the website straight away.'
+                : 'A kind of room you sell at one price, for example "Executive Suite". Add its rooms on the Rooms page afterwards.'}
+            </DialogDescription>
+          </DialogHeader>
+          {form && (
+            <form onSubmit={submitForm} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="type-name">Name*</Label>
+                <Input id="type-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required maxLength={60} />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="type-capacity">Max guests*</Label>
+                  <Input
+                    id="type-capacity"
+                    type="number"
+                    min={1}
+                    max={MAX_CAPACITY}
+                    step={1}
+                    value={form.capacity}
+                    onChange={(e) => setForm({ ...form, capacity: e.target.value })}
+                    required
+                  />
+                </div>
+                {!form.id && (
+                  <div className="space-y-2">
+                    <Label htmlFor="type-price">Price per night ({getCurrencySymbol(currency)})*</Label>
+                    <Input
+                      id="type-price"
+                      type="number"
+                      min={1}
+                      step="any"
+                      inputMode="decimal"
+                      value={form.price}
+                      onChange={(e) => setForm({ ...form, price: e.target.value })}
+                      required
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="type-description">Description</Label>
+                <textarea
+                  id="type-description"
+                  className="w-full px-3 py-2 border rounded-md min-h-[80px] text-sm"
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  placeholder="Shown on the website when there is no tagline for this room"
+                />
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setForm(null)} disabled={saving}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={saving}>
+                  {saving ? 'Saving…' : form.id ? 'Save changes' : 'Add room type'}
+                </Button>
+              </DialogFooter>
+            </form>
           )}
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
 
 export default SetPricesPage
-

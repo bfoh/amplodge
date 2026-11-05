@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useSubscription } from '@/hooks/use-subscription'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
@@ -31,6 +32,45 @@ import { usePermissions } from '@/hooks/use-permissions'
 import { Permission } from '@/components/Permission'
 import { cn, formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
+import {
+  canonicalRoomTypes,
+  groupOf,
+  linkedTypeId,
+  newRoomMirrorRow,
+  newRoomRow,
+  normalizeName,
+  roomFields,
+  roomMirrorFields,
+  roomWithNumber,
+  typeCapacity,
+  typePrice,
+} from '@/lib/room-types'
+
+const EMPTY_FORM = {
+  name: '',
+  roomNumber: '',
+  address: '',
+  propertyTypeId: '',
+  bedrooms: 1,
+  bathrooms: 1,
+  maxGuests: 2,
+  description: ''
+}
+
+/**
+ * Keep the legacy `rooms` row in step with the room. Bookings point at it and
+ * the AI concierge reads it. A failure is not fatal: the booking engine
+ * creates a missing row before the room's first booking.
+ */
+async function syncRoomMirror(id: string, room: { roomNumber: string; roomTypeId: string; price: number | null }) {
+  try {
+    const existing = await (db as any).rooms.get(id).catch(() => null)
+    if (existing) await (db as any).rooms.update(id, roomMirrorFields(room))
+    else await (db as any).rooms.create(newRoomMirrorRow(id, room), { returning: 'minimal' })
+  } catch (e) {
+    console.warn('[PropertiesPage] Room mirror sync failed for', room.roomNumber, e)
+  }
+}
 
 export function PropertiesPage() {
   const permissions = usePermissions()
@@ -42,17 +82,29 @@ export function PropertiesPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
-  const [formData, setFormData] = useState({
-    name: '',
-    roomNumber: '',
-    address: '',
-    propertyTypeId: '',
-    bedrooms: 1,
-    bathrooms: 1,
-    maxGuests: 2,
-    basePrice: 100,
-    description: ''
-  })
+  const [saving, setSaving] = useState(false)
+  const [formData, setFormData] = useState(EMPTY_FORM)
+
+  // One choice per room type: the row the website shows and bookings charge,
+  // not the ~65 old duplicates the page's former auto-seeding left behind.
+  const typeGroups = useMemo(
+    () => canonicalRoomTypes(roomTypes as any[], properties).sort((a, b) => String(a.type.name).localeCompare(String(b.type.name))),
+    [roomTypes, properties]
+  )
+  const selectedType = typeGroups.find((g) => g.type.id === formData.propertyTypeId)?.type
+
+  /** The room type a room should be edited under: its own, or the live row of the same name. */
+  const typeForRoom = (property: any): string => {
+    const own = groupOf(typeGroups, linkedTypeId(property))
+    if (own) return own.type.id
+    const byName = typeGroups.find((g) => normalizeName(g.type.name) === normalizeName(property.propertyType))
+    return byName?.type.id || ''
+  }
+
+  const chooseType = (typeId: string) => {
+    const type = typeGroups.find((g) => g.type.id === typeId)?.type
+    setFormData((prev) => ({ ...prev, propertyTypeId: typeId, maxGuests: typeCapacity(type) ?? prev.maxGuests }))
+  }
 
   useEffect(() => {
     loadRoomTypes()
@@ -97,8 +149,8 @@ export function PropertiesPage() {
       // never show GHC0 when a real price exists somewhere in the row.
       //
       // Price source priority:
-      //   1. matching room type's basePrice  (canonical, edited via SetPrices)
-      //   2. property's own basePrice        (per-room override)
+      //   1. matching room type's basePrice  (what bookings charge, edited via Set Prices)
+      //   2. property's own basePrice        (the room's copy of it)
       //   3. property's legacy `price` field (older rows pre-rename)
       //   4. 0                                (genuinely unpriced)
       const propertiesWithPrices = data.map((prop: any) => {
@@ -106,9 +158,9 @@ export function PropertiesPage() {
           roomTypes.find((rt) => rt.id === prop.propertyTypeId) ||
           roomTypes.find((rt) => (rt.name || '').toLowerCase() === (prop.propertyType || '').toLowerCase())
 
-        const typePrice = Number(matchingType?.basePrice ?? 0)
+        const rate = Number(matchingType?.basePrice ?? 0)
         const ownPrice = Number(prop.basePrice ?? prop.price ?? 0)
-        const displayPrice = typePrice > 0 ? typePrice : ownPrice
+        const displayPrice = rate > 0 ? rate : ownPrice
 
         return {
           ...prop,
@@ -168,51 +220,18 @@ export function PropertiesPage() {
     return { status: 'available' }
   }
 
+  // Read only. This used to create any of five default types it could not
+  // find, at old prices. Each insert's realtime echo re-ran the check before
+  // the earlier inserts were visible, so one visit could add dozens of
+  // duplicate types (57 in 18 seconds on 2026-06-05). Types are now added on
+  // the Set Prices page.
   const loadRoomTypes = async () => {
     try {
       const types = await (db as any).roomTypes.list({ orderBy: { column: 'createdAt', ascending: true } })
-
-      // Ensure default types exist (robust check)
-      const defaults = [
-        { name: 'Standard Room', capacity: 2, basePrice: 100 },
-        { name: 'Executive Suite', capacity: 2, basePrice: 250 },
-        { name: 'Deluxe Room', capacity: 2, basePrice: 150 },
-        { name: 'Family Room', capacity: 4, basePrice: 200 },
-        { name: 'Presidential Suite', capacity: 5, basePrice: 500 }
-      ]
-
-      let seeded = false
-      for (const def of defaults) {
-        // Check if this specific type exists (case-insensitive)
-        const exists = types.some(t => t.name?.toLowerCase() === def.name.toLowerCase())
-        if (!exists) {
-          await (db as any).roomTypes.create({
-            id: crypto.randomUUID(),
-            ...def,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          })
-          seeded = true
-        }
-      }
-
-      if (seeded) {
-        toast.info('Initializing missing room types...')
-        // Reload if we added anything
-        const allTypes = await (db as any).roomTypes.list({ orderBy: { column: 'createdAt', ascending: true } })
-        setRoomTypes(allTypes)
-        if (!formData.propertyTypeId && allTypes.length > 0) {
-          setFormData((prev) => ({ ...prev, propertyTypeId: allTypes[0].id }))
-        }
-        toast.success('Room types updated')
-      } else {
-        setRoomTypes(types)
-        if (!formData.propertyTypeId && types.length > 0) {
-          setFormData((prev) => ({ ...prev, propertyTypeId: types[0].id }))
-        }
-      }
+      setRoomTypes(types)
     } catch (error) {
       console.error('Failed to load room types:', error)
+      toast.error('Could not load room types', { description: 'Press Refresh in your browser to try again.' })
     }
   }
 
@@ -229,128 +248,79 @@ export function PropertiesPage() {
       return
     }
 
+    const name = formData.name.trim()
+    const roomNumber = (formData.roomNumber ?? '').toString().trim()
+    const type = selectedType
+
+    if (!name) {
+      toast.error('Give the room a name')
+      return
+    }
+    if (!roomNumber) {
+      toast.error('Enter a room number', { description: 'Bookings, housekeeping and the calendar find rooms by number.' })
+      return
+    }
+    const clash = roomWithNumber(properties, roomNumber, editingId ?? undefined)
+    if (clash) {
+      toast.error(`Room number ${roomNumber} is already used by ${clash.name || 'another room'}`)
+      return
+    }
+    if (!type) {
+      toast.error('Choose a room type')
+      return
+    }
+
+    // The room's price is its type's price: that is what the website shows
+    // and every booking charges. The room keeps a copy so the two agree.
+    const fields = roomFields({ ...formData, name, roomNumber }, type)
+    const basePrice = fields.basePrice
+    const typeName = type.name
+
+    setSaving(true)
     try {
       // Get current user but don't require it - properties are project-scoped
       const user = await auth.me().catch(() => null)
+      const now = fields.updatedAt
 
-      if (!formData.propertyTypeId) {
-        toast.error('Please select a room type')
-        return
-      }
-
-      if (editingId) {
-        const payload = {
-          name: formData.name?.trim() || '',
-          roomNumber: (formData.roomNumber ?? '').toString().trim(),
-          address: formData.address?.trim() || '',
-          propertyTypeId: formData.propertyTypeId || '',
-          bedrooms: Number.isFinite(Number(formData.bedrooms)) ? Number(formData.bedrooms) : 0,
-          bathrooms: Number.isFinite(Number(formData.bathrooms)) ? Number(formData.bathrooms) : 0,
-          maxGuests: Number.isFinite(Number(formData.maxGuests)) ? Number(formData.maxGuests) : 1,
-          basePrice: Number.isFinite(Number(formData.basePrice)) ? Number(formData.basePrice) : 0,
-          description: formData.description || '',
-          updatedAt: new Date().toISOString()
-        }
-        await db.properties.update(editingId, payload)
-        // Sync with rooms table (canonical for bookings)
-        await (db as any).rooms.update(editingId, {
-          roomNumber: payload.roomNumber,
-          status: (formData as any).status || 'active',
-          updatedAt: payload.updatedAt
-        }).catch((e: any) => console.warn('[PropertiesPage] Room sync failed:', e))
-        
-        toast.success('Room updated')
-
-        // Log room update
-        try {
-          const userId = user?.id || 'system'
-          await activityLogService.log({
-            action: 'updated',
-            entityType: 'room',
-            entityId: editingId,
-            details: {
-              roomName: payload.name,
-              roomNumber: payload.roomNumber,
-              roomType: roomTypes.find(rt => rt.id === payload.propertyTypeId)?.name || '',
-              basePrice: payload.basePrice,
-              maxGuests: payload.maxGuests,
-              updatedAt: new Date().toISOString()
-            },
-            userId
-          })
-        } catch (logError) {
-          console.error('Activity logging failed:', logError)
-        }
+      let roomId = editingId
+      if (roomId) {
+        await db.properties.update(roomId, fields)
       } else {
-        // Create property with explicit field mapping to match database schema
-        // Note: properties table doesn't have a user_id column
-        const createPayload = {
-          id: crypto.randomUUID(),
-          name: formData.name?.trim() || '',
-          roomNumber: (formData.roomNumber ?? '').toString().trim(),
-          address: formData.address?.trim() || '',
-          propertyTypeId: formData.propertyTypeId || '',
-          bedrooms: Number.isFinite(Number(formData.bedrooms)) ? Number(formData.bedrooms) : 1,
-          bathrooms: Number.isFinite(Number(formData.bathrooms)) ? Number(formData.bathrooms) : 1,
-          maxGuests: Number.isFinite(Number(formData.maxGuests)) ? Number(formData.maxGuests) : 2,
-          basePrice: Number.isFinite(Number(formData.basePrice)) ? Number(formData.basePrice) : 100,
-          description: formData.description || '',
-          status: 'active',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        }
-        console.log('[PropertiesPage] Creating property with payload:', createPayload)
-        await db.properties.create(createPayload)
-        
-        // Sync with rooms table (canonical for bookings)
-        await (db as any).rooms.create({
-          id: createPayload.id,
-          roomNumber: createPayload.roomNumber,
-          status: createPayload.status,
-          createdAt: createPayload.createdAt,
-          updatedAt: createPayload.updatedAt
-        }).catch((e: any) => console.warn('[PropertiesPage] Room sync failed:', e))
-
-        toast.success('Room added successfully')
-
-        // Log room creation
-        try {
-          const userId = user?.id || 'system'
-          await activityLogService.log({
-            action: 'created',
-            entityType: 'room',
-            entityId: createPayload.id,
-            details: {
-              roomName: createPayload.name,
-              roomNumber: createPayload.roomNumber,
-              roomType: roomTypes.find(rt => rt.id === createPayload.propertyTypeId)?.name || '',
-              basePrice: createPayload.basePrice,
-              maxGuests: createPayload.maxGuests,
-              createdAt: new Date().toISOString()
-            },
-            userId
-          })
-        } catch (logError) {
-          console.error('Activity logging failed:', logError)
-        }
+        roomId = crypto.randomUUID()
+        await db.properties.create(newRoomRow(roomId, fields))
       }
+      await syncRoomMirror(roomId, { roomNumber, roomTypeId: type.id, price: basePrice })
+
+      toast.success(editingId ? 'Room updated' : `Room ${roomNumber} added as ${typeName}`)
+
+      try {
+        await activityLogService.log({
+          action: editingId ? 'updated' : 'created',
+          entityType: 'room',
+          entityId: roomId,
+          details: {
+            roomName: name,
+            roomNumber,
+            roomType: typeName,
+            basePrice,
+            maxGuests: fields.maxGuests,
+            [editingId ? 'updatedAt' : 'createdAt']: now
+          },
+          userId: user?.id || 'system'
+        })
+      } catch (logError) {
+        console.error('Activity logging failed:', logError)
+      }
+
       setDialogOpen(false)
       setEditingId(null)
-      setFormData({
-        name: '',
-        roomNumber: '',
-        address: '',
-        propertyTypeId: roomTypes[0]?.id || '',
-        bedrooms: 1,
-        bathrooms: 1,
-        maxGuests: 2,
-        basePrice: 100,
-        description: ''
-      })
+      setFormData(EMPTY_FORM)
       loadProperties()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to save room:', error)
-      toast.error('Failed to save room')
+      toast.error('Failed to save room', { description: error?.message })
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -372,9 +342,23 @@ export function PropertiesPage() {
 
     try {
       const propToDelete = properties.find(p => p.id === deleteId)
+
+      // A room with bookings must stay. Its bookings point at it, so the
+      // database refuses to drop its `rooms` row; deleting the room from this
+      // list anyway used to leave that row behind and the bookings showing no
+      // room number.
+      const bookingCount = await db.bookings.count({ where: { roomId: deleteId } })
+      if (bookingCount === null) throw new Error('Could not check the room for bookings')
+      if (bookingCount > 0) {
+        toast.error(`Room ${propToDelete?.roomNumber || ''} has ${bookingCount} booking${bookingCount === 1 ? '' : 's'} on record, so it can't be deleted`, {
+          description: 'Edit it instead: change its name, number or room type.'
+        })
+        return
+      }
+
       await db.properties.delete(deleteId)
-      await (db as any).rooms.delete(deleteId).catch(() => null)
-      
+      await (db as any).rooms.delete(deleteId).catch((e: any) => console.warn('[PropertiesPage] Room mirror delete failed:', e))
+
       toast.success('Room deleted')
 
       // Log room deletion
@@ -428,17 +412,7 @@ export function PropertiesPage() {
           <DialogTrigger asChild>
             <Button onClick={() => {
               setEditingId(null)
-              setFormData({
-                name: '',
-                roomNumber: '',
-                address: '',
-                propertyTypeId: roomTypes[0]?.id || '',
-                bedrooms: 1,
-                bathrooms: 1,
-                maxGuests: 2,
-                basePrice: 100,
-                description: ''
-              })
+              setFormData(EMPTY_FORM)
             }}>
               <Plus className="w-4 h-4 mr-2" />
               Add Room
@@ -450,7 +424,7 @@ export function PropertiesPage() {
               <DialogDescription>Enter the room details</DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="name">Room Name*</Label>
                   <Input
@@ -462,39 +436,55 @@ export function PropertiesPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="roomNumber">Room Number</Label>
+                  <Label htmlFor="roomNumber">Room Number*</Label>
                   <Input
                     id="roomNumber"
                     value={formData.roomNumber}
                     onChange={(e) => setFormData({ ...formData, roomNumber: e.target.value })}
+                    required
                     placeholder="101"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="propertyTypeId">Room Type</Label>
-                  <select
-                    id="propertyTypeId"
-                    className="w-full px-3 py-2 border rounded-md"
-                    value={formData.propertyTypeId}
-                    onChange={(e) => setFormData({ ...formData, propertyTypeId: e.target.value })}
-                    required
-                  >
-                    {!formData.propertyTypeId && <option value="">Select type</option>}
-                    {roomTypes.length > 0 ? (
-                      roomTypes.map((rt) => (
-                        <option key={rt.id} value={rt.id}>{rt.name}</option>
-                      ))
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="propertyTypeId">Room Type*</Label>
+                <select
+                  id="propertyTypeId"
+                  className="w-full px-3 py-2 border rounded-md bg-background"
+                  value={formData.propertyTypeId}
+                  onChange={(e) => chooseType(e.target.value)}
+                  required
+                >
+                  <option value="" disabled>{typeGroups.length ? 'Choose a room type' : 'No room types yet: add one in Set Prices'}</option>
+                  {typeGroups.map(({ type }) => {
+                    const rate = typePrice(type)
+                    const cap = typeCapacity(type)
+                    return (
+                      <option key={type.id} value={type.id}>
+                        {type.name} · {rate !== null ? `${formatCurrencySync(rate, currency)} per night` : 'no price set'}{cap ? ` · up to ${cap} guests` : ''}
+                      </option>
+                    )
+                  })}
+                </select>
+                <div className="rounded-md border bg-stone-50 px-3 py-2 text-sm space-y-1">
+                  {selectedType ? (
+                    typePrice(selectedType) !== null ? (
+                      <p>
+                        This room will be sold at <span className="font-semibold">{formatCurrencySync(typePrice(selectedType)!, currency)} per night</span>, the {selectedType.name} price.{' '}
+                        <Link to="/staff/set-prices" className="text-primary underline underline-offset-2">Change it in Set Prices</Link>.
+                      </p>
                     ) : (
-                      /* Fallback options if room types not loaded from database */
-                      <>
-                        <option value="standard_room">Standard Room</option>
-                        <option value="executive_suite">Executive Suite</option>
-                        <option value="deluxe_room">Deluxe Room</option>
-                        <option value="family_room">Family Room</option>
-                        <option value="presidential_suite">Presidential Suite</option>
-                      </>
-                    )}
-                  </select>
+                      <p className="text-amber-700">
+                        {selectedType.name} has no price yet, so it can't be booked. <Link to="/staff/set-prices" className="underline underline-offset-2">Set one in Set Prices</Link>.
+                      </p>
+                    )
+                  ) : (
+                    <p className="text-muted-foreground">A room's price per night comes from its room type.</p>
+                  )}
+                  <p className="text-muted-foreground">
+                    Selling it at a different price, or a new kind of room? <Link to="/staff/set-prices" className="text-primary underline underline-offset-2">Add a room type in Set Prices</Link> first.
+                  </p>
                 </div>
               </div>
 
@@ -532,18 +522,6 @@ export function PropertiesPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="basePrice">Price (per night)</Label>
-                <Input
-                  id="basePrice"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={formData.basePrice}
-                  onChange={(e) => setFormData({ ...formData, basePrice: parseFloat(e.target.value) })}
-                />
-              </div>
-
-              <div className="space-y-2">
                 <Label htmlFor="description">Description</Label>
                 <textarea
                   id="description"
@@ -555,10 +533,10 @@ export function PropertiesPage() {
               </div>
 
               <div className="flex justify-end gap-3">
-                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
                   Cancel
                 </Button>
-                <Button type="submit">{editingId ? 'Save Changes' : 'Add Room'}</Button>
+                <Button type="submit" disabled={saving}>{saving ? 'Saving…' : editingId ? 'Save Changes' : 'Add Room'}</Button>
               </div>
             </form>
           </DialogContent>
@@ -656,11 +634,10 @@ export function PropertiesPage() {
                             name: property.name || '',
                             roomNumber: property.roomNumber || '',
                             address: property.address || '',
-                            propertyTypeId: property.propertyTypeId || (roomTypes.find(rt => rt.name.toLowerCase() === (property.propertyType || '').toLowerCase())?.id || ''),
+                            propertyTypeId: typeForRoom(property),
                             bedrooms: Number(property.bedrooms ?? 1),
                             bathrooms: Number(property.bathrooms ?? 1),
                             maxGuests: Number(property.maxGuests ?? 2),
-                            basePrice: Number(property.basePrice ?? 0),
                             description: property.description || ''
                           })
                           setDialogOpen(true)

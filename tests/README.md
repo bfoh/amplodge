@@ -15,6 +15,7 @@ Run the real modules directly.
 
 | suite | covers |
 |---|---|
+| `room-types` | one live room type per name (the row the website charges), rooms priced by their type, unique room numbers, and every column the Rooms and Set Prices pages write checked against `schema.json` |
 | `group-bookings` | group deposits counted once, batch detection, `perRoom` marker, per-staff shares |
 | `accounting` | discounts applied after payment, per-method attribution, deposit caps |
 | `allocation` | splitting one payment across rooms so the shares add back up exactly |
