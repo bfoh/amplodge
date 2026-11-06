@@ -180,6 +180,10 @@ export function ActivityLogsPage() {
       case 'cancelled': return 'bg-red-50 text-red-700 ring-1 ring-red-200'
       case 'login': return 'bg-violet-50 text-violet-700 ring-1 ring-violet-200'
       case 'logout': return 'bg-gray-50 text-gray-700 ring-1 ring-gray-200'
+      case 'key_card_issued': return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+      case 'key_card_failed': return 'bg-red-50 text-red-700 ring-1 ring-red-200'
+      case 'key_card_unknown':
+      case 'key_card_not_returned': return 'bg-amber-50 text-amber-800 ring-1 ring-amber-200'
       default: return 'bg-gray-50 text-gray-700 ring-1 ring-gray-200'
     }
   }
@@ -197,6 +201,7 @@ export function ActivityLogsPage() {
       contact_message: 'bg-pink-100 text-pink-800',
       payment: 'bg-emerald-100 text-emerald-800',
       report: 'bg-gray-100 text-gray-800',
+      key_card: 'bg-amber-100 text-amber-900',
       settings: 'bg-slate-100 text-slate-800',
       user: 'bg-violet-100 text-violet-800',
       inventory: 'bg-amber-100 text-amber-800',

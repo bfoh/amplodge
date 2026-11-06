@@ -37,6 +37,7 @@ const SetPricesPage = lazyWithRetry(() => import('./pages/staff/SetPricesPage').
 const StaffReservationsPage = lazyWithRetry(() => import('./pages/staff/ReservationsPage').then(m => ({ default: m.ReservationsPage })))
 const ReservationHistoryPage = lazyWithRetry(() => import('./pages/staff/ReservationHistoryPage').then(m => ({ default: m.ReservationHistoryPage })))
 const HousekeepingPage = lazyWithRetry(() => import('./pages/staff/HousekeepingPage'))
+const KeyCardsPage = lazyWithRetry(() => import('./pages/staff/KeyCardsPage'))
 const EmployeesPage = lazyWithRetry(() => import('./pages/staff/EmployeesPage').then(m => ({ default: m.EmployeesPage })))
 const CleanupToolPage = lazyWithRetry(() => import('./pages/staff/CleanupToolPage').then(m => ({ default: m.CleanupToolPage })))
 const OnsiteBookingPage = lazyWithRetry(() => import('./pages/staff/OnsiteBookingPage').then(m => ({ default: m.OnsiteBookingPage })))
@@ -219,6 +220,7 @@ function App() {
                 <Route path="reservations/history" element={<ReservationHistoryPage />} />
                 <Route path="guests" element={<StaffGuestsPage />} />
                 <Route path="housekeeping" element={<HousekeepingPage />} />
+                <Route path="key-cards" element={<KeyCardsPage />} />
                 <Route path="employees" element={<EmployeesPage />} />
                 <Route path="invoices" element={<InvoicesPage />} />
                 <Route path="cleanup" element={<CleanupToolPage />} />

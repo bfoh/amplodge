@@ -339,7 +339,9 @@ export interface HotelSettings {
 }
 
 export type ActivityAction = 'created' | 'updated' | 'deleted' | 'cancelled' | 'restored' | 'confirmed' | 'checked-in' | 'checked-out' | 'checked_in' | 'checked_out' | 'payment_recorded' | 'payment_received' | 'payment_refunded' | 'status_changed' | 'assigned' | 'completed' | 'exported' | 'imported' | 'login' | 'logout' | 'sync_completed' | 'notified' | 'diagnostic' | 'table_init' | 'verify_write' | 'manual_entry' | 'record_voided' | 'record_adjusted' | 'record_reviewed' | 'override_approved' | 'override_rejected' | 'device_reset' | 'shift_changed' | 'settings_changed'
-export type EntityType = 'booking' | 'room' | 'room_type' | 'guest' | 'invoice' | 'employee' | 'staff' | 'property' | 'settings' | 'inventory' | 'payment' | 'task' | 'contact_message' | 'report' | 'user' | 'housekeeping_task' | 'system' | 'test' | 'diagnostic' | 'attendance'
+  | 'key_card_ordered' | 'key_card_issued' | 'key_card_failed' | 'key_card_unknown' | 'key_card_returned' | 'key_card_not_returned' | 'key_card_killed_at_door'
+  | 'room_locks_updated' | 'lock_encoder_pairing_started' | 'lock_encoder_paired' | 'lock_encoder_revoked'
+export type EntityType = 'booking' | 'room' | 'room_type' | 'guest' | 'invoice' | 'employee' | 'staff' | 'property' | 'settings' | 'inventory' | 'payment' | 'task' | 'contact_message' | 'report' | 'user' | 'housekeeping_task' | 'system' | 'test' | 'diagnostic' | 'attendance' | 'key_card'
 
 export interface ActivityLog {
   id: string

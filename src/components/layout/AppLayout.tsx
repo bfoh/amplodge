@@ -37,6 +37,7 @@ export function AppLayout() {
     if (path === '/staff/bookings') return 'Bookings'
     if (path === '/staff/guests') return 'Guests'
     if (path === '/staff/housekeeping') return 'Housekeeping'
+    if (path === '/staff/key-cards') return 'Key cards'
     if (path === '/staff/channels') return 'Channels'
     if (path === '/staff/inventory') return 'Inventory'
     if (path === '/staff/employees') return 'Employees'

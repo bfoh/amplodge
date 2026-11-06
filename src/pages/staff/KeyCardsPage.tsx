@@ -1,0 +1,229 @@
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
+import { AlertTriangle, CheckCircle2, CreditCard, DoorClosed, KeyRound, Loader2, RefreshCw, UserX } from 'lucide-react'
+import { format } from 'date-fns'
+import { toast } from 'sonner'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { useTableChanges } from '@/hooks/use-table-changes'
+import { useIsAdmin } from '@/hooks/use-is-admin'
+import {
+  STATUS_LABEL, loadKeyCardBoard, markCard,
+  type CardMark, type KeyCard, type KeyCardBoard,
+} from '@/services/key-cards'
+
+const when = (iso: string) => format(new Date(iso), 'EEE d MMM, HH:mm')
+
+const STATUS_TONE: Partial<Record<KeyCard['status'], string>> = {
+  issued: 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200',
+  unknown: 'bg-amber-50 text-amber-900 ring-1 ring-amber-200',
+  not_returned: 'bg-amber-50 text-amber-900 ring-1 ring-amber-200',
+  pending: 'bg-blue-50 text-blue-800 ring-1 ring-blue-200',
+}
+
+/**
+ * Reception's list of key cards that need doing: guests without a card, cards
+ * that still open a door after the stay ended or the guest moved, and cards
+ * whose writing was cut off. Every card the system writes is recorded here.
+ */
+export default function KeyCardsPage() {
+  const { isAdmin } = useIsAdmin()
+  const [board, setBoard] = useState<KeyCardBoard | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [confirmKill, setConfirmKill] = useState<KeyCard | null>(null)
+
+  const reload = useCallback(async () => {
+    try {
+      setBoard(await loadKeyCardBoard())
+    } catch (e) {
+      console.error('[KeyCardsPage] load failed', e)
+      toast.error('Could not load the key cards')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { void reload() }, [reload])
+  useTableChanges('key_cards', () => { void reload() })
+  useTableChanges('bookings', () => { void reload() }, { delay: 1500 })
+
+  async function mark(card: KeyCard, status: CardMark) {
+    setBusy(card.id)
+    try {
+      await markCard(card.id, status)
+      toast.success(`Room ${card.roomNumber ?? '?'}, card ${card.cardNo + 1}: ${STATUS_LABEL[status].toLowerCase()}`)
+      await reload()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not update the card')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  const header = (
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <div className="p-1.5 rounded-lg bg-primary/10"><KeyRound className="w-5 h-5 text-primary" /></div>
+          <h1 className="text-2xl font-bold tracking-tight">Key cards</h1>
+        </div>
+        <p className="text-sm text-muted-foreground">Which guests need a card, and which cards still open a door they should not.</p>
+      </div>
+      <Button variant="outline" size="sm" onClick={() => { setLoading(true); void reload() }}>
+        <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+      </Button>
+    </div>
+  )
+
+  if (!board?.configured) {
+    return (
+      <div className="space-y-6 animate-fade-in">
+        {header}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Door locks are not set up yet</CardTitle>
+            <CardDescription>
+              Key cards appear here once each room has its lock number.
+              {isAdmin
+                ? <> Add them under <Link to="/staff/properties" className="underline">Rooms → Door lock numbers</Link>, using the lock software's "Export LockNo" file.</>
+                : ' An admin adds them on the Rooms page.'}
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    )
+  }
+
+  const cardActions = (card: KeyCard) => (
+    <div className="flex flex-wrap gap-2">
+      {card.status !== 'returned' && (
+        <Button size="sm" variant="outline" disabled={busy === card.id} onClick={() => void mark(card, 'returned')}>
+          <CheckCircle2 className="w-4 h-4 mr-1" /> Returned
+        </Button>
+      )}
+      {card.status !== 'not_returned' && (
+        <Button size="sm" variant="outline" disabled={busy === card.id} onClick={() => void mark(card, 'not_returned')}>
+          <UserX className="w-4 h-4 mr-1" /> Guest kept it
+        </Button>
+      )}
+      <Button size="sm" variant="outline" disabled={busy === card.id} onClick={() => setConfirmKill(card)}>
+        <DoorClosed className="w-4 h-4 mr-1" /> Cancelled at door
+      </Button>
+    </div>
+  )
+
+  const cardRow = (card: KeyCard, withActions = true) => (
+    <div key={card.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+      <div className="min-w-0">
+        <div className="font-semibold">
+          Room {card.roomNumber ?? '?'} <span className="font-normal text-muted-foreground">· {card.guestName ?? 'Guest'} · card {card.cardNo + 1}</span>
+        </div>
+        <div className="text-xs text-muted-foreground">
+          Opens until {when(card.validUntil)}
+          {card.note ? ` · ${card.note}` : ''}
+          {card.error ? ` · ${card.error}` : ''}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge className={STATUS_TONE[card.status] ?? 'bg-gray-50 text-gray-700'} variant="outline">{STATUS_LABEL[card.status]}</Badge>
+        {withActions && cardActions(card)}
+      </div>
+    </div>
+  )
+
+  const section = (title: string, description: string, icon: ReactNode, count: number, body: ReactNode, tone = '') => (
+    <Card className={tone}>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-lg">{icon}{title}<Badge variant="secondary">{count}</Badge></CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="divide-y">{body}</CardContent>
+    </Card>
+  )
+
+  const { needsCard, shouldBeGone, wrongRoom, unknown, live } = board
+  const nothing = <p className="py-3 text-sm text-muted-foreground">Nothing here.</p>
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      {header}
+
+      {shouldBeGone.length > 0 && section(
+        'Still opens a door after the stay',
+        'The guest has checked out or the booking was cancelled, but this card still opens the door. Take it back, or cancel it at the door with the lock software\'s card.',
+        <AlertTriangle className="w-5 h-5 text-red-600" />, shouldBeGone.length,
+        <>{shouldBeGone.map((c) => cardRow(c))}</>, 'border-red-200',
+      )}
+
+      {wrongRoom.length > 0 && section(
+        'Opens a room the guest has left',
+        'The booking moved to another room. This card still opens the old room\'s door.',
+        <AlertTriangle className="w-5 h-5 text-amber-600" />, wrongRoom.length,
+        <>{wrongRoom.map((c) => cardRow(c))}</>, 'border-amber-200',
+      )}
+
+      {unknown.length > 0 && section(
+        'Check these cards',
+        'Writing was cut off (a power cut or the card moved). Try the card at the door, or read it at the reception PC.',
+        <AlertTriangle className="w-5 h-5 text-amber-600" />, unknown.length,
+        <>{unknown.map((c) => cardRow(c))}</>,
+      )}
+
+      {section(
+        'Needs a card',
+        'Checked in, or arriving today, with no working card. Cards are made at the reception PC that has the card encoder.',
+        <CreditCard className="w-5 h-5 text-primary" />, needsCard.length,
+        needsCard.length ? (
+          <>{needsCard.map((n) => (
+            <div key={n.bookingId} className="flex flex-wrap items-center justify-between gap-3 py-3">
+              <div>
+                <div className="font-semibold">Room {n.roomNumber} <span className="font-normal text-muted-foreground">· {n.guestName}</span></div>
+                <div className="text-xs text-muted-foreground">Check-out {format(new Date(`${n.checkOut}T00:00:00`), 'EEE d MMM')}</div>
+              </div>
+              {n.arrivingToday && <Badge variant="outline">Arriving today</Badge>}
+            </div>
+          ))}</>
+        ) : nothing,
+      )}
+
+      {section(
+        'Working cards',
+        'Every card that opens a door right now.',
+        <KeyRound className="w-5 h-5 text-emerald-600" />, live.length,
+        live.length ? <>{live.map((c) => cardRow(c))}</> : nothing,
+      )}
+
+      <AlertDialog open={!!confirmKill} onOpenChange={(open) => !open && setConfirmKill(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Was this card cancelled at the door?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Only confirm once the lock software's check-out (or loss-report) card has been used on room {confirmKill?.roomNumber}'s lock.
+              After this, the system treats the door as free for the next guest.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Not yet</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { const c = confirmKill; setConfirmKill(null); if (c) void mark(c, 'killed_at_door') }}>
+              Yes, cancelled at the door
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}

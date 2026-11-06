@@ -30,6 +30,8 @@ import {
 } from "../../components/ui/alert-dialog"
 import { usePermissions } from '@/hooks/use-permissions'
 import { Permission } from '@/components/Permission'
+import { RoomLockNumbers } from '@/components/RoomLockNumbers'
+import { useIsAdmin } from '@/hooks/use-is-admin'
 import { cn, formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import {
@@ -74,6 +76,7 @@ async function syncRoomMirror(id: string, room: { roomNumber: string; roomTypeId
 
 export function PropertiesPage() {
   const permissions = usePermissions()
+  const { isAdmin } = useIsAdmin()
   const { currency } = useCurrency()
   const [properties, setProperties] = useState<any[]>([])
   const [bookings, setBookings] = useState<any[]>([])
@@ -697,6 +700,8 @@ export function PropertiesPage() {
           })}
         </div>
       )}
+
+      {isAdmin && properties.length > 0 && <RoomLockNumbers rooms={properties} />}
 
       <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
         <AlertDialogContent>

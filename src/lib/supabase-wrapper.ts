@@ -401,6 +401,8 @@ export const db = {
   users: createTableWrapper('users'),
   staff: createTableWrapper('staff'),
   rooms: createTableWrapper('rooms'),
+  roomLocks: createTableWrapper('room_locks'),
+  keyCards: createTableWrapper('key_cards'),
   roomTypes: createTableWrapper('room_types'),
   guests: createTableWrapper('guests'),
   bookings: createTableWrapper('bookings'),
