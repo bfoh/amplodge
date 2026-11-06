@@ -87,7 +87,7 @@ for s in room-types group-bookings accounting allocation cash-basis reservations
 echo "── end-to-end"
 for s in lifecycle groups-analytics group-membership group-invoice charges-repeat all-write-paths; do e2e "$s"; done
 echo "── functions"
-for s in concierge-rooms; do fn "$s"; done
+for s in concierge-rooms create-employee; do fn "$s"; done
 rm -rf "$OUT"
 [[ $fail -eq 0 ]] && echo "everything passed" || echo "FAILURES"
 exit $fail

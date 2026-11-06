@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { Suspense, lazy, useEffect, useState, useRef } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { Toaster } from 'sonner'
-import { db, auth, initRealtimeUpdates } from '@/lib/db'
+import { auth, initRealtimeUpdates } from '@/lib/db'
 import { activityLogService } from './services/activity-log-service'
 import { StaffLoginPage } from './pages/staff/StaffLoginPage'
 import { ProtectedRoute } from './components/ProtectedRoute'
@@ -140,33 +140,11 @@ function App() {
     }
     initializeApp()
   }, [adminSeeded])
-  const hasCheckedAdminRef = useRef(false)
-
   useEffect(() => {
-    let isCreating = false
-
-    const ensureAdminStaffRecord = async (userId: string, email: string) => {
-      if (hasCheckedAdminRef.current || isCreating) return
-      try {
-        isCreating = true
-        const existingStaff = await db.staff.list({ where: { user_id: userId } })
-
-        if (!existingStaff || existingStaff.length === 0) {
-          await db.staff.create({
-            user_id: userId,
-            name: 'Admin User',
-            email,
-            role: 'admin',
-          })
-        }
-        hasCheckedAdminRef.current = true
-      } catch (error) {
-        console.log('ℹ️ [App] Admin staff record error:', error)
-      } finally {
-        isCreating = false
-      }
-    }
-
+    // The browser used to create an 'admin' staff row for VITE_ADMIN_EMAIL here.
+    // Staff rows with any privilege are now written only by create-employee
+    // (20261106120000_staff_role_lockdown.sql); a first admin is set up there
+    // or in SQL.
     const unsubscribe = auth.onAuthStateChanged(async (state) => {
       if (!state.isLoading) {
         if (state.user?.id) {
@@ -177,10 +155,6 @@ function App() {
 
           activityLogService.setCurrentUser(state.user.id)
           console.log('📝 [App] Activity log service updated with user:', state.user.email)
-
-          if (state.user?.email === import.meta.env.VITE_ADMIN_EMAIL) {
-            await ensureAdminStaffRecord(state.user.id, state.user.email)
-          }
         } else {
           activityLogService.setCurrentUser('system')
           console.log('📝 [App] Activity log service updated with system user')

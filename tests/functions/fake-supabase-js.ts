@@ -39,6 +39,13 @@ class Query {
 
   select() { return this }
   insert(row: any) { this.op = 'insert'; this.payload = row; return this }
+  /** Insert, or merge into the row with the same id. */
+  upsert(row: Row) {
+    const rows = (tables[this.table] ||= [])
+    const existing = rows.find((r) => r.id === row.id)
+    if (existing) { this.op = 'update'; this.payload = row; this.filters.push((r) => r.id === row.id); return this }
+    return this.insert(row)
+  }
   update(values: Row) { this.op = 'update'; this.payload = values; return this }
   eq(c: string, v: any) { this.filters.push((r) => String(r[c]) === String(v)); return this }
   neq(c: string, v: any) { this.filters.push((r) => String(r[c]) !== String(v)); return this }
@@ -78,9 +85,42 @@ class Query {
   }
 }
 
+/**
+ * Auth users, and the bearer tokens that sign them in. `auth.getUser(token)`
+ * resolves a token here, so `_lib/auth.js` (requireStaff/requireAdmin) runs for
+ * real against `tables.staff`.
+ */
+export const authUsers: Array<{ id: string; email: string }> = []
+export const tokens: Record<string, string> = {}
+/** Accounts whose password was changed through the admin API. */
+export const passwordResets: string[] = []
+
+const auth = {
+  async getUser(token: string) {
+    const user = authUsers.find((u) => u.id === tokens[token])
+    return user ? { data: { user }, error: null } : { data: { user: null }, error: { message: 'invalid token' } }
+  },
+  admin: {
+    async createUser({ email }: { email: string }) {
+      if (authUsers.some((u) => u.email === email)) {
+        return { data: { user: null }, error: { message: 'A user with this email address has already been registered' } }
+      }
+      const user = { id: `auth-${authUsers.length + 1}`, email }
+      authUsers.push(user)
+      return { data: { user }, error: null }
+    },
+    async listUsers() { return { data: { users: [...authUsers] }, error: null } },
+    async updateUserById(id: string, attrs: { password?: string }) {
+      if (attrs?.password) passwordResets.push(id)
+      return { data: {}, error: null }
+    },
+  },
+}
+
 export function createClient() {
   return {
     from: (table: string) => new Query(table),
     rpc: async () => ({ data: true, error: null }), // rate limit: allowed
+    auth,
   }
 }
