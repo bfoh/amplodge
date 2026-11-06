@@ -11,7 +11,9 @@
 type Row = Record<string, any>
 
 export const tables: Record<string, Row[]> = {}
-export const writes: Array<{ table: string; op: 'insert' | 'update'; row: Row }> = []
+export const writes: Array<{ table: string; op: 'insert' | 'update' | 'delete'; row: Row }> = []
+/** Tables whose inserted rows get a real UUID id instead of `<table>-<n>`. */
+export const uuidTables = new Set<string>()
 /** Return an error object to make an insert into that table fail. */
 export const failInsert: Record<string, (row: Row) => any> = {}
 
@@ -30,7 +32,7 @@ function databaseRules(table: string, row: Row) {
 
 class Query {
   private filters: Array<(r: Row) => boolean> = []
-  private op: 'select' | 'insert' | 'update' = 'select'
+  private op: 'select' | 'insert' | 'update' | 'delete' = 'select'
   private payload: any
   private wanted: 'single' | 'maybe' | null = null
   private max = Infinity
@@ -47,6 +49,7 @@ class Query {
     return this.insert(row)
   }
   update(values: Row) { this.op = 'update'; this.payload = values; return this }
+  delete() { this.op = 'delete'; return this }
   eq(c: string, v: any) { this.filters.push((r) => String(r[c]) === String(v)); return this }
   neq(c: string, v: any) { this.filters.push((r) => String(r[c]) !== String(v)); return this }
   in(c: string, vs: any[]) { const set = vs.map(String); this.filters.push((r) => set.includes(String(r[c]))); return this }
@@ -64,7 +67,7 @@ class Query {
   private run() {
     const rows = (tables[this.table] ||= [])
     if (this.op === 'insert') {
-      const list = (Array.isArray(this.payload) ? this.payload : [this.payload]).map((r: Row) => ({ id: r.id ?? `${this.table}-${rows.length + 1}`, ...r }))
+      const list = (Array.isArray(this.payload) ? this.payload : [this.payload]).map((r: Row, i: number) => ({ id: r.id ?? (uuidTables.has(this.table) ? crypto.randomUUID() : `${this.table}-${rows.length + 1 + i}`), ...r }))
       for (const row of list) {
         const error = failInsert[this.table]?.(row) || databaseRules(this.table, row)
         if (error) return { data: null, error }
@@ -74,6 +77,11 @@ class Query {
       return { data: this.wanted ? list[0] : list, error: null }
     }
     const matched = rows.filter((r) => this.filters.every((f) => f(r)))
+    if (this.op === 'delete') {
+      tables[this.table] = rows.filter((r) => !matched.includes(r))
+      matched.forEach((r) => writes.push({ table: this.table, op: 'delete', row: r }))
+      return { data: matched, error: null }
+    }
     if (this.op === 'update') {
       matched.forEach((r) => { Object.assign(r, this.payload); writes.push({ table: this.table, op: 'update', row: r }) })
       return { data: matched, error: null }
