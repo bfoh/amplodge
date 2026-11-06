@@ -18,8 +18,10 @@
   Everything is written to a log next to this script. The log contains the
   hotel's card data: send it privately, never post it or commit it to git.
 
-  The function signatures come from public forum posts, not from Joney's own
-  documentation. Parameter meanings are what this probe is for.
+  proRFL.dll is not part of Joney's LQ015 install. It comes from Abacre's public
+  prorfl.zip (see README.md), together with d12.dll and d12c.dll.
+  The function signatures come from public sources, not from Joney's own
+  documentation. Confirming them on the hotel's own cards is what this probe is for.
 #>
 param(
   [Parameter(Mandatory = $true)][string]$DllDir,
@@ -27,7 +29,8 @@ param(
   # The USB type value passed as the first argument of every call. Public
   # examples use 1 for proUSB encoders.
   [byte]$UsbType = 1,
-  # The hotel ID (dlsCoID). 0 until learned from a card or from Joney.
+  # The hotel ID (dlsCoID): the "Hotel CoID" line of the LockNo_*.Txt file that
+  # Joney's "Export LockNo" writes to the Desktop. The card decoders fail without it.
   [int]$HotelId = 0,
   [switch]$NoBeep,
   [switch]$NoRead,
@@ -74,8 +77,11 @@ if (-not (Test-Path $dllPath)) {
   Get-ChildItem -Path $DllDir -Filter *.dll -ErrorAction SilentlyContinue | ForEach-Object { Log ('  ' + $_.Name + '  ' + $_.Length + ' bytes') }
   exit 3
 }
-$info = Get-Item $dllPath
-Log ('DLL: ' + $dllPath + '  ' + $info.Length + ' bytes, modified ' + $info.LastWriteTime.ToString('yyyy-MM-dd') + ', file version ' + $info.VersionInfo.FileVersion)
+Get-ChildItem -Path $DllDir -Filter *.dll | ForEach-Object {
+  $hash = (Get-FileHash -Algorithm SHA256 -Path $_.FullName).Hash.ToLower()
+  Log ('DLL: ' + $_.Name + '  ' + $_.Length + ' bytes, modified ' + $_.LastWriteTime.ToString('yyyy-MM-dd') + ', sha256 ' + $hash)
+}
+if ($HotelId -eq 0) { Log 'No -HotelId given: the card decoders will fail. Take it from the "Hotel CoID" line of Joney''s Export LockNo file.' }
 
 # The DLL (and anything it loads next to itself) is found through PATH and the current directory.
 $env:PATH = $DllDir + ';' + $env:PATH
@@ -214,10 +220,12 @@ function Confirm-Write([string]$what) {
 
 # 5. Optional: issue a short test guest card.
 if ($IssueTest) {
-  if (-not $LockNo) { Log 'STOP: -IssueTest needs -LockNo (the test door''s lock number, as decoded from a Joney card above).'; exit 4 }
-  # 10-character times; yyMMddHHmm is a GUESS that matches the 10-byte buffers. Compare with the decoded end time above.
+  if ($HotelId -eq 0) { Log 'STOP: -IssueTest needs -HotelId (the "Hotel CoID" from Joney''s Export LockNo file).'; exit 4 }
+  if ($LockNo -notmatch '^\d{8}$') { Log 'STOP: -LockNo must be the 8 digits the lock-number decoder printed for a Joney card of the test door.'; exit 4 }
+  # Times are 10 decimal digits, yyMMddHHmm.
   if (-not $BeginTime) { $BeginTime = (Get-Date).AddMinutes(-10).ToString('yyMMddHHmm') }
   if (-not $EndTime) { $EndTime = (Get-Date).AddMinutes(10).ToString('yyMMddHHmm') }
+  if ($BeginTime -notmatch '^\d{10}$' -or $EndTime -notmatch '^\d{10}$') { Log 'STOP: -BeginTime and -EndTime must be yyMMddHHmm (10 digits).'; exit 4 }
   $what = 'GuestCard hotel=' + $HotelId + ' cardNo=' + $CardNo + ' lock=' + $LockNo + ' from ' + $BeginTime + ' to ' + $EndTime + ' (dai=0, llock=0, pdoors=0)'
   if (Confirm-Write $what) {
     $out = New-Object System.Text.StringBuilder 2048
@@ -229,6 +237,7 @@ if ($IssueTest) {
 
 # 6. Optional: erase the card on the encoder.
 if ($EraseTest) {
+  if ($HotelId -eq 0) { Log 'STOP: -EraseTest needs -HotelId.'; exit 4 }
   if (Confirm-Write ('CardErase hotel=' + $HotelId + ' (the card lying on the encoder)')) {
     $erase = New-Object System.Text.StringBuilder 2048
     $null = $erase.Append($cardHex)

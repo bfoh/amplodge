@@ -24,3 +24,4 @@ media/
 tools/lock-bridge/**/*.dll
 tools/lock-bridge/**/*.DLL
 tools/lock-bridge/**/room-locks*.csv
+tools/lock-bridge/private/
