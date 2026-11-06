@@ -24,7 +24,7 @@ Modern, full-stack hotel management system with guest-facing and staff portals.
 
 - **Frontend:** React + TypeScript + Vite
 - **Styling:** Tailwind CSS + Framer Motion
-- **Backend:** Blink SDK (Auth, Database, Storage)
+- **Backend:** Supabase (Auth, Postgres, Storage) and Netlify Functions
 - **Icons:** Lucide React
 - **UI Components:** Radix UI + Shadcn
 
@@ -35,16 +35,11 @@ npm install
 npm run dev
 ```
 
-## Default Admin Account
+## Staff Accounts
 
-The system automatically creates a seeded admin account on first launch:
-
-**Email:** `admin@amplodge.com`  
-**Password:** `AdminAMP2025!`
-
-Use these credentials to access the staff portal at `/staff/login` or `/staff`.
-
-⚠️ **Important:** Change this password after your first login for security purposes.
+There is no default login. The owner's account is created in Supabase, and admins add
+every other employee on the Employees page (`/staff/employees`). The server
+(`netlify/functions/create-employee.js`) creates the account and assigns its role.
 
 ## Project Structure
 
@@ -56,7 +51,7 @@ src/
 │   └── staff/     # Staff portal pages
 ├── services/      # Business logic & utilities
 ├── types/         # TypeScript definitions
-└── blink/         # Blink SDK configuration
+└── lib/           # Supabase client and shared helpers
 ```
 
 ## Database Schema
