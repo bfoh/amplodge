@@ -114,7 +114,7 @@ ${roomCategories
 - Office Hours: Monday to Friday: 8:00 AM to 8:00 PM
 - Weekend Hours: Saturday and Sunday: 9:00 AM to 6:00 PM
 - Check-in Time: 2:00 PM onwards
-- Check-out Time: 12:00 PM (noon)
+- Check-out Time: 11:00 AM
 
 === LOCATION AND ADDRESS ===
 - Full Address: AMP Lodge, Abuakwa DKC Junction, Kumasi-Sunyani Road, Kumasi, Ghana
