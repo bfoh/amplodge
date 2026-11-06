@@ -88,6 +88,22 @@ echo "── end-to-end"
 for s in lifecycle groups-analytics group-membership group-invoice charges-repeat all-write-paths; do e2e "$s"; done
 echo "── functions"
 for s in concierge-rooms create-employee key-cards; do fn "$s"; done
+
+# The key-card loop across the real portal client, the .NET lock bridge (simulator)
+# and the handlers. Needs the .NET SDK to build the simulator; skipped without it.
+DOTNET_BIN="$(command -v dotnet || true)"
+[[ -z "$DOTNET_BIN" && -x "$HOME/.dotnet/dotnet" ]] && DOTNET_BIN="$HOME/.dotnet/dotnet"
+if [[ -z "$filter" || "lock-bridge-e2e" == *"$filter"* ]]; then
+  if [[ -n "$DOTNET_BIN" ]]; then
+    if DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 "$DOTNET_BIN" build "$ROOT/tools/lock-bridge/src/LockBridge.Sim" -v q -nologo >/dev/null 2>&1; then
+      DOTNET="$DOTNET_BIN" LOCK_BRIDGE_SIM_DLL="$ROOT/tools/lock-bridge/src/LockBridge.Sim/bin/Debug/net10.0/lock-bridge-sim.dll" fn lock-bridge-e2e
+    else
+      echo "BUILD FAILED lock-bridge-sim"; fail=1
+    fi
+  else
+    printf '%-18s skipped (no .NET SDK)\n' lock-bridge-e2e
+  fi
+fi
 rm -rf "$OUT"
 [[ $fail -eq 0 ]] && echo "everything passed" || echo "FAILURES"
 exit $fail

@@ -7,6 +7,8 @@ import { User, Mail, Settings } from 'lucide-react'
 import { db, auth } from '@/lib/db'
 import { toast } from 'sonner'
 import { hotelSettingsService } from '@/services/hotel-settings'
+import { useIsAdmin } from '@/hooks/use-is-admin'
+import { DoorLockSettings } from '@/components/DoorLockSettings'
 
 export function SettingsPage() {
   const [user, setUser] = useState<any>(null)
@@ -14,6 +16,7 @@ export function SettingsPage() {
   const [currency, setCurrency] = useState<string>('GHS')
   const [dateFormat, setDateFormat] = useState<string>('MM/DD/YYYY')
   const [saving, setSaving] = useState(false)
+  const { isAdmin } = useIsAdmin()
 
   useEffect(() => {
     loadUser()
@@ -170,6 +173,8 @@ export function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {isAdmin && <DoorLockSettings />}
 
       <Card className="border-destructive/50">
         <CardHeader>

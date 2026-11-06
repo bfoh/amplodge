@@ -8,6 +8,7 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 import { AppLayout } from './components/layout/AppLayout'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ReceiptPrintDialog } from './components/ReceiptPrintDialog'
+import { KeyCardDialog } from './components/KeyCardDialog'
 // Staff routes are lazy-loaded so the public marketing site doesn't pay
 // the cost of recharts, invoice services, etc. on first paint. The existing
 // <Suspense> below already covers them.
@@ -172,6 +173,7 @@ function App() {
         <BrowserRouter>
           <Toaster position="top-right" />
           <ReceiptPrintDialog />
+          <KeyCardDialog />
           <RoutedVoiceWidget />
           <RoutedStaffAssistant />
           <Suspense fallback={<div className="flex items-center justify-center py-12"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>}>

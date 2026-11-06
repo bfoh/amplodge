@@ -21,7 +21,8 @@ export interface CheckInOptions {
 export function useCheckIn() {
     const [isProcessing, setIsProcessing] = useState(false)
 
-    const checkIn = async ({ booking, room, guest, paymentMethod, paymentSplits, checkInAmount, discountAmount, discountReason, user }: CheckInOptions) => {
+    /** Resolves to the booking's database id once checked in, or false. */
+    const checkIn = async ({ booking, room, guest, paymentMethod, paymentSplits, checkInAmount, discountAmount, discountReason, user }: CheckInOptions): Promise<string | false> => {
         setIsProcessing(true)
         try {
             // 1. Validation — fetch fresh room status from DB to avoid stale state
@@ -283,7 +284,8 @@ export function useCheckIn() {
             }
 
             toast.success(`Guest ${guest.name || 'Guest'} checked in successfully!`)
-            return true
+            // The resolved database id (callers' ids may carry a booking_ prefix).
+            return String(bookingId)
 
         } catch (error: any) {
             console.error('[useCheckIn] Failed:', error)

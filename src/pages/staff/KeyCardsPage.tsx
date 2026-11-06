@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, CreditCard, DoorClosed, KeyRound, Loader2, RefreshCw, UserX } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, CreditCard, DoorClosed, KeyRound, Loader2, MonitorSmartphone, RefreshCw, UserX } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -16,6 +16,8 @@ import {
   STATUS_LABEL, loadKeyCardBoard, markCard,
   type CardMark, type KeyCard, type KeyCardBoard,
 } from '@/services/key-cards'
+import { promptKeyCards } from '@/services/key-card-prompt'
+import { bridgeStatus, getEncoderPc, type BridgeStatus } from '@/services/lock-bridge'
 
 const when = (iso: string) => format(new Date(iso), 'EEE d MMM, HH:mm')
 
@@ -37,6 +39,25 @@ export default function KeyCardsPage() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [confirmKill, setConfirmKill] = useState<KeyCard | null>(null)
+  const [encoderPc] = useState(() => getEncoderPc())
+  const [bridge, setBridge] = useState<{ status: BridgeStatus | null; error: string | null } | null>(null)
+
+  // Only the paired reception PC ever calls the lock bridge on 127.0.0.1.
+  const checkBridge = useCallback(async () => {
+    if (!getEncoderPc()) return
+    try {
+      setBridge({ status: await bridgeStatus(), error: null })
+    } catch (e) {
+      setBridge({ status: null, error: e instanceof Error ? e.message : 'The lock bridge could not be reached.' })
+    }
+  }, [])
+  useEffect(() => { void checkBridge() }, [checkBridge])
+
+  async function makeCards(n: { bookingId: string; guestName: string; roomNumber: string }) {
+    await promptKeyCards(n)
+    await reload()
+    void checkBridge()
+  }
 
   const reload = useCallback(async () => {
     try {
@@ -83,10 +104,27 @@ export default function KeyCardsPage() {
         </div>
         <p className="text-sm text-muted-foreground">Which guests need a card, and which cards still open a door they should not.</p>
       </div>
-      <Button variant="outline" size="sm" onClick={() => { setLoading(true); void reload() }}>
+      <Button variant="outline" size="sm" onClick={() => { setLoading(true); void reload(); void checkBridge() }}>
         <RefreshCw className="w-4 h-4 mr-2" /> Refresh
       </Button>
     </div>
+  )
+
+  const s = bridge?.status
+  const bridgeLine = !encoderPc ? (
+    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+      <MonitorSmartphone className="w-4 h-4" /> Cards are made at the reception PC with the card encoder.
+    </p>
+  ) : (
+    <p className={`flex items-center gap-2 text-sm ${bridge?.error || (s && (!s.encoder.ready || s.revoked)) ? 'text-amber-800' : 'text-muted-foreground'}`}>
+      <MonitorSmartphone className="w-4 h-4 shrink-0" />
+      {!bridge ? 'Checking the lock bridge…'
+        : bridge.error ? bridge.error
+        : s!.revoked ? 'This PC was removed in Settings. An admin can pair it again.'
+        : !s!.encoder.ready ? `This PC makes key cards, but the encoder is not ready: ${s!.encoder.message}`
+        : s!.unsentResults > 0 ? `Encoder ready. ${s!.unsentResults} card result(s) are still to reach the server.`
+        : `This PC makes key cards ("${encoderPc.label}"). Encoder ready.`}
+    </p>
   )
 
   if (!board?.configured) {
@@ -161,6 +199,7 @@ export default function KeyCardsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {header}
+      {bridgeLine}
 
       {shouldBeGone.length > 0 && section(
         'Still opens a door after the stay',
@@ -194,7 +233,14 @@ export default function KeyCardsPage() {
                 <div className="font-semibold">Room {n.roomNumber} <span className="font-normal text-muted-foreground">· {n.guestName}</span></div>
                 <div className="text-xs text-muted-foreground">Check-out {format(new Date(`${n.checkOut}T00:00:00`), 'EEE d MMM')}</div>
               </div>
-              {n.arrivingToday && <Badge variant="outline">Arriving today</Badge>}
+              <div className="flex items-center gap-2">
+                {n.arrivingToday && <Badge variant="outline">Arriving today</Badge>}
+                {encoderPc && (
+                  <Button size="sm" onClick={() => void makeCards(n)}>
+                    <CreditCard className="w-4 h-4 mr-1" /> Make cards
+                  </Button>
+                )}
+              </div>
             </div>
           ))}</>
         ) : nothing,

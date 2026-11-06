@@ -7,6 +7,7 @@ import { useStaffRole } from '@/hooks/use-staff-role'
 import { hasPermission } from '@/lib/rbac'
 import { auth } from '@/lib/db'
 import { ClockStatusWarning } from '@/components/ClockStatusWarning'
+import { promptKeyCards } from '@/services/key-card-prompt'
 
 const CLOCK_GATED_TOOLS = new Set(['checkInGuest', 'checkOutGuest', 'createBooking'])
 import {
@@ -95,6 +96,7 @@ export function ActionCard({
           discountReason: target.discountReason,
           user,
         })
+        if (ok) void promptKeyCards({ bookingId: ok, guestName: target.guest?.name, roomNumber: target.room?.roomNumber })
         onResolved(ok
           ? { ok: true, humanSummary: `Checked in ${target.guest?.name || 'guest'} — Room ${target.room?.roomNumber || '?'}.` }
           : { ok: false, error: 'Check-in failed. See the toast notification for details.' })

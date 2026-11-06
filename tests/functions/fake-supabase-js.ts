@@ -103,7 +103,13 @@ export const tokens: Record<string, string> = {}
 /** Accounts whose password was changed through the admin API. */
 export const passwordResets: string[] = []
 
+/** The browser side's signed-in session, for client code under test (callFunction in src/lib/api.ts). */
+export const clientSession: { token: string | null } = { token: null }
+
 const auth = {
+  async getSession() {
+    return { data: { session: clientSession.token ? { access_token: clientSession.token } : null }, error: null }
+  },
   async getUser(token: string) {
     const user = authUsers.find((u) => u.id === tokens[token])
     return user ? { data: { user }, error: null } : { data: { user: null }, error: { message: 'invalid token' } }

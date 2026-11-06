@@ -17,6 +17,7 @@ import { useCurrency } from '@/hooks/use-currency'
 import { useCheckIn } from '@/hooks/use-check-in'
 import { createInvoiceData } from '@/services/invoice-service'
 import { promptPrintReceipt } from '@/services/receipt-print'
+import { promptKeyCards } from '@/services/key-card-prompt'
 import { Tag, Plus, X } from 'lucide-react'
 import type { PaymentSplit } from '@/types'
 import { ClockStatusWarning } from '@/components/ClockStatusWarning'
@@ -140,6 +141,14 @@ export function CheckInDialog({
         if (success) {
             onSuccess?.()
             onOpenChange(false)
+
+            // Key cards first (only for rooms with a door lock), then the receipt, so
+            // the two dialogs never open on top of each other.
+            try {
+                await promptKeyCards({ bookingId: success, guestName: guest.name || booking.guestName, roomNumber })
+            } catch (err) {
+                console.error('❌ [CheckInDialog] Key card prompt failed:', err)
+            }
 
             // Payment is taken at check-in — offer to print an 80mm receipt.
             // Best-effort: never blocks the completed check-in.
