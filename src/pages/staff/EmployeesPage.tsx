@@ -427,7 +427,10 @@ export function EmployeesPage() {
               password: defaultPassword,
               name: values.name,
               role: values.role,
-              phone: values.phone
+              phone: values.phone,
+              // The function writes the staff row under this id, so the
+              // optimistic entry above and the activity log point at it.
+              staffId
             })
           })
 
@@ -462,61 +465,11 @@ export function EmployeesPage() {
           console.error('❌ [EmployeesPage] Netlify function error:', netlifyError)
         }
 
-        // Fallback: Use direct Supabase signUp (for local development)
-        if (!newUser) {
-          console.log('👤 [EmployeesPage] Using direct Supabase signUp...')
-
-          // Import supabase directly for signup
-          const { supabase } = await import('@/lib/supabase')
-
-          // Store current session before signing up new user
-          const { data: currentSession } = await supabase.auth.getSession()
-
-          const { data, error } = await supabase.auth.signUp({
-            email: values.email,
-            password: defaultPassword,
-            options: {
-              data: { name: values.name, role: values.role }
-            }
-          })
-
-          if (error) {
-            console.error('[EmployeesPage] Supabase signUp error:', error)
-            throw new Error(error.message)
-          }
-
-          if (!data.user) {
-            throw new Error('Failed to create user account')
-          }
-
-          newUser = { id: data.user.id, email: data.user.email || values.email }
-          console.log('✅ [EmployeesPage] User created via Supabase Auth:', newUser.id)
-
-          // Restore admin session if it was cleared
-          if (currentSession?.session) {
-            await supabase.auth.setSession({
-              access_token: currentSession.session.access_token,
-              refresh_token: currentSession.session.refresh_token
-            })
-            console.log('✅ [EmployeesPage] Admin session restored')
-          }
-
-          // Create user profile record
-          try {
-            await supabase.from('users').insert({
-              id: data.user.id,
-              email: data.user.email,
-              first_login: 1,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            })
-          } catch (profileError) {
-            console.warn('⚠️ [EmployeesPage] Could not create user profile:', profileError)
-          }
-        }
-
+        // No browser fallback: the staff row (and its role) can only be written
+        // by create-employee, which checks the caller is an admin. Locally, run
+        // `netlify dev` so /.netlify/functions answers.
         if (!newUser?.id) {
-          throw new Error('Failed to create user account')
+          throw new Error('The employee account could not be created. Make sure you are signed in as an admin and try again.')
         }
 
         console.log('✅ [EmployeesPage] User account created:', newUser.id)
@@ -532,28 +485,8 @@ export function EmployeesPage() {
           // Don't fail the entire operation, but log the warning
         }
 
-        // Create staff record
-        console.log('👥 [EmployeesPage] Creating staff record...')
-        const { data: newStaff, error: staffError } = await supabase
-          .from('staff')
-          .insert({
-            id: staffId,
-            user_id: newUser.id,
-            name: values.name,
-            email: values.email,
-            phone: values.phone || null,
-            role: values.role,
-            created_at: new Date().toISOString(),
-          })
-          .select()
-          .single()
-
-        if (staffError) {
-          console.error('❌ [EmployeesPage] Staff record creation error:', staffError)
-          throw staffError
-        }
-
-        console.log('✅ [EmployeesPage] Staff record created:', newStaff)
+        // The staff record was created by create-employee, under staffId.
+        console.log('✅ [EmployeesPage] Staff record created by create-employee:', staffId)
 
         // Log employee creation to activity logs
         {

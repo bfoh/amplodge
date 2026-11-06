@@ -5,9 +5,48 @@ import { requireAdmin, jsonResponse, handleCors } from './_lib/auth.js'
 // Phase 2H (2026-05-10): admin-token gate added via requireAdmin().
 // Phase 1 (2026-05-10): verified parity against legacy functions/create-employee
 // — auth-user creation, "already exists" recovery, public.users row + first_login
-// flag all covered here. Staff table record + activity log are still done
-// client-side in src/pages/staff/EmployeesPage.tsx.
+// flag all covered here.
+//
+// The staff row is written here too. It used to be inserted from the browser,
+// which needed a policy letting any signed-in account write any staff row —
+// and so promote itself to owner (20261106120000_staff_role_lockdown.sql).
+// The activity log entry is still written client-side in EmployeesPage.tsx.
 // -----------------------------------------------------------------------------
+
+const ROLES = ['staff', 'manager', 'admin', 'owner']
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Give the account its staff row. Returns the row, or a response to send when
+ * the account is already an employee or the insert fails.
+ */
+async function createStaffRow(supabaseAdmin, user, { staffId, name, email, phone, role }) {
+    const { data: existing, error: readError } = await supabaseAdmin
+        .from('staff').select('id').eq('user_id', user.id).limit(1)
+    if (readError) return { response: jsonResponse(500, { error: readError.message }) }
+    if (existing && existing.length > 0) {
+        return { response: jsonResponse(409, { error: 'This account is already an employee.' }) }
+    }
+
+    const { data: staff, error } = await supabaseAdmin
+        .from('staff')
+        .insert({
+            id: staffId,
+            user_id: user.id,
+            name,
+            email,
+            phone: phone || null,
+            role,
+            created_at: new Date().toISOString(),
+        })
+        .select()
+        .single()
+    if (error) {
+        console.error('[create-employee] Staff row insert failed:', error)
+        return { response: jsonResponse(500, { error: `Account created, but the staff record failed: ${error.message}` }) }
+    }
+    return { staff }
+}
 
 export const handler = async function (event) {
     const corsResp = handleCors(event); if (corsResp) return corsResp
@@ -16,8 +55,9 @@ export const handler = async function (event) {
         return jsonResponse(405, { error: 'Method not allowed' })
     }
 
+    let actor
     try {
-        await requireAdmin(event)
+        actor = await requireAdmin(event)
     } catch (e) {
         return jsonResponse(e.status, e.body)
     }
@@ -30,7 +70,7 @@ export const handler = async function (event) {
     }
 
     try {
-        const { email, password, name, role, phone } = JSON.parse(event.body)
+        const { email, password, name, role = 'staff', phone, staffId: requestedId } = JSON.parse(event.body)
 
         // Validate required fields
         if (!email || !password) {
@@ -39,6 +79,26 @@ export const handler = async function (event) {
                 headers,
                 body: JSON.stringify({ error: 'Email and password are required' })
             }
+        }
+        if (!name || typeof name !== 'string' || !name.trim()) {
+            return jsonResponse(400, { error: 'Name is required' })
+        }
+        if (!ROLES.includes(role)) {
+            return jsonResponse(400, { error: `Unknown role: ${role}` })
+        }
+        // Same rule as update-employee: only the owner hands out the owner role.
+        if (role === 'owner' && actor?.staff?.role !== 'owner') {
+            return jsonResponse(403, { error: 'Only the owner can assign the owner role.' })
+        }
+        if (requestedId !== undefined && !UUID.test(String(requestedId))) {
+            return jsonResponse(400, { error: 'staffId must be a UUID' })
+        }
+        const staffFields = {
+            staffId: requestedId || crypto.randomUUID(),
+            name: name.trim(),
+            email,
+            phone,
+            role,
         }
 
         // Create Supabase Admin client
@@ -98,6 +158,14 @@ export const handler = async function (event) {
                 if (existingUser) {
                     console.log('[create-employee] Found existing auth user:', existingUser.id)
 
+                    // Someone who is already an employee keeps their password:
+                    // re-adding their email must not reset it to the default.
+                    const { data: alreadyStaff } = await supabaseAdmin
+                        .from('staff').select('id').eq('user_id', existingUser.id).limit(1)
+                    if (alreadyStaff && alreadyStaff.length > 0) {
+                        return jsonResponse(409, { error: 'This account is already an employee.' })
+                    }
+
                     // Reset password to the one provided
                     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
                         existingUser.id,
@@ -127,6 +195,9 @@ export const handler = async function (event) {
 
                     console.log('[create-employee] Successfully recovered existing user account')
 
+                    const recoveredStaff = await createStaffRow(supabaseAdmin, existingUser, staffFields)
+                    if (recoveredStaff.response) return recoveredStaff.response
+
                     return {
                         statusCode: 200,
                         headers,
@@ -136,6 +207,7 @@ export const handler = async function (event) {
                                 id: existingUser.id,
                                 email: existingUser.email
                             },
+                            staff: recoveredStaff.staff,
                             recovered: true
                         })
                     }
@@ -183,6 +255,9 @@ export const handler = async function (event) {
             // Non-critical - continue
         }
 
+        const created = await createStaffRow(supabaseAdmin, userData.user, staffFields)
+        if (created.response) return created.response
+
         return {
             statusCode: 200,
             headers,
@@ -191,7 +266,8 @@ export const handler = async function (event) {
                 user: {
                     id: userData.user.id,
                     email: userData.user.email
-                }
+                },
+                staff: created.staff
             })
         }
 
