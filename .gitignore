@@ -19,3 +19,8 @@ scratch/
 
 # Generated video masters (see docs/redesign/FILM-MANIFEST.md); kept out of git
 media/
+
+# Door locks: the vendor DLL and the hotel's lock data never go into this public repo
+tools/lock-bridge/**/*.dll
+tools/lock-bridge/**/*.DLL
+tools/lock-bridge/**/room-locks*.csv
