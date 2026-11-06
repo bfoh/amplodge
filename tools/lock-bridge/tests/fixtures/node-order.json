@@ -1,0 +1,6 @@
+{
+  "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEUm9GtcpzSqwL19MNqKkSOgOK8coRBmYopQSeZ3PjvNPqWIgly1mLPzriKYrxbV1uMomR1ICLm117U/ya2YYmBg==",
+  "order": "{\"v\":1,\"kind\":\"guest-cards\",\"challenge\":\"7d1f4c2a-9b3e-4d5f-8a6b-0c1d2e3f4a5b.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"nonce\":\"BVYK2jScwjphF2FRUPlxMcx-\",\"encoderId\":\"7d1f4c2a-9b3e-4d5f-8a6b-0c1d2e3f4a5b\",\"bookingId\":\"0b8e6f1a-2c3d-4e5f-9a0b-1c2d3e4f5a6b\",\"guest\":\"Test Guest — Ama\",\"room\":\"110\",\"begin\":\"2611071300\",\"end\":\"2611091200\",\"validUntil\":\"2026-11-09T12:00:00.000Z\",\"cards\":[{\"cardNo\":0,\"lockNos\":[\"01011001\",\"01011002\"]},{\"cardNo\":1,\"lockNos\":[\"01011001\",\"01011002\"]}]}",
+  "signature": "BbGAzn1+xOehp+8OzjeHAxh2gmp+p7cTMzx3E2x/R0xb8IwYrbGTChavqC4nXZhN7PVl+ikLUuyLM9l4ZD2e0g==",
+  "now": "2026-11-07T13:02:00.000Z"
+}

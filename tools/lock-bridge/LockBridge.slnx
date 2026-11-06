@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LockBridge.Core/LockBridge.Core.csproj" />
+    <Project Path="src/LockBridge.Sim/LockBridge.Sim.csproj" />
+    <Project Path="src/LockBridge.Win/LockBridge.Win.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LockBridge.Core.Tests/LockBridge.Core.Tests.csproj" />
+  </Folder>
+</Solution>

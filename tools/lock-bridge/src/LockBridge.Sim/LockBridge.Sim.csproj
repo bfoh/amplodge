@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The bridge with a pretend encoder, for building the portal side on any OS. Writes no real card. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>lock-bridge-sim</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../LockBridge.Core/LockBridge.Core.csproj" />
+  </ItemGroup>
+</Project>
