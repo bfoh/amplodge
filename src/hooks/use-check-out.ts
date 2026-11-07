@@ -12,6 +12,7 @@ import {
 } from '@/services/invoice-service'
 import { recordBookingPayment, outstandingBalance } from '@/services/booking-payment-service'
 import { bookingChargesService } from '@/services/booking-charges-service'
+import { promptCollectCards } from '@/services/key-card-prompt'
 
 // Unified check-out flow. Extracted from ReservationsPage.handleCheckOut (the
 // canonical, guest-facing-notification-complete implementation) so the AI
@@ -220,6 +221,8 @@ export function useCheckOut() {
 
             const taskMessage = housekeepingTaskCreated ? ' Cleaning task created.' : ' (Cleaning task creation failed — please check console)'
             toast.success(`Guest ${guest?.name || 'Guest'} checked out successfully!${taskMessage}`)
+            // Offers to take back the stay's key cards (nothing happens for a room without a lock).
+            void promptCollectCards({ bookingId: booking.id, guestName: guest?.name, roomNumber: room?.roomNumber })
             return true
         } catch (error: any) {
             console.error('[useCheckOut] Failed:', error)

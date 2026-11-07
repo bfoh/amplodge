@@ -7,7 +7,7 @@ import { useStaffRole } from '@/hooks/use-staff-role'
 import { hasPermission } from '@/lib/rbac'
 import { auth } from '@/lib/db'
 import { ClockStatusWarning } from '@/components/ClockStatusWarning'
-import { promptKeyCards } from '@/services/key-card-prompt'
+import { promptKeyCards, promptUpdateCards } from '@/services/key-card-prompt'
 
 const CLOCK_GATED_TOOLS = new Set(['checkInGuest', 'checkOutGuest', 'createBooking'])
 import {
@@ -121,6 +121,10 @@ export function ActionCard({
         name: (user as any)?.user_metadata?.full_name || user?.email,
         staffId: staffRecord?.id,
       })
+      // An extended stay's key cards still stop on the old check-out day.
+      if (name === 'extendStay' && result.ok && result.data?.bookingId) {
+        void promptUpdateCards({ bookingId: result.data.bookingId, guestName: result.data.guestName })
+      }
       onResolved(result)
     } catch (err: any) {
       onResolved({ ok: false, error: err?.message || 'Action failed.' })

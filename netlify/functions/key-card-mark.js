@@ -9,15 +9,20 @@ import { serviceClient, logActivity, parseBody, UUID } from './_lib/key-cards.js
  *   killed_at_door  cancelled at the door with the lock software's own card
  *   issued          only for a card whose writing was cut off ('unknown'): it
  *                   was read at the encoder and is as it should be
+ *   erased          the card was written again (an update after an extension, or
+ *                   a move to another room), so what this record describes is no
+ *                   longer on any card. Only once the stay has a newer card.
  *
  * A card replaced after a loss, or locked out at the door, can only be marked
  * returned (it was found). So can a lock-out card: it belongs to no stay.
  *
  * POST { cardId, status, note? }   (staff)
  */
-const MARKS = ['returned', 'not_returned', 'killed_at_door', 'issued']
+const MARKS = ['returned', 'not_returned', 'killed_at_door', 'issued', 'erased']
 const FROM = ['issued', 'unknown', 'returned', 'not_returned', 'replaced', 'locked_out']
 const RETURN_ONLY = ['replaced', 'locked_out']
+/** A card that can be written again: one that may still open its door. */
+const REWRITABLE = ['issued', 'unknown', 'not_returned']
 
 export const handler = async (event) => {
   const cors = handleCors(event); if (cors) return cors
@@ -37,6 +42,16 @@ export const handler = async (event) => {
     if (!FROM.includes(card.status) || ((RETURN_ONLY.includes(card.status) || card.kind === 'lockout') && body.status !== 'returned')
       || (body.status === 'issued' && card.status !== 'unknown')) {
       return jsonResponse(409, { error: `A ${card.kind === 'lockout' ? 'lock-out' : card.status} card cannot be marked ${body.status}.` })
+    }
+    if (body.status === 'erased') {
+      if (!REWRITABLE.includes(card.status) || !card.booking_id) {
+        return jsonResponse(409, { error: `A ${card.kind === 'lockout' ? 'lock-out' : card.status} card cannot be marked written again.` })
+      }
+      // The card was written again: the stay must have a card made after this one.
+      const { data: newer, error: newerErr } = await sb.from('key_cards').select('id')
+        .eq('booking_id', card.booking_id).in('status', ['pending', 'issued', 'unknown']).gt('created_at', card.created_at).limit(1)
+      if (newerErr) throw newerErr
+      if (!newer?.length) return jsonResponse(409, { error: 'This stay has no newer card, so this one was not written again.' })
     }
 
     const note = body.note ? String(body.note).slice(0, 300) : null

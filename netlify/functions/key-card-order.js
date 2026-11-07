@@ -2,16 +2,22 @@ import { requireStaff, jsonResponse, handleCors } from './_lib/auth.js'
 import { checkRateLimit, tooManyRequests } from './_lib/rate-limit.js'
 import {
   POLICY, LIVE_STATUSES, ORDER_VERSION, serviceClient, signingKey, signOrder, validityFor, isLive, planCards,
-  cardTime, hotelToday, sameLocks, sharesLock, nextDai, daiFor, encoderForChallenge, randomToken, logActivity, parseBody, UUID,
+  cardTime, hotelToday, sharesLock, withinLocks, nextDai, daiFor, encoderForChallenge, randomToken, logActivity, parseBody, UUID,
 } from './_lib/key-cards.js'
 
 /**
  * Approves and signs an order for guest cards, for the lock bridge to write.
  *
- * POST { bookingId, count, challenge, replace? }   (staff)
+ * POST { bookingId, count, challenge, replace?, update? }   (staff)
  *   challenge: "<encoderId>.<random>", made by the bridge on the reception PC.
  *   replace:   a card was lost. The stay's cards are marked 'replaced' and the
  *              new ones get a new DAI, so the old ones stop at the door.
+ *   update:    { cardId }: one of the stay's cards, read at the encoder, is
+ *              written again to work until the stay's end as it is now (after
+ *              an extension, or when a long stay's card stops at 30 days). Its
+ *              DAI, door and start time stay the same, so it works alongside the
+ *              stay's other cards; it takes the next card number. Staff mark the
+ *              old record re-written ('erased') once the card is written.
  *
  * The server decides everything that matters: the doors (room_locks of the
  * booking's room), the start and end times (check-out day at 11:00 plus an
@@ -43,6 +49,12 @@ export const handler = async (event) => {
   if (typeof body.bookingId !== 'string' || !UUID.test(body.bookingId)) return jsonResponse(400, { error: 'bookingId is required' })
   // A lost card: new cards for the stay, with a new DAI, so its current cards stop at the door.
   const replace = body.replace === true
+  // An update: one card of the stay written again with the stay's end as it is now.
+  const updateId = body.update === undefined ? null : body.update?.cardId
+  if (body.update !== undefined && (typeof updateId !== 'string' || !UUID.test(updateId))) {
+    return jsonResponse(400, { error: 'update.cardId is required' })
+  }
+  if (updateId && (replace || count !== 1)) return jsonResponse(400, { error: 'An update writes one card, and is not a replacement.' })
 
   const key = signingKey()
   if (!key) return jsonResponse(503, { error: 'Door locks are not set up on the server yet.' })
@@ -90,22 +102,50 @@ export const handler = async (event) => {
         blockingCardId: blocking.id,
       })
     }
-    const current = live.filter((c) => c.booking_id === booking.id && sameLocks(c.lock_nos || [], locks))
+    // This stay's cards for the room as it is now. A two-door room's cards each open one door.
+    const current = live.filter((c) => c.booking_id === booking.id && withinLocks(c.lock_nos || [], locks))
     if (replace && !current.length) {
       return jsonResponse(409, { error: 'This stay has no working cards to replace. Make cards as usual.' })
+    }
+    // The card to update may have stopped already: that is often why the guest is at the desk.
+    let updating = null
+    if (updateId) {
+      const { data: u, error: uErr } = await sb.from('key_cards').select('*').eq('id', updateId).maybeSingle()
+      if (uErr) throw uErr
+      if (u && u.booking_id === booking.id && u.kind !== 'lockout' && LIVE_STATUSES.includes(u.status) && withinLocks(u.lock_nos || [], locks)) updating = u
+      if (!updating) {
+        return jsonResponse(409, { error: 'That card is not one of this stay\'s cards for its room, so it was not updated. Read the card again.' })
+      }
+      // Once a card with another DAI has been made for the door, the lock may refuse this DAI.
+      const { data: since, error: sinceErr } = await sb.from('key_cards').select('dai, status')
+        .overlaps('lock_nos', updating.lock_nos).gt('created_at', updating.created_at).limit(50)
+      if (sinceErr) throw sinceErr
+      if ((since || []).some((c) => Number.isInteger(c.dai) && c.dai !== updating.dai && !['failed', 'pending'].includes(c.status))) {
+        return jsonResponse(409, { error: 'A newer card was made for this door since this one, so the lock may refuse it now. Make new cards for the stay instead (Card lost).' })
+      }
     }
     // Replacing: the stay starts over like a new one (new DAI, card numbers from 0).
     const mine = replace ? [] : current
 
-    const begin = mine.length ? new Date(mine[0].issue_time) : null
-    const { begin: start, end, capped } = validityFor(booking.check_out, now, begin)
+    // An update keeps its card's start time, but its 30 days count from now: that is
+    // how a stay longer than a card may run gets its cards moved on.
+    const { begin: from, end, capped } = validityFor(booking.check_out, now, updating ? null : mine.length ? new Date(mine[0].issue_time) : null)
+    const start = updating ? new Date(updating.issue_time) : from
     if (end.getTime() <= now.getTime() + 5 * 60000) {
       return jsonResponse(409, { error: 'This stay has ended. Extend it first, then make the card.' })
     }
-    const startCardNo = mine.length ? Math.max(...mine.map((c) => c.card_no)) + 1 : 0
-    let dai = await daiFor(sb, locks, mine)
+    if (updating && end.getTime() <= new Date(updating.valid_until).getTime() + 60000) {
+      return jsonResponse(409, {
+        error: `This card already works until ${updating.valid_until.slice(0, 16).replace('T', ' ')}, the end of the stay: there is nothing to update.`,
+        upToDate: true,
+      })
+    }
+    const numbered = updating ? [...mine, updating] : mine
+    const startCardNo = numbered.length ? Math.max(...numbered.map((c) => c.card_no)) + 1 : 0
+    let dai = updating && Number.isInteger(updating.dai) ? updating.dai : await daiFor(sb, locks, mine)
     while (replace && current.some((c) => c.dai === dai)) dai = nextDai(dai)
-    const cards = planCards({ locks, count, startCardNo })
+    // An update writes the one card again, for its own door.
+    const cards = updating ? [{ cardNo: startCardNo, lockNos: [...updating.lock_nos] }] : planCards({ locks, count, startCardNo })
     if (cards[cards.length - 1].cardNo > 15) {
       return jsonResponse(409, { error: 'This booking already has 16 cards on its start time. Mark the old ones returned and make a fresh set.' })
     }
@@ -124,6 +164,7 @@ export const handler = async (event) => {
       issue_time: start.toISOString(),
       valid_until: end.toISOString(),
       status: 'pending',
+      note: updating ? `Card ${updating.card_no + 1} written again: it worked until ${updating.valid_until.slice(0, 16).replace('T', ' ')}.` : null,
       encoder_id: encoder.id,
       issued_by: ctx.staff?.id ?? null,
       created_at: stamp,
@@ -160,7 +201,7 @@ export const handler = async (event) => {
       action: 'key_card_ordered',
       entityId: nonce,
       userId: ctx.user?.id,
-      details: { bookingId: booking.id, room: roomNumber, guest: guest?.name ?? null, cards: cards.length, validUntil: end.toISOString(), dai, extra: mine.length > 0, replaced: replace ? current.length : 0 },
+      details: { bookingId: booking.id, room: roomNumber, guest: guest?.name ?? null, cards: cards.length, validUntil: end.toISOString(), dai, extra: mine.length > 0, replaced: replace ? current.length : 0, updated: updating?.id ?? null },
     })
     return jsonResponse(200, {
       order,

@@ -16,6 +16,7 @@ import { CalendarIcon, AlertTriangle, CheckCircle2, ArrowRight, Loader2, Tag, X,
 import { toast } from 'sonner'
 import { stayExtensionService, AvailableRoom, RoomAvailability } from '@/services/stay-extension-service'
 import { sendStayExtensionNotification } from '@/services/notifications'
+import { promptUpdateCards } from '@/services/key-card-prompt'
 import { formatCurrencySync, getCurrencySymbol } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
 import { format, addDays } from 'date-fns'
@@ -246,6 +247,8 @@ export function ExtendStayDialog({
                 toast.success(`Stay extended to ${safeFormatAny(newCheckoutDate, 'MMM dd, yyyy')}!`)
                 onOpenChange(false)
                 onExtensionComplete?.()
+                // The guest's key cards still stop on the old check-out day (or open the old room).
+                void promptUpdateCards({ bookingId: booking.id, guestName: guest.name, roomNumber: result.roomChanged ? null : room.roomNumber })
             } else {
                 toast.error(result.error || 'Failed to extend stay')
             }

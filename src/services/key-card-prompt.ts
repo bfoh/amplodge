@@ -5,6 +5,7 @@
  * prompt can follow without two dialogs fighting.
  */
 import { db } from '@/lib/db'
+import { endsBefore, loadStayCards, withinLocks, type KeyCard } from '@/services/key-cards'
 
 export interface KeyCardRequest {
   bookingId: string
@@ -59,4 +60,80 @@ export async function promptLockoutCard(roomId: string, roomNumber?: string | nu
   const open = opener
   if (!open || !roomId) return
   await new Promise<void>((resolve) => open({ bookingId: '', lockoutRoomId: roomId, roomNumber }, resolve))
+}
+
+// ─── Updating a stay's cards, and taking them back ───────────────────────────
+
+export interface StayCardsRequest {
+  bookingId: string
+  guestName?: string | null
+  roomNumber?: string | null
+}
+
+type StayOpener = (req: StayCardsRequest, closed: () => void) => void
+let updateOpener: StayOpener | null = null
+let collectOpener: StayOpener | null = null
+
+export function subscribeUpdatePrompt(fn: StayOpener | null): void {
+  updateOpener = fn
+}
+
+export function subscribeCollectPrompt(fn: StayOpener | null): void {
+  collectOpener = fn
+}
+
+/** Card states in which a card is still out with the guest and was written. */
+const OUT: KeyCard['status'][] = ['issued', 'unknown']
+
+/**
+ * The stay's cards that no longer match it: they stop before its check-out day
+ * (it was extended), or open a room the guest has left.
+ */
+export async function cardsOutOfStep(bookingId: string): Promise<KeyCard[]> {
+  const booking = (await db.bookings.get(bookingId)) as { roomId?: string; checkOut?: string; status?: string } | null
+  if (!booking?.roomId || booking.status !== 'checked-in') return []
+  const [cards, locks] = await Promise.all([
+    loadStayCards(bookingId),
+    db.roomLocks.list({ where: { roomId: booking.roomId }, limit: 10 }) as Promise<Array<{ lockNo: string }>>,
+  ])
+  if (!locks.length) return []
+  const doors = locks.map((l) => l.lockNo)
+  return cards.filter((c) => OUT.includes(c.status)
+    && (!withinLocks(c.lockNos ?? [], doors) || endsBefore(c, String(booking.checkOut))))
+}
+
+/**
+ * After an extension or a room move: offers to write the stay's cards again so
+ * they match it. Does nothing when every card already does.
+ */
+export async function promptUpdateCards(req: StayCardsRequest): Promise<void> {
+  if (!updateOpener || !req.bookingId) return
+  try {
+    if (!(await cardsOutOfStep(req.bookingId)).length) return
+  } catch (e) {
+    console.warn('[KeyCards] could not check the stay\'s cards; no prompt', e)
+    return
+  }
+  const open = updateOpener
+  if (!open) return
+  await new Promise<void>((resolve) => open(req, resolve))
+}
+
+/** The stay's cards still out with the guest: written, and not yet returned or accounted for. */
+export async function cardsOut(bookingId: string): Promise<KeyCard[]> {
+  return (await loadStayCards(bookingId)).filter((c) => OUT.includes(c.status))
+}
+
+/** After a check-out: offers to take the stay's cards back. Does nothing when no card is out. */
+export async function promptCollectCards(req: StayCardsRequest): Promise<void> {
+  if (!collectOpener || !req.bookingId) return
+  try {
+    if (!(await cardsOut(req.bookingId)).length) return
+  } catch (e) {
+    console.warn('[KeyCards] could not check the stay\'s cards; no prompt', e)
+    return
+  }
+  const open = collectOpener
+  if (!open) return
+  await new Promise<void>((resolve) => open(req, resolve))
 }

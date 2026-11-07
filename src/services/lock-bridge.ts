@@ -162,6 +162,22 @@ export function prepareKeyCards(bookingId: string, count: number, replace = fals
 }
 
 /**
+ * Gets a signed order to write one of a stay's cards again, read at the encoder,
+ * so that it works until the stay's end as it is now (after an extension). It
+ * keeps its DAI, so it works alongside the stay's other cards.
+ */
+export function prepareCardUpdate(bookingId: string, cardId: string): Promise<PreparedCards> {
+  return signedOrder('key-card-order', { bookingId, count: 1, update: { cardId } }, 'Could not prepare the card update.')
+}
+
+/** The server would not sign an order. upToDate: an update found the card already works until the stay's end. */
+export class OrderRefused extends Error {
+  constructor(message: string, readonly upToDate = false) {
+    super(message)
+  }
+}
+
+/**
  * Gets a signed order for a lock-out card for a room: held to the lock once, it
  * makes the lock refuse every older card (see netlify/functions/key-card-lockout.js).
  */
@@ -177,7 +193,7 @@ async function signedOrder(fn: string, body: Record<string, unknown>, failed: st
     body: JSON.stringify({ ...body, challenge }),
   })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.error || failed)
+  if (!res.ok) throw new OrderRefused(data?.error || failed, data?.upToDate === true)
   const order = JSON.parse(data.order)
   return {
     order: data.order,

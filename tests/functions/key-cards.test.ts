@@ -297,6 +297,100 @@ check('only a cut-off card: "working" cannot be put back on any other card', [
   check('not a door code: nothing', suggestDoorRoom('C9', floor).roomId, null)
 }
 
+// ─── Updating a card after the stay is extended ──────────────────────────────
+{
+  const R103 = id()
+  tables.rooms.push({ id: R103, room_number: '103' })
+  await call(saveLocks, bearer('admin'), { roomId: R103, locks: [{ lockNo: '0102B3' }] })
+  const Bx = id()
+  tables.bookings.push({ id: Bx, room_id: R103, guest_id: G.kofi, status: 'checked-in', check_in: day(0), check_out: day(1) })
+  r = await ask(Bx, 2)
+  const o = JSON.parse(r.body.order)
+  await report(enc1.token, { nonce: o.nonce, cards: [{ cardNo: 0, status: 'issued' }, { cardNo: 1, status: 'issued' }] })
+  const rows = () => tables.key_cards.filter((c) => c.booking_id === Bx)
+  const card = (no: number) => rows().find((c) => c.card_no === no)!
+  const upd = (cardId: string, more: any = {}) => call(order, bearer('staff'), { bookingId: Bx, count: 1, challenge: challenge(), update: { cardId }, ...more })
+
+  r = await upd(card(0).id)
+  check('before an extension there is nothing to update: the card already works until the end', [r.status, r.body.upToDate], [409, true])
+  check('a card is not marked written again while the stay has no newer card', (await call(mark, bearer('staff'), { cardId: card(0).id, status: 'erased' })).status, 409)
+
+  tables.bookings.find((b) => b.id === Bx)!.check_out = day(3)
+  check('an update writes one card', (await upd(card(0).id, { count: 2 })).status, 400)
+  check('...and is not a replacement', (await upd(card(0).id, { replace: true })).status, 400)
+  check('...and needs the card', (await call(order, bearer('staff'), { bookingId: Bx, challenge: challenge(), update: {} })).status, 400)
+  check('another stay\'s card is not updated', (await upd(amaCard(1).id)).status, 409)
+  r = await upd(card(0).id)
+  const u = JSON.parse(r.body.order)
+  check('after the extension the card is written again: its DAI, start time and door, the new end, the next card number',
+    [r.status, u.dai, u.begin, u.end, u.cards], [200, o.dai, o.begin, day(3).slice(2).replace(/-/g, '') + '1200', [{ cardNo: 2, lockNos: ['0102B3'] }]])
+  const fresh = rows().find((c) => c.order_nonce === u.nonce)!
+  check('the new record says which card it updates', [fresh.status, fresh.note?.startsWith('Card 1 written again')], ['pending', true])
+  check('the order is logged as an update', tables.activity_logs.filter((l) => l.action === 'key_card_ordered').at(-1)?.details?.updated, card(0).id)
+  r = await call(mark, bearer('staff'), { cardId: card(0).id, status: 'erased', note: 'Written again' })
+  check('once it is written, the old record is marked written again', [r.status, card(0).status], [200, 'erased'])
+  check('a card written again is not updated twice', (await upd(card(0).id)).status, 409)
+  check('...nor marked as kept by the guest: what it describes is on no card now',(await call(mark, bearer('staff'), { cardId: card(0).id, status: 'not_returned' })).status, 409)
+  await report(enc1.token, { nonce: u.nonce, cards: [{ cardNo: 2, status: 'issued' }] })
+  r = await upd(card(1).id)
+  check('the stay\'s other card is updated the same way, with the next number again', [r.status, JSON.parse(r.body.order).dai, JSON.parse(r.body.order).cards[0].cardNo], [200, o.dai, 3])
+  r = await upd(card(2).id)
+  check('an updated card is up to date', [r.status, r.body.upToDate], [409, true])
+
+  // A stay longer than a card may run: its card stops after 30 days, and an update moves it on.
+  const R104 = id()
+  tables.rooms.push({ id: R104, room_number: '104' })
+  await call(saveLocks, bearer('admin'), { roomId: R104, locks: [{ lockNo: '0102B4' }] })
+  const Bl = id()
+  tables.bookings.push({ id: Bl, room_id: R104, guest_id: G.esi, status: 'checked-in', check_in: day(-5), check_out: day(40) })
+  const lo = JSON.parse((await ask(Bl)).body.order)
+  await report(enc1.token, { nonce: lo.nonce, cards: [{ cardNo: 0, status: 'issued' }] })
+  const long = tables.key_cards.find((c) => c.booking_id === Bl)!
+  for (const k of ['issue_time', 'valid_until', 'created_at'] as const) long[k] = new Date(Date.parse(long[k]) - 5 * 86400000).toISOString()
+  r = await call(order, bearer('staff'), { bookingId: Bl, challenge: challenge(), update: { cardId: long.id } })
+  const lu = JSON.parse(r.body.order)
+  check('five days on, a long stay\'s card is moved on to 30 days from now, keeping its start time',
+    [r.status, lu.begin, lu.end, r.body.summary.capped],
+    [200, cardTime(new Date(long.issue_time)), cardTime(new Date(floorToMinute(new Date(Date.now() - 3600000)).getTime() + 30 * 86400000)), true])
+
+  // The guest is at the desk because the card stopped: the stay was extended, the card was not.
+  const R105 = id()
+  tables.rooms.push({ id: R105, room_number: '105' })
+  await call(saveLocks, bearer('admin'), { roomId: R105, locks: [{ lockNo: '0102B5' }] })
+  const Bt = id()
+  tables.bookings.push({ id: Bt, room_id: R105, guest_id: G.ama, status: 'checked-in', check_in: day(-2), check_out: day(2) })
+  const to = JSON.parse((await ask(Bt)).body.order)
+  await report(enc1.token, { nonce: to.nonce, cards: [{ cardNo: 0, status: 'issued' }] })
+  const stopped = tables.key_cards.find((c) => c.booking_id === Bt)!
+  stopped.valid_until = new Date(Date.now() - 3600000).toISOString()
+  const updStopped = () => call(order, bearer('staff'), { bookingId: Bt, challenge: challenge(), update: { cardId: stopped.id } })
+  r = await updStopped()
+  check('a card that has stopped already is updated: same DAI and start, the new end',
+    [r.status, JSON.parse(r.body.order).dai, JSON.parse(r.body.order).begin, JSON.parse(r.body.order).cards], [200, to.dai, to.begin, [{ cardNo: 1, lockNos: ['0102B5'] }]])
+  tables.key_cards.push({ ...stopped, id: id(), booking_id: id(), order_nonce: 'other-stay', dai: to.dai + 1, status: 'returned', created_at: new Date().toISOString() })
+  r = await updStopped()
+  check('...but not once a card with another DAI was made for the door since: the lock may refuse it',
+    [r.status, r.body.error?.startsWith('A newer card was made for this door')], [409, true])
+}
+
+// ─── A two-door room: extra cards and updates keep the stay's DAI ────────────
+{
+  const RS = id()
+  tables.rooms.push({ id: RS, room_number: '120+121' })
+  await call(saveLocks, bearer('admin'), { roomId: RS, locks: [{ lockNo: '0102C0' }, { lockNo: '0102C1' }] })
+  const Bs = id()
+  tables.bookings.push({ id: Bs, room_id: RS, guest_id: G.yaw, status: 'checked-in', check_in: day(0), check_out: day(1) })
+  const o = JSON.parse((await ask(Bs, 1)).body.order)
+  await report(enc1.token, { nonce: o.nonce, cards: o.cards.map((c: any) => ({ cardNo: c.cardNo, status: 'issued' })) })
+  const extra = JSON.parse((await ask(Bs, 1)).body.order)
+  check('an extra card for a two-door room keeps the stay\'s DAI, so the guest\'s first cards still work',
+    [extra.dai, extra.begin, extra.cards.map((c: any) => c.cardNo)], [o.dai, o.begin, [2, 3]])
+  tables.bookings.find((b) => b.id === Bs)!.check_out = day(2)
+  const door2 = tables.key_cards.find((c) => c.booking_id === Bs && c.card_no === 1)!
+  const u = JSON.parse((await call(order, bearer('staff'), { bookingId: Bs, count: 1, challenge: challenge(), update: { cardId: door2.id } })).body.order)
+  check('updating one of its cards writes that card only, for its own door', [u.dai, u.cards], [o.dai, [{ cardNo: 4, lockNos: ['0102C1'] }]])
+}
+
 // ─── Unpairing ───────────────────────────────────────────────────────────────
 check('a receptionist cannot unpair a PC', (await call(pair, bearer('staff'), { action: 'revoke', encoderId: enc1.id })).status, 403)
 check('an admin unpairs the front desk PC', (await call(pair, bearer('admin'), { action: 'revoke', encoderId: enc1.id })).status, 200)

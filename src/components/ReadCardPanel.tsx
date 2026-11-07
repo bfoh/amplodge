@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, DoorOpen, Loader2, ScanLine } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CheckCircle2, DoorOpen, KeyRound, Loader2, ScanLine } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -9,9 +9,10 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { readCard, type CardReading } from '@/services/lock-bridge'
 import {
-  STATUS_LABEL, identifyCard, markCard, placeDoorCode, saveRoomLocks,
+  STATUS_LABEL, hotelDay, identifyCard, markCard, placeDoorCode, saveRoomLocks,
   type CardIdentity, type CardMark, type DoorPlacement, type KeyCard,
 } from '@/services/key-cards'
+import { promptUpdateCards } from '@/services/key-card-prompt'
 
 const when = (d: string | Date) => format(new Date(d), 'EEE d MMM, HH:mm')
 /** What key-card-mark lets staff mark returned. */
@@ -60,6 +61,14 @@ export function ReadCardPanel({ isAdmin, onChanged }: { isAdmin: boolean; onChan
     }
   }
 
+  /** The card no longer matches its stay (extended, or moved room): write the stay's cards again. */
+  async function update(bookingId: string, guestName: string | null) {
+    await promptUpdateCards({ bookingId, guestName })
+    // What was read is out of date now: read the card again to see it.
+    setResult(null)
+    await onChanged()
+  }
+
   /** Saves a door code read from a card to its room: added to the room's codes, or in place of them. */
   async function place(room: PlaceRoom, lockNo: string, replace: boolean, r: CardReading) {
     setBusy(true)
@@ -93,7 +102,7 @@ export function ReadCardPanel({ isAdmin, onChanged }: { isAdmin: boolean; onChan
           <div role="status" className="rounded-lg border p-4 text-sm space-y-2">
             {'error' in result
               ? <Warn>{result.error}</Warn>
-              : <Described reading={result.reading} identity={result.identity} isAdmin={isAdmin} busy={busy} mark={mark} place={place} />}
+              : <Described reading={result.reading} identity={result.identity} isAdmin={isAdmin} busy={busy} mark={mark} place={place} update={update} />}
           </div>
         )}
       </CardContent>
@@ -105,13 +114,14 @@ const Warn = ({ children }: { children: ReactNode }) => (
   <p className="flex items-start gap-2 text-amber-900"><AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />{children}</p>
 )
 
-function Described({ reading, identity, isAdmin, busy, mark, place }: {
+function Described({ reading, identity, isAdmin, busy, mark, place, update }: {
   reading: CardReading
   identity: CardIdentity | null
   isAdmin: boolean
   busy: boolean
   mark: (card: KeyCard, status: CardMark, r: CardReading) => void
   place: (room: PlaceRoom, lockNo: string, replace: boolean, r: CardReading) => void
+  update: (bookingId: string, guestName: string | null) => void
 }) {
   switch (reading.kind) {
     case 'none':
@@ -127,10 +137,17 @@ function Described({ reading, identity, isAdmin, busy, mark, place }: {
   }
   if (!identity) return <Warn>A guest card, but its door could not be read.</Warn>
 
-  const { room, validUntil, expired, records, newer, madeInJoney, lockNo } = identity
+  const { room, validUntil, expired, records, newer, madeInJoney, lockNo, stay } = identity
   const first = records[0]
   const out = records.find((c) => RETURNABLE.includes(c.status))
   const cutOff = records.length === 1 && first.status === 'unknown' && !expired
+  // Why a card of a stay still under way may not open the door, and the fix.
+  const staying = stay?.status === 'checked-in'
+  const theirs = staying ? records.find((c) => c.bookingId === stay.bookingId && ['issued', 'unknown'].includes(c.status)) : undefined
+  const moved = !!theirs && !!room && stay!.roomId !== room.roomId
+  const short = !!theirs && !moved && !!validUntil && validUntil.toISOString().slice(0, 10) < stay!.checkOut
+  const fine = !expired && !newer && !!room && !moved && !short && (staying || madeInJoney || first?.kind === 'lockout')
+  const guest = theirs?.guestName ?? 'The guest'
 
   return (
     <>
@@ -164,6 +181,25 @@ function Described({ reading, identity, isAdmin, busy, mark, place }: {
       )}
 
       {cutOff && <p>Its writing was cut off, but it reads back as it should: it works.</p>}
+      {theirs && (short || moved) && !newer && (
+        <div className="space-y-2">
+          <Warn>
+            {moved
+              ? <>{guest} has moved to room {stay!.roomNumber}, but this card still opens room {room!.roomNumber}.</>
+              : <>{guest}'s stay goes on until {hotelDay(stay!.checkOut)}, but this card {expired ? 'has stopped' : `stops ${when(validUntil!)}`}.</>}
+          </Warn>
+          <Button size="sm" disabled={busy} onClick={() => update(stay!.bookingId, theirs.guestName)}>
+            {moved ? <KeyRound className="w-4 h-4 mr-1" /> : <CalendarClock className="w-4 h-4 mr-1" />}
+            {moved ? `Write it for room ${stay!.roomNumber}` : 'Update this card'}
+          </Button>
+        </div>
+      )}
+      {fine && (
+        <p className="text-muted-foreground">
+          If it still does not open the door, the lock itself may be the trouble: hold a staff card to it. If the lock refuses
+          that too, it needs new batteries, or its clock set with the clock card from Joney's program.
+        </p>
+      )}
       {newer && !expired && (
         <Warn>
           A newer card was made for this door on {when(newer.createdAt)}

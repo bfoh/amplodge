@@ -24,10 +24,11 @@ import { handler as mark } from '../../netlify/functions/key-card-mark.js'
 import { handler as saveLocks } from '../../netlify/functions/room-locks-save.js'
 import { callFunction } from '@/lib/api'
 import {
-  BRIDGE_URL, BridgeError, adoptPairedBridge, bridgeStatus, forgetEncoderPc, getEncoderPc,
-  pairThisPc, prepareKeyCards, prepareLockoutCard, readCard, writeKeyCard,
+  BRIDGE_URL, BridgeError, OrderRefused, adoptPairedBridge, bridgeStatus, forgetEncoderPc, getEncoderPc,
+  pairThisPc, prepareCardUpdate, prepareKeyCards, prepareLockoutCard, readCard, writeKeyCard,
 } from '@/services/lock-bridge'
 import { identifyCard, markCard, placeDoorCode, saveRoomLocks } from '@/services/key-cards'
+import { cardsOut, cardsOutOfStep } from '@/services/key-card-prompt'
 
 let failures = 0
 const check = (label: string, got: unknown, want: unknown) => {
@@ -191,6 +192,35 @@ try {
   check('an admin adds it in one click, and the card now reads as room 102', [placed.room?.roomNumber, placed.madeInJoney, tables.room_locks.filter((l) => l.room_id === R102).map((l) => l.lock_no)], ['102', true, ['01030B']])
   const old = await identifyCard({ ...read, validUntil: new Date(Date.now() - 3600000).toISOString() })
   check('an expired card says so', [old.expired, old.records.length], [true, 0])
+  check('the portal knows the card\'s stay as it is now', [who.stay?.status, who.stay?.checkOut, who.stay?.roomNumber], ['checked-in', day(3), '101'])
+
+  // ── The stay is extended: Ama's cards still stop on the old day ──
+  tables.bookings[0].check_out = day(5)
+  const behind = await cardsOutOfStep(BOOKING)
+  check('after an extension both cards are out of step', behind.map((c) => c.cardNo), [0, 1])
+  const onEncoder = await identifyCard(await readCard())
+  const target = onEncoder.records.find((c) => behind.some((b) => b.id === c.id))!
+  const up = await prepareCardUpdate(BOOKING, target.id)
+  check('the update order keeps the DAI, ends on the new check-out day, and takes the next card number',
+    [JSON.parse(up.order).dai, up.validUntil, up.cardNos], [read.dai, `${day(5)}T12:00:00.000Z`, [2]])
+  check('the bridge writes it over the guest card', (await writeKeyCard(up, 2)).outcome, 'issued')
+  await markCard(target.id, 'erased', 'Written again')
+  const after = await readCard()
+  check('the card now reads with the new end and the same DAI', [new Date(after.validUntil!).toISOString(), after.dai], [`${day(5)}T12:00:00.000Z`, read.dai])
+  await until(() => tables.key_cards.find((c) => c.order_nonce === up.nonce)?.status, (s) => s === 'issued')
+  const nowCard = await identifyCard(after)
+  check('...and is known as the stay\'s up-to-date card', [nowCard.records.map((c) => [c.cardNo, c.status]), nowCard.newer], [[[2, 'issued']], null])
+  check('one card is left to update: the old record of the written card is closed', (await cardsOutOfStep(BOOKING)).map((c) => c.cardNo), [1])
+  const twice = await prepareCardUpdate(BOOKING, nowCard.records[0].id).then(() => null, (e) => e)
+  check('an up-to-date card is not updated again', [twice instanceof OrderRefused, twice?.upToDate], [true, true])
+
+  // ── Check-out: the guest hands one card back ──
+  tables.bookings[0].status = 'checked-out'
+  check('two cards are out at check-out', (await cardsOut(BOOKING)).map((c) => c.cardNo), [1, 2])
+  const handedIn = await identifyCard(await readCard())
+  const back = handedIn.records.find((c) => c.bookingId === BOOKING)!
+  await markCard(back.id, 'returned', 'Read back at check-out')
+  check('the card read on the encoder is marked returned, and one is still out', (await cardsOut(BOOKING)).map((c) => c.cardNo), [1])
 
   // ── A browser that lost its mark ──
   forgetEncoderPc()
@@ -204,14 +234,14 @@ try {
   check('the bridge takes the order (no booking, a purpose it does not need to know) and writes the card', (await writeKeyCard(lo, 0)).outcome, 'issued')
   const loRow = await until(() => tables.key_cards.find((c) => c.order_nonce === lo.nonce)?.status, (s) => s === 'issued')
   check('...and reports it issued', loRow, 'issued')
-  check('the stay\'s two cards are marked locked out', tables.key_cards.filter((c) => c.booking_id === BOOKING).map((c) => c.status), ['locked_out', 'locked_out'])
+  check('the card still out is marked locked out (the others were written again, and returned)', tables.key_cards.filter((c) => c.booking_id === BOOKING).map((c) => c.status), ['erased', 'locked_out', 'returned'])
   const loRead = await identifyCard(await readCard())
   check('reading the lock-out card finds it', [loRead.room?.roomNumber, loRead.records.map((c) => [c.kind, c.status])], ['101', [['lockout', 'issued']]])
   const amaAgain = await identifyCard(read)
-  check('Ama\'s card, read again: locked out, and the lock-out card is the newer card for the door',
-    [amaAgain.records.map((c) => c.status), amaAgain.newer?.orderNonce], [['locked_out', 'locked_out'], lo.nonce])
+  check('Ama\'s card that was still out, read: locked out, and the lock-out card is the newer card for the door',
+    [amaAgain.records.map((c) => c.status), amaAgain.newer?.orderNonce], [['locked_out'], lo.nonce])
   await markCard(amaAgain.records[0].id, 'returned')
-  check('one of them is handed in and marked returned', (await identifyCard(read)).records.map((c) => c.status), ['returned', 'locked_out'])
+  check('it is handed in and marked returned', (await identifyCard(read)).records.map((c) => c.status), ['returned'])
 
   // ── Unpairing ──
   clientSession.token = 'tok-admin'

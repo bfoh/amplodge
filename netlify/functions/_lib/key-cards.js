@@ -99,6 +99,11 @@ export function isLive(card, now = new Date()) {
 
 export const sameLocks = (a, b) => [...a].sort().join(',') === [...b].sort().join(',')
 export const sharesLock = (a, b) => a.some((x) => b.includes(x))
+/**
+ * A card made for this room as it is now: it opens only doors of the room. A
+ * two-door room's cards each open one of its doors, so this is not sameLocks.
+ */
+export const withinLocks = (card, room) => card.length > 0 && card.every((x) => room.includes(x))
 
 /** The cards one order writes: card numbers count up from startCardNo. */
 export function planCards({ locks, count, startCardNo = 0 }) {

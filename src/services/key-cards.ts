@@ -61,6 +61,16 @@ export interface NeedsCard {
   arrivingToday: boolean
 }
 
+export interface EndsEarly {
+  bookingId: string
+  guestName: string
+  roomNumber: string
+  checkOut: string
+  /** When the first of these cards stops. */
+  validUntil: string
+  cards: number
+}
+
 export interface KeyCardBoard {
   /** False until an admin has set at least one lock number. */
   configured: boolean
@@ -70,6 +80,8 @@ export interface KeyCardBoard {
   shouldBeGone: KeyCard[]
   /** Opens a door of a room the guest is no longer in. */
   wrongRoom: KeyCard[]
+  /** Checked in, with cards that stop before the stay does: it was extended, or runs past 30 days. */
+  endsEarly: EndsEarly[]
   /** The write was cut off: nobody knows whether the card works. */
   unknown: KeyCard[]
   /** Every guest card that can open a door right now. */
@@ -88,7 +100,7 @@ export const STATUS_LABEL: Record<KeyCardStatus, string> = {
   returned: 'Returned',
   not_returned: 'Guest kept it',
   killed_at_door: 'Cancelled at door',
-  erased: 'Erased',
+  erased: 'Written again',
   replaced: 'Replaced (lost)',
   locked_out: 'Locked out',
 }
@@ -103,6 +115,32 @@ export function canOpenDoor(card: KeyCard, now = new Date()): boolean {
 /** Ghana is on GMT all year, so the hotel's date is the UTC date. */
 const hotelToday = (now = new Date()) => now.toISOString().slice(0, 10)
 
+/** A time in hotel time (GMT), whatever the PC's own zone: "Sat 8 Nov, 12:00". */
+export const hotelTime = (iso: string | Date) =>
+  new Date(iso).toLocaleString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+
+/** A hotel date (YYYY-MM-DD): "Tue 11 Nov". */
+export const hotelDay = (date: string) =>
+  new Date(`${String(date).slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' })
+
+/**
+ * A card stops on a day before the stay's check-out day (cards stop on check-out
+ * day, an hour after check-out time): the stay was extended, or is longer than a
+ * card may run.
+ */
+export function endsBefore(card: Pick<KeyCard, 'validUntil'>, checkOut: string): boolean {
+  return new Date(card.validUntil).toISOString().slice(0, 10) < String(checkOut).slice(0, 10)
+}
+
+/** A card made for the room as it is now: it opens only doors of the room. */
+export const withinLocks = (card: string[], room: string[]) => card.length > 0 && card.every((x) => room.includes(x))
+
+/** A stay's guest cards, every state, oldest first. */
+export async function loadStayCards(bookingId: string): Promise<KeyCard[]> {
+  const cards = (await db.keyCards.list({ where: { bookingId }, orderBy: { createdAt: 'asc' }, limit: 100 })) as KeyCard[]
+  return cards.filter((c) => c.kind !== 'lockout')
+}
+
 export async function loadKeyCardBoard(now = new Date()): Promise<KeyCardBoard> {
   const today = hotelToday(now)
   const [locks, cards, checkedIn, arriving] = await Promise.all([
@@ -114,7 +152,7 @@ export async function loadKeyCardBoard(now = new Date()): Promise<KeyCardBoard> 
   const open = cards.filter((c) => canOpenDoor(c, now))
   const live = open.filter((c) => c.kind !== 'lockout')
   const lockouts = open.filter((c) => c.kind === 'lockout')
-  const empty: KeyCardBoard = { configured: locks.length > 0, needsCard: [], shouldBeGone: [], wrongRoom: [], unknown: [], live, lockouts, doors: [] }
+  const empty: KeyCardBoard = { configured: locks.length > 0, needsCard: [], shouldBeGone: [], wrongRoom: [], endsEarly: [], unknown: [], live, lockouts, doors: [] }
   if (!locks.length) return empty
 
   // Bookings of live cards that are not in the lists above (checked out, cancelled, moved).
@@ -150,13 +188,31 @@ export async function loadKeyCardBoard(now = new Date()): Promise<KeyCardBoard> 
 
   const shouldBeGone: KeyCard[] = []
   const wrongRoom: KeyCard[] = []
+  const early = new Map<string, EndsEarly>()
   for (const c of live) {
     const b = c.bookingId ? known.get(c.bookingId) : undefined
     if (!b || !STAYING.includes(b.status)) shouldBeGone.push(c)
     else if (c.roomId && b.roomId !== c.roomId) wrongRoom.push(c)
+    else if (b.status === 'checked-in' && c.status !== 'not_returned' && endsBefore(c, b.checkOut)) {
+      const e = early.get(b.id)
+      if (e) {
+        e.cards++
+        if (c.validUntil < e.validUntil) e.validUntil = c.validUntil
+      } else {
+        early.set(b.id, {
+          bookingId: b.id,
+          guestName: c.guestName ?? ((b.guestId && guestName.get(b.guestId)) || 'Guest'),
+          roomNumber: roomNo.get(b.roomId) || c.roomNumber || '?',
+          checkOut: String(b.checkOut).slice(0, 10),
+          validUntil: c.validUntil,
+          cards: 1,
+        })
+      }
+    }
   }
+  const endsEarly = [...early.values()].sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true }))
 
-  return { ...empty, needsCard, shouldBeGone, wrongRoom, unknown: live.filter((c) => c.status === 'unknown'), doors }
+  return { ...empty, needsCard, shouldBeGone, wrongRoom, endsEarly, unknown: live.filter((c) => c.status === 'unknown'), doors }
 }
 
 /** What a guest card read at the encoder is, by this app's records. */
@@ -175,6 +231,17 @@ export interface CardIdentity {
   records: KeyCard[]
   /** A card with another DAI made for the door since: once it is used at the door, the lock refuses this one. */
   newer: KeyCard | null
+  /** The stay the card was made for, as it is now. */
+  stay: CardStay | null
+}
+
+export interface CardStay {
+  bookingId: string
+  status: string
+  checkOut: string
+  /** The room the stay is in now, which may not be the card's. */
+  roomId: string
+  roomNumber: string
 }
 
 /** Statuses of a card that was really written (anything but being written, or failed). */
@@ -214,6 +281,20 @@ export async function identifyCard(reading: CardReading, now = new Date()): Prom
       && (c.lockNos ?? []).map(normalizeLockNo).includes(lockNo)) ?? null
   }
 
+  let stay: CardStay | null = null
+  const bookingId = records.find((c) => c.bookingId)?.bookingId
+  if (bookingId) {
+    const b = (await db.bookings.get(bookingId)) as BookingRow | null
+    if (b) {
+      let roomNumber = room && room.roomId === b.roomId ? room.roomNumber : null
+      if (!roomNumber) {
+        const r = (await db.rooms.list({ where: { id: b.roomId }, limit: 1 })) as Array<{ roomNumber: string }>
+        roomNumber = String(r[0]?.roomNumber ?? '?')
+      }
+      stay = { bookingId, status: b.status, checkOut: String(b.checkOut).slice(0, 10), roomId: b.roomId, roomNumber }
+    }
+  }
+
   return {
     lockNo,
     room,
@@ -222,6 +303,7 @@ export async function identifyCard(reading: CardReading, now = new Date()): Prom
     madeInJoney: reading.dai === 0,
     records,
     newer,
+    stay,
   }
 }
 
@@ -289,8 +371,11 @@ async function post(name: string, body: unknown) {
   return data
 }
 
-/** 'issued' is only for a card whose writing was cut off, once it reads back right at the encoder. */
-export type CardMark = 'returned' | 'not_returned' | 'killed_at_door' | 'issued'
+/**
+ * 'issued' is only for a card whose writing was cut off, once it reads back right at the encoder.
+ * 'erased' is for a card written again (updated, or moved to another room), once its new card is written.
+ */
+export type CardMark = 'returned' | 'not_returned' | 'killed_at_door' | 'issued' | 'erased'
 
 export function markCard(cardId: string, status: CardMark, note?: string) {
   return post('key-card-mark', { cardId, status, note })

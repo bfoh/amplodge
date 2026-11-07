@@ -504,7 +504,8 @@ async function toolExtendStay(args: any, staffCtx: StaffCtx): Promise<ToolResult
   return {
     ok: true,
     humanSummary: `Extended ${guest?.name || 'guest'}'s stay to ${args.newCheckoutDate} (additional GH₵${result.extensionCost}).`,
-    data: result,
+    // bookingId: the chat offers to update the guest's key cards after this.
+    data: { ...result, bookingId: booking.id, guestName: guest?.name ?? null },
   }
 }
 

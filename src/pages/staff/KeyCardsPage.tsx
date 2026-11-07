@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, CreditCard, DoorClosed, KeyRound, Loader2, MonitorSmartphone, RefreshCw, SearchX, UserX } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CheckCircle2, CreditCard, DoorClosed, KeyRound, Loader2, MonitorSmartphone, RefreshCw, SearchX, UserX } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
@@ -14,10 +14,10 @@ import {
 import { useTableChanges } from '@/hooks/use-table-changes'
 import { useIsAdmin } from '@/hooks/use-is-admin'
 import {
-  STATUS_LABEL, loadKeyCardBoard, markCard,
+  STATUS_LABEL, hotelDay, hotelTime, loadKeyCardBoard, markCard,
   type CardMark, type KeyCard, type KeyCardBoard,
 } from '@/services/key-cards'
-import { promptKeyCards, promptLockoutCard, type KeyCardRequest } from '@/services/key-card-prompt'
+import { promptKeyCards, promptLockoutCard, promptUpdateCards, type KeyCardRequest, type StayCardsRequest } from '@/services/key-card-prompt'
 import { bridgeStatus, getEncoderPc, type BridgeStatus } from '@/services/lock-bridge'
 import { ReadCardPanel } from '@/components/ReadCardPanel'
 
@@ -58,6 +58,12 @@ export default function KeyCardsPage() {
 
   async function makeCards(n: KeyCardRequest) {
     await promptKeyCards(n)
+    await reload()
+    void checkBridge()
+  }
+
+  async function updateCards(req: StayCardsRequest) {
+    await promptUpdateCards(req)
     await reload()
     void checkBridge()
   }
@@ -180,6 +186,11 @@ export default function KeyCardsPage() {
           <SearchX className="w-4 h-4 mr-1" /> Card lost
         </Button>
       )}
+      {encoderPc && card.bookingId && board.wrongRoom.includes(card) && (
+        <Button size="sm" variant="outline" disabled={busy === card.id} onClick={() => void updateCards({ bookingId: card.bookingId!, guestName: card.guestName })}>
+          <KeyRound className="w-4 h-4 mr-1" /> Write it for the new room
+        </Button>
+      )}
     </div>
   )
 
@@ -212,7 +223,7 @@ export default function KeyCardsPage() {
     </Card>
   )
 
-  const { needsCard, shouldBeGone, wrongRoom, unknown, live, lockouts, doors } = board
+  const { needsCard, shouldBeGone, wrongRoom, endsEarly, unknown, live, lockouts, doors } = board
   const nothing = <p className="py-3 text-sm text-muted-foreground">Nothing here.</p>
 
   return (
@@ -229,9 +240,30 @@ export default function KeyCardsPage() {
 
       {wrongRoom.length > 0 && section(
         'Opens a room the guest has left',
-        'The booking moved to another room. This card still opens the old room\'s door. To stop it, lock out that door from the reception PC, or take the card back.',
+        'The booking moved to another room, and this card still opens the old room\'s door. At the reception PC, lay it on the encoder and write it for the new room: it then opens only the new one. A card the guest no longer has can be stopped by locking out the old door.',
         <AlertTriangle className="w-5 h-5 text-amber-600" />, wrongRoom.length,
         <>{wrongRoom.map((c) => cardRow(c))}</>, 'border-amber-200',
+      )}
+
+      {endsEarly.length > 0 && section(
+        'Update these cards',
+        'The stay was extended (or is longer than a card may run), but these cards still stop sooner. At the reception PC, lay each card on the encoder and update it: it keeps working with the guest\'s other cards.',
+        <CalendarClock className="w-5 h-5 text-amber-600" />, endsEarly.length,
+        <>{endsEarly.map((e) => (
+          <div key={e.bookingId} className="flex flex-wrap items-center justify-between gap-3 py-3">
+            <div>
+              <div className="font-semibold">Room {e.roomNumber} <span className="font-normal text-muted-foreground">· {e.guestName}</span></div>
+              <div className="text-xs text-muted-foreground">
+                {e.cards === 1 ? 'The card stops' : `${e.cards} cards stop`} {hotelTime(e.validUntil)} · check-out {hotelDay(e.checkOut)}
+              </div>
+            </div>
+            {encoderPc && (
+              <Button size="sm" onClick={() => void updateCards({ bookingId: e.bookingId, guestName: e.guestName, roomNumber: e.roomNumber })}>
+                <CalendarClock className="w-4 h-4 mr-1" /> Update the cards
+              </Button>
+            )}
+          </div>
+        ))}</>, 'border-amber-200',
       )}
 
       {unknown.length > 0 && section(
