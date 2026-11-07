@@ -155,17 +155,29 @@ export interface PreparedCards {
  * Gets a signed order for `count` cards: a challenge from the bridge, then the
  * server's decision. What is shown to staff is read from the signed order
  * itself, so it is exactly what the bridge will write.
+ * replace: a card was lost, so the new cards replace all of the stay's cards (a new DAI).
  */
-/** replace: a card was lost, so the new cards replace all of the stay's cards (a new DAI). */
-export async function prepareKeyCards(bookingId: string, count: number, replace = false): Promise<PreparedCards> {
+export function prepareKeyCards(bookingId: string, count: number, replace = false): Promise<PreparedCards> {
+  return signedOrder('key-card-order', { bookingId, count, ...(replace ? { replace: true } : {}) }, 'Could not prepare the key cards.')
+}
+
+/**
+ * Gets a signed order for a lock-out card for a room: held to the lock once, it
+ * makes the lock refuse every older card (see netlify/functions/key-card-lockout.js).
+ */
+export function prepareLockoutCard(roomId: string): Promise<PreparedCards> {
+  return signedOrder('key-card-lockout', { roomId }, 'Could not prepare the lock-out card.')
+}
+
+async function signedOrder(fn: string, body: Record<string, unknown>, failed: string): Promise<PreparedCards> {
   const { challenge } = await call<{ challenge: string }>('/challenge', { method: 'POST', body: {} })
-  const res = await callFunction('key-card-order', {
+  const res = await callFunction(fn, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ bookingId, count, challenge, ...(replace ? { replace: true } : {}) }),
+    body: JSON.stringify({ ...body, challenge }),
   })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.error || 'Could not prepare the key cards.')
+  if (!res.ok) throw new Error(data?.error || failed)
   const order = JSON.parse(data.order)
   return {
     order: data.order,

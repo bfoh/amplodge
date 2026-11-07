@@ -15,6 +15,8 @@ export interface KeyCardRequest {
    * stay, which stop working once a new card has opened the door.
    */
   replace?: boolean
+  /** A lock-out card for this room instead of guest cards (bookingId is then empty). */
+  lockoutRoomId?: string
 }
 
 type Opener = (req: KeyCardRequest, closed: () => void) => void
@@ -47,4 +49,14 @@ export async function promptKeyCards(req: KeyCardRequest): Promise<void> {
   const open = opener
   if (!open) return
   await new Promise<void>((resolve) => open(req, resolve))
+}
+
+/**
+ * Offers to make a lock-out card for a room: a short card that, held to the lock
+ * once, makes it refuse every older card (netlify/functions/key-card-lockout.js).
+ */
+export async function promptLockoutCard(roomId: string, roomNumber?: string | null): Promise<void> {
+  const open = opener
+  if (!open || !roomId) return
+  await new Promise<void>((resolve) => open({ bookingId: '', lockoutRoomId: roomId, roomNumber }, resolve))
 }

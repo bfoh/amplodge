@@ -11,7 +11,8 @@ import { handler as pair } from '../../netlify/functions/lock-encoder-pair.js'
 import { handler as order } from '../../netlify/functions/key-card-order.js'
 import { handler as receipt } from '../../netlify/functions/key-card-receipt.js'
 import { handler as mark } from '../../netlify/functions/key-card-mark.js'
-import { cardTime, floorToMinute, isLockNo, nextDai, validityFor, verifyOrder } from '../../netlify/functions/_lib/key-cards.js'
+import { handler as lockout } from '../../netlify/functions/key-card-lockout.js'
+import { NO_BOOKING, cardTime, ceilToMinute, floorToMinute, isLockNo, nextDai, validityFor, verifyOrder } from '../../netlify/functions/_lib/key-cards.js'
 
 let failures = 0
 const check = (label: string, got: any, want: any) => {
@@ -199,6 +200,57 @@ check('a replaced card can be marked returned when it turns up...', (await call(
 const oldCard2 = esiRows().find((c) => c.order_nonce === esiOrder.nonce)!
 check('...but not "guest kept it", which would count it as opening the door again', (await call(mark, bearer('staff'), { cardId: oldCard2.id, status: 'not_returned' })).status, 409)
 check('no working cards, nothing to replace', (await lost(B.noLock)).status, 409)
+
+// ─── A lock-out card ─────────────────────────────────────────────────────────
+const lockOut = (roomId: string, ch = challenge(), who = 'staff') => call(lockout, bearer(who), { roomId, challenge: ch })
+check('a lock-out card needs a login', (await call(lockout, null, { roomId: R.r101, challenge: challenge() })).status, 401)
+check('...and a challenge from the bridge', (await call(lockout, bearer('staff'), { roomId: R.r101 })).status, 400)
+check('...and a room', (await lockOut('not-a-room')).status, 400)
+check('an unknown room is refused', (await lockOut(id())).status, 404)
+r = await lockOut(R.r102)
+check('a room without a lock number is refused', [r.status, r.body.error?.startsWith('Room 102 has no lock number')], [409, true])
+r = await lockOut(R.r101)
+check('not while a guest staying in the room has working cards: theirs would stop too', [r.status, / is staying in room 101 with working cards/.test(r.body.error)], [409, true])
+
+for (const b of tables.bookings.filter((k) => k.id === B.esi || k.id === B.ama)) b.status = 'checked-out'
+const liveOn101 = () => tables.key_cards.filter((c) => c.lock_nos.includes('01020A') && ['issued', 'unknown', 'not_returned', 'pending'].includes(c.status) && c.kind !== 'lockout')
+const before = liveOn101().map((c) => c.id)
+r = await lockOut(R.r101)
+const out = JSON.parse(r.body.order)
+check('once the room is empty, staff get a lock-out card order, signed', [r.status, verifyOrder(r.body.order, r.body.signature, enc1.publicKey)], [200, true])
+check('it is a guest-card order the installed bridges take: no booking, the next DAI, one card for the door',
+  [out.kind, out.purpose, out.bookingId, out.guest, out.room, out.dai, out.cards], ['guest-cards', 'lockout', NO_BOOKING, null, '101', 4, [{ cardNo: 0, lockNos: ['01020A'] }]])
+check('it works for 20 minutes', out.end, cardTime(ceilToMinute(new Date(Date.now() + 20 * 60000))))
+const outRows = () => tables.key_cards.filter((c) => c.order_nonce === out.nonce)
+check('it is recorded as a lock-out card of no stay', outRows().map((c) => [c.kind, c.booking_id, c.room_id === R.r101, c.status, c.dai]), [['lockout', null, true, 'pending', 4]])
+check('every card that could still open the door is marked locked out, with why',
+  [before.length > 0, before.every((cid) => { const c = tables.key_cards.find((k) => k.id === cid)!; return c.status === 'locked_out' && c.note?.includes('lock-out card') }), r.body.summary.lockedOut],
+  [true, true, before.length])
+check('the lock-out is logged', tables.activity_logs.filter((l) => l.action === 'key_card_lockout').at(-1)?.details?.lockedOut, before.length)
+r = await report(enc1.token, { nonce: out.nonce, cards: [{ cardNo: 0, status: 'issued' }] })
+check('the bridge reports it written', [r.status, outRows()[0].status], [200, 'issued'])
+check('a lock-out card can only be marked returned', [
+  (await call(mark, bearer('staff'), { cardId: outRows()[0].id, status: 'not_returned' })).status,
+  (await call(mark, bearer('staff'), { cardId: outRows()[0].id, status: 'returned' })).status,
+], [409, 200])
+const lockedOut = tables.key_cards.find((c) => c.id === before[0])!
+check('a locked-out card that turns up can be marked returned, nothing else', [
+  (await call(mark, bearer('staff'), { cardId: lockedOut.id, status: 'not_returned' })).status,
+  (await call(mark, bearer('staff'), { cardId: lockedOut.id, status: 'returned' })).status,
+], [409, 200])
+r = await lockOut(R.r101)
+const out2 = JSON.parse(r.body.order)
+check('another lock-out for the same door takes the next DAI again', [r.status, out2.dai], [200, 5])
+const B_next = id()
+tables.bookings.push({ id: B_next, room_id: R.r101, guest_id: G.yaw, status: 'checked-in', check_in: day(0), check_out: day(2) })
+r = await ask(B_next)
+check('a live lock-out card does not hold the door: the next guest gets a card, with the DAI after it', [r.status, JSON.parse(r.body.order).dai], [200, 6])
+const R201 = id()
+tables.rooms.push({ id: R201, room_number: '201' })
+await call(saveLocks, bearer('admin'), { roomId: R201, locks: [{ lockNo: '0102A0' }, { lockNo: '0102A1' }] })
+r = await lockOut(R201)
+check('a two-door room gets a lock-out card for each door, even with no cards on record', [r.status, JSON.parse(r.body.order).cards, r.body.summary.lockedOut],
+  [200, [{ cardNo: 0, lockNos: ['0102A0'] }, { cardNo: 1, lockNos: ['0102A1'] }], 0])
 
 // ─── The suite, and a second PC ──────────────────────────────────────────────
 r = await ask(B.suite, 1)

@@ -47,10 +47,14 @@ Two things come from Joney's program:
 - It loads only the `proRFL.dll` from Joney's V0925 SDK (checked by sha256), unless
   `encoder.json` names another build in `proRflSha256`.
 - A suite card (one card for two doors) isn't in Joney's SDK, so a two-door room gets one
-  card per door. Nor is a lost-card call. For a lost card, **Card lost** on the Key cards
-  page makes the stay new cards with a new DAI: once one of them opens the door, every old
-  card of the stay stops working there (tested at a door). Joney's own Lost Card in the
-  Lock Management System still works too.
+  card per door. Nor are Joney's lost and check-out cards. Both are done with guest cards
+  and the DAI instead (a card with a new DAI, once used at the door, makes the lock refuse
+  every older card: tested at a door):
+  - **Card lost** on the Key cards page makes the stay new cards with a new DAI.
+  - **Lock out the door** makes a *lock-out card* for an empty room: a guest card with the
+    next DAI, valid for 20 minutes. Held to the lock once, it stops every older card,
+    including cards made in Joney's program. Its order carries `"purpose": "lockout"` and the
+    empty booking ID, which the bridge does not use, so it is written like any guest card.
 - Every step goes to a journal on disk **before** the encoder is touched. If a power cut
   or crash interrupts a write, that card shows as "unknown" on the Key cards page and
   is never written twice. If the internet is down, results wait in the journal and are

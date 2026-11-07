@@ -26,7 +26,19 @@ export const POLICY = Object.freeze({
   // One card for every door of a room (suite 110+109): waiting on Joney.
   // Until then a two-door room gets one card per door.
   suiteOneCard: false,
+  // A lock-out card (a guest card for an empty room with a new DAI, held to the
+  // lock once to stop every older card) works this long, then stops by itself.
+  lockoutMinutes: 20,
 })
+
+/**
+ * The bookingId of a lock-out order, which belongs to no stay. The lock bridge
+ * needs a UUID there and never uses it, so bridges already installed take it.
+ */
+export const NO_BOOKING = '00000000-0000-0000-0000-000000000000'
+
+/** "<encoderId>.<random>", the one-time challenge the lock bridge makes for each order. */
+export const CHALLENGE = /^([0-9a-f-]{36})\.([A-Za-z0-9_-]{16,128})$/i
 
 /** Card states in which the card can open its door (while not expired). */
 export const LIVE_STATUSES = Object.freeze(['issued', 'unknown', 'not_returned'])
@@ -51,6 +63,10 @@ export function cardTime(d) {
 
 export function floorToMinute(d) {
   return new Date(Math.floor(d.getTime() / 60000) * 60000)
+}
+
+export function ceilToMinute(d) {
+  return new Date(Math.ceil(d.getTime() / 60000) * 60000)
 }
 
 export function hotelToday(now = new Date()) {
@@ -112,6 +128,35 @@ export const normalizeLockNo = (s) => String(s ?? '').trim().toUpperCase()
  */
 export function nextDai(last) {
   return Number.isInteger(last) && last >= 1 && last < 255 ? last + 1 : 1
+}
+
+/**
+ * The DAI for an order. Extra cards for a stay take the DAI its working cards
+ * have (`mine`). Anything else (a new stay, a lost card's replacements, a
+ * lock-out card) takes the next one after the newest card ever made for any of
+ * its doors, whatever became of that card: two stays in a row must never share one.
+ */
+export async function daiFor(sb, locks, mine = []) {
+  const own = [...mine].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).find((c) => Number.isInteger(c.dai))
+  if (own) return own.dai
+  const { data, error } = await sb.from('key_cards').select('dai, created_at')
+    .overlaps('lock_nos', locks).order('created_at', { ascending: false }).limit(20)
+  if (error) throw error
+  return nextDai((data || []).find((c) => Number.isInteger(c.dai))?.dai ?? null)
+}
+
+/**
+ * The paired encoder PC a challenge names, or an error response body. A bridge
+ * makes the challenge itself; its first part is the PC's encoder ID.
+ */
+export async function encoderForChallenge(sb, challenge) {
+  const m = CHALLENGE.exec(String(challenge || ''))
+  if (!m || !UUID.test(m[1])) return { status: 400, error: 'The encoder PC sent no valid challenge. Is the lock bridge running?' }
+  const { data: encoder } = await sb.from('lock_encoders').select('id, label, token_hash, revoked_at').eq('id', m[1].toLowerCase()).maybeSingle()
+  if (!encoder || !encoder.token_hash || encoder.revoked_at) {
+    return { status: 409, error: 'This PC is not paired as the encoder PC, or it was unpaired. An admin can pair it in Settings.' }
+  }
+  return { encoder }
 }
 
 /** The order format the lock bridge accepts (v2: lock codes are 6 hex characters, and orders carry a DAI). */

@@ -2,14 +2,16 @@ import { requireStaff, jsonResponse, handleCors } from './_lib/auth.js'
 import { checkRateLimit, tooManyRequests } from './_lib/rate-limit.js'
 import {
   POLICY, LIVE_STATUSES, ORDER_VERSION, serviceClient, signingKey, signOrder, validityFor, isLive, planCards,
-  cardTime, hotelToday, sameLocks, sharesLock, nextDai, randomToken, logActivity, parseBody, UUID,
+  cardTime, hotelToday, sameLocks, sharesLock, nextDai, daiFor, encoderForChallenge, randomToken, logActivity, parseBody, UUID,
 } from './_lib/key-cards.js'
 
 /**
  * Approves and signs an order for guest cards, for the lock bridge to write.
  *
- * POST { bookingId, count, challenge }   (staff)
+ * POST { bookingId, count, challenge, replace? }   (staff)
  *   challenge: "<encoderId>.<random>", made by the bridge on the reception PC.
+ *   replace:   a card was lost. The stay's cards are marked 'replaced' and the
+ *              new ones get a new DAI, so the old ones stop at the door.
  *
  * The server decides everything that matters: the doors (room_locks of the
  * booking's room), the start and end times (check-out day at 11:00 plus an
@@ -22,8 +24,6 @@ import {
  * stay gets the next DAI for its doors: once its card has opened the door, the
  * previous guest's cards stop working there.
  */
-const CHALLENGE = /^([0-9a-f-]{36})\.([A-Za-z0-9_-]{16,128})$/i
-
 export const handler = async (event) => {
   const cors = handleCors(event); if (cors) return cors
   if (event.httpMethod !== 'POST') return jsonResponse(405, { error: 'Method not allowed' })
@@ -43,9 +43,6 @@ export const handler = async (event) => {
   if (typeof body.bookingId !== 'string' || !UUID.test(body.bookingId)) return jsonResponse(400, { error: 'bookingId is required' })
   // A lost card: new cards for the stay, with a new DAI, so its current cards stop at the door.
   const replace = body.replace === true
-  const m = CHALLENGE.exec(String(body.challenge || ''))
-  if (!m || !UUID.test(m[1])) return jsonResponse(400, { error: 'The encoder PC sent no valid challenge. Is the lock bridge running?' })
-  const encoderId = m[1].toLowerCase()
 
   const key = signingKey()
   if (!key) return jsonResponse(503, { error: 'Door locks are not set up on the server yet.' })
@@ -54,10 +51,8 @@ export const handler = async (event) => {
     const sb = serviceClient()
     const now = new Date()
 
-    const { data: encoder } = await sb.from('lock_encoders').select('id, label, token_hash, revoked_at').eq('id', encoderId).maybeSingle()
-    if (!encoder || !encoder.token_hash || encoder.revoked_at) {
-      return jsonResponse(409, { error: 'This PC is not paired as the encoder PC, or it was unpaired. An admin can pair it in Settings.' })
-    }
+    const { encoder, status: encStatus, error: encError } = await encoderForChallenge(sb, body.challenge)
+    if (!encoder) return jsonResponse(encStatus, { error: encError })
 
     const { data: booking } = await sb.from('bookings').select('*').eq('id', body.bookingId).maybeSingle()
     if (!booking) return jsonResponse(404, { error: 'Booking not found' })
@@ -87,7 +82,8 @@ export const handler = async (event) => {
     const live = (maybeLive || []).filter((c) => isLive(c, now))
     // A card the last guest kept does not hold the door: this stay's new DAI locks it
     // out the first time one of the new cards opens it (tested at a door, 2026-11-07).
-    const blocking = live.find((c) => c.booking_id !== booking.id && c.status !== 'not_returned' && sharesLock(c.lock_nos || [], locks))
+    // Nor does a lock-out card: it belongs to no stay, and this stay's cards are newer.
+    const blocking = live.find((c) => c.booking_id !== booking.id && c.status !== 'not_returned' && c.kind !== 'lockout' && sharesLock(c.lock_nos || [], locks))
     if (blocking) {
       return jsonResponse(409, {
         error: `A card for ${blocking.guest_name || 'another guest'} (room ${blocking.room_number ?? '?'}) still opens this door until ${blocking.valid_until.slice(0, 16).replace('T', ' ')}. Mark it on the Key cards page first (returned, or the guest kept it).`,
@@ -175,18 +171,4 @@ export const handler = async (event) => {
     console.error('[key-card-order]', e)
     return jsonResponse(500, { error: 'Could not prepare the key card' })
   }
-}
-
-/**
- * The DAI for this order. Extra cards for a stay take the DAI its working cards
- * have. A new stay takes the next one after the newest card ever made for any of
- * its doors, whatever became of that card: two stays in a row must never share one.
- */
-async function daiFor(sb, locks, mine) {
-  const own = [...mine].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).find((c) => Number.isInteger(c.dai))
-  if (own) return own.dai
-  const { data, error } = await sb.from('key_cards').select('dai, created_at')
-    .overlaps('lock_nos', locks).order('created_at', { ascending: false }).limit(20)
-  if (error) throw error
-  return nextDai((data || []).find((c) => Number.isInteger(c.dai))?.dai ?? null)
 }

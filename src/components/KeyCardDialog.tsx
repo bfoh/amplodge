@@ -4,7 +4,7 @@ import { AlertTriangle, CheckCircle2, CircleDashed, CreditCard, KeyRound, Loader
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { subscribeKeyCardPrompt, type KeyCardRequest } from '@/services/key-card-prompt'
-import { getEncoderPc, prepareKeyCards, writeKeyCard, type CardResult, type PreparedCards } from '@/services/lock-bridge'
+import { getEncoderPc, prepareKeyCards, prepareLockoutCard, writeKeyCard, type CardResult, type PreparedCards } from '@/services/lock-bridge'
 
 type Step =
   | { kind: 'choose' }
@@ -23,6 +23,8 @@ const hotelTime = (iso: string) =>
  * "Make key cards" after a check-in, or from the Key cards page. Mounted once at
  * the app root. On the reception PC it walks staff through each card: lay it on
  * the encoder, write it, take it off. Elsewhere it only says where cards are made.
+ * It also makes lock-out cards (request.lockoutRoomId): one card per door, to be
+ * held to the lock once so that it refuses every older card.
  */
 export function KeyCardDialog() {
   const [request, setRequest] = useState<KeyCardRequest | null>(null)
@@ -63,7 +65,7 @@ export function KeyCardDialog() {
     setStep({ kind: 'preparing' })
     const replacing = !!request.replace && !replaced.current
     try {
-      const p = await prepareKeyCards(request.bookingId, n, replacing)
+      const p = request.lockoutRoomId ? await prepareLockoutCard(request.lockoutRoomId) : await prepareKeyCards(request.bookingId, n, replacing)
       if (replacing) replaced.current = true
       setPrepared(p)
       setResults({})
@@ -98,15 +100,16 @@ export function KeyCardDialog() {
     else setStep({ kind: 'card', index: index + 1 })
   }
 
+  const lockout = !!request?.lockoutRoomId
   const room = prepared?.room ?? request?.roomNumber ?? '?'
-  const guest = prepared?.guest ?? request?.guestName ?? 'Guest'
+  const guest = lockout ? 'Lock-out card' : prepared?.guest ?? request?.guestName ?? 'Guest'
   const made = prepared ? prepared.cardNos.filter((n) => results[n]?.outcome === 'issued').length : 0
   const remaining = prepared ? prepared.cardNos.length - made : count
 
   const summary = prepared && (
     <div className="rounded-lg border bg-muted/40 p-3 text-sm">
       <div className="font-semibold">Room {room} · {guest}</div>
-      <div className="text-muted-foreground">Opens the door until <span className="font-medium text-foreground">{hotelTime(prepared.validUntil)}</span></div>
+      <div className="text-muted-foreground">{lockout ? 'Works' : 'Opens the door'} until <span className="font-medium text-foreground">{hotelTime(prepared.validUntil)}</span></div>
       {prepared.capped && <div className="mt-1 text-amber-700">The stay is longer than a card may run, so these cards stop sooner. Make new ones before then.</div>}
       <ul className="mt-2 space-y-1">
         {prepared.cardNos.map((n, i) => {
@@ -143,6 +146,29 @@ export function KeyCardDialog() {
       break
 
     case 'choose':
+      if (lockout) {
+        body = (
+          <div className="space-y-3 text-sm">
+            <p>
+              Door locks are not connected to anything: a lock only learns from the cards held to it. A lock-out card tells
+              room {room}'s lock to refuse every older card: guest cards from before, cards nobody returned, cards made in
+              Joney's program.
+            </p>
+            <ol className="list-decimal space-y-1 pl-5 text-muted-foreground">
+              <li>Write the card here.</li>
+              <li>Take it to room {room} and hold it to the lock once. The door opens.</li>
+              <li>From then on the lock refuses the older cards. The lock-out card stops working by itself a few minutes later.</li>
+            </ol>
+          </div>
+        )
+        footer = (
+          <>
+            <Button variant="outline" onClick={close}>Not now</Button>
+            <Button onClick={() => void prepare(1)}><CreditCard className="mr-2 h-4 w-4" />Make the lock-out card</Button>
+          </>
+        )
+        break
+      }
       body = (
         <div className="space-y-3">
           {request?.replace && (
@@ -236,7 +262,14 @@ export function KeyCardDialog() {
       body = (
         <div className="space-y-3">
           {summary}
-          <p className="text-sm">{made === 1 ? 'The card is' : `All ${made} cards are`} ready. Take {made === 1 ? 'it' : 'the last one'} off the encoder.</p>
+          {lockout ? (
+            <p className="text-sm">
+              Ready. Take {made === 1 ? 'it' : 'them'} to room {room} now and hold {made === 1 ? 'it to the lock' : 'each to its door\'s lock'} once.
+              From then on the lock refuses every older card. {made === 1 ? 'It stops working by itself' : 'They stop working by themselves'} at {hotelTime(prepared!.validUntil)}.
+            </p>
+          ) : (
+            <p className="text-sm">{made === 1 ? 'The card is' : `All ${made} cards are`} ready. Take {made === 1 ? 'it' : 'the last one'} off the encoder.</p>
+          )}
         </div>
       )
       footer = <Button onClick={close}>Done</Button>
@@ -251,7 +284,7 @@ export function KeyCardDialog() {
         onEscapeKeyDown={(e) => { if (busy) e.preventDefault() }}
       >
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5 text-primary" />Key cards for room {room}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5 text-primary" />{lockout ? 'Lock-out card' : 'Key cards'} for room {room}</DialogTitle>
           <DialogDescription>{step.kind === 'elsewhere' ? 'This device cannot write key cards.' : guest}</DialogDescription>
         </DialogHeader>
         {body}

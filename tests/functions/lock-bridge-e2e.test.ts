@@ -19,10 +19,11 @@ import { authUsers, clientSession, tables, tokens, uuidTables } from './fake-sup
 import { handler as pair } from '../../netlify/functions/lock-encoder-pair.js'
 import { handler as order } from '../../netlify/functions/key-card-order.js'
 import { handler as receipt } from '../../netlify/functions/key-card-receipt.js'
+import { handler as lockout } from '../../netlify/functions/key-card-lockout.js'
 import { callFunction } from '@/lib/api'
 import {
   BRIDGE_URL, BridgeError, adoptPairedBridge, bridgeStatus, forgetEncoderPc, getEncoderPc,
-  pairThisPc, prepareKeyCards, writeKeyCard,
+  pairThisPc, prepareKeyCards, prepareLockoutCard, writeKeyCard,
 } from '@/services/lock-bridge'
 
 let failures = 0
@@ -62,7 +63,7 @@ tables.lock_encoders = []; tables.key_cards = []; tables.activity_logs = []
 
 // ─── The server: the real handlers over HTTP ─────────────────────────────────
 type Handler = (event: { httpMethod?: string; headers: Record<string, string>; body: string }) => Promise<{ statusCode: number; body?: string }>
-const handlers: Record<string, Handler> = { 'lock-encoder-pair': pair, 'key-card-order': order, 'key-card-receipt': receipt }
+const handlers: Record<string, Handler> = { 'lock-encoder-pair': pair, 'key-card-order': order, 'key-card-receipt': receipt, 'key-card-lockout': lockout }
 const server = http.createServer(async (req, res) => {
   let body = ''
   for await (const chunk of req) body += chunk
@@ -162,6 +163,15 @@ try {
   forgetEncoderPc()
   const adopted = await adoptPairedBridge()
   check('it can adopt the bridge\'s pairing again', adopted.encoderId, started.encoderId)
+
+  // ── A lock-out card: the guest checked out early ──
+  tables.bookings[0].status = 'checked-out'
+  const lo = await prepareLockoutCard(ROOM)
+  check('a lock-out card order is a one-card order for the door, with no guest', [lo.room, lo.guest, lo.cardNos], ['101', null, [0]])
+  check('the bridge takes the order (no booking, a purpose it does not need to know) and writes the card', (await writeKeyCard(lo, 0)).outcome, 'issued')
+  const loRow = await until(() => tables.key_cards.find((c) => c.order_nonce === lo.nonce)?.status, (s) => s === 'issued')
+  check('...and reports it issued', loRow, 'issued')
+  check('the stay\'s two cards are marked locked out', tables.key_cards.filter((c) => c.booking_id === BOOKING).map((c) => c.status), ['locked_out', 'locked_out'])
 
   // ── Unpairing ──
   clientSession.token = 'tok-admin'

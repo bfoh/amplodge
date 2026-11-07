@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, CheckCircle2, CreditCard, DoorClosed, KeyRound, Loader2, MonitorSmartphone, RefreshCw, SearchX, UserX } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -16,7 +17,7 @@ import {
   STATUS_LABEL, loadKeyCardBoard, markCard,
   type CardMark, type KeyCard, type KeyCardBoard,
 } from '@/services/key-cards'
-import { promptKeyCards, type KeyCardRequest } from '@/services/key-card-prompt'
+import { promptKeyCards, promptLockoutCard, type KeyCardRequest } from '@/services/key-card-prompt'
 import { bridgeStatus, getEncoderPc, type BridgeStatus } from '@/services/lock-bridge'
 
 const when = (iso: string) => format(new Date(iso), 'EEE d MMM, HH:mm')
@@ -38,7 +39,7 @@ export default function KeyCardsPage() {
   const [board, setBoard] = useState<KeyCardBoard | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
-  const [confirmKill, setConfirmKill] = useState<KeyCard | null>(null)
+  const [lockoutRoom, setLockoutRoom] = useState('')
   const [confirmLost, setConfirmLost] = useState<KeyCard | null>(null)
   const [encoderPc] = useState(() => getEncoderPc())
   const [bridge, setBridge] = useState<{ status: BridgeStatus | null; error: string | null } | null>(null)
@@ -56,6 +57,12 @@ export default function KeyCardsPage() {
 
   async function makeCards(n: KeyCardRequest) {
     await promptKeyCards(n)
+    await reload()
+    void checkBridge()
+  }
+
+  async function lockOut(roomId: string, roomNumber: string | null) {
+    await promptLockoutCard(roomId, roomNumber)
     await reload()
     void checkBridge()
   }
@@ -162,9 +169,11 @@ export default function KeyCardsPage() {
           <UserX className="w-4 h-4 mr-1" /> Guest kept it
         </Button>
       )}
-      <Button size="sm" variant="outline" disabled={busy === card.id} onClick={() => setConfirmKill(card)}>
-        <DoorClosed className="w-4 h-4 mr-1" /> Cancelled at door
-      </Button>
+      {encoderPc && !current.has(card.id) && card.roomId && (
+        <Button size="sm" variant="outline" disabled={busy === card.id} onClick={() => void lockOut(card.roomId!, card.roomNumber)}>
+          <DoorClosed className="w-4 h-4 mr-1" /> Lock out the door
+        </Button>
+      )}
       {encoderPc && current.has(card.id) && (
         <Button size="sm" variant="outline" disabled={busy === card.id} onClick={() => setConfirmLost(card)}>
           <SearchX className="w-4 h-4 mr-1" /> Card lost
@@ -177,10 +186,10 @@ export default function KeyCardsPage() {
     <div key={card.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
       <div className="min-w-0">
         <div className="font-semibold">
-          Room {card.roomNumber ?? '?'} <span className="font-normal text-muted-foreground">· {card.guestName ?? 'Guest'} · card {card.cardNo + 1}</span>
+          Room {card.roomNumber ?? '?'} <span className="font-normal text-muted-foreground">· {card.kind === 'lockout' ? 'Lock-out card' : card.guestName ?? 'Guest'} · card {card.cardNo + 1}</span>
         </div>
         <div className="text-xs text-muted-foreground">
-          Opens until {when(card.validUntil)}
+          {card.kind === 'lockout' ? 'Works' : 'Opens'} until {when(card.validUntil)}
           {card.note ? ` · ${card.note}` : ''}
           {card.error ? ` · ${card.error}` : ''}
         </div>
@@ -202,7 +211,7 @@ export default function KeyCardsPage() {
     </Card>
   )
 
-  const { needsCard, shouldBeGone, wrongRoom, unknown, live } = board
+  const { needsCard, shouldBeGone, wrongRoom, unknown, live, lockouts, doors } = board
   const nothing = <p className="py-3 text-sm text-muted-foreground">Nothing here.</p>
 
   return (
@@ -212,14 +221,14 @@ export default function KeyCardsPage() {
 
       {shouldBeGone.length > 0 && section(
         'Still opens a door after the stay',
-        'The guest has checked out or the booking was cancelled, but this card still opens the door. Take it back. If the guest kept it, mark it so: the next guest\'s card locks it out the first time it opens the door. To lock it out sooner, cancel it at the door with the lock software\'s card.',
+        'The guest has checked out or the booking was cancelled, but this card still opens the door until its end time. Take it back. If the guest kept it, mark it so: the next guest\'s card locks it out the first time it opens the door. To stop it now, make a lock-out card at the reception PC ("Lock out the door") and hold it to the lock once.',
         <AlertTriangle className="w-5 h-5 text-red-600" />, shouldBeGone.length,
         <>{shouldBeGone.map((c) => cardRow(c))}</>, 'border-red-200',
       )}
 
       {wrongRoom.length > 0 && section(
         'Opens a room the guest has left',
-        'The booking moved to another room. This card still opens the old room\'s door.',
+        'The booking moved to another room. This card still opens the old room\'s door. To stop it, lock out that door from the reception PC, or take the card back.',
         <AlertTriangle className="w-5 h-5 text-amber-600" />, wrongRoom.length,
         <>{wrongRoom.map((c) => cardRow(c))}</>, 'border-amber-200',
       )}
@@ -257,28 +266,44 @@ export default function KeyCardsPage() {
 
       {section(
         'Working cards',
-        'Every card that opens a door right now.',
+        'Every guest card that opens a door right now.',
         <KeyRound className="w-5 h-5 text-emerald-600" />, live.length,
         live.length ? <>{live.map((c) => cardRow(c))}</> : nothing,
       )}
 
-      <AlertDialog open={!!confirmKill} onOpenChange={(open) => !open && setConfirmKill(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Was this card cancelled at the door?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Only confirm once the lock software's check-out (or loss-report) card has been used on room {confirmKill?.roomNumber}'s lock.
-              After this, the system treats the door as free for the next guest.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Not yet</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { const c = confirmKill; setConfirmKill(null); if (c) void mark(c, 'killed_at_door') }}>
-              Yes, cancelled at the door
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {lockouts.length > 0 && section(
+        'Lock-out cards',
+        'Each one is to be held to its door\'s lock once: from then on the lock refuses every older card. It stops working by itself at its end time.',
+        <DoorClosed className="w-5 h-5 text-primary" />, lockouts.length,
+        <>{lockouts.map((c) => cardRow(c, false))}</>,
+      )}
+
+      {encoderPc && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-lg"><DoorClosed className="w-5 h-5 text-primary" />Lock out a door</CardTitle>
+            <CardDescription>
+              Door locks are not connected to anything: a card keeps opening its door until its end time, unless the lock is told
+              otherwise at the door. A lock-out card does that. Held to the lock once, it makes the lock refuse every older card for
+              that door, including cards made in Joney's program. Use it for an empty room: after an early check-out, a cancelled
+              booking, or a card nobody returned.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-2">
+            <Select value={lockoutRoom} onValueChange={setLockoutRoom}>
+              <SelectTrigger className="w-full sm:w-56" aria-label="Room to lock out">
+                <SelectValue placeholder="Choose a room" />
+              </SelectTrigger>
+              <SelectContent>
+                {doors.map((d) => <SelectItem key={d.roomId} value={d.roomId}>Room {d.roomNumber}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" disabled={!lockoutRoom} onClick={() => void lockOut(lockoutRoom, doors.find((d) => d.roomId === lockoutRoom)?.roomNumber ?? null)}>
+              <DoorClosed className="w-4 h-4 mr-1" /> Make a lock-out card
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <AlertDialog open={!!confirmLost} onOpenChange={(open) => !open && setConfirmLost(null)}>
         <AlertDialogContent>

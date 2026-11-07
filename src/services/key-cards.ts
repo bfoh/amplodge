@@ -12,10 +12,12 @@ import { callFunction } from '@/lib/api'
 export type KeyCardStatus =
   | 'pending' | 'issued' | 'failed' | 'unknown'
   | 'returned' | 'not_returned' | 'killed_at_door' | 'erased'
-  | 'replaced'
+  | 'replaced' | 'locked_out'
 
 export interface KeyCard {
   id: string
+  /** 'lockout': a lock-out card, which belongs to no stay (null before the 20261108140000 migration). */
+  kind?: 'guest' | 'lockout' | null
   bookingId: string | null
   roomId: string | null
   guestName: string | null
@@ -67,8 +69,12 @@ export interface KeyCardBoard {
   wrongRoom: KeyCard[]
   /** The write was cut off: nobody knows whether the card works. */
   unknown: KeyCard[]
-  /** Every card that can open a door right now. */
+  /** Every guest card that can open a door right now. */
   live: KeyCard[]
+  /** Lock-out cards not yet expired: each is to be held to its door once. */
+  lockouts: KeyCard[]
+  /** Every room with a door lock, for "Lock out a door". */
+  doors: Array<{ roomId: string; roomNumber: string }>
 }
 
 export const STATUS_LABEL: Record<KeyCardStatus, string> = {
@@ -81,6 +87,7 @@ export const STATUS_LABEL: Record<KeyCardStatus, string> = {
   killed_at_door: 'Cancelled at door',
   erased: 'Erased',
   replaced: 'Replaced (lost)',
+  locked_out: 'Locked out',
 }
 
 const LIVE: KeyCardStatus[] = ['issued', 'unknown', 'not_returned']
@@ -101,8 +108,10 @@ export async function loadKeyCardBoard(now = new Date()): Promise<KeyCardBoard> 
     db.bookings.list({ where: { status: 'checked-in' } }) as Promise<BookingRow[]>,
     db.bookings.list({ where: { checkIn: today, status: { in: ['confirmed', 'reserved'] } } }) as Promise<BookingRow[]>,
   ])
-  const live = cards.filter((c) => canOpenDoor(c, now))
-  const empty: KeyCardBoard = { configured: locks.length > 0, needsCard: [], shouldBeGone: [], wrongRoom: [], unknown: [], live }
+  const open = cards.filter((c) => canOpenDoor(c, now))
+  const live = open.filter((c) => c.kind !== 'lockout')
+  const lockouts = open.filter((c) => c.kind === 'lockout')
+  const empty: KeyCardBoard = { configured: locks.length > 0, needsCard: [], shouldBeGone: [], wrongRoom: [], unknown: [], live, lockouts, doors: [] }
   if (!locks.length) return empty
 
   // Bookings of live cards that are not in the lists above (checked out, cancelled, moved).
@@ -116,10 +125,12 @@ export async function loadKeyCardBoard(now = new Date()): Promise<KeyCardBoard> 
   const lockedRooms = new Set(locks.map((l) => l.roomId))
   const stays = [...checkedIn, ...arriving].filter((b) => lockedRooms.has(b.roomId))
   const [rooms, guests] = await Promise.all([
-    stays.length ? db.rooms.list({ where: { id: { in: [...new Set(stays.map((b) => b.roomId))] } } }) : Promise.resolve([]),
+    db.rooms.list({ where: { id: { in: [...lockedRooms] } } }),
     stays.length ? db.guests.list({ where: { id: { in: [...new Set(stays.map((b) => b.guestId).filter(Boolean))] } } }) : Promise.resolve([]),
   ])
   const roomNo = new Map((rooms as Array<{ id: string; roomNumber: string }>).map((r) => [r.id, r.roomNumber]))
+  const doors = [...roomNo].map(([roomId, roomNumber]) => ({ roomId, roomNumber: String(roomNumber) }))
+    .sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true }))
   const guestName = new Map((guests as Array<{ id: string; name: string }>).map((g) => [g.id, g.name]))
 
   const working = new Set(live.filter((c) => c.status !== 'not_returned').map((c) => c.bookingId))
@@ -142,7 +153,7 @@ export async function loadKeyCardBoard(now = new Date()): Promise<KeyCardBoard> 
     else if (c.roomId && b.roomId !== c.roomId) wrongRoom.push(c)
   }
 
-  return { ...empty, needsCard, shouldBeGone, wrongRoom, unknown: live.filter((c) => c.status === 'unknown') }
+  return { ...empty, needsCard, shouldBeGone, wrongRoom, unknown: live.filter((c) => c.status === 'unknown'), doors }
 }
 
 async function post(name: string, body: unknown) {

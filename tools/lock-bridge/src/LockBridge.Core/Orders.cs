@@ -12,6 +12,8 @@ namespace LockBridge.Core;
 /// A card order as the server signs it (netlify/functions/key-card-order.js), v2.
 /// Dai is the same for every card of one stay and new for the next stay: a card
 /// with a new DAI, once used at the door, locks out cards with an older one.
+/// A lock-out card (key-card-lockout.js) is the same order with BookingId all zeros:
+/// a guest card for an empty room with the next DAI, valid for a few minutes.
 /// </summary>
 public sealed record GuestCardOrder(
     int V,
