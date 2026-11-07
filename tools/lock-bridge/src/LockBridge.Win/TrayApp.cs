@@ -17,23 +17,28 @@ public sealed class TrayApp : ApplicationContext
     private readonly NotifyIcon _icon;
     private readonly ToolStripMenuItem _state = new("Starting…") { Enabled = false };
     private readonly ToolStripMenuItem _unpair = new("Unpair this PC…");
+    private readonly ToolStripMenuItem _startLocks = new("Start Joney's lock program");
+    private readonly LockProgram _lockProgram;
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 5000 };
     private readonly Icon _green = Dot(Color.FromArgb(22, 163, 74));
     private readonly Icon _amber = Dot(Color.FromArgb(217, 119, 6));
     private readonly Icon _red = Dot(Color.FromArgb(220, 38, 38));
     private bool _refreshing;
 
-    public TrayApp(Bridge bridge)
+    public TrayApp(Bridge bridge, LockProgram lockProgram)
     {
         _bridge = bridge;
+        _lockProgram = lockProgram;
         var menu = new ContextMenuStrip();
         menu.Items.Add(_state);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Open the Key cards page", null, (_, _) => Open(KeyCardsUrl));
+        menu.Items.Add(_startLocks);
         menu.Items.Add(_unpair);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Quit the lock bridge", null, (_, _) => Quit());
         _unpair.Click += async (_, _) => await Unpair();
+        _startLocks.Click += async (_, _) => await StartLockProgram();
 
         _icon = new NotifyIcon { Icon = _amber, Text = "AMP Lock Bridge", ContextMenuStrip = menu, Visible = true };
         _icon.DoubleClick += (_, _) => Open(KeyCardsUrl);
@@ -68,8 +73,21 @@ public sealed class TrayApp : ApplicationContext
             _state.Text = text;
             _icon.Text = Truncate($"AMP Lock Bridge — {text}", 127);
             _unpair.Enabled = session is not null;
+            var running = _lockProgram.Running;
+            _startLocks.Enabled = !running;
+            _startLocks.Text = running ? "Joney's lock program is open" : "Start Joney's lock program";
         }
         finally { _refreshing = false; }
+    }
+
+    private async Task StartLockProgram()
+    {
+        if (_lockProgram.Running) { await Refresh(); return; }
+        if (_lockProgram.Start() is { } problem)
+            MessageBox.Show(problem, "AMP Lock Bridge", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        else
+            _icon.ShowBalloonTip(8000, "AMP Lock Bridge", "Starting Joney's lock program. Log in to it: the encoder is ready a few seconds later.", ToolTipIcon.Info);
+        await Refresh();
     }
 
     private async Task Unpair()

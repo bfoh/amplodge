@@ -15,6 +15,7 @@ public sealed class BridgePaths(string root)
     public string HotelId => Path.Combine(root, "hotel.bin");
     public string Journal => Path.Combine(root, "journal.jsonl");
     public string Log => Path.Combine(root, "bridge.log");
+    public string LockProgram => Path.Combine(root, "lock-program.txt");
 }
 
 /// <summary>

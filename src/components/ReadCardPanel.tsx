@@ -7,6 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
+import { useHandsFreeRead } from '@/hooks/use-hands-free-read'
+import { HandsFreeHint } from '@/components/HandsFreeHint'
 import { readCard, type CardReading } from '@/services/lock-bridge'
 import {
   STATUS_LABEL, hotelDay, identifyCard, markCard, placeDoorCode, saveRoomLocks,
@@ -21,6 +25,10 @@ const and = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).
 
 type PlaceRoom = DoorPlacement['rooms'][number]
 
+// This PC's choice: read each card as it is laid down. Off until switched on: the page may stay open all day.
+const HANDS_FREE_KEY = 'amp.keyCards.readByItself'
+const handsFreeChosen = () => { try { return localStorage.getItem(HANDS_FREE_KEY) === '1' } catch { return false } }
+
 type Result =
   | { error: string }
   | { reading: CardReading; identity: CardIdentity | null }
@@ -34,11 +42,12 @@ export function ReadCardPanel({ isAdmin, onChanged }: { isAdmin: boolean; onChan
   const [reading, setReading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<Result | null>(null)
+  const [byItself, setByItself] = useState(handsFreeChosen)
 
-  async function read() {
+  async function read(given?: CardReading) {
     setReading(true)
     try {
-      const r = await readCard()
+      const r = given ?? await readCard()
       setResult({ reading: r, identity: r.kind === 'guest' && r.lockNo ? await identifyCard(r) : null })
     } catch (e) {
       setResult({ error: e instanceof Error ? e.message : 'The card could not be read.' })
@@ -63,10 +72,21 @@ export function ReadCardPanel({ isAdmin, onChanged }: { isAdmin: boolean; onChan
 
   /** The card no longer matches its stay (extended, or moved room): write the stay's cards again. */
   async function update(bookingId: string, guestName: string | null) {
-    await promptUpdateCards({ bookingId, guestName })
+    setBusy(true)
+    try {
+      await promptUpdateCards({ bookingId, guestName })
+    } finally {
+      setBusy(false)
+    }
     // What was read is out of date now: read the card again to see it.
     setResult(null)
     await onChanged()
+  }
+
+  const handsFree = useHandsFreeRead(byItself, reading || busy, (r) => read(r))
+  function chooseByItself(on: boolean) {
+    setByItself(on)
+    try { localStorage.setItem(HANDS_FREE_KEY, on ? '1' : '0') } catch { /* kept for this visit only */ }
   }
 
   /** Saves a door code read from a card to its room: added to the room's codes, or in place of them. */
@@ -94,10 +114,19 @@ export function ReadCardPanel({ isAdmin, onChanged }: { isAdmin: boolean; onChan
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Button variant="outline" disabled={reading || busy} onClick={() => void read()}>
-          {reading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <ScanLine className="w-4 h-4 mr-1" />}
-          {reading ? 'Reading…' : result ? 'Read another card' : 'Read the card'}
-        </Button>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <Button variant="outline" disabled={reading || busy} onClick={() => void read()}>
+            {reading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <ScanLine className="w-4 h-4 mr-1" />}
+            {reading ? 'Reading…' : result ? 'Read another card' : 'Read the card'}
+          </Button>
+          {handsFree.supported && (
+            <div className="flex items-center gap-2">
+              <Switch id="read-by-itself" checked={byItself} onCheckedChange={chooseByItself} />
+              <Label htmlFor="read-by-itself" className="font-normal">Read each card as it is laid down</Label>
+            </div>
+          )}
+        </div>
+        <HandsFreeHint state={handsFree} />
         {result && !reading && (
           <div role="status" className="rounded-lg border p-4 text-sm space-y-2">
             {'error' in result

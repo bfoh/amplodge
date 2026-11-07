@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from '@/components/ui/button'
 import { subscribeKeyCardPrompt, type KeyCardRequest } from '@/services/key-card-prompt'
 import { getEncoderPc, prepareKeyCards, prepareLockoutCard, writeKeyCard, type CardResult, type PreparedCards } from '@/services/lock-bridge'
+import { useEncoderClaim } from '@/hooks/use-hands-free-read'
 
 type Step =
   | { kind: 'choose' }
@@ -51,6 +52,8 @@ export function KeyCardDialog() {
   }, [])
 
   const busy = step.kind === 'preparing' || step.kind === 'writing'
+  // While cards are made here, nothing underneath reads the blank cards laid down for them.
+  useEncoderClaim(!!request)
 
   function close() {
     if (busy) return

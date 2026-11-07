@@ -5,7 +5,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cardsOut, promptLockoutCard, subscribeCollectPrompt, type StayCardsRequest } from '@/services/key-card-prompt'
 import { STATUS_LABEL, hotelTime, identifyCard, loadStayCards, markCard, type KeyCard } from '@/services/key-cards'
-import { getEncoderPc, readCard } from '@/services/lock-bridge'
+import { getEncoderPc, readCard, type CardReading } from '@/services/lock-bridge'
+import { useHandsFreeRead } from '@/hooks/use-hands-free-read'
+import { HandsFreeHint } from '@/components/HandsFreeHint'
 
 type Note = { tone: 'good' | 'bad'; text: string } | null
 
@@ -71,13 +73,13 @@ export function CollectCardsDialog() {
     }
   }
 
-  /** Reads the card on the encoder and, if it is one of this stay's, marks it returned. */
-  async function readReturned() {
+  /** Reads the card on the encoder (or takes the one read hands-free) and, if it is one of this stay's, marks it returned. */
+  async function readReturned(given?: CardReading) {
     if (!request || !cards) return
     setBusy('read')
     setNote(null)
     try {
-      const reading = await readCard()
+      const reading = given ?? await readCard()
       if (reading.kind !== 'guest' || !reading.lockNo) {
         setNote({
           tone: 'bad',
@@ -120,6 +122,8 @@ export function CollectCardsDialog() {
   }
 
   const allIn = cards !== null && cards.length === 0
+  // Lay a returned card down and it is marked: no click (lock bridge 0.1.3+).
+  const handsFree = useHandsFreeRead(!!request && encoderPc, !!busy || cards === null || allIn || !!failed, (r) => readReturned(r))
 
   return (
     <Dialog open={!!request} onOpenChange={(open) => { if (!open) close() }}>
@@ -146,6 +150,7 @@ export function CollectCardsDialog() {
                   {busy === 'read' ? 'Reading…' : 'Read a returned card'}
                 </Button>
               )}
+              {encoderPc && !allIn && <HandsFreeHint state={handsFree} what="each returned card laid on it is marked by itself" />}
               {note && (
                 <p className={`flex items-start gap-2 ${note.tone === 'good' ? 'text-emerald-800' : 'text-amber-900'}`}>
                   {note.tone === 'good' ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}

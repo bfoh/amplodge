@@ -1,4 +1,6 @@
 using LockBridge.Core;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 
 // lock-bridge-sim [--port 47123] [--server http://localhost:8888] [--origin <extra origin>]...
 //                 [--data <folder>] [--delay-ms 600] [--pair <code>]
@@ -64,5 +66,20 @@ if (pairCode is not null)
 }
 
 var app = BridgeApi.Build(bridge);
+// Simulator only, for tests: what lies on the pretend encoder. "none": nothing (reads wait,
+// writes fail); "last": the card written last (the default); "blank": a blank card.
+app.MapPost("/sim/encoder", (SimEncoder req) =>
+{
+    switch (req.Card)
+    {
+        case "none": driver.Empty = true; break;
+        case "last": driver.Empty = false; driver.OnEncoder = null; break;
+        case "blank": driver.Empty = false; driver.OnEncoder = new CardReading(CardReadKind.Blank); break;
+        default: return Results.Json(new { error = "card is none, last or blank." }, statusCode: 400);
+    }
+    return Results.Json(new { card = req.Card });
+});
 await app.RunAsync();
 return 0;
+
+internal sealed record SimEncoder(string? Card);

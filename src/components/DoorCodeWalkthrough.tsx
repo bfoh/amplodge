@@ -6,7 +6,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { doorsOf, loadDoorRooms, saveRoomLocks, type DoorPlacement } from '@/services/key-cards'
-import { readCard } from '@/services/lock-bridge'
+import { readCard, type CardReading } from '@/services/lock-bridge'
+import { useHandsFreeRead, type HandsFreeAnswer } from '@/hooks/use-hands-free-read'
+import { HandsFreeHint } from '@/components/HandsFreeHint'
 
 type DoorRoom = DoorPlacement['rooms'][number]
 type Note = { tone: 'good' | 'bad'; text: string } | null
@@ -69,11 +71,12 @@ export function DoorCodeWalkthrough({ open, onOpenChange }: { open: boolean; onO
   const short = rooms?.filter(missing) ?? []
   const done = rooms ? rooms.length - short.length : 0
 
-  async function read() {
+  /** Reads the card on the encoder (or takes the one read hands-free). "again": a blank card, to be looked at again once Joney's program has written it. */
+  async function read(given?: CardReading): Promise<HandsFreeAnswer> {
     if (!rooms || !current) return
     setBusy('read'); setNote(null); setFound(null)
     try {
-      const r = await readCard()
+      const r = given ?? await readCard()
       if (r.kind !== 'guest' || !r.lockNo) {
         setNote({
           tone: 'bad',
@@ -82,7 +85,7 @@ export function DoorCodeWalkthrough({ open, onOpenChange }: { open: boolean; onO
             : r.kind === 'staff' ? 'This is a staff card: it opens many doors, so it tells no room\'s code. Use a guest card made for the room.'
             : 'This card is not one of this hotel\'s guest cards.',
         })
-        return
+        return r.kind === 'blank' ? 'again' : undefined
       }
       const code = r.lockNo.toUpperCase()
       const owner = rooms.find((x) => x.locks.some((l) => l.lockNo === code))
@@ -131,6 +134,10 @@ export function DoorCodeWalkthrough({ open, onOpenChange }: { open: boolean; onO
     setFound(null); setNote(null)
   }
 
+  // Lay the room's card down and it is read: no click (lock bridge 0.1.3+). A blank card is
+  // watched until Joney's program has written it.
+  const handsFree = useHandsFreeRead(open && !!rooms, !!busy || !!found || !current, (r) => read(r))
+
   const skippedRooms = rooms?.filter((r) => skipped.includes(r.roomId) && missing(r)) ?? []
   const doors = current ? doorsOf(current.roomNumber) : 1
 
@@ -167,6 +174,7 @@ export function DoorCodeWalkthrough({ open, onOpenChange }: { open: boolean; onO
                   : 'In Joney\'s program, make a guest card for this room (any dates), then lay it flat on the encoder.'}
               </p>
             </div>
+            {!found && <HandsFreeHint state={handsFree} />}
             {note && (
               <p className={`flex items-start gap-2 ${note.tone === 'good' ? 'text-emerald-800' : 'text-amber-900'}`}>
                 {note.tone === 'good' ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}

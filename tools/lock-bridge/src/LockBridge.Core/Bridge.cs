@@ -14,6 +14,8 @@ public sealed class BridgeOptions
     /// <summary>Under the server's 15 minutes for a pending card, so the bridge gives up first.</summary>
     public TimeSpan OrderLifetime { get; init; } = TimeSpan.FromMinutes(10);
     public TimeSpan WriteTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    /// <summary>How often a read that waits for a card (or for it to be lifted) looks at the encoder.</summary>
+    public TimeSpan ReadPoll { get; init; } = TimeSpan.FromMilliseconds(500);
     /// <summary>The server caps a stay at 30 days; a day's slack for the clocks.</summary>
     public TimeSpan MaxValidity { get; init; } = TimeSpan.FromDays(31);
     public string BridgeVersion { get; init; } = typeof(BridgeOptions).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";

@@ -82,6 +82,10 @@ dotnet run --project src/LockBridge.Sim                 # http://127.0.0.1:47123
 dotnet run --project src/LockBridge.Sim -- --pair <code>
 ```
 
+The simulator also takes `POST /sim/encoder {card: "none" | "last" | "blank"}`, for tests:
+nothing on the encoder (reads find no card, writes fail), the card written last (the
+default), or a blank card.
+
 By default the simulator reports to `netlify dev` (`http://localhost:8888`), not to the
 live site, so pretend cards never show up as real ones. Remember that `netlify dev`
 still uses the **live** database.
@@ -93,7 +97,7 @@ still uses the **live** database.
 | `GET /status` | Paired? Encoder ready? Results still unsent? |
 | `POST /challenge` | A one-time challenge, valid for 5 minutes. The portal sends it to `key-card-order`. |
 | `POST /cards/issue` | `{order, signature, cardNo}`: writes one card of a signed order. Asking again for the same card returns the stored result. |
-| `POST /cards/read` | Reads the card on the encoder and writes nothing (0.1.2+). Returns its kind (`none`, `blank`, `guest`, `otherHotel`, `staff`, `unknown`); for a guest card of this hotel its door code, end time and DAI; for a staff or setup card only what kind it is. Never the card's data. |
+| `POST /cards/read` | Reads the card on the encoder and writes nothing (0.1.2+). Returns its kind (`none`, `blank`, `guest`, `otherHotel`, `staff`, `unknown`); for a guest card of this hotel its door code, end time and DAI; for a staff or setup card only what kind it is. Never the card's data. `noCard` is true when the encoder answered and nothing lies on it. From 0.1.3, `{waitFor: "card" \| "removed", timeoutMs}` waits (up to 60 s, looking every 0.5 s) until a card is laid down or lifted, for hands-free reading; `timedOut` says the wait ran out. An encoder problem answers at once. |
 | `GET /orders/{nonce}` | What happened to each card of an order, and whether the server has been told. |
 | `POST /pair` | `{code}`: redeems the one-time code from Settings → Door locks. Works only while unpaired. |
 
@@ -135,6 +139,23 @@ still uses the **live** database.
    hotel network could ask it for cards. Add the firewall rule the probe prints. The bridge
    reads Windows Firewall (every 5 minutes) and warns until an enabled inbound Block rule for
    TCP 10086 covers every address but 127.x, with the firewall on for the network in use.
+
+**Updating** (0.1.3 and later): copy the new `AMPLockBridge.exe` and `Update-Bridge.ps1` into
+one folder on the PC, open Windows PowerShell as administrator in it, and run
+`powershell.exe -ExecutionPolicy Bypass -File .\Update-Bridge.ps1 -Sha256 <fingerprint>` with the
+fingerprint the developer sent. The script:
+- checks the fingerprint;
+- waits for any card being written, then stops the bridge;
+- keeps the old exe as `AMPLockBridge.old.exe` and copies the new one in;
+- starts it again as the signed-in user, not as administrator;
+- prints the version that answers.
+
+Nothing in `C:\ProgramData\AMPLockBridge` is touched.
+
+The tray menu has **Start Joney's lock program** (0.1.3+). It is greyed out while the program
+runs. The bridge learns where `CardLock.exe` is from the running program and keeps that in
+`lock-program.txt`. Before that, it tries the installer's usual folders. **Quit** now always
+ends the process, after at most a few seconds of clean-up.
 
 The tray icon:
 - **green**: ready;

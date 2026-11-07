@@ -60,11 +60,20 @@ internal static class Program
             return Say($"The lock bridge could not start: port {options.Port} is in use by another program.", 3);
         }
 
-        Application.Run(new TrayApp(bridge));
+        Application.Run(new TrayApp(bridge, new LockProgram(paths.LockProgram, log)));
 
-        app.StopAsync().GetAwaiter().GetResult();
-        bridge.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        log.Write("stopped");
+        // Quit: a page may still be waiting on a request (a read that waits for a card, or the
+        // encoder's thread may be inside Joney's DLL), so the clean-up gets a few seconds, then the
+        // process ends regardless. The journal writes through, so nothing waits on it.
+        log.Write("stopping");
+        var cleanup = Task.Run(async () =>
+        {
+            using var grace = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            try { await app.StopAsync(grace.Token); } catch (Exception ex) { log.Write($"stopping the web side: {ex.Message}"); }
+            try { await bridge.DisposeAsync(); } catch (Exception ex) { log.Write($"stopping the session: {ex.Message}"); }
+        });
+        log.Write(cleanup.Wait(TimeSpan.FromSeconds(6)) ? "stopped" : "stopped (clean-up did not finish in time)");
+        Environment.Exit(0);
         return 0;
     }
 

@@ -7,6 +7,8 @@ import { db } from '@/lib/db'
 import { cardsOutOfStep, subscribeUpdatePrompt, type StayCardsRequest } from '@/services/key-card-prompt'
 import { hotelDay, hotelTime, identifyCard, markCard, withinLocks, type KeyCard } from '@/services/key-cards'
 import { OrderRefused, getEncoderPc, prepareCardUpdate, prepareKeyCards, readCard, writeKeyCard, type CardReading } from '@/services/lock-bridge'
+import { useHandsFreeRead } from '@/hooks/use-hands-free-read'
+import { HandsFreeHint } from '@/components/HandsFreeHint'
 
 /** The stay as it is now: its room, that room's doors, and its check-out day. */
 interface Stay {
@@ -103,13 +105,13 @@ export function UpdateCardsDialog() {
   const moved = !!stay && todo.some((c) => !withinLocks(c.lockNos ?? [], stay.doors))
   const left = todo.length - updated.length
 
-  /** Reads the card on the encoder, checks it is one of this stay's, and writes it again. */
-  async function updateOne() {
+  /** Reads the card on the encoder (or takes the one read hands-free), checks it is one of this stay's, and writes it again. */
+  async function updateOne(given?: CardReading) {
     if (!request || !stay) return
     setNote(null)
     setPhase({ kind: 'working', what: 'Reading the card…' })
     try {
-      const reading = await readCard()
+      const reading = given ?? await readCard()
       if (reading.kind !== 'guest' || !reading.lockNo) {
         setNote({ tone: 'bad', text: notTheirs(reading, guest) })
         return setPhase({ kind: 'ready' })
@@ -187,6 +189,9 @@ export function UpdateCardsDialog() {
     }
   }
 
+  // Lay a card down and it is updated: no click (lock bridge 0.1.3+).
+  const handsFree = useHandsFreeRead(!!request && encoderPc, phase.kind !== 'ready', (r) => updateOne(r))
+
   const firstStop = todo.map((c) => c.validUntil).sort()[0]
   const why = stay && (moved
     ? <>{guest} has moved to room {stay.roomNumber}, but {todo.length === 1 ? 'the card still opens' : `${todo.length} cards still open`} room {todo[0]?.roomNumber ?? 'the old room'}.</>
@@ -243,6 +248,7 @@ export function UpdateCardsDialog() {
           {phase.kind === 'working'
             ? <p className="flex items-center gap-2 font-medium"><Loader2 className="h-4 w-4 animate-spin" /> {phase.what}</p>
             : <p className="font-medium">Lay {updated.length ? 'another' : 'one'} of {guest}'s cards flat on the encoder{left > 1 ? ` (${left} to go)` : ''}.</p>}
+          <HandsFreeHint state={handsFree} what="each of the guest's cards laid on it is updated by itself" />
         </div>
       )
       footer = (

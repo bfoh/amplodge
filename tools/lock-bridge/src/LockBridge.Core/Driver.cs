@@ -19,9 +19,10 @@ public enum CardReadKind { None, Blank, Guest, OtherHotel, Staff, Unknown }
 /// <summary>
 /// A card on the encoder, as far as staff need to know it. Never the card's data: for a guest
 /// card of this hotel only its door, end time and DAI; for a staff or setup card only its kind.
-/// End is yyMMddHHmm, hotel time.
+/// End is yyMMddHHmm, hotel time. NoCard: the encoder answered, and nothing lies on it
+/// (a None reading without it is a problem, such as Joney's program not running).
 /// </summary>
-public sealed record CardReading(CardReadKind Kind, string? LockNo = null, string? End = null, int? Dai = null, string? StaffType = null, string? Message = null);
+public sealed record CardReading(CardReadKind Kind, string? LockNo = null, string? End = null, int? Dai = null, string? StaffType = null, string? Message = null, bool NoCard = false);
 
 /// <summary>
 /// The card encoder. On the reception PC this is Joney's encoder, driven by their
@@ -53,12 +54,18 @@ public sealed class SimulatorDriver(TimeSpan? delay = null) : ILockDriver
     /// <summary>What "Read a card" finds; by default the card written last (a guest card), or a blank one.</summary>
     public CardReading? OnEncoder { get; set; }
 
+    /// <summary>Nothing lies on the encoder: reads find no card and writes fail, as on the real one.</summary>
+    public bool Empty { get; set; }
+
+    public static readonly CardReading NothingThere = new(CardReadKind.None, Message: "No card on the encoder. Lay one card flat on it, then read again.", NoCard: true);
+
     public Task<DriverStatus> StatusAsync(CancellationToken ct) =>
         Task.FromResult(new DriverStatus(true, "simulator", "Simulated encoder: no card is really written."));
 
     public async Task<CardWriteResult> WriteGuestCardAsync(GuestCardRequest request, CancellationToken ct)
     {
         await Task.Delay(delay ?? TimeSpan.FromMilliseconds(400), ct);
+        if (Empty) return new CardWriteResult(CardWriteStatus.Failed, "No card on the encoder, or it could not be read. Lay one card flat on the encoder.");
         CardWriteResult result;
         lock (Script) result = Script.Count > 0 ? Script.Dequeue() : new CardWriteResult(CardWriteStatus.Issued);
         if (result.Status == CardWriteStatus.Issued) lock (_written) _written.Add(request);
@@ -68,6 +75,7 @@ public sealed class SimulatorDriver(TimeSpan? delay = null) : ILockDriver
     public async Task<CardReading> ReadCardAsync(CancellationToken ct)
     {
         await Task.Delay(delay ?? TimeSpan.FromMilliseconds(400), ct);
+        if (Empty) return NothingThere;
         if (OnEncoder is { } set) return set;
         GuestCardRequest? last;
         lock (_written) last = _written.Count > 0 ? _written[^1] : null;

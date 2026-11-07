@@ -10,6 +10,8 @@ namespace LockBridge.Core;
 
 public sealed record IssueRequest(string? Order, string? Signature, int? CardNo);
 public sealed record PairRequest(string? Code);
+/// <summary>WaitFor "card": answer once a card lies on the encoder; "removed": once it is lifted. TimeoutMs: 1 to 60 s.</summary>
+public sealed record ReadRequest(string? WaitFor, int? TimeoutMs);
 
 /// <summary>
 /// The bridge's HTTP side, on 127.0.0.1 only. A page may call it only from the
@@ -86,17 +88,24 @@ public static class BridgeApi
         });
 
         // Read a card: what the card on the encoder is. Writes nothing; never returns the card's data.
-        app.MapPost("/cards/read", async (CancellationToken ct) =>
+        // With waitFor the answer waits (up to timeoutMs) for a card to be laid down, or lifted:
+        // the page reads hands-free, and stops looking when it closes (the request is dropped).
+        app.MapPost("/cards/read", async (ReadRequest? req, CancellationToken ct) =>
         {
             if (bridge.Session is null) return Problem(409, "This PC is not paired yet. Pair it in Settings → Door locks.");
+            if (req?.WaitFor is not (null or "card" or "removed")) return Problem(400, "waitFor is \"card\" or \"removed\".");
             CardReading r;
+            var timedOut = false;
             try
             {
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                timeout.CancelAfter(TimeSpan.FromSeconds(20));
-                r = await bridge.Driver.ReadCardAsync(timeout.Token);
+                if (req?.WaitFor is { } waitFor)
+                {
+                    var wait = TimeSpan.FromMilliseconds(Math.Clamp(req.TimeoutMs ?? 25_000, 1_000, 60_000));
+                    (r, timedOut) = await WaitForCard(bridge, waitFor == "card", wait, ct);
+                }
+                else r = await ReadOnce(bridge, ct);
             }
-            catch (OperationCanceledException) { r = new CardReading(CardReadKind.None, Message: "The encoder did not answer in time. Try again."); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return Results.Empty; } // the page went away
             var kind = r.Kind switch
             {
                 CardReadKind.Blank => "blank",
@@ -107,7 +116,7 @@ public static class BridgeApi
                 _ => "none",
             };
             DateTimeOffset? until = r.End is { } e && CardFormat.TryParseCardTime(e, out var t) ? t : null;
-            return Results.Json(new { kind, lockNo = r.LockNo, end = r.End, validUntil = until, dai = r.Dai, staffType = r.StaffType, message = r.Message });
+            return Results.Json(new { kind, lockNo = r.LockNo, end = r.End, validUntil = until, dai = r.Dai, staffType = r.StaffType, message = r.Message, noCard = r.NoCard, timedOut });
         });
 
         app.MapGet("/orders/{nonce}", (string nonce) =>
@@ -134,6 +143,39 @@ public static class BridgeApi
     }
 
     private static IResult Problem(int status, string error) => Results.Json(new { error }, statusCode: status);
+
+    private static async Task<CardReading> ReadOnce(Bridge bridge, CancellationToken ct)
+    {
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(20));
+            return await bridge.Driver.ReadCardAsync(timeout.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return new CardReading(CardReadKind.None, Message: "The encoder did not answer in time. Try again.");
+        }
+    }
+
+    /// <summary>
+    /// Reads until a card lies on the encoder (card) or none does (removed), or the wait is over.
+    /// An encoder problem answers at once: waiting would not fix it.
+    /// </summary>
+    private static async Task<(CardReading Reading, bool TimedOut)> WaitForCard(Bridge bridge, bool card, TimeSpan wait, CancellationToken ct)
+    {
+        var until = DateTimeOffset.UtcNow + wait;
+        while (true)
+        {
+            var r = await ReadOnce(bridge, ct);
+            var there = r.Kind != CardReadKind.None;
+            var waiting = card ? r.NoCard : there;
+            if (!waiting) return (r, false);
+            var left = until - DateTimeOffset.UtcNow;
+            if (left <= TimeSpan.Zero) return (r, true);
+            await Task.Delay(left < bridge.Options.ReadPoll ? left : bridge.Options.ReadPoll, ct);
+        }
+    }
 
     internal static async Task Guard(HttpContext ctx, Func<Task> next, BridgeOptions options)
     {

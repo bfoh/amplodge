@@ -25,7 +25,7 @@ import { handler as saveLocks } from '../../netlify/functions/room-locks-save.js
 import { callFunction } from '@/lib/api'
 import {
   BRIDGE_URL, BridgeError, OrderRefused, adoptPairedBridge, bridgeStatus, forgetEncoderPc, getEncoderPc,
-  pairThisPc, prepareCardUpdate, prepareKeyCards, prepareLockoutCard, readCard, writeKeyCard,
+  canWaitForCards, pairThisPc, prepareCardUpdate, prepareKeyCards, prepareLockoutCard, readCard, writeKeyCard,
 } from '@/services/lock-bridge'
 import { identifyCard, markCard, placeDoorCode, saveRoomLocks } from '@/services/key-cards'
 import { cardsOut, cardsOutOfStep, queueKeyCards, subscribeKeyCardPrompt } from '@/services/key-card-prompt'
@@ -158,7 +158,7 @@ try {
   const reported = await until(() => tables.key_cards.map((c) => c.status), (s) => s.every((x) => x === 'issued'))
   check('both cards reach the server as issued', reported, ['issued', 'issued'])
   const enc = tables.lock_encoders[0]
-  check('the server knows the bridge\'s version and that it is the simulator', [!!enc.last_seen_at, enc.bridge_version, enc.dll_version], [true, '0.1.2', 'simulator'])
+  check('the server knows the bridge\'s version and that it is the simulator', [!!enc.last_seen_at, enc.bridge_version, enc.dll_version], [true, '0.1.3', 'simulator'])
   check('both are in the activity log', tables.activity_logs.filter((l) => l.action === 'key_card_issued').length, 2)
   const status = await until(() => bridgeStatus(), (s) => s.unsentResults === 0)
   check('nothing is left unsent', status.unsentResults, 0)
@@ -167,7 +167,9 @@ try {
   const read = await readCard()
   check('the bridge reads a guest card: its door, end and DAI, nothing more',
     [read.kind, read.lockNo, new Date(read.validUntil!).toISOString(), read.dai, Object.keys(read).sort()],
-    ['guest', '01030A', p.validUntil, tables.key_cards[0].dai, ['dai', 'kind', 'lockNo', 'message', 'staffType', 'validUntil']])
+    ['guest', '01030A', p.validUntil, tables.key_cards[0].dai, ['dai', 'kind', 'lockNo', 'message', 'noCard', 'staffType', 'timedOut', 'validUntil']])
+  const raw = await (await fetch(`${BRIDGE_URL}/cards/read`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json()
+  check('what the bridge itself answers holds no card data', Object.keys(raw).sort(), ['dai', 'end', 'kind', 'lockNo', 'message', 'noCard', 'staffType', 'timedOut', 'validUntil'])
   const who = await identifyCard(read)
   check('the portal finds the room and the stay\'s two cards, made alike',
     [who.room?.roomNumber, who.expired, who.madeInJoney, who.records.map((c) => [c.guestName, c.cardNo, c.status]), who.newer],
@@ -267,6 +269,40 @@ try {
   await queueKeyCards([{ bookingId: B2, roomNumber: '102' }, { bookingId: B5, roomNumber: '102b' }])
   check('stopping the queue stops it', offered, ['102'])
   subscribeKeyCardPrompt(null)
+
+  // ── Hands-free reading: the bridge waits for a card to be laid down, and lifted ──
+  const encoderHolds = (card: 'none' | 'last' | 'blank') =>
+    fetch(`${BRIDGE_URL}/sim/encoder`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ card }) })
+  check('this bridge can wait for cards; 0.1.2 cannot', [canWaitForCards((await bridgeStatus()).version), canWaitForCards('0.1.2'), canWaitForCards('0.2.0')], [true, false, true])
+  await encoderHolds('none')
+  const nothing = await readCard()
+  check('with nothing on the encoder a plain read says so at once', [nothing.kind, nothing.noCard, nothing.timedOut], ['none', true, false])
+  let t0 = Date.now()
+  const laid = readCard({ waitFor: 'card', waitMs: 10000 })
+  await sleep(600)
+  await encoderHolds('last')
+  const got = await laid
+  check('a waiting read answers when a card is laid down', [got.kind, got.lockNo, got.timedOut, Date.now() - t0 >= 600], ['guest', got.lockNo, false, true])
+  const lifted = readCard({ waitFor: 'removed', waitMs: 10000 })
+  await sleep(600)
+  await encoderHolds('none')
+  const gone = await lifted
+  check('a read waiting for the card to be lifted answers when it is', [gone.kind, gone.noCard, gone.timedOut], ['none', true, false])
+  t0 = Date.now()
+  const nobody = await readCard({ waitFor: 'card', waitMs: 1000 })
+  check('a wait with no card ends after its time and says so', [nobody.kind, nobody.timedOut, Date.now() - t0 >= 900], ['none', true, true])
+  const stop = new AbortController()
+  const stopped = readCard({ waitFor: 'card', waitMs: 20000, signal: stop.signal }).then(() => 'answered', (e: Error) => e.name)
+  await sleep(300)
+  stop.abort()
+  check('closing the dialog stops the wait', await stopped, 'AbortError')
+  const blank = await (await encoderHolds('blank'), readCard({ waitFor: 'card', waitMs: 5000 }))
+  check('a blank card is a card', blank.kind, 'blank')
+  await encoderHolds('none')
+  const forB2 = await prepareKeyCards(B2, 1)
+  const noWrite = await writeKeyCard(forB2, forB2.cardNos[0]).catch((e: Error) => ({ outcome: 'threw', error: e.message }))
+  check('with nothing on the encoder no card is written', noWrite.outcome, 'failed')
+  await encoderHolds('last')
 
   // ── Unpairing ──
   clientSession.token = 'tok-admin'

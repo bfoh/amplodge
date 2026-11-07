@@ -84,14 +84,26 @@ export async function localAccessPermission(): Promise<PermissionState | 'unsupp
 
 type LocalRequestInit = RequestInit & { targetAddressSpace?: 'loopback' }
 
-async function send(path: string, opts: { method?: 'GET' | 'POST'; body?: unknown; timeoutMs?: number } = {}): Promise<{ status: number; data: any }> {
+/** Aborts when any of the signals does (AbortSignal.any, where the browser has it). */
+function eitherSignal(a: AbortSignal, b?: AbortSignal): AbortSignal {
+  if (!b) return a
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([a, b])
+  const both = new AbortController()
+  for (const s of [a, b]) {
+    if (s.aborted) both.abort(s.reason)
+    else s.addEventListener('abort', () => both.abort(s.reason), { once: true })
+  }
+  return both.signal
+}
+
+async function send(path: string, opts: { method?: 'GET' | 'POST'; body?: unknown; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<{ status: number; data: any }> {
   const init: LocalRequestInit = {
     method: opts.method ?? 'GET',
     mode: 'cors',
     cache: 'no-store',
     credentials: 'omit',
     targetAddressSpace: 'loopback',
-    signal: AbortSignal.timeout(opts.timeoutMs ?? 8000),
+    signal: eitherSignal(AbortSignal.timeout(opts.timeoutMs ?? 8000), opts.signal),
   }
   if (opts.body !== undefined) {
     init.headers = { 'Content-Type': 'application/json' }
@@ -101,6 +113,7 @@ async function send(path: string, opts: { method?: 'GET' | 'POST'; body?: unknow
   try {
     res = await fetch(`${BRIDGE_URL}${path}`, init)
   } catch (e) {
+    if (opts.signal?.aborted) throw e // the caller stopped asking
     if (e instanceof DOMException && e.name === 'TimeoutError') throw new BridgeError('The lock bridge did not answer in time.', 'timeout')
     if ((await localAccessPermission()) === 'denied') throw new BridgeError(BLOCKED_HELP, 'blocked')
     throw new BridgeError('The lock bridge is not running on this PC. Start "AMP Lock Bridge" (its icon sits by the clock), then try again.', 'unreachable')
@@ -295,11 +308,33 @@ export interface CardReading {
   staffType: string | null
   /** Why nothing could be read, in words for staff. */
   message: string | null
+  /** The encoder answered and nothing lies on it (bridge 0.1.3+). Kind none without it is a problem. */
+  noCard: boolean
+  /** A read that waited (bridge 0.1.3+) gave up before the card came, or went. */
+  timedOut: boolean
+}
+
+/** The bridge can wait for a card to be laid down or lifted: hands-free reading. */
+export const canWaitForCards = (version: string | null | undefined) => {
+  const [a = 0, b = 0, c = 0] = String(version ?? '').split('.').map((x) => parseInt(x, 10) || 0)
+  return a > 0 || b > 1 || (b === 1 && c >= 3)
+}
+
+export interface ReadOptions {
+  /** Answer once a card lies on the encoder, or once it is lifted (bridge 0.1.3+; older ones read at once). */
+  waitFor?: 'card' | 'removed'
+  /** How long the bridge waits, 1 to 60 s. */
+  waitMs?: number
+  /** Stops waiting, e.g. when the dialog closes. */
+  signal?: AbortSignal
 }
 
 /** Reads the card lying on the encoder. Writes nothing. */
-export async function readCard(): Promise<CardReading> {
-  const { status, data } = await send('/cards/read', { method: 'POST', body: {}, timeoutMs: 30000 })
+export async function readCard(opts: ReadOptions = {}): Promise<CardReading> {
+  const waitMs = Math.min(Math.max(opts.waitMs ?? 25000, 1000), 60000)
+  const body = opts.waitFor ? { waitFor: opts.waitFor, timeoutMs: waitMs } : {}
+  // A read can take the encoder up to 20 s on top of the wait.
+  const { status, data } = await send('/cards/read', { method: 'POST', body, timeoutMs: (opts.waitFor ? waitMs : 0) + 30000, signal: opts.signal })
   if (status === 404) {
     throw new BridgeError('The lock bridge on this PC is too old to read cards. Install version 0.1.2 or newer, then try again.', 'refused', 404)
   }
@@ -311,5 +346,7 @@ export async function readCard(): Promise<CardReading> {
     dai: Number.isInteger(data.dai) ? data.dai : null,
     staffType: data.staffType ?? null,
     message: data.message ?? null,
+    noCard: data.noCard === true,
+    timedOut: data.timedOut === true,
   }
 }

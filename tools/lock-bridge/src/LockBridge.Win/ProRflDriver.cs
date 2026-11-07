@@ -267,8 +267,8 @@ public sealed class ProRflDriver : ILockDriver, IDisposable
         var card = Read();
         if (!card.Ok)
         {
-            _log.Write($"read a card: ReadCard -> {card.Code}, no card");
-            return new(CardReadKind.None, Message: "No card on the encoder. Lay one card flat on it, then read again.");
+            LogRead($"read a card: ReadCard -> {card.Code}, no card");
+            return new(CardReadKind.None, Message: "No card on the encoder. Lay one card flat on it, then read again.", NoCard: true);
         }
         var type = new StringBuilder(256);
         ProRfl.GetCardTypeByCardDataStr(card.Hex, type);
@@ -281,13 +281,22 @@ public sealed class ProRflDriver : ILockDriver, IDisposable
             endRead = e.ToString();
         }
         var r = EncoderRules.Describe(Cal, card.Hex, type.ToString(), endCode, endRead);
-        _log.Write($"read a card: {r.Kind}" + r.Kind switch
+        LogRead($"read a card: {r.Kind}" + r.Kind switch
         {
             CardReadKind.Guest => $", lock {r.LockNo}, end {r.End}, dai {r.Dai}",
             CardReadKind.Staff => $", {r.StaffType}",
             _ => "",
         });
         return r;
+    }
+
+    // A page waiting for a card reads every half second: log a reading only when it changes.
+    private string? _lastRead;
+    private void LogRead(string line)
+    {
+        if (line == _lastRead) return;
+        _lastRead = line;
+        _log.Write(line);
     }
 
     // ---- ILockDriver ---------------------------------------------------------------

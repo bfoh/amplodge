@@ -35,7 +35,7 @@ public class ApiTests : IAsyncLifetime
             _ => (HttpStatusCode.NotFound, null),
         };
         _journal = new Journal(_dir.File("journal.jsonl"));
-        var options = new BridgeOptions { ServerUrl = new Uri("https://amplodge.org") };
+        var options = new BridgeOptions { ServerUrl = new Uri("https://amplodge.org"), ReadPoll = TimeSpan.FromMilliseconds(20) };
         _bridge = new Bridge(options, _driver, new FileConfigStore(_dir.File("config.json")), _journal, new ServerClient(new HttpClient(_server)), _time);
         _bridge.Start();
         _app = BridgeApi.Build(_bridge, b => b.WebHost.UseTestServer());
@@ -145,6 +145,53 @@ public class ApiTests : IAsyncLifetime
         _driver.OnRead = new CardReading(CardReadKind.None, Message: "No card on the encoder.");
         var none = await Json(await Post("/cards/read", new { }));
         Assert.Equal(["none", "No card on the encoder."], [none.GetProperty("kind").GetString(), none.GetProperty("message").GetString()]);
+        Assert.Equal(0, _driver.Writes);
+    }
+
+    [Fact]
+    public async Task A_read_can_wait_for_a_card_to_be_laid_down_and_lifted()
+    {
+        await Pair();
+        var nothing = new CardReading(CardReadKind.None, Message: "No card on the encoder.", NoCard: true);
+        var guest = new CardReading(CardReadKind.Guest, "01030D", "2611091200", 7);
+        _driver.OnRead = nothing;
+
+        // Waiting for a card: answers once one is laid down.
+        var waiting = Post("/cards/read", new { waitFor = "card", timeoutMs = 5000 });
+        await Task.Delay(150);
+        Assert.False(waiting.IsCompleted);
+        _driver.OnRead = guest;
+        var found = await Json(await waiting);
+        Assert.Equal(["guest", "01030D"], [found.GetProperty("kind").GetString(), found.GetProperty("lockNo").GetString()]);
+        Assert.False(found.GetProperty("timedOut").GetBoolean());
+        Assert.True(_driver.Reads > 2);
+
+        // Waiting for it to be lifted: answers once nothing is there.
+        var lifting = Post("/cards/read", new { waitFor = "removed", timeoutMs = 5000 });
+        await Task.Delay(150);
+        Assert.False(lifting.IsCompleted);
+        _driver.OnRead = nothing;
+        var gone = await Json(await lifting);
+        Assert.Equal("none", gone.GetProperty("kind").GetString());
+        Assert.True(gone.GetProperty("noCard").GetBoolean());
+
+        // Nothing comes: the wait ends, and says so.
+        var started = DateTimeOffset.UtcNow;
+        var empty = await Json(await Post("/cards/read", new { waitFor = "card", timeoutMs = 1000 }));
+        Assert.Equal("none", empty.GetProperty("kind").GetString());
+        Assert.True(empty.GetProperty("timedOut").GetBoolean());
+        Assert.InRange(DateTimeOffset.UtcNow - started, TimeSpan.FromMilliseconds(900), TimeSpan.FromSeconds(4));
+
+        // An encoder problem answers at once: waiting would not fix it.
+        _driver.OnRead = new CardReading(CardReadKind.None, Message: "Joney's lock program is not running.");
+        var problem = await Json(await Post("/cards/read", new { waitFor = "card", timeoutMs = 5000 }));
+        Assert.Equal(["Joney's lock program is not running.", "False", "False"],
+            [problem.GetProperty("message").GetString(), problem.GetProperty("noCard").GetBoolean().ToString(), problem.GetProperty("timedOut").GetBoolean().ToString()]);
+
+        // A plain read still answers at once, and anything else is refused.
+        var once = await Json(await Post("/cards/read", new { }));
+        Assert.False(once.GetProperty("timedOut").GetBoolean());
+        Assert.Equal(HttpStatusCode.BadRequest, (await Post("/cards/read", new { waitFor = "forever" })).StatusCode);
         Assert.Equal(0, _driver.Writes);
     }
 
