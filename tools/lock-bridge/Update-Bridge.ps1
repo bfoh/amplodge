@@ -14,10 +14,19 @@ C:\ProgramData\AMPLockBridge and are not touched.
 #>
 param(
   [Parameter(Mandatory = $true)][string]$Sha256,
-  [string]$NewExe = (Join-Path $PSScriptRoot 'AMPLockBridge.exe'),
-  [string]$InstallDir = (Join-Path ${env:ProgramFiles(x86)} 'AMP Lock Bridge')
+  [string]$NewExe = '',
+  [string]$InstallDir = ''
 )
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell 5.1 can leave $PSScriptRoot empty inside param(), so the defaults are worked out here.
+if (-not $NewExe) {
+  $here = if ($PSScriptRoot) { $PSScriptRoot } elseif ($MyInvocation.MyCommand.Path) { Split-Path -Parent $MyInvocation.MyCommand.Path } else { (Get-Location).Path }
+  $NewExe = Join-Path $here 'AMPLockBridge.exe'
+}
+if (-not $InstallDir) {
+  $programs = if (${env:ProgramFiles(x86)}) { ${env:ProgramFiles(x86)} } else { $env:ProgramFiles }
+  $InstallDir = Join-Path $programs 'AMP Lock Bridge'
+}
 function Say([string]$m) { Write-Host $m }
 function Fail([string]$m) { Write-Host "STOPPED: $m" -ForegroundColor Red; exit 1 }
 function Fingerprint([string]$file) { (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant() }
