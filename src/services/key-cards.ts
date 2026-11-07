@@ -225,6 +225,56 @@ export async function identifyCard(reading: CardReading, now = new Date()): Prom
   }
 }
 
+/** Where a door code read from a card could go: every room with its codes now, and the likely one. */
+export interface DoorPlacement {
+  rooms: Array<{ roomId: string; roomNumber: string; locks: RoomLock[] }>
+  /** The room the code most likely belongs to, or null when the codes on record show no pattern. */
+  suggested: string | null
+  /** The rooms that suggestion was worked out from. */
+  basis: string[]
+}
+
+/**
+ * The room a door code most likely belongs to, from the rooms whose codes start
+ * the same way. Joney numbers doors building, floor, room: if room 201 is …01 and
+ * 204 is …04, then …02 is 202. It is only a suggestion; staff confirm it.
+ */
+export function suggestDoorRoom(lockNo: string, rooms: DoorPlacement['rooms']): { roomId: string | null; basis: string[] } {
+  const code = normalizeLockNo(lockNo)
+  if (!isLockNo(code)) return { roomId: null, basis: [] }
+  const prefix = code.slice(0, 4)
+  const byOffset = new Map<number, string[]>()
+  for (const r of rooms) {
+    if (!/^\d+$/.test(r.roomNumber)) continue
+    for (const l of r.locks) {
+      if (l.lockNo === code || l.lockNo.slice(0, 4) !== prefix) continue
+      const offset = Number(r.roomNumber) - parseInt(l.lockNo.slice(4), 16)
+      byOffset.set(offset, [...(byOffset.get(offset) ?? []), r.roomNumber])
+    }
+  }
+  const ranked = [...byOffset].sort((a, b) => b[1].length - a[1].length)
+  // A clear pattern only: the commonest offset must beat every other.
+  if (!ranked.length || (ranked[1] && ranked[1][1].length === ranked[0][1].length)) return { roomId: null, basis: [] }
+  const [offset, basis] = ranked[0]
+  const number = String(offset + parseInt(code.slice(4), 16))
+  const room = rooms.find((r) => r.roomNumber === number)
+  return room ? { roomId: room.roomId, basis: [...new Set(basis)].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })) } : { roomId: null, basis: [] }
+}
+
+/** The rooms a door code read from a card could be added to, and the likely one. */
+export async function placeDoorCode(lockNo: string): Promise<DoorPlacement> {
+  const [rooms, locks] = await Promise.all([
+    db.rooms.list({ limit: 1000 }) as Promise<Array<{ id: string; roomNumber: string | number | null }>>,
+    db.roomLocks.list({ limit: 1000 }) as Promise<RoomLock[]>,
+  ])
+  const list = rooms
+    .filter((r) => r.roomNumber != null && String(r.roomNumber).trim() !== '')
+    .map((r) => ({ roomId: r.id, roomNumber: String(r.roomNumber), locks: locks.filter((l) => l.roomId === r.id) }))
+    .sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true }))
+  const { roomId, basis } = suggestDoorRoom(lockNo, list)
+  return { rooms: list, suggested: roomId, basis }
+}
+
 async function post(name: string, body: unknown) {
   const res = await callFunction(name, {
     method: 'POST',

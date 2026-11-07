@@ -21,12 +21,13 @@ import { handler as order } from '../../netlify/functions/key-card-order.js'
 import { handler as receipt } from '../../netlify/functions/key-card-receipt.js'
 import { handler as lockout } from '../../netlify/functions/key-card-lockout.js'
 import { handler as mark } from '../../netlify/functions/key-card-mark.js'
+import { handler as saveLocks } from '../../netlify/functions/room-locks-save.js'
 import { callFunction } from '@/lib/api'
 import {
   BRIDGE_URL, BridgeError, adoptPairedBridge, bridgeStatus, forgetEncoderPc, getEncoderPc,
   pairThisPc, prepareKeyCards, prepareLockoutCard, readCard, writeKeyCard,
 } from '@/services/lock-bridge'
-import { identifyCard, markCard } from '@/services/key-cards'
+import { identifyCard, markCard, placeDoorCode, saveRoomLocks } from '@/services/key-cards'
 
 let failures = 0
 const check = (label: string, got: unknown, want: unknown) => {
@@ -65,7 +66,7 @@ tables.lock_encoders = []; tables.key_cards = []; tables.activity_logs = []
 
 // ─── The server: the real handlers over HTTP ─────────────────────────────────
 type Handler = (event: { httpMethod?: string; headers: Record<string, string>; body: string }) => Promise<{ statusCode: number; body?: string }>
-const handlers: Record<string, Handler> = { 'lock-encoder-pair': pair, 'key-card-order': order, 'key-card-receipt': receipt, 'key-card-lockout': lockout, 'key-card-mark': mark }
+const handlers: Record<string, Handler> = { 'lock-encoder-pair': pair, 'key-card-order': order, 'key-card-receipt': receipt, 'key-card-lockout': lockout, 'key-card-mark': mark, 'room-locks-save': saveLocks }
 const server = http.createServer(async (req, res) => {
   let body = ''
   for await (const chunk of req) body += chunk
@@ -174,6 +175,17 @@ try {
   check('a card from Joney\'s program for the same door: the room, but no record', [fromJoney.room?.roomNumber, fromJoney.madeInJoney, fromJoney.records.length], ['101', true, 0])
   const stray = await identifyCard({ ...read, lockNo: '0a0b0c' })
   check('a door no room has: its code, to add on the Rooms page', [stray.room, stray.lockNo, stray.records.length], [null, '0A0B0C', 0])
+  // A card made in Joney's program for a room whose code is not on record yet.
+  const R102 = crypto.randomUUID()
+  tables.rooms.push({ id: R102, room_number: '102' })
+  const newDoor = { ...read, lockNo: '01030B', dai: 0 }
+  const place = await placeDoorCode((await identifyCard(newDoor)).lockNo)
+  check('its room is suggested from the codes on record (101 is …0A, so …0B is 102)', [place.suggested, place.basis], [R102, ['101']])
+  clientSession.token = 'tok-admin'
+  await saveRoomLocks(R102, [{ lockNo: '01030B' }])
+  clientSession.token = 'tok-staff'
+  const placed = await identifyCard(newDoor)
+  check('an admin adds it in one click, and the card now reads as room 102', [placed.room?.roomNumber, placed.madeInJoney, tables.room_locks.filter((l) => l.room_id === R102).map((l) => l.lock_no)], ['102', true, ['01030B']])
   const old = await identifyCard({ ...read, validUntil: new Date(Date.now() - 3600000).toISOString() })
   check('an expired card says so', [old.expired, old.records.length], [true, 0])
 

@@ -17,8 +17,9 @@ const split = (s: string) => s.split(/[\s,]+/).map(normalizeLockNo).filter(Boole
 
 /**
  * Admins set which door lock(s) each room's guest card opens: the 6-character
- * code Joney's Lock Management System shows for each door (also in its "Export
- * LockNo" file). A room with two doors (a suite) gets two, separated by a comma.
+ * code Joney's Lock Management System gives each door. A room with two doors (a
+ * suite) gets two, separated by a comma. Reading a card made in Joney's program
+ * at the reception PC (Key cards → Read a card) adds a door's code without typing.
  */
 export function RoomLockNumbers({ rooms }: { rooms: RoomRow[] }) {
   const [locks, setLocks] = useState<RoomLock[]>([])
@@ -81,9 +82,10 @@ export function RoomLockNumbers({ rooms }: { rooms: RoomRow[] }) {
           Door lock numbers
         </CardTitle>
         <CardDescription>
-          The lock each room's key card opens: the 6-character code the Lock Management System shows for
-          the door (0-9 and A-F, also in its "Export LockNo" file). For a room with two doors, enter both
-          codes separated by a comma.
+          The lock each room's key card opens: the 6-character code (0-9 and A-F) Joney's Lock Management
+          System gives the door. To fill one in without typing, make a card for the room in Joney's program
+          and read it at the reception PC under Key cards → Read a card. For a room with two doors, enter
+          both codes separated by a comma.
           {loaded && rooms.length > 0 && (withoutLock ? ` ${withoutLock} of ${rooms.length} rooms have no lock number yet.` : ' Every room has a lock number.')}
         </CardDescription>
       </CardHeader>

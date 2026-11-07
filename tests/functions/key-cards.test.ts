@@ -12,6 +12,7 @@ import { handler as order } from '../../netlify/functions/key-card-order.js'
 import { handler as receipt } from '../../netlify/functions/key-card-receipt.js'
 import { handler as mark } from '../../netlify/functions/key-card-mark.js'
 import { handler as lockout } from '../../netlify/functions/key-card-lockout.js'
+import { suggestDoorRoom } from '@/services/key-cards'
 import { NO_BOOKING, cardTime, ceilToMinute, floorToMinute, isLockNo, nextDai, validityFor, verifyOrder } from '../../netlify/functions/_lib/key-cards.js'
 
 let failures = 0
@@ -280,6 +281,21 @@ check('only a cut-off card: "working" cannot be put back on any other card', [
   (await call(mark, bearer('staff'), { cardId: lockedOut.id, status: 'issued' })).status,
   (await call(mark, bearer('staff'), { cardId: outRows()[0].id, status: 'issued' })).status,
 ], [409, 409, 409])
+
+// ─── Which room a door code read from a card belongs to ─────────────────────
+{
+  const room = (n: string, ...codes: string[]) => ({ roomId: `id-${n}`, roomNumber: n, locks: codes.map((c) => ({ id: c, roomId: `id-${n}`, lockNo: c, label: null })) })
+  const floor = [room('201', '0B0101'), room('202'), room('203'), room('204', '0B0104'), room('210'), room('FLAT', '0B0130'), room('101', '0B0001')]
+  check('from the rooms whose codes start the same way: 201 is …01 and 204 is …04, so …02 is 202',
+    suggestDoorRoom('0b0102', floor), { roomId: 'id-202', basis: ['201', '204'] })
+  check('the last part is hex: …0A is 210', suggestDoorRoom('0B010A', floor).roomId, 'id-210')
+  check('no room with that number: no suggestion', suggestDoorRoom('0B0109', floor).roomId, null)
+  check('another floor\'s pattern is not used', suggestDoorRoom('0B0203', floor).roomId, null)
+  const odd = [...floor, room('205', '0B0109')]
+  check('one room off the pattern is outvoted', suggestDoorRoom('0B0103', odd), { roomId: 'id-203', basis: ['201', '204'] })
+  check('a tie is no pattern', suggestDoorRoom('0B0103', [room('201', '0B0101'), room('203'), room('205', '0B0109')]).roomId, null)
+  check('not a door code: nothing', suggestDoorRoom('C9', floor).roomId, null)
+}
 
 // ─── Unpairing ───────────────────────────────────────────────────────────────
 check('a receptionist cannot unpair a PC', (await call(pair, bearer('staff'), { action: 'revoke', encoderId: enc1.id })).status, 403)
