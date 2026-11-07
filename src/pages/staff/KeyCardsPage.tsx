@@ -22,6 +22,9 @@ import { bridgeStatus, getEncoderPc, type BridgeStatus } from '@/services/lock-b
 import { ReadCardPanel } from '@/components/ReadCardPanel'
 import { DoorCodesCard } from '@/components/DoorCodeWalkthrough'
 import { KeyCardDayReport } from '@/components/KeyCardDayReport'
+import { LockUpkeepPanel } from '@/components/LockUpkeepPanel'
+import { StaffCardsPanel } from '@/components/StaffCardsPanel'
+import { loadCardStock, stockLow, type StockItem } from '@/services/lock-upkeep'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useStaffRole } from '@/hooks/use-staff-role'
 
@@ -51,6 +54,7 @@ export default function KeyCardsPage() {
   const [confirmLost, setConfirmLost] = useState<KeyCard | null>(null)
   const [encoderPc] = useState(() => getEncoderPc())
   const [bridge, setBridge] = useState<{ status: BridgeStatus | null; error: string | null } | null>(null)
+  const [stock, setStock] = useState<StockItem | null>(null)
 
   // Only the paired reception PC ever calls the lock bridge on 127.0.0.1.
   const checkBridge = useCallback(async () => {
@@ -90,6 +94,8 @@ export default function KeyCardsPage() {
   }
 
   const reload = useCallback(async () => {
+    // Blank cards left (Settings → Door locks): kept and lost cards come off it.
+    loadCardStock().then((c) => setStock(c.item), () => setStock(null))
     try {
       setBoard(await loadKeyCardBoard())
     } catch (e) {
@@ -370,17 +376,26 @@ export default function KeyCardsPage() {
     <div className="space-y-6 animate-fade-in">
       {header}
       {bridgeLine}
+      {stock && (
+        <p className={`flex items-center gap-2 text-sm ${stockLow(stock) ? 'text-amber-800' : 'text-muted-foreground'}`}>
+          <CreditCard className="w-4 h-4 shrink-0" />
+          {stock.stock} blank card{stock.stock === 1 ? '' : 's'} in stock
+          {stockLow(stock) && <>: time to buy more (<Link to="/staff/inventory" className="underline">Inventory</Link>)</>}
+        </p>
+      )}
 
-      {oversight ? (
-        <Tabs value={tab} onValueChange={setTab} className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="desk">At the desk</TabsTrigger>
-            <TabsTrigger value="day">Day report</TabsTrigger>
-          </TabsList>
-          <TabsContent value="desk" className="space-y-6">{desk}</TabsContent>
-          <TabsContent value="day"><KeyCardDayReport /></TabsContent>
-        </Tabs>
-      ) : <div className="space-y-6">{desk}</div>}
+      <Tabs value={tab} onValueChange={setTab} className="space-y-4">
+        <TabsList className="h-auto flex-wrap justify-start">
+          <TabsTrigger value="desk">At the desk</TabsTrigger>
+          <TabsTrigger value="upkeep">Lock upkeep</TabsTrigger>
+          {oversight && <TabsTrigger value="day">Day report</TabsTrigger>}
+          {oversight && <TabsTrigger value="staff">Staff cards</TabsTrigger>}
+        </TabsList>
+        <TabsContent value="desk" className="space-y-6">{desk}</TabsContent>
+        <TabsContent value="upkeep"><LockUpkeepPanel doors={doors} /></TabsContent>
+        {oversight && <TabsContent value="day"><KeyCardDayReport /></TabsContent>}
+        {oversight && <TabsContent value="staff"><StaffCardsPanel /></TabsContent>}
+      </Tabs>
 
       <AlertDialog open={!!confirmLost} onOpenChange={(open) => !open && setConfirmLost(null)}>
         <AlertDialogContent>

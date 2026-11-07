@@ -442,6 +442,37 @@ check('only a cut-off card: "working" cannot be put back on any other card', [
   check('updating one of its cards writes that card only, for its own door', [u.dai, u.cards], [o.dai, [{ cardNo: 4, lockNos: ['0102C1'] }]])
 }
 
+// ─── Blank card stock: kept and lost cards come off the count ────────────────
+{
+  const R108 = id()
+  tables.rooms.push({ id: R108, room_number: '108' })
+  await call(saveLocks, bearer('admin'), { roomId: R108, locks: [{ lockNo: '0102B8' }] })
+  const Bk = id()
+  tables.bookings.push({ id: Bk, room_id: R108, guest_id: G.yaw, status: 'checked-in', check_in: day(0), check_out: day(2) })
+  const o = JSON.parse((await ask(Bk, 2)).body.order)
+  await report(enc1.token, { nonce: o.nonce, cards: [{ cardNo: 0, status: 'issued' }, { cardNo: 1, status: 'issued' }] })
+  const [c0] = tables.key_cards.filter((c) => c.order_nonce === o.nonce)
+  check('with no stock item chosen, marking a card kept moves no stock', [(await call(mark, bearer('staff'), { cardId: c0.id, status: 'not_returned' })).status, (tables.inventory_transactions ?? []).length], [200, 0])
+  await call(mark, bearer('staff'), { cardId: c0.id, status: 'returned' })
+  tables.hotel_settings = [{ id: 'hs', key_card_stock_item: 'inv-cards' }]
+  tables.inventory = [{ id: 'inv-cards', name: 'Blank key cards', stock_quantity: 50, min_threshold: 20 }]
+  const stock = () => tables.inventory[0].stock_quantity
+  await call(mark, bearer('staff'), { cardId: c0.id, status: 'not_returned' })
+  check('a card the guest keeps is one blank card fewer', stock(), 49)
+  await call(mark, bearer('staff'), { cardId: c0.id, status: 'not_returned' })
+  check('...marked kept twice, still one', stock(), 49)
+  await call(mark, bearer('staff'), { cardId: c0.id, status: 'returned' })
+  check('...brought back after all, it is put back', [stock(), tables.inventory_transactions.map((t: any) => t.quantity)], [50, [-1, 1]])
+  check('...each move says why, and who', [/kept by the guest \(room 108\)/.test(tables.inventory_transactions[0].notes), !!tables.inventory_transactions[0].staff_id], [true, true])
+  r = await call(order, bearer('staff'), { bookingId: Bk, count: 1, challenge: challenge(), replace: true })
+  check('a lost card is one fewer too', [r.status, stock(), /lost \(room 108\)/.test(tables.inventory_transactions[2].notes)], [200, 49, true])
+  tables.inventory = []
+  const before = tables.inventory_transactions.length
+  r = await call(mark, bearer('staff'), { cardId: tables.key_cards.find((c) => c.order_nonce === o.nonce && c.card_no === 1)!.id, status: 'returned' })
+  check('a stock item that has gone does not stop the card being marked', [r.status, tables.inventory_transactions.length], [200, before])
+  tables.hotel_settings = []
+}
+
 // ─── A card made in Joney's program (LQ015), recorded against a stay ─────────
 {
   const R107 = id()

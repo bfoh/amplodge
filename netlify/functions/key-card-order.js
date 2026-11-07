@@ -2,7 +2,7 @@ import { requireStaff, jsonResponse, handleCors } from './_lib/auth.js'
 import { checkRateLimit, tooManyRequests } from './_lib/rate-limit.js'
 import {
   POLICY, LIVE_STATUSES, ORDER_VERSION, serviceClient, signingKey, signOrder, validityFor, stayEnd, isLive, planCards,
-  cardTime, hotelToday, sharesLock, withinLocks, nextDai, daiFor, encoderForChallenge, randomToken, logActivity, parseBody, UUID, JONEY_DAI,
+  cardTime, hotelToday, sharesLock, withinLocks, nextDai, daiFor, encoderForChallenge, randomToken, logActivity, parseBody, UUID, JONEY_DAI, adjustCardStock,
 } from './_lib/key-cards.js'
 
 /**
@@ -201,6 +201,8 @@ export const handler = async (event) => {
     }
     const { error: insErr } = await sb.from('key_cards').insert(rows)
     if (insErr) throw insErr
+    // Blank card stock: the lost card is one fewer.
+    if (replace) await adjustCardStock(sb, -1, `Key card lost (room ${roomNumber ?? '?'})`, ctx.staff)
 
     const order = JSON.stringify({
       v: ORDER_VERSION,

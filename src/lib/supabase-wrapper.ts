@@ -403,6 +403,8 @@ export const db = {
   rooms: createTableWrapper('rooms'),
   roomLocks: createTableWrapper('room_locks'),
   keyCards: createTableWrapper('key_cards'),
+  lockUpkeep: createTableWrapper('lock_upkeep'),
+  staffKeyCards: createTableWrapper('staff_key_cards'),
   roomTypes: createTableWrapper('room_types'),
   guests: createTableWrapper('guests'),
   bookings: createTableWrapper('bookings'),

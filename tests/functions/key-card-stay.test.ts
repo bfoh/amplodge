@@ -11,6 +11,7 @@ import { ghanaNumber } from '../../netlify/functions/_lib/sms.js'
 import { cardSleeveHtml, keyCardDays, paidNightsOf } from '@/services/key-card-stay'
 import { doorStatuses, doorTone } from '@/services/door-status'
 import { summarizeKeyCardDay } from '@/services/key-card-report'
+import { monthsAfter, summarizeUpkeep } from '@/services/lock-upkeep'
 
 let failures = 0
 const check = (label: string, got: any, want: any) => {
@@ -164,6 +165,22 @@ const card = (o: any) => ({
   check('...alerts: new cards for a lost card at night, too many cards for one stay, failed writes',
     [rep.alerts.length, /23:10, at night, Kwame/.test(rep.alerts[0]), /5 cards/.test(rep.alerts[1]), /3 card writes failed/.test(rep.alerts[2])], [3, true, true, true])
   check('a quiet day has no alerts', summarizeKeyCardDay(d, cards.slice(0, 2) as any, logs.slice(0, 1), staffRows, new Map()).alerts, [])
+}
+
+// ─── Lock upkeep ─────────────────────────────────────────────────────────────
+{
+  check('months after a day, the end of a short month kept', ['2026-01-15', '2025-08-31', '2026-11-30'].map((x) => monthsAfter(x, 6)), ['2026-07-15', '2026-02-28', '2027-05-30'])
+  const [A, Bd, C] = [id(), id(), id()]
+  const e = (roomId: string, kind: string, doneOn: string, note: string | null = null, createdAt = `${doneOn}T10:00:00Z`) => ({ id: id(), roomId, kind, note, doneOn, staffName: null, createdAt })
+  const entries = [
+    e(A, 'battery', '2025-10-01'), e(A, 'clock', '2026-08-01'), e(A, 'fault', '2026-11-01', 'refuses guest cards'),
+    e(Bd, 'battery', '2026-03-01'), e(Bd, 'clock', '2026-02-01'), e(Bd, 'fault', '2026-10-01', 'loose handle'), e(Bd, 'fixed', '2026-10-02'),
+    e(Bd, 'fault', '2026-11-05', 'beeps', '2026-11-05T09:00:00Z'), e(Bd, 'fixed', '2026-11-05', null, '2026-11-05T15:00:00Z'),
+  ] as any[]
+  const u = summarizeUpkeep([{ roomId: A, roomNumber: '201' }, { roomId: Bd, roomNumber: '202' }, { roomId: C, roomNumber: '203' }], entries, '2026-11-10')
+  check('upkeep: batteries over a year old are due, the clock over six months', u.map((d) => [d.batteryDue, d.clockDue]), [[true, false], [false, true], [false, false]])
+  check('...a fault stays open until a fix is logged after it (the same day counts)', u.map((d) => d.openFault?.note ?? null), ['refuses guest cards', null, null])
+  check('...a lock with nothing logged is not on record, rather than due', [u[2].battery, u[2].clock, u[2].entries.length], [null, null, 0])
 }
 
 console.log(failures ? `FAILURE: ${failures} failed` : 'ALL PASS key card stay: check-out morning SMS, paid nights, card sleeve')

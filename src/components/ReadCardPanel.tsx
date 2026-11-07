@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CalendarClock, CheckCircle2, CreditCard, DoorOpen, KeyRound, Link2, Loader2, ScanLine } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CheckCircle2, CreditCard, DoorOpen, KeyRound, Link2, Loader2, ScanLine, Wrench } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -17,6 +17,8 @@ import {
   type CardIdentity, type CardMark, type DoorPlacement, type KeyCard, type RoomStay,
 } from '@/services/key-cards'
 import { promptKeyCards, promptUpdateCards } from '@/services/key-card-prompt'
+import { logUpkeep } from '@/services/lock-upkeep'
+import { useStaffRole } from '@/hooks/use-staff-role'
 
 const when = (d: string | Date) => format(new Date(d), 'EEE d MMM, HH:mm')
 /** What key-card-mark lets staff mark returned. */
@@ -43,12 +45,15 @@ export function ReadCardPanel({ isAdmin, onChanged }: { isAdmin: boolean; onChan
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<Result | null>(null)
   const [byItself, setByItself] = useState(handsFreeChosen)
+  const { staffRecord } = useStaffRole()
+  const [faultLogged, setFaultLogged] = useState<string | null>(null)
 
   async function read(given?: CardReading) {
     setReading(true)
     try {
       const r = given ?? await readCard()
       setResult({ reading: r, identity: r.kind === 'guest' && r.lockNo ? await identifyCard(r) : null })
+      setFaultLogged(null)
     } catch (e) {
       setResult({ error: e instanceof Error ? e.message : 'The card could not be read.' })
     } finally {
@@ -81,6 +86,26 @@ export function ReadCardPanel({ isAdmin, onChanged }: { isAdmin: boolean; onChan
     // What was read is out of date now: read the card again to see it.
     setResult(null)
     await onChanged()
+  }
+
+  /** The card reads fine, but the door refuses it: logged for the lock's upkeep (Key cards → Lock upkeep). */
+  async function logFault(roomId: string, roomNumber: string) {
+    setBusy(true)
+    try {
+      await logUpkeep({
+        roomId,
+        kind: 'fault',
+        note: 'A guest card that reads fine at the encoder did not open the door.',
+        staffId: staffRecord?.id ?? null,
+        staffName: staffRecord?.name ?? null,
+      })
+      setFaultLogged(roomId)
+      toast.success(`Logged for room ${roomNumber}'s lock (Lock upkeep)`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not log it')
+    } finally {
+      setBusy(false)
+    }
   }
 
   /** A card made in Joney's program can't be updated here: the stay gets new cards from the app, which replace it. */
@@ -159,7 +184,7 @@ export function ReadCardPanel({ isAdmin, onChanged }: { isAdmin: boolean; onChan
           <div role="status" className="rounded-lg border p-4 text-sm space-y-2">
             {'error' in result
               ? <Warn>{result.error}</Warn>
-              : <Described reading={result.reading} identity={result.identity} isAdmin={isAdmin} busy={busy} mark={mark} place={place} update={update} remake={remake} record={record} />}
+              : <Described reading={result.reading} identity={result.identity} isAdmin={isAdmin} busy={busy} mark={mark} place={place} update={update} remake={remake} record={record} logFault={logFault} faultLogged={faultLogged} />}
           </div>
         )}
       </CardContent>
@@ -171,7 +196,7 @@ const Warn = ({ children }: { children: ReactNode }) => (
   <p className="flex items-start gap-2 text-amber-900"><AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />{children}</p>
 )
 
-function Described({ reading, identity, isAdmin, busy, mark, place, update, remake, record }: {
+function Described({ reading, identity, isAdmin, busy, mark, place, update, remake, record, logFault, faultLogged }: {
   reading: CardReading
   identity: CardIdentity | null
   isAdmin: boolean
@@ -181,6 +206,8 @@ function Described({ reading, identity, isAdmin, busy, mark, place, update, rema
   update: (bookingId: string, guestName: string | null) => void
   remake: (bookingId: string, guestName: string | null, roomNumber: string) => void
   record: (stay: RoomStay, r: CardReading) => void
+  logFault: (roomId: string, roomNumber: string) => void
+  faultLogged: string | null
 }) {
   switch (reading.kind) {
     case 'none':
@@ -260,10 +287,19 @@ function Described({ reading, identity, isAdmin, busy, mark, place, update, rema
         </div>
       )}
       {fine && (
-        <p className="text-muted-foreground">
-          If it still does not open the door, the lock itself may be the trouble: hold a staff card to it. If the lock refuses
-          that too, it needs new batteries, or its clock set with the clock card from Joney's program.
-        </p>
+        <div className="space-y-2">
+          <p className="text-muted-foreground">
+            If it still does not open the door, the lock itself may be the trouble: hold a staff card to it. If the lock refuses
+            that too, it needs new batteries, or its clock set with the clock card from Joney's program.
+          </p>
+          {room && (faultLogged === room.roomId
+            ? <p className="flex items-center gap-2 text-emerald-700"><CheckCircle2 className="w-4 h-4" />Logged under Lock upkeep.</p>
+            : (
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => logFault(room.roomId, room.roomNumber)}>
+                <Wrench className="w-4 h-4 mr-1" /> The door refused it: log it for the lock
+              </Button>
+            ))}
+        </div>
       )}
       {newer && !expired && (
         <Warn>

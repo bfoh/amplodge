@@ -240,6 +240,35 @@ export function verifyOrder(payload, signature, publicKeyB64) {
   return crypto.verify('sha256', Buffer.from(payload, 'utf8'), { key, dsaEncoding: 'ieee-p1363' }, Buffer.from(signature, 'base64'))
 }
 
+/**
+ * Blank key cards in stock: the inventory item chosen in Settings → Door locks
+ * (hotel_settings.key_card_stock_item, 20261110120000). A card a guest keeps, or
+ * loses, is one fewer; a kept card brought back is one more. Nothing happens when
+ * no item is chosen, and a failure here never fails the card's own change.
+ * Returns the stock left, or null.
+ */
+export async function adjustCardStock(sb, delta, note, staff = null) {
+  try {
+    const { data: rows, error } = await sb.from('hotel_settings').select('*').limit(1)
+    if (error) throw error
+    const item = rows?.[0]?.key_card_stock_item
+    if (!item || !delta) return null
+    const { data, error: rpcErr } = await sb.rpc('adjust_inventory_stock', {
+      p_inventory_id: item,
+      p_delta: delta,
+      p_type: 'adjustment',
+      p_staff_id: staff?.id ?? null,
+      p_staff_name: staff?.name ?? null,
+      p_notes: note,
+    })
+    if (rpcErr) throw rpcErr
+    return (Array.isArray(data) ? data[0] : data)?.remaining_stock ?? null
+  } catch (e) {
+    console.warn('[key-cards] blank card stock not changed:', e?.message ?? e)
+    return null
+  }
+}
+
 export async function logActivity(sb, { action, entityId, details, userId }) {
   const { error } = await sb.from('activity_logs').insert({
     action,

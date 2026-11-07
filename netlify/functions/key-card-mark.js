@@ -1,5 +1,5 @@
 import { requireStaff, jsonResponse, handleCors } from './_lib/auth.js'
-import { serviceClient, logActivity, parseBody, UUID } from './_lib/key-cards.js'
+import { serviceClient, logActivity, parseBody, UUID, adjustCardStock } from './_lib/key-cards.js'
 
 /**
  * Staff record what happened to a card that the bridge cannot see:
@@ -55,6 +55,7 @@ export const handler = async (event) => {
     }
 
     const note = body.note ? String(body.note).slice(0, 300) : null
+    const was = card.status
     const { error } = await sb.from('key_cards').update({
       status: body.status,
       note,
@@ -62,11 +63,18 @@ export const handler = async (event) => {
       updated_at: new Date().toISOString(),
     }).eq('id', card.id)
     if (error) throw error
+    // Blank card stock: a kept card is one fewer, until it is brought back.
+    const room = card.room_number ? `room ${card.room_number}` : 'a room'
+    if (body.status === 'not_returned' && was !== 'not_returned') {
+      await adjustCardStock(sb, -1, `Key card kept by the guest (${room})`, ctx.staff)
+    } else if (body.status === 'returned' && was === 'not_returned') {
+      await adjustCardStock(sb, 1, `Kept key card brought back (${room})`, ctx.staff)
+    }
     await logActivity(sb, {
       action: `key_card_${body.status}`,
       entityId: card.id,
       userId: ctx.user?.id,
-      details: { bookingId: card.booking_id, room: card.room_number, guest: card.guest_name, from: card.status, note },
+      details: { bookingId: card.booking_id, room: card.room_number, guest: card.guest_name, from: was, note },
     })
     return jsonResponse(200, { id: card.id, status: body.status })
   } catch (e) {

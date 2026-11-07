@@ -11,6 +11,10 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { useCurrency } from '@/hooks/use-currency'
 import { STAY_RULES_MIGRATION, loadKeyCardSettings, saveKeyCardSettings, type KeyCardSettings } from '@/services/key-card-stay'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  UPKEEP_MIGRATION, createCardStockItem, loadCardStock, loadStockItems, saveCardStockItem, type CardStock, type StockItem,
+} from '@/services/lock-upkeep'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -206,6 +210,8 @@ export function DoorLockSettings() {
 
         <KeyCardMoneySettings />
 
+        <CardStockSettings />
+
         <section className="space-y-2">
           <h3 className="text-sm font-semibold">Encoder PCs</h3>
           {loadError ? (
@@ -324,6 +330,101 @@ function KeyCardMoneySettings() {
             <Button size="sm" disabled={!changed || !valid || saving} onClick={() => void save()}>
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save
             </Button>
+          </>
+        )}
+    </section>
+  )
+}
+
+const NONE = 'none'
+
+/**
+ * Which inventory item counts the blank key cards. A card a guest keeps, or a lost
+ * card, is taken off it; a kept card brought back is put back.
+ */
+function CardStockSettings() {
+  const [stock, setStock] = useState<CardStock | null>(null)
+  const [items, setItems] = useState<StockItem[]>([])
+  const [chosen, setChosen] = useState(NONE)
+  const [saving, setSaving] = useState(false)
+  const [failed, setFailed] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      const [s, list] = await Promise.all([loadCardStock(), loadStockItems()])
+      setStock(s)
+      setItems(list)
+      setChosen(s.item?.id ?? NONE)
+    } catch (e) {
+      setFailed(e instanceof Error ? e.message : 'The inventory could not be loaded.')
+    }
+  }, [])
+  useEffect(() => { void load() }, [load])
+
+  async function save(itemId: string | null) {
+    if (!stock?.settingsId) return
+    setSaving(true)
+    try {
+      await saveCardStockItem(stock.settingsId, itemId)
+      await load()
+      toast.success(itemId ? 'Blank cards are counted in Inventory now' : 'Blank cards are no longer counted')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function createItem() {
+    if (!stock?.settingsId) return
+    setSaving(true)
+    try {
+      const item = await createCardStockItem()
+      await saveCardStockItem(stock.settingsId, item.id)
+      await load()
+      toast.success('"Blank key cards" added to Inventory: count the pile and restock it there')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not add the item')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="space-y-3">
+      <h3 className="text-sm font-semibold">Blank card stock</h3>
+      {failed ? <p className="text-sm text-red-700">{failed}</p>
+        : !stock ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        : !stock.ready ? (
+          <p className="text-sm text-amber-800">
+            This needs a database update first: run <code className="text-xs">{UPKEEP_MIGRATION}</code> in the Supabase SQL editor, then reload this page.
+          </p>
+        ) : (
+          <>
+            <p className="text-xs text-muted-foreground">
+              Count the blank key cards in Inventory. A card a guest keeps, or loses, is taken off the count; a kept card
+              brought back is put back. Restock it in Inventory when you buy cards; it warns when few are left.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={chosen} onValueChange={setChosen} disabled={saving}>
+                <SelectTrigger className="w-full sm:w-64" aria-label="Inventory item for blank key cards"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>Not counted</SelectItem>
+                  {items.map((i) => <SelectItem key={i.id} value={i.id}>{i.name} ({i.stock})</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Button size="sm" disabled={saving || chosen === (stock.item?.id ?? NONE)} onClick={() => void save(chosen === NONE ? null : chosen)}>
+                {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save
+              </Button>
+              {!stock.item && !items.some((i) => /key ?card/i.test(i.name)) && (
+                <Button size="sm" variant="outline" disabled={saving} onClick={() => void createItem()}>Add "Blank key cards" to Inventory</Button>
+              )}
+            </div>
+            {stock.item && (
+              <p className={`text-xs ${stock.item.stock <= stock.item.min ? 'text-amber-800' : 'text-muted-foreground'}`}>
+                {stock.item.stock} blank card{stock.item.stock === 1 ? '' : 's'} in stock (Inventory warns at {stock.item.min} or fewer){stock.item.stock <= stock.item.min ? ': time to count the pile or buy more' : ''}.
+              </p>
+            )}
           </>
         )}
     </section>

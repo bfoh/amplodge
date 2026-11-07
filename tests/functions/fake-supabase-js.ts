@@ -144,7 +144,17 @@ const auth = {
 export function createClient() {
   return {
     from: (table: string) => new Query(table),
-    rpc: async () => ({ data: true, error: null }), // rate limit: allowed
+    rpc: async (name: string, args: any = {}) => {
+      // The atomic stock move (20260822_atomic_inventory_stock.sql), as the database does it.
+      if (name === 'adjust_inventory_stock') {
+        const item = (tables.inventory ||= []).find((i: Row) => i.id === args.p_inventory_id)
+        if (!item) return { data: null, error: { code: 'P0002', message: 'inventory item not found' } }
+        item.stock_quantity = Number(item.stock_quantity || 0) + args.p_delta
+        ;(tables.inventory_transactions ||= []).push({ inventory_id: item.id, type: args.p_type, quantity: args.p_delta, remaining_stock: item.stock_quantity, staff_id: args.p_staff_id, staff_name: args.p_staff_name, notes: args.p_notes })
+        return { data: [{ remaining_stock: item.stock_quantity, transaction_id: 'tx' }], error: null }
+      }
+      return { data: true, error: null } // rate limit: allowed
+    },
     auth,
   }
 }
