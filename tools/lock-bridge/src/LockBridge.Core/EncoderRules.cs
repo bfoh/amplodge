@@ -83,6 +83,18 @@ public static class EncoderRules
     }
 
     /// <summary>
+    /// The DAI as the card holds it: characters 23-24 of the card data, in hex (seen on
+    /// site: cards written with DAI 250 and 251 read FA and FB; the lock program's own
+    /// cards read 00, its "Dai: 0"). Null if not there.
+    /// </summary>
+    public static int? DaiOnCard(string? hex)
+    {
+        var h = (hex ?? "").Trim();
+        if (h.Length < 24) return null;
+        return byte.TryParse(h.AsSpan(22, 2), System.Globalization.NumberStyles.AllowHexSpecifier, null, out var dai) ? dai : null;
+    }
+
+    /// <summary>
     /// What Joney's decoder (GetGuestLockNoByCardDataStr) shows for a lock code: it takes
     /// each byte mod 128, so building 165 (A5) shows as 25. Its answer can't tell A5 from 25.
     /// </summary>
@@ -115,9 +127,9 @@ public static class EncoderRules
     /// What one write came to, from the DLL's return code and a read-back of the card.
     /// The card's own content decides; the code only matters when the card cannot be read.
     /// </summary>
-    public static CardWriteResult Judge(EncoderCalibration c, int writeCode, bool readBackOk, string? cardHex, string? lockRead, string? endRead, string expectedLock, string expectedEnd)
+    public static CardWriteResult Judge(EncoderCalibration c, int writeCode, bool readBackOk, string? cardHex, string? lockRead, string? endRead, string expectedLock, string expectedEnd, int expectedDai)
     {
-        if (readBackOk && LockMatches(expectedLock, lockRead, cardHex) && EndMatches(expectedEnd, endRead))
+        if (readBackOk && LockMatches(expectedLock, lockRead, cardHex) && EndMatches(expectedEnd, endRead) && DaiOnCard(cardHex) == expectedDai)
             return new(CardWriteStatus.Issued);
         if (!readBackOk)
             return new(CardWriteStatus.Unknown, $"The card could not be read back (code {writeCode}). It may have been moved. Try it at the door.");

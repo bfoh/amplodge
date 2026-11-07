@@ -216,7 +216,7 @@ public sealed class ProRflDriver : ILockDriver, IDisposable
         var rc = ProRfl.GuestCard(Cal.UsbType, hotel, (byte)request.CardNo, (byte)request.Dai, 0, 0, request.Begin, request.End, lockNo, written);
         _log.Write($"GuestCard(card {request.CardNo}, lock {lockNo}, dai {request.Dai}, {request.Begin}-{request.End}) -> {rc}");
 
-        // 3. Read it back: the card's own bytes and the DLL's decoders decide.
+        // 3. Read it back: the card's own bytes (lock code, DAI) and the DLL's decoders decide.
         var after = Read();
         string? lockRead = null, endRead = null;
         if (after.Ok)
@@ -226,11 +226,11 @@ public sealed class ProRflDriver : ILockDriver, IDisposable
             var lrc = ProRfl.GetGuestLockNoByCardDataStr(hotel, after.Hex, l);
             var erc = ProRfl.GetGuestETimeByCardDataStr(hotel, after.Hex, e);
             (lockRead, endRead) = (l.ToString(), e.ToString());
-            _log.Write($"read back -> {after.Code}; lock {lrc} \"{lockRead}\", on the card {EncoderRules.LockOnCard(after.Hex) ?? "?"}; end {erc} \"{endRead}\"");
+            _log.Write($"read back -> {after.Code}; lock {lrc} \"{lockRead}\", on the card {EncoderRules.LockOnCard(after.Hex) ?? "?"}; end {erc} \"{endRead}\"; dai on the card {EncoderRules.DaiOnCard(after.Hex)?.ToString() ?? "?"}");
         }
         else _log.Write($"read back -> {after.Code}, unreadable");
 
-        var result = EncoderRules.Judge(Cal, rc, after.Ok, after.Ok ? after.Hex : null, lockRead, endRead, lockNo, request.End);
+        var result = EncoderRules.Judge(Cal, rc, after.Ok, after.Ok ? after.Hex : null, lockRead, endRead, lockNo, request.End, request.Dai);
         if (result.Status == CardWriteStatus.Issued && Cal.BeepOnSuccess) ProRfl.Buzzer(Cal.UsbType, 30);
         return result;
     }

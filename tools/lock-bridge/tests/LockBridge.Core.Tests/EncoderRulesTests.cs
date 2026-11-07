@@ -63,8 +63,20 @@ public class EncoderRulesTests
         Assert.Equal(matches, EncoderRules.EndMatches("2611091200", decoded));
 
     // A guest card's data: characters 17-22 hold the lock code backwards (room, floor, building).
-    private static string Guest(string lockNo) =>
-        "551501" + "00" + "01" + "0203" + "00" + lockNo[4..6] + lockNo[2..4] + lockNo[..2] + "00" + "6A1B2C3D" + "0400" + new string('0', 40);
+    // Characters 23-24 hold the DAI.
+    private static string Guest(string lockNo, int dai = 7) =>
+        "551501" + "00" + "01" + "0203" + "00" + lockNo[4..6] + lockNo[2..4] + lockNo[..2] + dai.ToString("X2") + "6A1B2C3D" + "0400" + new string('0', 40);
+
+    [Fact]
+    public void The_DAI_comes_off_the_card()
+    {
+        Assert.Equal(250, EncoderRules.DaiOnCard(Guest("01030D", 250)));
+        Assert.Equal(0, EncoderRules.DaiOnCard(Guest("01030D", 0))); // the lock program's own cards
+        Assert.Equal(1, EncoderRules.DaiOnCard(Guest("01030D", 1)));
+        Assert.Null(EncoderRules.DaiOnCard("551501"));
+        Assert.Null(EncoderRules.DaiOnCard("5515010001020300010203ZZ"));
+        Assert.Null(EncoderRules.DaiOnCard(null));
+    }
 
     [Fact]
     public void The_lock_code_comes_off_the_card_whole()
@@ -109,20 +121,24 @@ public class EncoderRulesTests
     [Fact]
     public void The_card_itself_decides()
     {
-        var card = Guest("01030D");
-        var ok = EncoderRules.Judge(Cal, 99, true, card, "01030D", "2611091200", "01030D", "2611091200");
+        var card = Guest("01030D", 7);
+        var ok = EncoderRules.Judge(Cal, 99, true, card, "01030D", "2611091200", "01030D", "2611091200", 7);
         Assert.Equal(CardWriteStatus.Issued, ok.Status);
 
-        var high = EncoderRules.Judge(Cal, 0, true, Guest("A50204"), "250204", "2611091200", "A50204", "2611091200");
+        var high = EncoderRules.Judge(Cal, 0, true, Guest("A50204", 251), "250204", "2611091200", "A50204", "2611091200", 251);
         Assert.Equal(CardWriteStatus.Issued, high.Status);
 
-        var moved = EncoderRules.Judge(Cal, 0, false, null, null, null, "01030D", "2611091200");
+        // Right door and time, but the card still holds the previous stay's DAI: not this order's card.
+        var oldDai = EncoderRules.Judge(Cal, 0, true, Guest("01030D", 6), "01030D", "2611091200", "01030D", "2611091200", 7);
+        Assert.Equal(CardWriteStatus.Unknown, oldDai.Status);
+
+        var moved = EncoderRules.Judge(Cal, 0, false, null, null, null, "01030D", "2611091200", 7);
         Assert.Equal(CardWriteStatus.Unknown, moved.Status);
 
-        var oddOk = EncoderRules.Judge(Cal, 0, true, Guest("01030E"), "01030E", "2611091200", "01030D", "2611091200");
+        var oddOk = EncoderRules.Judge(Cal, 0, true, Guest("01030E"), "01030E", "2611091200", "01030D", "2611091200", 7);
         Assert.Equal(CardWriteStatus.Unknown, oddOk.Status);
 
-        var refused = EncoderRules.Judge(Cal, 3, true, Guest("01030E"), "01030E", "2611081200", "01030D", "2611091200");
+        var refused = EncoderRules.Judge(Cal, 3, true, Guest("01030E"), "01030E", "2611081200", "01030D", "2611091200", 7);
         Assert.Equal(CardWriteStatus.Failed, refused.Status);
         Assert.Contains("code 3", refused.Error);
     }

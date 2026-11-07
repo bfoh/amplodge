@@ -322,6 +322,7 @@ function Read-OneCard([string]$what) {
     $onCard = ($hex.Substring(20, 2) + $hex.Substring(18, 2) + $hex.Substring(16, 2)).ToUpper()
     Log ('  lock code on the card: "' + $onCard + '"   (the DLL decoder says "' + $lock.ToString() + '"; it drops the top bit of each byte)')
     Log '  -> the code on the card is the door''s code: compare it with the room in the Lock Management System / Export LockNo.'
+    Log ('  DAI on the card: ' + [Convert]::ToInt32($hex.Substring(22, 2), 16) + '   (characters 23-24; the lock program''s own cards use 0)')
     $etime = New-Object System.Text.StringBuilder 64
     $null = Invoke-Dll ('GetGuestETimeByCardDataStr(hotel ' + $script:HotelId + ')') { [ProRfl]::GetGuestETimeByCardDataStr($script:HotelId, $hex, $etime) }
     Log ('  ends: "' + $etime.ToString() + '"   (yyMMddHHmm)')
