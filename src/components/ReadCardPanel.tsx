@@ -147,8 +147,8 @@ function Described({ reading, identity, isAdmin, busy, mark, place }: {
         <div className="space-y-1">
           <p>
             {first.kind === 'lockout'
-              ? <>A lock-out card, made {when(first.issueTime)}.</>
-              : <>{first.guestName ?? 'A guest'}'s card, made {when(first.issueTime)}.</>}
+              ? <>A lock-out card, made {when(first.createdAt)}.</>
+              : <>{first.guestName ?? 'A guest'}'s card, made {when(first.createdAt)}.</>}
             {records.length > 1 && ` One of ${records.length} cards made alike for this stay.`}
           </p>
           <div className="flex flex-wrap gap-2">
@@ -166,7 +166,7 @@ function Described({ reading, identity, isAdmin, busy, mark, place }: {
       {cutOff && <p>Its writing was cut off, but it reads back as it should: it works.</p>}
       {newer && !expired && (
         <Warn>
-          A newer card was made for this door on {when(newer.issueTime)}
+          A newer card was made for this door on {when(newer.createdAt)}
           {newer.kind === 'lockout' ? ' (a lock-out card)' : newer.guestName ? ` (${newer.guestName})` : ''}. Once that one
           has been used at the door, the lock refuses this card.
         </Warn>
