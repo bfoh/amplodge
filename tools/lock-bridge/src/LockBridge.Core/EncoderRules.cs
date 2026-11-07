@@ -50,19 +50,24 @@ public static class EncoderRules
     }
 
     /// <summary>
-    /// What the card's own data says it is, read the way Joney's demo reads it: a
-    /// card is present when characters 5-6 are "01", and characters 25-32 (the
-    /// card's serial) are FFFFFFFF on a blank card and start with 6 on a guest
-    /// card. A second opinion beside <see cref="Classify"/>: both must agree before
-    /// a card is written.
+    /// What the card's own data says it is: a card is present when characters 5-6
+    /// are "01", and characters 25-32 are the card's serial, whose first character
+    /// is its type, the same code the lock program gives (6 guest, F blank, 0 system,
+    /// B master, D floor...). A factory-new card reads FFFFFFFF; one the lock program
+    /// erased keeps a serial such as FF2A6C1E (the shape seen on site). Joney's demo knows only
+    /// FFFFFFFF. A second opinion beside <see cref="Classify"/>: both must agree
+    /// before a card is written.
     /// </summary>
     public static CardKind FromCardData(string? hex)
     {
         var h = (hex ?? "").Trim();
         if (h.Length < 32 || h.Substring(4, 2) != "01") return CardKind.Other;
-        var serial = h.Substring(24, 8);
-        if (string.Equals(serial, "FFFFFFFF", StringComparison.OrdinalIgnoreCase)) return CardKind.Blank;
-        return serial[0] == '6' ? CardKind.Guest : CardKind.Other;
+        return char.ToUpperInvariant(h[24]) switch
+        {
+            'F' => CardKind.Blank,
+            '6' => CardKind.Guest,
+            _ => CardKind.Other,
+        };
     }
 
     /// <summary>The DLL's decoder gives the lock code as 6 hex characters; compare them, ignoring case and spaces.</summary>

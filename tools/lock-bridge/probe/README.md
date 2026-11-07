@@ -64,7 +64,10 @@ At the end it prints a suggested `calibration` for the lock bridge.
   card itself.
 - **"accepts connections from the NETWORK"**: any computer on the hotel network could ask
   the program for cards. The log shows a firewall rule that blocks other computers but not
-  this PC. After adding it, run the probe again: the beep must still work.
+  this PC. After adding it, run the probe again. The program still listens on every
+  address, so the probe now checks the firewall: it should say "OK: ... Windows Firewall
+  blocks port 10086", and the beep must still work. For proof, run the `Test-NetConnection`
+  line it prints on another computer on the hotel network.
 
 ## 4. Write tests (only with the developer on the call)
 

@@ -39,8 +39,9 @@ Two things come from Joney's program:
   cards. Joney's 2021 DLL has no such calls, and the bridge declares none. Lock setup
   stays in Joney's program.
 - It never writes over a card that isn't blank or a guest card. It reads the card first.
-  The DLL's card-type code and the card's own data, read the way Joney's demo reads it,
-  must both say "blank" or "guest".
+  The DLL's card-type code and the first character of the card's serial (characters 25-32
+  of its data: `6` guest, `F` blank, also on cards the lock program has erased) must both
+  say "blank" or "guest".
 - It reads every card back after writing it. A card counts as made only when the read-back
   shows the right lock code and end time.
 - It loads only the `proRFL.dll` from Joney's V0925 SDK (checked by sha256), unless
@@ -122,8 +123,10 @@ still uses the **live** database.
 
    Then set `"calibrated": true` and restart the bridge. Until then the bridge writes nothing,
    and the tray says so.
-7. **Firewall:** if the probe warned that port 10086 is open to the network, add the
-   firewall rule it printed.
+7. **Firewall:** Joney's program listens on every address, so other computers on the
+   hotel network could ask it for cards. Add the firewall rule the probe prints. The bridge
+   reads Windows Firewall (every 5 minutes) and warns until an enabled inbound Block rule for
+   TCP 10086 covers every address but 127.x, with the firewall on for the network in use.
 
 The tray icon:
 - **green**: ready;

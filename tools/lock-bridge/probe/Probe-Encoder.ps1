@@ -101,7 +101,38 @@ try {
 $reachable = $listeners | Where-Object { $_.Address.ToString() -eq '127.0.0.1' -or $_.Address.ToString() -eq '0.0.0.0' }
 if (-not $reachable) { Log 'STOP: the program does not listen on 127.0.0.1, which is where the DLL connects. Ask Joney.'; exit 3 }
 $exposed = $listeners | Where-Object { -not [System.Net.IPAddress]::IsLoopback($_.Address) }
+# The program still listens on every address after a firewall rule, so ask the firewall too: an
+# enabled inbound Block rule for TCP 10086, and the firewall on for each network this PC is on.
+$firewalled = $false
 if ($exposed) {
+  try {
+    $rules = @(Get-NetFirewallRule -PolicyStore ActiveStore -Direction Inbound -Action Block -Enabled True -ErrorAction Stop | Where-Object {
+      $pf = $_ | Get-NetFirewallPortFilter
+      (@($pf.Protocol) -contains 'TCP') -and (@($pf.LocalPort) -contains ('' + $LockPort))
+    })
+    $nets = @(Get-NetConnectionProfile -ErrorAction Stop | ForEach-Object { $(if (('' + $_.NetworkCategory) -eq 'DomainAuthenticated') { 'Domain' } else { '' + $_.NetworkCategory }) } | Select-Object -Unique)
+    $on = @{}
+    Get-NetFirewallProfile -PolicyStore ActiveStore -ErrorAction Stop | ForEach-Object { $on['' + $_.Name] = (('' + $_.Enabled) -eq 'True') }
+    foreach ($r in $rules) {
+      $ra = @(($r | Get-NetFirewallAddressFilter).RemoteAddress) -join ','
+      Log ('  firewall rule "' + $r.DisplayName + '": blocks inbound TCP ' + $LockPort + ' from ' + $ra + ', profiles ' + $r.Profile)
+    }
+    foreach ($n in $nets) { Log ('  this PC is on a ' + $n + ' network; firewall for it: ' + $(if ($on[$n]) { 'ON' } else { 'OFF' })) }
+    $coversAll = $rules.Count -gt 0 -and $nets.Count -gt 0
+    foreach ($n in $nets) {
+      if (-not $on[$n]) { $coversAll = $false }
+      if (-not ($rules | Where-Object { ('' + $_.Profile) -eq 'Any' -or ('' + $_.Profile) -match $n })) { $coversAll = $false }
+    }
+    $firewalled = $coversAll
+  } catch { Log ('  (could not read the Windows Firewall settings: ' + $_.Exception.Message + ')') }
+}
+if ($exposed -and $firewalled) {
+  Log 'OK: the lock program listens on every address, but Windows Firewall blocks port 10086 from other computers.'
+  $ips = @()
+  try { $ips = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | ForEach-Object { $_.IPAddress }) } catch { }
+  foreach ($ip in $ips) { Log ('  To prove it, on ANOTHER computer on the hotel network run: Test-NetConnection ' + $ip + ' -Port ' + $LockPort + '   (TcpTestSucceeded must be False)') }
+}
+if ($exposed -and -not $firewalled) {
   Log 'WARNING: the lock program accepts connections from the NETWORK on port 10086, so another computer'
   Log '  on the hotel network could ask it for guest cards. Block it in Windows Firewall (as Administrator):'
   Log ('  New-NetFirewallRule -DisplayName "Joney lock program: this PC only" -Direction Inbound -Protocol TCP -LocalPort ' + $LockPort + ' -RemoteAddress 0.0.0.0-126.255.255.255,128.0.0.0-255.255.255.255 -Action Block')
@@ -231,12 +262,13 @@ if (-not $NoBeep) {
 
 # ---- 4. Read cards ------------------------------------------------------------
 # What the card's data says, the way Joney's demo reads it (characters counted from 1):
-#   5-6 "01" = a card is present; 25-32 = the card's serial: FFFFFFFF blank, starting 6 guest.
+#   5-6 "01" = a card is present; 25-32 = the card's serial, whose first character is its type:
+#   6 guest, F blank (FFFFFFFF when new, e.g. FF2A6C1E once the lock program has erased it).
 function Get-Layout([string]$hex) {
   if ($hex.Length -lt 32 -or $hex.Substring(4, 2) -ne '01') { return 'none' }
-  $serial = $hex.Substring(24, 8)
-  if ($serial -eq 'FFFFFFFF') { return 'blank' }
-  if ($serial.Substring(0, 1) -eq '6') { return 'guest' }
+  $type = $hex.Substring(24, 1).ToUpper()
+  if ($type -eq 'F') { return 'blank' }
+  if ($type -eq '6') { return 'guest' }
   return 'other'
 }
 # Hotel ID as Joney's demo takes it from a working card: hex(11-14) mod 16384 + hex(9-10) * 65536.
@@ -260,6 +292,15 @@ function Read-OneCard([string]$what) {
   $t = $type.ToString()
   $code = if ($t.Length -gt 0) { $t.Substring(0, 1).ToUpper() } else { '' }
   Log ('  card type: "' + $t + '" = ' + $(if ($TypeNames.ContainsKey($code)) { $TypeNames[$code] } else { '?' }))
+  if ($layout -eq 'other' -and $code -eq 'F') {
+    # The lock program says blank, but the serial isn't FFFFFFFF (an erased card?). The first 32
+    # characters (header, hotel, lock, serial) show the developer why; the rest is only described.
+    $rest = $hex.Substring(32)
+    $shape = if ($rest -match '^F*$') { 'all F' } elseif ($rest -match '^[0F]*$') { 'only 0 and F' } else { 'mixed' }
+    Log '  The lock program calls this card BLANK, but its serial (characters 25-32) is not FFFFFFFF.'
+    Log ('  first 32 characters: ' + $hex.Substring(0, 32) + '   the other ' + $rest.Length + ': ' + $shape)
+    return $null
+  }
   if ($layout -eq 'other') {
     Log '  This is not a guest or blank card (master, floor, setup...?). Its data is NOT logged. Put it away safely.'
     return $null

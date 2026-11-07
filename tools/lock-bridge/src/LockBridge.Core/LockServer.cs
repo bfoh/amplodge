@@ -2,7 +2,11 @@ using System.Net;
 
 namespace LockBridge.Core;
 
-public enum LockServerState { NotRunning, LocalOnly, OpenToNetwork }
+/// <summary>
+/// Firewalled: the program listens on every address (as Joney's LQ015 does), but Windows
+/// Firewall keeps other computers away from the port (see <see cref="Firewall"/>).
+/// </summary>
+public enum LockServerState { NotRunning, LocalOnly, OpenToNetwork, Firewalled }
 
 /// <summary>
 /// Joney's 2021 proRFL.dll does not touch the encoder. It sends each command to
@@ -32,4 +36,8 @@ public static class LockServer
         if (!reachable) return LockServerState.NotRunning;
         return mine.Any(l => !IPAddress.IsLoopback(l.Address)) ? LockServerState.OpenToNetwork : LockServerState.LocalOnly;
     }
+
+    /// <summary>Open to the network, unless the firewall check says for certain that it blocks other computers.</summary>
+    public static LockServerState WithFirewall(LockServerState state, bool? firewallBlocks) =>
+        state == LockServerState.OpenToNetwork && firewallBlocks == true ? LockServerState.Firewalled : state;
 }

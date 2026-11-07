@@ -35,10 +35,16 @@ public class EncoderRulesTests
     [Fact]
     public void The_card_data_gives_a_second_opinion()
     {
-        Assert.Equal(CardKind.Blank, EncoderRules.FromCardData(Card("FFFFFFFF")));
+        Assert.Equal(CardKind.Blank, EncoderRules.FromCardData(Card("FFFFFFFF"))); // factory-new
         Assert.Equal(CardKind.Blank, EncoderRules.FromCardData(Card("ffffffff")));
+        Assert.Equal(CardKind.Blank, EncoderRules.FromCardData(Card("FF2A6C1E"))); // erased by the lock program (the shape seen on site)
+        Assert.Equal(CardKind.Blank, EncoderRules.FromCardData(Card("fF0B3C4D")));
         Assert.Equal(CardKind.Guest, EncoderRules.FromCardData(Card("6A1B2C3D")));
+        Assert.Equal(CardKind.Guest, EncoderRules.FromCardData(Card("68A0B1C2")));
         Assert.Equal(CardKind.Other, EncoderRules.FromCardData(Card("B0000001"))); // a master card
+        Assert.Equal(CardKind.Other, EncoderRules.FromCardData(Card("0A1B2C3D"))); // the system card
+        Assert.Equal(CardKind.Other, EncoderRules.FromCardData(Card("D0C0FFEE"))); // a floor card
+        Assert.Equal(CardKind.Other, EncoderRules.FromCardData(Card("7FFFFFFF"))); // a check-out card
         Assert.Equal(CardKind.Other, EncoderRules.FromCardData(Card("6A1B2C3D", present: "00"))); // no card on the encoder
         Assert.Equal(CardKind.Other, EncoderRules.FromCardData("551501"));
         Assert.Equal(CardKind.Other, EncoderRules.FromCardData(null));

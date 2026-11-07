@@ -30,6 +30,11 @@ public sealed class ProRflDriver : ILockDriver, IDisposable
     private string? _dllVersion;
     private bool _initialised;
     private LockServerState? _serverState;
+    // The firewall is read at most every few minutes: hundreds of rules, one COM call each.
+    private static readonly TimeSpan FirewallRecheck = TimeSpan.FromMinutes(5);
+    private bool? _firewallBlocks;
+    private string? _firewallDetail;
+    private DateTimeOffset _firewallCheckedAt = DateTimeOffset.MinValue;
     private DriverStatus _lastStatus = new(false, null, "Starting…");
 
     private sealed record Job(Action Work, Action<Exception> Cancel, CancellationToken Ct, DateTimeOffset Deadline);
@@ -138,6 +143,8 @@ public sealed class ProRflDriver : ILockDriver, IDisposable
             _log.Write($"listening-port check failed: {ex.Message}");
             return "Could not check whether Joney's lock program is running.";
         }
+        // Joney's program listens on every address; a firewall rule is what keeps other computers out.
+        if (state == LockServerState.OpenToNetwork) state = LockServer.WithFirewall(state, FirewallBlocks());
         if (state != _serverState)
         {
             _log.Write($"lock program on port {LockServer.Port}: {state}");
@@ -148,6 +155,16 @@ public sealed class ProRflDriver : ILockDriver, IDisposable
         // When the program comes back, connect to it again.
         _initialised = false;
         return LockServer.NotRunningMessage;
+    }
+
+    private bool? FirewallBlocks()
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (now - _firewallCheckedAt < FirewallRecheck) return _firewallBlocks;
+        _firewallCheckedAt = now;
+        _firewallBlocks = FirewallReader.BlocksInbound(LockServer.Port, out var detail);
+        if (detail != _firewallDetail) _log.Write(_firewallDetail = detail);
+        return _firewallBlocks;
     }
 
     /// <summary>initializeUSB connects the DLL to the lock program. It answers 0 even when that failed, hence ServerProblem.</summary>
