@@ -119,6 +119,42 @@ public class EncoderRulesTests
     }
 
     [Fact]
+    public void Reading_a_guest_card_gives_its_door_end_and_DAI()
+    {
+        var r = EncoderRules.Describe(Cal, Guest("A50203", 3), "6", 0, "2611091200");
+        Assert.Equal(new CardReading(CardReadKind.Guest, "A50203", "2611091200", 3), r); // the door from the card's bytes, not the 7-bit decoder
+        Assert.Equal("2611091200", EncoderRules.Describe(Cal, Guest("01030D"), "6", 0, "2026-11-09 12:00:00").End);
+        Assert.Equal(0, EncoderRules.Describe(Cal, Guest("01030D", 0), "6", 0, "2611091200").Dai); // made in the lock program
+    }
+
+    [Fact]
+    public void Reading_tells_blank_other_hotel_and_unreadable_cards_apart()
+    {
+        Assert.Equal(CardReadKind.Blank, EncoderRules.Describe(Cal, Card("FF2A6C1E"), "F", -1, null).Kind);
+        Assert.Equal(new CardReading(CardReadKind.OtherHotel), EncoderRules.Describe(Cal, Guest("01030D"), "6", 2, ""));
+        Assert.Equal(CardReadKind.Unknown, EncoderRules.Describe(Cal, Guest("01030D"), "6", 0, "").Kind);
+        Assert.Equal(CardReadKind.Unknown, EncoderRules.Describe(Cal, Guest("01030D"), "6", 0, "2613451200").Kind); // not a time
+    }
+
+    [Theory]
+    [InlineData("B0000001", "B", "Master card")]
+    [InlineData("A1B2C3D4", "A", "Emergency card")]
+    [InlineData("0A1B2C3D", "0", "System card")]
+    [InlineData("D0C0FFEE", "D", "Floor card")]
+    [InlineData("7FFFFFFF", "7", "Check-out card")]
+    [InlineData("E1234567", "E", "A staff or setup card")]
+    public void A_staff_card_is_named_and_nothing_more(string serial, string type, string name) =>
+        Assert.Equal(new CardReading(CardReadKind.Staff, StaffType: name), EncoderRules.Describe(Cal, Card(serial), type, -1, null));
+
+    [Fact]
+    public void When_the_DLL_and_the_card_disagree_nothing_is_claimed()
+    {
+        Assert.Equal(CardReadKind.Unknown, EncoderRules.Describe(Cal, Card("B0000001"), "6", 0, "2611091200").Kind);
+        Assert.Equal(CardReadKind.Unknown, EncoderRules.Describe(Cal, Guest("01030D"), "F", -1, null).Kind);
+        Assert.Null(EncoderRules.Describe(Cal, Card("B0000001"), "6", 0, "2611091200").LockNo);
+    }
+
+    [Fact]
     public void The_card_itself_decides()
     {
         var card = Guest("01030D", 7);

@@ -56,6 +56,8 @@ class Query {
   in(c: string, vs: any[]) { const set = vs.map(String); this.filters.push((r) => set.includes(String(r[c]))); return this }
   lt(c: string, v: any) { this.filters.push((r) => String(r[c]) < String(v)); return this }
   gt(c: string, v: any) { this.filters.push((r) => String(r[c]) > String(v)); return this }
+  lte(c: string, v: any) { this.filters.push((r) => String(r[c]) <= String(v)); return this }
+  gte(c: string, v: any) { this.filters.push((r) => String(r[c]) >= String(v)); return this }
   /** Array column shares at least one value with vs (PostgREST `ov`). */
   overlaps(c: string, vs: any[]) { this.filters.push((r) => Array.isArray(r[c]) && r[c].some((x: any) => vs.includes(x))); return this }
   order(c: string, opts: { ascending?: boolean } = {}) {

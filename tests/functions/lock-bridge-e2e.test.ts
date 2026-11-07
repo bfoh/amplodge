@@ -20,11 +20,13 @@ import { handler as pair } from '../../netlify/functions/lock-encoder-pair.js'
 import { handler as order } from '../../netlify/functions/key-card-order.js'
 import { handler as receipt } from '../../netlify/functions/key-card-receipt.js'
 import { handler as lockout } from '../../netlify/functions/key-card-lockout.js'
+import { handler as mark } from '../../netlify/functions/key-card-mark.js'
 import { callFunction } from '@/lib/api'
 import {
   BRIDGE_URL, BridgeError, adoptPairedBridge, bridgeStatus, forgetEncoderPc, getEncoderPc,
-  pairThisPc, prepareKeyCards, prepareLockoutCard, writeKeyCard,
+  pairThisPc, prepareKeyCards, prepareLockoutCard, readCard, writeKeyCard,
 } from '@/services/lock-bridge'
+import { identifyCard, markCard } from '@/services/key-cards'
 
 let failures = 0
 const check = (label: string, got: unknown, want: unknown) => {
@@ -63,7 +65,7 @@ tables.lock_encoders = []; tables.key_cards = []; tables.activity_logs = []
 
 // ─── The server: the real handlers over HTTP ─────────────────────────────────
 type Handler = (event: { httpMethod?: string; headers: Record<string, string>; body: string }) => Promise<{ statusCode: number; body?: string }>
-const handlers: Record<string, Handler> = { 'lock-encoder-pair': pair, 'key-card-order': order, 'key-card-receipt': receipt, 'key-card-lockout': lockout }
+const handlers: Record<string, Handler> = { 'lock-encoder-pair': pair, 'key-card-order': order, 'key-card-receipt': receipt, 'key-card-lockout': lockout, 'key-card-mark': mark }
 const server = http.createServer(async (req, res) => {
   let body = ''
   for await (const chunk of req) body += chunk
@@ -154,10 +156,26 @@ try {
   const reported = await until(() => tables.key_cards.map((c) => c.status), (s) => s.every((x) => x === 'issued'))
   check('both cards reach the server as issued', reported, ['issued', 'issued'])
   const enc = tables.lock_encoders[0]
-  check('the server knows the bridge\'s version and that it is the simulator', [!!enc.last_seen_at, enc.bridge_version, enc.dll_version], [true, '0.1.1', 'simulator'])
+  check('the server knows the bridge\'s version and that it is the simulator', [!!enc.last_seen_at, enc.bridge_version, enc.dll_version], [true, '0.1.2', 'simulator'])
   check('both are in the activity log', tables.activity_logs.filter((l) => l.action === 'key_card_issued').length, 2)
   const status = await until(() => bridgeStatus(), (s) => s.unsentResults === 0)
   check('nothing is left unsent', status.unsentResults, 0)
+
+  // ── Read a card: the card on the encoder is Ama's second card ──
+  const read = await readCard()
+  check('the bridge reads a guest card: its door, end and DAI, nothing more',
+    [read.kind, read.lockNo, new Date(read.validUntil!).toISOString(), read.dai, Object.keys(read).sort()],
+    ['guest', '01030A', p.validUntil, tables.key_cards[0].dai, ['dai', 'kind', 'lockNo', 'message', 'staffType', 'validUntil']])
+  const who = await identifyCard(read)
+  check('the portal finds the room and the stay\'s two cards, made alike',
+    [who.room?.roomNumber, who.expired, who.madeInJoney, who.records.map((c) => [c.guestName, c.cardNo, c.status]), who.newer],
+    ['101', false, false, [['Ama Mensah', 0, 'issued'], ['Ama Mensah', 1, 'issued']], null])
+  const fromJoney = await identifyCard({ ...read, dai: 0 })
+  check('a card from Joney\'s program for the same door: the room, but no record', [fromJoney.room?.roomNumber, fromJoney.madeInJoney, fromJoney.records.length], ['101', true, 0])
+  const stray = await identifyCard({ ...read, lockNo: '0a0b0c' })
+  check('a door no room has: its code, to add on the Rooms page', [stray.room, stray.lockNo, stray.records.length], [null, '0A0B0C', 0])
+  const old = await identifyCard({ ...read, validUntil: new Date(Date.now() - 3600000).toISOString() })
+  check('an expired card says so', [old.expired, old.records.length], [true, 0])
 
   // ── A browser that lost its mark ──
   forgetEncoderPc()
@@ -172,6 +190,13 @@ try {
   const loRow = await until(() => tables.key_cards.find((c) => c.order_nonce === lo.nonce)?.status, (s) => s === 'issued')
   check('...and reports it issued', loRow, 'issued')
   check('the stay\'s two cards are marked locked out', tables.key_cards.filter((c) => c.booking_id === BOOKING).map((c) => c.status), ['locked_out', 'locked_out'])
+  const loRead = await identifyCard(await readCard())
+  check('reading the lock-out card finds it', [loRead.room?.roomNumber, loRead.records.map((c) => [c.kind, c.status])], ['101', [['lockout', 'issued']]])
+  const amaAgain = await identifyCard(read)
+  check('Ama\'s card, read again: locked out, and the lock-out card is the newer card for the door',
+    [amaAgain.records.map((c) => c.status), amaAgain.newer?.orderNonce], [['locked_out', 'locked_out'], lo.nonce])
+  await markCard(amaAgain.records[0].id, 'returned')
+  check('one of them is handed in and marked returned', (await identifyCard(read)).records.map((c) => c.status), ['returned', 'locked_out'])
 
   // ── Unpairing ──
   clientSession.token = 'tok-admin'

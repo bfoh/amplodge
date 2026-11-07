@@ -263,3 +263,37 @@ export async function writeKeyCard(prepared: PreparedCards, cardNo: number): Pro
   if (OUTCOMES.includes(data?.status)) return { outcome: data.status, error: data.error ?? null }
   return { outcome: 'refused', error: data?.error ?? `The lock bridge answered ${status}.` }
 }
+
+// ---- reading a card -------------------------------------------------------------
+
+/** What the bridge found on the encoder (bridge 0.1.2 and later). Never the card's data. */
+export interface CardReading {
+  kind: 'none' | 'blank' | 'guest' | 'otherHotel' | 'staff' | 'unknown'
+  /** A guest card of this hotel: the door code it opens (6 hex characters). */
+  lockNo: string | null
+  /** A guest card: when it stops opening the door (ISO). */
+  validUntil: string | null
+  /** A guest card: its DAI. 0 means it was made in Joney's own program. */
+  dai: number | null
+  /** A staff or setup card: what kind, e.g. "Master card". */
+  staffType: string | null
+  /** Why nothing could be read, in words for staff. */
+  message: string | null
+}
+
+/** Reads the card lying on the encoder. Writes nothing. */
+export async function readCard(): Promise<CardReading> {
+  const { status, data } = await send('/cards/read', { method: 'POST', body: {}, timeoutMs: 30000 })
+  if (status === 404) {
+    throw new BridgeError('The lock bridge on this PC is too old to read cards. Install version 0.1.2 or newer, then try again.', 'refused', 404)
+  }
+  if (status < 200 || status >= 300) throw new BridgeError(data?.error || `The lock bridge answered ${status}.`, 'refused', status)
+  return {
+    kind: data.kind,
+    lockNo: data.lockNo ?? null,
+    validUntil: data.validUntil ?? null,
+    dai: Number.isInteger(data.dai) ? data.dai : null,
+    staffType: data.staffType ?? null,
+    message: data.message ?? null,
+  }
+}

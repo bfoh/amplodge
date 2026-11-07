@@ -268,6 +268,19 @@ r = await ask(B.yaw)
 check('an order never written stops holding the door after 15 minutes', r.status, 200)
 check('...and the next stay still takes a new DAI: two stays never share one', JSON.parse(r.body.order).dai, 2)
 
+// ─── A card whose writing was cut off, read back at the encoder ──────────────
+const nextCard = tables.key_cards.find((c) => c.booking_id === B_next)!
+await report(enc1.token, { nonce: nextCard.order_nonce, cards: [{ cardNo: 0, status: 'unknown' }] })
+const issuedLogs = tables.activity_logs.filter((l) => l.action === 'key_card_issued').length
+r = await call(mark, bearer('staff'), { cardId: nextCard.id, status: 'issued', note: 'Read back at the encoder' })
+check('a cut-off card that reads back right can be marked working', [r.status, nextCard.status, nextCard.note], [200, 'issued', 'Read back at the encoder'])
+check('...and that is logged', tables.activity_logs.filter((l) => l.action === 'key_card_issued').length, issuedLogs + 1)
+check('only a cut-off card: "working" cannot be put back on any other card', [
+  (await call(mark, bearer('staff'), { cardId: nextCard.id, status: 'issued' })).status,
+  (await call(mark, bearer('staff'), { cardId: lockedOut.id, status: 'issued' })).status,
+  (await call(mark, bearer('staff'), { cardId: outRows()[0].id, status: 'issued' })).status,
+], [409, 409, 409])
+
 // ─── Unpairing ───────────────────────────────────────────────────────────────
 check('a receptionist cannot unpair a PC', (await call(pair, bearer('staff'), { action: 'revoke', encoderId: enc1.id })).status, 403)
 check('an admin unpairs the front desk PC', (await call(pair, bearer('admin'), { action: 'revoke', encoderId: enc1.id })).status, 200)

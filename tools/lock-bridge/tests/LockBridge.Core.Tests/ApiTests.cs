@@ -120,6 +120,35 @@ public class ApiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Reading_a_card_tells_only_what_staff_need()
+    {
+        Assert.Equal(HttpStatusCode.Conflict, (await Post("/cards/read", new { })).StatusCode); // not paired
+        await Pair();
+        Assert.Equal(HttpStatusCode.Forbidden, (await Post("/cards/read", new { }, origin: "https://evil.example")).StatusCode);
+        Assert.Equal(0, _driver.Reads);
+
+        _driver.OnRead = new CardReading(CardReadKind.Guest, "01030D", "2611091200", 7);
+        var guest = await Json(await Post("/cards/read", new { }));
+        Assert.Equal("guest", guest.GetProperty("kind").GetString());
+        Assert.Equal("01030D", guest.GetProperty("lockNo").GetString());
+        Assert.Equal("2611091200", guest.GetProperty("end").GetString());
+        Assert.Equal(new DateTimeOffset(2026, 11, 9, 12, 0, 0, TimeSpan.Zero), guest.GetProperty("validUntil").GetDateTimeOffset());
+        Assert.Equal(7, guest.GetProperty("dai").GetInt32());
+
+        _driver.OnRead = new CardReading(CardReadKind.Staff, StaffType: "Master card");
+        var master = await Json(await Post("/cards/read", new { }));
+        Assert.Equal("staff", master.GetProperty("kind").GetString());
+        Assert.Equal("Master card", master.GetProperty("staffType").GetString());
+        Assert.Equal(JsonValueKind.Null, master.GetProperty("lockNo").ValueKind);
+        Assert.Equal(JsonValueKind.Null, master.GetProperty("validUntil").ValueKind);
+
+        _driver.OnRead = new CardReading(CardReadKind.None, Message: "No card on the encoder.");
+        var none = await Json(await Post("/cards/read", new { }));
+        Assert.Equal(["none", "No card on the encoder."], [none.GetProperty("kind").GetString(), none.GetProperty("message").GetString()]);
+        Assert.Equal(0, _driver.Writes);
+    }
+
+    [Fact]
     public async Task Nothing_is_written_before_pairing()
     {
         Assert.Equal(HttpStatusCode.Conflict, (await Post("/challenge", new { })).StatusCode);

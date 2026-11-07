@@ -93,6 +93,7 @@ still uses the **live** database.
 | `GET /status` | Paired? Encoder ready? Results still unsent? |
 | `POST /challenge` | A one-time challenge, valid for 5 minutes. The portal sends it to `key-card-order`. |
 | `POST /cards/issue` | `{order, signature, cardNo}`: writes one card of a signed order. Asking again for the same card returns the stored result. |
+| `POST /cards/read` | Reads the card on the encoder and writes nothing (0.1.2+). Returns its kind (`none`, `blank`, `guest`, `otherHotel`, `staff`, `unknown`); for a guest card of this hotel its door code, end time and DAI; for a staff or setup card only what kind it is. Never the card's data. |
 | `GET /orders/{nonce}` | What happened to each card of an order, and whether the server has been told. |
 | `POST /pair` | `{code}`: redeems the one-time code from Settings → Door locks. Works only while unpaired. |
 

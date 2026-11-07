@@ -259,7 +259,59 @@ public sealed class ProRflDriver : ILockDriver, IDisposable
         return result;
     }
 
+    /// <summary>"Read a card": what the card on the encoder is. Logs its kind (and a guest card's door), never its data.</summary>
+    private CardReading ReadOne()
+    {
+        if (NotReadyReason() is { } why) return new(CardReadKind.None, Message: why);
+        if (!EnsureInitialised()) return new(CardReadKind.None, Message: NoConnection);
+        var card = Read();
+        if (!card.Ok)
+        {
+            _log.Write($"read a card: ReadCard -> {card.Code}, no card");
+            return new(CardReadKind.None, Message: "No card on the encoder. Lay one card flat on it, then read again.");
+        }
+        var type = new StringBuilder(256);
+        ProRfl.GetCardTypeByCardDataStr(card.Hex, type);
+        int endCode = -1;
+        string? endRead = null;
+        if (EncoderRules.FromCardData(card.Hex) == CardKind.Guest)
+        {
+            var e = new StringBuilder(256);
+            endCode = ProRfl.GetGuestETimeByCardDataStr(_hotelId!.Value, card.Hex, e);
+            endRead = e.ToString();
+        }
+        var r = EncoderRules.Describe(Cal, card.Hex, type.ToString(), endCode, endRead);
+        _log.Write($"read a card: {r.Kind}" + r.Kind switch
+        {
+            CardReadKind.Guest => $", lock {r.LockNo}, end {r.End}, dai {r.Dai}",
+            CardReadKind.Staff => $", {r.StaffType}",
+            _ => "",
+        });
+        return r;
+    }
+
     // ---- ILockDriver ---------------------------------------------------------------
+
+    public async Task<CardReading> ReadCardAsync(CancellationToken ct)
+    {
+        try
+        {
+            return await OnWorker(ReadOne, ct);
+        }
+        catch (TimeoutException)
+        {
+            _initialised = false;
+            return new CardReading(CardReadKind.None, Message: "The encoder took too long to answer. Try again.");
+        }
+        catch (EncoderStuckException ex)
+        {
+            return new CardReading(CardReadKind.None, Message: ex.Message);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return new CardReading(CardReadKind.None, Message: "The encoder was busy. Try again.");
+        }
+    }
 
     public async Task<DriverStatus> StatusAsync(CancellationToken ct)
     {

@@ -19,6 +19,7 @@ import {
 } from '@/services/key-cards'
 import { promptKeyCards, promptLockoutCard, type KeyCardRequest } from '@/services/key-card-prompt'
 import { bridgeStatus, getEncoderPc, type BridgeStatus } from '@/services/lock-bridge'
+import { ReadCardPanel } from '@/components/ReadCardPanel'
 
 const when = (iso: string) => format(new Date(iso), 'EEE d MMM, HH:mm')
 
@@ -235,7 +236,7 @@ export default function KeyCardsPage() {
 
       {unknown.length > 0 && section(
         'Check these cards',
-        'Writing was cut off (a power cut or the card moved). Try the card at the door, or read it at the reception PC.',
+        'Writing was cut off (a power cut or the card moved). Try the card at the door, or read it at the reception PC (Read a card, below).',
         <AlertTriangle className="w-5 h-5 text-amber-600" />, unknown.length,
         <>{unknown.map((c) => cardRow(c))}</>,
       )}
@@ -277,6 +278,8 @@ export default function KeyCardsPage() {
         <DoorClosed className="w-5 h-5 text-primary" />, lockouts.length,
         <>{lockouts.map((c) => cardRow(c, false))}</>,
       )}
+
+      {encoderPc && <ReadCardPanel isAdmin={isAdmin} onChanged={reload} />}
 
       {encoderPc && (
         <Card>

@@ -85,6 +85,31 @@ public static class BridgeApi
             return Results.Json(new { nonce = outcome.Nonce, cardNo = outcome.CardNo, status = outcome.Status, error = outcome.Error }, statusCode: outcome.HttpStatus);
         });
 
+        // Read a card: what the card on the encoder is. Writes nothing; never returns the card's data.
+        app.MapPost("/cards/read", async (CancellationToken ct) =>
+        {
+            if (bridge.Session is null) return Problem(409, "This PC is not paired yet. Pair it in Settings → Door locks.");
+            CardReading r;
+            try
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(TimeSpan.FromSeconds(20));
+                r = await bridge.Driver.ReadCardAsync(timeout.Token);
+            }
+            catch (OperationCanceledException) { r = new CardReading(CardReadKind.None, Message: "The encoder did not answer in time. Try again."); }
+            var kind = r.Kind switch
+            {
+                CardReadKind.Blank => "blank",
+                CardReadKind.Guest => "guest",
+                CardReadKind.OtherHotel => "otherHotel",
+                CardReadKind.Staff => "staff",
+                CardReadKind.Unknown => "unknown",
+                _ => "none",
+            };
+            DateTimeOffset? until = r.End is { } e && CardFormat.TryParseCardTime(e, out var t) ? t : null;
+            return Results.Json(new { kind, lockNo = r.LockNo, end = r.End, validUntil = until, dai = r.Dai, staffType = r.StaffType, message = r.Message });
+        });
+
         app.MapGet("/orders/{nonce}", (string nonce) =>
         {
             if (bridge.Session is not { } s) return Problem(409, "This PC is not paired yet.");

@@ -79,6 +79,15 @@ public sealed class ProbeDriver : ILockDriver
         Last = request;
         return OnWrite(request, ct);
     }
+
+    public CardReading OnRead { get; set; } = new(CardReadKind.Blank);
+    public int Reads;
+
+    public Task<CardReading> ReadCardAsync(CancellationToken ct)
+    {
+        Interlocked.Increment(ref Reads);
+        return Task.FromResult(OnRead);
+    }
 }
 
 /// <summary>Answers the bridge's server calls without a network.</summary>

@@ -7,13 +7,15 @@ import { serviceClient, logActivity, parseBody, UUID } from './_lib/key-cards.js
  *   not_returned    the guest left with it (it opens the door until it expires,
  *                   or until the next stay's card opens the door)
  *   killed_at_door  cancelled at the door with the lock software's own card
+ *   issued          only for a card whose writing was cut off ('unknown'): it
+ *                   was read at the encoder and is as it should be
  *
  * A card replaced after a loss, or locked out at the door, can only be marked
  * returned (it was found). So can a lock-out card: it belongs to no stay.
  *
  * POST { cardId, status, note? }   (staff)
  */
-const MARKS = ['returned', 'not_returned', 'killed_at_door']
+const MARKS = ['returned', 'not_returned', 'killed_at_door', 'issued']
 const FROM = ['issued', 'unknown', 'returned', 'not_returned', 'replaced', 'locked_out']
 const RETURN_ONLY = ['replaced', 'locked_out']
 
@@ -32,7 +34,8 @@ export const handler = async (event) => {
     const sb = serviceClient()
     const { data: card } = await sb.from('key_cards').select('*').eq('id', body.cardId).maybeSingle()
     if (!card) return jsonResponse(404, { error: 'Card not found' })
-    if (!FROM.includes(card.status) || ((RETURN_ONLY.includes(card.status) || card.kind === 'lockout') && body.status !== 'returned')) {
+    if (!FROM.includes(card.status) || ((RETURN_ONLY.includes(card.status) || card.kind === 'lockout') && body.status !== 'returned')
+      || (body.status === 'issued' && card.status !== 'unknown')) {
       return jsonResponse(409, { error: `A ${card.kind === 'lockout' ? 'lock-out' : card.status} card cannot be marked ${body.status}.` })
     }
 

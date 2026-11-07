@@ -115,6 +115,55 @@ public static class EncoderRules
                 || string.Equals(d, expected, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>
+    /// The end time a decoder printed, as yyMMddHHmm: it may come with a 4-digit year or with
+    /// seconds. Null if it is not a time.
+    /// </summary>
+    public static string? CardEnd(string? decoded)
+    {
+        var d = Digits(decoded);
+        if (d.Length is 12 or 14 && d.StartsWith("20", StringComparison.Ordinal)) d = d[2..];
+        if (d.Length is not (10 or 12)) return null;
+        return CardFormat.TryParseCardTime(d[..10], out _) ? d[..10] : null;
+    }
+
+    /// <summary>The staff and setup cards, by the type code that starts a card's serial (Joney's list).</summary>
+    private static readonly Dictionary<char, string> StaffCards = new()
+    {
+        ['0'] = "System card", ['1'] = "Record card", ['2'] = "Lock setting card", ['3'] = "Clock card",
+        ['4'] = "Lost card", ['5'] = "Group setting card", ['7'] = "Check-out card", ['8'] = "Group card",
+        ['A'] = "Emergency card", ['B'] = "Master card", ['C'] = "Building card", ['D'] = "Floor card",
+    };
+
+    /// <summary>
+    /// What a card is, for "Read a card": the DLL's card type and the card's own data must agree,
+    /// as before a write. A guest card of this hotel gives its door (from the card's bytes), end
+    /// time and DAI; endCode is GetGuestETimeByCardDataStr's answer, 2 for another hotel's card.
+    /// A staff or setup card gives only its kind: its data never leaves the bridge.
+    /// </summary>
+    public static CardReading Describe(EncoderCalibration c, string hex, string? dllType, int endCode, string? endRead)
+    {
+        var kind = Classify(dllType, c);
+        var layout = FromCardData(hex);
+        if (kind == CardKind.Blank && layout == CardKind.Blank) return new(CardReadKind.Blank);
+        if (kind == CardKind.Guest && layout == CardKind.Guest)
+        {
+            if (endCode == 2) return new(CardReadKind.OtherHotel);
+            var lockNo = LockOnCard(hex);
+            var end = CardEnd(endRead);
+            if (endCode != 0 || lockNo is null || end is null)
+                return new(CardReadKind.Unknown, Message: "A guest card, but its door or end time could not be read.");
+            return new(CardReadKind.Guest, lockNo, end, DaiOnCard(hex));
+        }
+        if (kind == CardKind.Other && layout == CardKind.Other)
+        {
+            var t = (dllType ?? "").Trim();
+            var name = t.Length > 0 && StaffCards.TryGetValue(char.ToUpperInvariant(t[0]), out var n) ? n : "A staff or setup card";
+            return new(CardReadKind.Staff, StaffType: name);
+        }
+        return new(CardReadKind.Unknown, Message: "The encoder and the card's own data disagree about what this card is.");
+    }
+
     /// <summary>The DLL may print the end time with a 4-digit year or with seconds; compare the minutes.</summary>
     public static bool EndMatches(string expected, string? decoded)
     {

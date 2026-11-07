@@ -8,6 +8,7 @@
  */
 import { db } from '@/lib/db'
 import { callFunction } from '@/lib/api'
+import type { CardReading } from '@/services/lock-bridge'
 
 export type KeyCardStatus =
   | 'pending' | 'issued' | 'failed' | 'unknown'
@@ -23,6 +24,8 @@ export interface KeyCard {
   guestName: string | null
   roomNumber: string | null
   lockNos: string[]
+  /** The card's DAI (null before the V0925 migration). */
+  dai?: number | null
   orderNonce: string
   cardNo: number
   issueTime: string
@@ -156,6 +159,72 @@ export async function loadKeyCardBoard(now = new Date()): Promise<KeyCardBoard> 
   return { ...empty, needsCard, shouldBeGone, wrongRoom, unknown: live.filter((c) => c.status === 'unknown'), doors }
 }
 
+/** What a guest card read at the encoder is, by this app's records. */
+export interface CardIdentity {
+  lockNo: string
+  /** The room with that door code, or null when no room on the Rooms page has it. */
+  room: { roomId: string; roomNumber: string; label: string | null } | null
+  validUntil: Date | null
+  expired: boolean
+  /** DAI 0: made in Joney's own program, so this app has no record of it. */
+  madeInJoney: boolean
+  /**
+   * This app's records of the card. Cards of one stay are written alike, so the card
+   * may be any one of these. Empty when it was not made here (or not for that door).
+   */
+  records: KeyCard[]
+  /** A card with another DAI made for the door since: once it is used at the door, the lock refuses this one. */
+  newer: KeyCard | null
+}
+
+/** Statuses of a card that was really written (anything but being written, or failed). */
+const WRITTEN: KeyCardStatus[] = ['issued', 'unknown', 'returned', 'not_returned', 'killed_at_door', 'replaced', 'locked_out']
+
+/** Matches a guest card read at the encoder to its door and to this app's record of it. */
+export async function identifyCard(reading: CardReading, now = new Date()): Promise<CardIdentity> {
+  const lockNo = normalizeLockNo(reading.lockNo ?? '')
+  const validUntil = reading.validUntil ? new Date(reading.validUntil) : null
+  const locks = (await db.roomLocks.list({ where: { lockNo }, limit: 5 })) as RoomLock[]
+  const lock = locks[0]
+  let room: CardIdentity['room'] = null
+  if (lock) {
+    const r = (await db.rooms.list({ where: { id: lock.roomId }, limit: 1 })) as Array<{ id: string; roomNumber: string }>
+    room = { roomId: lock.roomId, roomNumber: String(r[0]?.roomNumber ?? '?'), label: lock.label }
+  }
+
+  // A card ends on the minute its order said: look for that end, a minute either side.
+  let records: KeyCard[] = []
+  if (validUntil && !Number.isNaN(validUntil.getTime())) {
+    const from = new Date(validUntil.getTime() - 60_000)
+    const to = validUntil.getTime() + 60_000
+    const near = (await db.keyCards.list({ where: { validUntil: { gte: from.toISOString() } }, orderBy: { validUntil: 'asc' }, limit: 200 })) as KeyCard[]
+    records = near
+      .filter((c) => new Date(c.validUntil).getTime() <= to)
+      .filter((c) => (c.lockNos ?? []).map(normalizeLockNo).includes(lockNo))
+      .filter((c) => !Number.isInteger(c.dai) || c.dai === reading.dai)
+      .filter((c) => WRITTEN.includes(c.status))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.cardNo - b.cardNo)
+  }
+
+  let newer: KeyCard | null = null
+  if (records.length && room) {
+    const since = records[records.length - 1].createdAt
+    const door = (await db.keyCards.list({ where: { roomId: room.roomId }, orderBy: { createdAt: 'desc' }, limit: 20 })) as KeyCard[]
+    newer = door.find((c) => c.createdAt > since && WRITTEN.includes(c.status) && Number.isInteger(c.dai) && c.dai !== reading.dai
+      && (c.lockNos ?? []).map(normalizeLockNo).includes(lockNo)) ?? null
+  }
+
+  return {
+    lockNo,
+    room,
+    validUntil,
+    expired: !!validUntil && validUntil <= now,
+    madeInJoney: reading.dai === 0,
+    records,
+    newer,
+  }
+}
+
 async function post(name: string, body: unknown) {
   const res = await callFunction(name, {
     method: 'POST',
@@ -167,7 +236,8 @@ async function post(name: string, body: unknown) {
   return data
 }
 
-export type CardMark = 'returned' | 'not_returned' | 'killed_at_door'
+/** 'issued' is only for a card whose writing was cut off, once it reads back right at the encoder. */
+export type CardMark = 'returned' | 'not_returned' | 'killed_at_door' | 'issued'
 
 export function markCard(cardId: string, status: CardMark, note?: string) {
   return post('key-card-mark', { cardId, status, note })
