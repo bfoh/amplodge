@@ -96,12 +96,26 @@ export function planCards({ locks, count, startCardNo = 0 }) {
 }
 
 /**
- * An 8-digit lock number: four 2-digit pairs, the first 00..15 (the lock
- * software keeps it to 4 bits), as the encoder's GuestCard expects.
+ * A lock number: the 6-character code Joney's Lock Management System shows for
+ * a door (0-9 and A-F, e.g. 01020A; the first two are the building). Capitals
+ * only: normalizeLockNo first.
  */
 export function isLockNo(s) {
-  return typeof s === 'string' && /^\d{8}$/.test(s) && Number(s.slice(0, 2)) <= 15
+  return typeof s === 'string' && /^[0-9A-F]{6}$/.test(s)
 }
+export const normalizeLockNo = (s) => String(s ?? '').trim().toUpperCase()
+
+/**
+ * The DAI for a new stay's cards: one more than the last one used on these
+ * doors, 1..255, and 255 is followed by 1. The lock refuses a card whose DAI
+ * differs from the newest one it has seen, so only "different" matters.
+ */
+export function nextDai(last) {
+  return Number.isInteger(last) && last >= 1 && last < 255 ? last + 1 : 1
+}
+
+/** The order format the lock bridge accepts (v2: lock codes are 6 hex characters, and orders carry a DAI). */
+export const ORDER_VERSION = 2
 
 // ─── Secrets ─────────────────────────────────────────────────────────────────
 

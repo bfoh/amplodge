@@ -11,7 +11,7 @@ import { handler as pair } from '../../netlify/functions/lock-encoder-pair.js'
 import { handler as order } from '../../netlify/functions/key-card-order.js'
 import { handler as receipt } from '../../netlify/functions/key-card-receipt.js'
 import { handler as mark } from '../../netlify/functions/key-card-mark.js'
-import { cardTime, floorToMinute, isLockNo, validityFor, verifyOrder } from '../../netlify/functions/_lib/key-cards.js'
+import { cardTime, floorToMinute, isLockNo, nextDai, validityFor, verifyOrder } from '../../netlify/functions/_lib/key-cards.js'
 
 let failures = 0
 const check = (label: string, got: any, want: any) => {
@@ -35,7 +35,8 @@ v = validityFor('2027-01-30', new Date('2026-11-07T09:30:00Z'))
 check('never valid for more than 30 days', [v.end.toISOString(), v.capped], ['2026-12-07T08:30:00.000Z', true])
 v = validityFor('2026-11-12', new Date('2026-11-08T10:00:00Z'), '2026-11-07T08:30:00.000Z')
 check('extra cards keep the booking\'s start time', v.begin.toISOString(), '2026-11-07T08:30:00.000Z')
-check('lock numbers: 8 digits, first pair 00..15', ['01011003', '15990000', '16010101', '0101100', '0101100a'].map(isLockNo), [true, true, false, false, false])
+check('lock numbers: the 6-hex code of the Lock Management System, in capitals', ['01020A', 'FFFFFF', '010309', '01020a', '01010101', '01020', '01020G'].map(isLockNo), [true, true, true, false, false, false, false])
+check('the DAI counts 1..255, then starts again at 1', [null, 0, 1, 254, 255].map(nextDai), [1, 1, 2, 255, 1])
 
 // ─── A small hotel ───────────────────────────────────────────────────────────
 const person = (id: string, role: string) => {
@@ -98,15 +99,17 @@ r = await call(pair, bearer('admin'), { action: 'list' })
 check('admins see the PCs, without secrets', [r.body.encoders.map((e: any) => e.state).sort(), JSON.stringify(r.body).includes('hash')], [['expired', 'paired'], false])
 
 // ─── Lock numbers ────────────────────────────────────────────────────────────
-check('a receptionist cannot set lock numbers', (await call(saveLocks, bearer('staff'), { roomId: R.r101, locks: [{ lockNo: '01010101' }] })).status, 403)
-check('a malformed lock number is refused', (await call(saveLocks, bearer('admin'), { roomId: R.r101, locks: [{ lockNo: '16010101' }] })).status, 400)
-r = await call(saveLocks, bearer('admin'), { roomId: R.r101, locks: [{ lockNo: '01010101' }, { lockNo: '01010199' }] })
-check('an admin sets room 101', [r.status, r.body.locks.length], [200, 2])
-r = await call(saveLocks, bearer('admin'), { roomId: R.r101, locks: [{ lockNo: '01010101' }] })
-check('...and changes it: the removed lock goes', tables.room_locks.filter((l) => l.room_id === R.r101).map((l) => l.lock_no), ['01010101'])
-r = await call(saveLocks, bearer('admin'), { roomId: R.suite, locks: [{ lockNo: '01011001', label: '110' }, { lockNo: '01010901', label: '109' }] })
+check('a receptionist cannot set lock numbers', (await call(saveLocks, bearer('staff'), { roomId: R.r101, locks: [{ lockNo: '01020A' }] })).status, 403)
+r = await call(saveLocks, bearer('admin'), { roomId: R.r101, locks: [{ lockNo: '01020G' }] })
+check('a malformed lock number is refused, saying what one looks like', [r.status, r.body.error?.includes('6-character code')], [400, true])
+check('the old 8-digit form is refused', (await call(saveLocks, bearer('admin'), { roomId: R.r101, locks: [{ lockNo: '01010101' }] })).status, 400)
+r = await call(saveLocks, bearer('admin'), { roomId: R.r101, locks: [{ lockNo: ' 01020a ' }, { lockNo: '01020B' }] })
+check('an admin sets room 101; a code typed in small letters is stored in capitals', [r.status, r.body.locks.map((l: any) => l.lock_no).sort()], [200, ['01020A', '01020B']])
+r = await call(saveLocks, bearer('admin'), { roomId: R.r101, locks: [{ lockNo: '01020A' }] })
+check('...and changes it: the removed lock goes', tables.room_locks.filter((l) => l.room_id === R.r101).map((l) => l.lock_no), ['01020A'])
+r = await call(saveLocks, bearer('admin'), { roomId: R.suite, locks: [{ lockNo: '01030A', label: '110' }, { lockNo: '010309', label: '109' }] })
 check('the suite has two doors', [r.status, r.body.locks.length], [200, 2])
-r = await call(saveLocks, bearer('admin'), { roomId: R.r102, locks: [{ lockNo: '01010101' }] })
+r = await call(saveLocks, bearer('admin'), { roomId: R.r102, locks: [{ lockNo: '01020a' }] })
 check('one lock cannot belong to two rooms', [r.status, r.body.error?.includes('room 101')], [409, true])
 
 // ─── Ordering cards ──────────────────────────────────────────────────────────
@@ -126,13 +129,14 @@ r = await ask(B.ama, 2)
 check('a checked-in guest gets two cards', r.status, 200)
 const first = JSON.parse(r.body.order)
 check('the order is signed by the server\'s key', verifyOrder(r.body.order, r.body.signature, enc1.publicKey), true)
+check('it is a v2 order: the stay\'s DAI, starting at 1 for a door never carded', [first.v, first.dai], [2, 1])
 check('a changed order fails the signature', verifyOrder(r.body.order.replace(first.end, '9912311200'), r.body.signature, enc1.publicKey), false)
 check('the order names the doors, card numbers and times', [first.cards, first.room, first.guest],
-  [[{ cardNo: 0, lockNos: ['01010101'] }, { cardNo: 1, lockNos: ['01010101'] }], '101', 'Ama Mensah'])
+  [[{ cardNo: 0, lockNos: ['01020A'] }, { cardNo: 1, lockNos: ['01020A'] }], '101', 'Ama Mensah'])
 check('it ends check-out day at 12:00', first.end, day(3).slice(2).replace(/-/g, '') + '1200')
 check('it starts an hour back', first.begin, cardTime(floorToMinute(new Date(Date.now() - 3600000))))
 const amaRows = () => tables.key_cards.filter((c) => c.booking_id === B.ama)
-check('two pending cards are recorded', amaRows().map((c) => [c.status, c.card_no, c.encoder_id === enc1.id]), [['pending', 0, true], ['pending', 1, true]])
+check('two pending cards are recorded, with the DAI', amaRows().map((c) => [c.status, c.card_no, c.encoder_id === enc1.id, c.dai]), [['pending', 0, true, 1], ['pending', 1, true, 1]])
 
 r = await ask(B.esi)
 check('another guest cannot get a card for a door that is still taken', [r.status, r.body.error?.startsWith('A card for Ama Mensah')], [409, true])
@@ -141,7 +145,7 @@ check('another guest cannot get a card for a door that is still taken', [r.statu
 const report = (token: string | null, body: any) => call(receipt, token ? `Device ${token}` : null, body)
 check('no device token: 401', (await report(null, { nonce: first.nonce, cards: [] })).status, 401)
 check('a made-up token: 401', (await report('nope', { nonce: first.nonce, cards: [] })).status, 401)
-r = await report(enc1.token, { nonce: first.nonce, cards: [{ cardNo: 0, status: 'issued' }, { cardNo: 1, status: 'issued' }], dllVersion: 'proRFL 2009' })
+r = await report(enc1.token, { nonce: first.nonce, cards: [{ cardNo: 0, status: 'issued' }, { cardNo: 1, status: 'issued' }], dllVersion: 'ProUsb-20211115' })
 check('the bridge confirms both cards', [r.status, r.body.updated, amaRows().map((c) => c.status)], [200, 2, ['issued', 'issued']])
 r = await report(enc1.token, { nonce: first.nonce, cards: [{ cardNo: 0, status: 'issued' }] })
 check('a resent report changes nothing', [r.status, r.body.updated], [200, 0])
@@ -152,7 +156,7 @@ check('each card is in the activity log', tables.activity_logs.filter((l) => l.a
 // ─── A third card later ──────────────────────────────────────────────────────
 r = await ask(B.ama, 1)
 const extra = JSON.parse(r.body.order)
-check('an extra card keeps the start time and takes the next number', [extra.begin, extra.cards], [first.begin, [{ cardNo: 2, lockNos: ['01010101'] }]])
+check('an extra card keeps the start time and DAI and takes the next number', [extra.begin, extra.dai, extra.cards], [first.begin, first.dai, [{ cardNo: 2, lockNos: ['01020A'] }]])
 await report(enc1.token, { nonce: extra.nonce, cards: [{ cardNo: 2, status: 'issued' }] })
 
 // ─── Clearing the door for the next guest ────────────────────────────────────
@@ -165,20 +169,24 @@ r = await ask(B.esi)
 check('once the cards are cancelled at the door, the next guest gets a card', r.status, 200)
 const esiOrder = JSON.parse(r.body.order)
 const esiCard = tables.key_cards.find((c) => c.order_nonce === esiOrder.nonce)!
+check('the next stay in the room gets the next DAI, so its card locks out the last guest\'s', [esiOrder.dai, esiCard.dai], [2, 2])
 check('a card still being written cannot be marked', (await call(mark, bearer('staff'), { cardId: esiCard.id, status: 'returned' })).status, 409)
 
 // ─── The suite, and a second PC ──────────────────────────────────────────────
 r = await ask(B.suite, 1)
 const suite = JSON.parse(r.body.order)
 check('a two-door suite gets one card per door until Joney confirms suite cards', suite.cards,
-  [{ cardNo: 0, lockNos: ['01010901'] }, { cardNo: 1, lockNos: ['01011001'] }])
+  [{ cardNo: 0, lockNos: ['010309'] }, { cardNo: 1, lockNos: ['01030A'] }])
+check('the DAI is kept per door: the suite starts at 1', suite.dai, 1)
 r = await call(pair, bearer('admin'), { action: 'start', label: 'Back office' })
 r = await call(pair, null, { action: 'redeem', code: r.body.code })
 const enc2 = { id: r.body.encoderId as string, token: r.body.deviceToken as string }
 check('another PC cannot report on this PC\'s order', (await report(enc2.token, { nonce: suite.nonce, cards: [{ cardNo: 0, status: 'issued' }] })).status, 403)
 check('the suite is held while its cards are being written', (await ask(B.yaw)).status, 409)
 for (const c of tables.key_cards.filter((k) => k.order_nonce === suite.nonce)) c.created_at = new Date(Date.now() - 20 * 60000).toISOString()
-check('an order never written stops holding the door after 15 minutes', (await ask(B.yaw)).status, 200)
+r = await ask(B.yaw)
+check('an order never written stops holding the door after 15 minutes', r.status, 200)
+check('...and the next stay still takes a new DAI: two stays never share one', JSON.parse(r.body.order).dai, 2)
 
 // ─── Unpairing ───────────────────────────────────────────────────────────────
 check('a receptionist cannot unpair a PC', (await call(pair, bearer('staff'), { action: 'revoke', encoderId: enc1.id })).status, 403)
@@ -186,5 +194,5 @@ check('an admin unpairs the front desk PC', (await call(pair, bearer('admin'), {
 check('...its challenges no longer get orders', (await ask(B.ama)).status, 409)
 check('...and its token no longer reports', (await report(enc1.token, { nonce: esiOrder.nonce, cards: [{ cardNo: 0, status: 'issued' }] })).status, 401)
 
-console.log(failures ? `FAILURE: ${failures} failed` : 'ALL PASS key cards: server-decided doors and times, signed orders, one door one guest, bridge receipts, pairing')
+console.log(failures ? `FAILURE: ${failures} failed` : 'ALL PASS key cards: server-decided doors, times and DAI, signed orders, one door one guest, bridge receipts, pairing')
 process.exit(failures ? 1 : 0)

@@ -27,7 +27,8 @@ public class OrderVerifierTests : IDisposable
         var ok = Check(payload);
         Assert.Null(ok.Error);
         Assert.Equal(2, ok.Order!.Cards.Count);
-        Assert.Equal("01011004", ok.Order.Cards[0].LockNos[0]);
+        Assert.Equal("01030D", ok.Order.Cards[0].LockNos[0]);
+        Assert.Equal(7, ok.Order.Dai);
         Assert.Equal("104", ok.Order.Room);
 
         var again = Check(payload);
@@ -71,10 +72,26 @@ public class OrderVerifierTests : IDisposable
     }
 
     [Theory]
-    [InlineData(2, "guest-cards", "Unknown order type")]
-    [InlineData(1, "master-card", "Unknown order type")]
-    public void Only_guest_card_orders(int v, string kind, string error) =>
+    [InlineData(1, "guest-cards", "format this lock bridge does not know")]
+    [InlineData(3, "guest-cards", "format this lock bridge does not know")]
+    [InlineData(2, "master-card", "Unknown order type")]
+    public void Only_v2_guest_card_orders(int v, string kind, string error) =>
         Assert.Contains(error, Check(Orders.Payload(_challenges.Issue(), v: v, kind: kind)).Error);
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(256)]
+    [InlineData(-1)]
+    public void The_DAI_is_1_to_255(int dai) =>
+        Assert.Contains("DAI", Check(Orders.Payload(_challenges.Issue(), dai: dai)).Error);
+
+    [Fact]
+    public void An_order_without_a_DAI_is_refused()
+    {
+        var payload = Orders.Payload(_challenges.Issue()).Replace("\"dai\":7,", "");
+        Assert.DoesNotContain("\"dai\"", payload);
+        Assert.Contains("DAI", Check(payload).Error);
+    }
 
     [Fact]
     public void Wrong_encoder_is_refused() =>
@@ -83,12 +100,13 @@ public class OrderVerifierTests : IDisposable
     public static TheoryData<object, string> BadCards => new()
     {
         { Array.Empty<object>(), "1 to 8" },
-        { new[] { new { cardNo = 0, lockNos = new[] { "01011004" } }, new { cardNo = 0, lockNos = new[] { "01011004" } } }, "twice" },
-        { new[] { new { cardNo = 16, lockNos = new[] { "01011004" } } }, "0 to 15" },
-        { new[] { new { cardNo = 0, lockNos = new[] { "1011004" } } }, "lock number" },
-        { new[] { new { cardNo = 0, lockNos = new[] { "16011004" } } }, "lock number" },
-        { new[] { new { cardNo = 0, lockNos = new[] { "0101100A" } } }, "lock number" },
-        { new[] { new { cardNo = 0, lockNos = new[] { "01011004", "01011005", "01011006" } } }, "lock number" },
+        { new[] { new { cardNo = 0, lockNos = new[] { "01030D" } }, new { cardNo = 0, lockNos = new[] { "01030D" } } }, "twice" },
+        { new[] { new { cardNo = 16, lockNos = new[] { "01030D" } } }, "0 to 15" },
+        { new[] { new { cardNo = 0, lockNos = new[] { "01030" } } }, "lock number" },
+        { new[] { new { cardNo = 0, lockNos = new[] { "01011004" } } }, "lock number" },
+        { new[] { new { cardNo = 0, lockNos = new[] { "01030d" } } }, "lock number" },
+        { new[] { new { cardNo = 0, lockNos = new[] { "01030G" } } }, "lock number" },
+        { new[] { new { cardNo = 0, lockNos = new[] { "01030D", "01030E", "01030F" } } }, "lock number" },
         { new[] { new { cardNo = 0, lockNos = Array.Empty<string>() } }, "lock number" },
     };
 
@@ -137,7 +155,8 @@ public class OrderVerifierTests : IDisposable
 
         Assert.Null(result.Error);
         Assert.Equal("Test Guest — Ama", result.Order!.Guest);
-        Assert.Equal(["01011001", "01011002"], result.Order.Cards[1].LockNos);
+        Assert.Equal(["010309", "01030A"], result.Order.Cards[1].LockNos);
+        Assert.Equal(3, result.Order.Dai);
         Assert.Equal(new DateTimeOffset(2026, 11, 9, 12, 0, 0, TimeSpan.Zero), result.Order.ValidUntil);
     }
 }

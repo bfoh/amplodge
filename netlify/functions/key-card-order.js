@@ -1,8 +1,8 @@
 import { requireStaff, jsonResponse, handleCors } from './_lib/auth.js'
 import { checkRateLimit, tooManyRequests } from './_lib/rate-limit.js'
 import {
-  POLICY, LIVE_STATUSES, serviceClient, signingKey, signOrder, validityFor, isLive, planCards,
-  cardTime, hotelToday, sameLocks, sharesLock, randomToken, logActivity, parseBody, UUID,
+  POLICY, LIVE_STATUSES, ORDER_VERSION, serviceClient, signingKey, signOrder, validityFor, isLive, planCards,
+  cardTime, hotelToday, sameLocks, sharesLock, nextDai, randomToken, logActivity, parseBody, UUID,
 } from './_lib/key-cards.js'
 
 /**
@@ -17,8 +17,10 @@ import {
  * guest is not checked in or arriving today, when the room has no lock number,
  * and when another booking still holds a live card for one of its doors.
  *
- * Extra cards for a booking reuse its cards' start time with the next card
- * numbers, so they work alongside the cards the guest already has.
+ * Extra cards for a booking reuse its cards' start time and DAI with the next
+ * card numbers, so they work alongside the cards the guest already has. A new
+ * stay gets the next DAI for its doors: once its card has opened the door, the
+ * previous guest's cards stop working there.
  */
 const CHALLENGE = /^([0-9a-f-]{36})\.([A-Za-z0-9_-]{16,128})$/i
 
@@ -96,6 +98,7 @@ export const handler = async (event) => {
       return jsonResponse(409, { error: 'This stay has ended. Extend it first, then make the card.' })
     }
     const startCardNo = mine.length ? Math.max(...mine.map((c) => c.card_no)) + 1 : 0
+    const dai = await daiFor(sb, locks, mine)
     const cards = planCards({ locks, count, startCardNo })
     if (cards[cards.length - 1].cardNo > 15) {
       return jsonResponse(409, { error: 'This booking already has 16 cards on its start time. Mark the old ones returned and make a fresh set.' })
@@ -111,6 +114,7 @@ export const handler = async (event) => {
       lock_nos: c.lockNos,
       order_nonce: nonce,
       card_no: c.cardNo,
+      dai,
       issue_time: start.toISOString(),
       valid_until: end.toISOString(),
       status: 'pending',
@@ -123,7 +127,7 @@ export const handler = async (event) => {
     if (insErr) throw insErr
 
     const order = JSON.stringify({
-      v: 1,
+      v: ORDER_VERSION,
       kind: 'guest-cards',
       challenge: body.challenge,
       nonce,
@@ -134,13 +138,14 @@ export const handler = async (event) => {
       begin: cardTime(start),
       end: cardTime(end),
       validUntil: end.toISOString(),
+      dai,
       cards,
     })
     await logActivity(sb, {
       action: 'key_card_ordered',
       entityId: nonce,
       userId: ctx.user?.id,
-      details: { bookingId: booking.id, room: roomNumber, guest: guest?.name ?? null, cards: cards.length, validUntil: end.toISOString(), extra: mine.length > 0 },
+      details: { bookingId: booking.id, room: roomNumber, guest: guest?.name ?? null, cards: cards.length, validUntil: end.toISOString(), dai, extra: mine.length > 0 },
     })
     return jsonResponse(200, {
       order,
@@ -151,4 +156,18 @@ export const handler = async (event) => {
     console.error('[key-card-order]', e)
     return jsonResponse(500, { error: 'Could not prepare the key card' })
   }
+}
+
+/**
+ * The DAI for this order. Extra cards for a stay take the DAI its working cards
+ * have. A new stay takes the next one after the newest card ever made for any of
+ * its doors, whatever became of that card: two stays in a row must never share one.
+ */
+async function daiFor(sb, locks, mine) {
+  const own = [...mine].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).find((c) => Number.isInteger(c.dai))
+  if (own) return own.dai
+  const { data, error } = await sb.from('key_cards').select('dai, created_at')
+    .overlaps('lock_nos', locks).order('created_at', { ascending: false }).limit(20)
+  if (error) throw error
+  return nextDai((data || []).find((c) => Number.isInteger(c.dai))?.dai ?? null)
 }

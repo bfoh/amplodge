@@ -157,7 +157,7 @@ public sealed class CardWriter
             try
             {
                 // Not tied to the browser request: closing the tab must not cut a write short.
-                result = await _driver.WriteGuestCardAsync(new GuestCardRequest(card.CardNo, card.LockNos, order.Begin, order.End), timeout.Token);
+                result = await _driver.WriteGuestCardAsync(new GuestCardRequest(card.CardNo, card.LockNos, order.Begin, order.End, order.Dai), timeout.Token);
             }
             catch (OperationCanceledException) { result = new(CardWriteStatus.Unknown, "The encoder did not answer in time."); }
             catch (Exception ex) { result = new(CardWriteStatus.Unknown, $"The encoder failed mid-write: {ex.Message}"); }

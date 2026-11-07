@@ -166,7 +166,8 @@ public class ApiTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
         Assert.Equal("issued", body.GetProperty("status").GetString());
         Assert.Equal(1, _driver.Writes);
-        Assert.Equal(["01011004"], _driver.Last!.LockNos);
+        Assert.Equal(["01030D"], _driver.Last!.LockNos);
+        Assert.Equal(7, _driver.Last.Dai);
         Assert.Equal(("2611071200", "2611091200"), (_driver.Last.Begin, _driver.Last.End));
 
         // The receipt goes out on its own, with the device token.

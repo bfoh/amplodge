@@ -137,7 +137,7 @@ export default function KeyCardsPage() {
             <CardDescription>
               Key cards appear here once each room has its lock number.
               {isAdmin
-                ? <> Add them under <Link to="/staff/properties" className="underline">Rooms → Door lock numbers</Link>, using the lock software's "Export LockNo" file.</>
+                ? <> Add them under <Link to="/staff/properties" className="underline">Rooms → Door lock numbers</Link>: each door's 6-character code from Joney's Lock Management System.</>
                 : ' An admin adds them on the Rooms page.'}
             </CardDescription>
           </CardHeader>

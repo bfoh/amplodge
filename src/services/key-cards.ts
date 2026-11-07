@@ -164,5 +164,6 @@ export function saveRoomLocks(roomId: string, locks: Array<{ lockNo: string; lab
   return post('room-locks-save', { roomId, locks })
 }
 
-/** 8 digits, the first pair 00..15: what the encoder takes. */
-export const isLockNo = (s: string) => /^\d{8}$/.test(s) && Number(s.slice(0, 2)) <= 15
+/** The 6-character code Joney's Lock Management System shows for a door: 0-9 and A-F, e.g. 01020A. */
+export const isLockNo = (s: string) => /^[0-9A-F]{6}$/.test(s)
+export const normalizeLockNo = (s: string) => s.trim().toUpperCase()

@@ -8,24 +8,45 @@ server's signature.
 ```
 portal (browser) ──1. challenge──▶ bridge (127.0.0.1)
 portal ──2. booking + challenge──▶ server: checks the booking, signs the order
-portal ──3. signed order, one card at a time──▶ bridge ──▶ proRFL.dll ──▶ encoder
+portal ──3. signed order, one card at a time──▶ bridge ──▶ proRFL.dll ──▶ Joney's Lock Management System (127.0.0.1:10086) ──▶ encoder
 bridge ──4. result (device token)──▶ server: the Key cards page updates
 ```
+
+`proRFL.dll` comes from Joney's own SDK ("New Lock System SDK [V0925]", `ProUsb-20211115`).
+It doesn't touch the encoder itself. It passes each command to Joney's **Lock Management
+System**, so that program must be **open and logged in** whenever cards are made. The
+bridge checks that it is listening before each card, and says so in the tray when it
+isn't.
+
+Two things come from Joney's program:
+- **Lock codes:** each door has a 6-character code, digits and A-F (e.g. `01020A`),
+  entered on the portal's Rooms page.
+- **DAI:** every card of one stay carries the same "DAI" number (1-255), and the next stay
+  gets the next one. The server picks it and signs it into the order. Once a card with a
+  new DAI has opened the door, the lock refuses the older cards. So the last guest's card
+  stops working as soon as the next guest goes in.
 
 ## What it will and won't do
 
 - It writes **guest cards only**, from an order the server signed with the key the bridge
   stored at pairing. Each order is tied to a one-time challenge from this bridge and to
-  this PC's encoder ID. The bridge re-checks the card count, the lock numbers and the
-  times itself.
+  this PC's encoder ID. The bridge re-checks the card count, the lock codes, the DAI and
+  the times itself. It takes only v2 orders: 6-character lock codes, with a DAI.
 - It accepts requests only from `https://amplodge.org` and `www.amplodge.org`. The
   request must use the Host `127.0.0.1:47123`, which blocks DNS rebinding, and the body
   must be JSON.
 - It has **no way** to make master, floor, building, emergency, system or "always open"
-  cards. Those calls are not even declared. Lock setup stays in Joney's program.
+  cards. Joney's 2021 DLL has no such calls, and the bridge declares none. Lock setup
+  stays in Joney's program.
 - It never writes over a card that isn't blank or a guest card. It reads the card first.
+  The DLL's card-type code and the card's own data, read the way Joney's demo reads it,
+  must both say "blank" or "guest".
 - It reads every card back after writing it. A card counts as made only when the read-back
-  shows the right lock and end time.
+  shows the right lock code and end time.
+- It loads only the `proRFL.dll` from Joney's V0925 SDK (checked by sha256), unless
+  `encoder.json` names another build in `proRflSha256`.
+- A suite card (one card for two doors) and lost-card blocking aren't in Joney's SDK. A
+  two-door room gets one card per door.
 - Every step goes to a journal on disk **before** the encoder is touched. If a power cut
   or crash interrupts a write, that card shows as "unknown" on the Key cards page and
   is never written twice. If the internet is down, results wait in the journal and are
@@ -38,7 +59,7 @@ bridge ──4. result (device token)──▶ server: the Key cards page update
 |---|---|
 | `src/LockBridge.Core` | Everything that isn't Windows-only: order checks, journal, card writer, receipts, pairing, the HTTP API. |
 | `src/LockBridge.Sim` | The same bridge with a pretend encoder, for working on the portal on any OS. It writes nothing. |
-| `src/LockBridge.Win` | The reception PC app: `proRFL.dll` driver, tray icon, DPAPI-sealed settings. 32-bit. |
+| `src/LockBridge.Win` | The reception PC app: `proRFL.dll` driver (one STA thread: the DLL waits for Joney's program by pumping messages), tray icon, DPAPI-sealed settings. 32-bit. |
 | `tests/LockBridge.Core.Tests` | xUnit. Includes an order signed by the server's own code (`tests/fixtures/make-node-order.mjs`). |
 | `probe/` | The one-off encoder probe for the reception PC (see its README). |
 
@@ -76,37 +97,39 @@ still uses the **live** database.
    This gives one `AMPLockBridge.exe` (32-bit, about 60 MB, no .NET install needed).
 2. **Install:**
    - Copy it to `C:\Program Files (x86)\AMP Lock Bridge\`.
-   - Copy the SDK files from Abacre's `prorfl.zip` (see `probe/README.md`) to the `sdk`
-     folder inside it: `proRFL.dll`, `d12.dll`, `d12c.dll`, `MFC42D.DLL` and `MSVCRTD.DLL`.
-     If the probe showed that Joney's newer `d12c.dll` is needed, copy that one instead.
+   - Copy `proRFL.dll` from Joney's V0925 SDK (see `probe/README.md`) to the `sdk` folder
+     inside it. No other DLL is needed.
    - Program Files is used because ordinary users can't write there, so nobody can swap
      in a different DLL.
-3. **Set the hotel's lock ID** (the "Hotel CoID" from Joney's Export LockNo):
-   `AMPLockBridge.exe --set-hotel-id <number>`. It is stored sealed to this PC.
-4. **Autostart:** put a shortcut to the exe in
-   `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp`.
-5. **Pair:** an admin opens Settings → Door locks on this PC and clicks Pair. That
-   needs the portal side, which isn't built yet.
-6. **Switch on card writing**, using the probe logs. Fill in
-   `C:\ProgramData\AMPLockBridge\encoder.json`, which is created on the first start. All of
-   these go in its `calibration` section, except `proRflSha256`, which sits at the top level:
+3. **Set the hotel's lock ID** (the probe prints it, from a guest card):
+   `AMPLockBridge.exe --set-hotel-id <number>`. It is stored sealed to this PC. The DLL
+   needs it to read cards back.
+4. **Autostart:** put shortcuts to Joney's Lock Management System and to the exe in
+   `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp`. Joney's program also
+   has to be logged in.
+5. **Pair:** an admin opens Settings → Door locks on this PC and clicks Pair.
+6. **Switch on card writing**, using the probe log. The probe ends with a suggested
+   `calibration` section. Copy it into `C:\ProgramData\AMPLockBridge\encoder.json`, which is
+   created on the first start, after checking it against the log:
 
    | Field | Value from the probe log |
    |---|---|
    | `initOkCodes` | the code after `initializeUSB(1) -> return code`, on a run where the encoder beeped |
    | `readOkCodes` | the code after `ReadCard(1) -> return code`, when card data was printed |
-   | `guestCardTypes` | the `card type:` text printed for the Joney guest card |
-   | `blankCardTypes` | the `card type:` text from a second run with a new, never-used card |
-   | `writeOkCodes` | the code after `GuestCard -> return code`, from the write test where the door opened |
-   | `proRflSha256` | the `proRFL.dll sha256` line in `bridge.log` |
+   | `guestCardTypes` | the first character of `card type:` for the guest card (Joney documents `6`) |
+   | `blankCardTypes` | the same for the blank card (Joney documents `F`) |
+   | `writeOkCodes` | the code after `GuestCard -> return code`, from the write test where the door opened (Joney documents `0`) |
 
-   Then set `"calibrated": true` in `calibration` and restart the bridge. Until then the bridge writes
-   nothing, and the tray says so.
+   Then set `"calibrated": true` and restart the bridge. Until then the bridge writes nothing,
+   and the tray says so.
+7. **Firewall:** if the probe warned that port 10086 is open to the network, add the
+   firewall rule it printed.
 
 The tray icon:
 - **green**: ready;
-- **amber**: something to do (not paired, encoder not ready, results not sent yet);
-- **red**: this PC was removed in Settings, or the encoder hung (unplug it, plug it back
-  in, restart the bridge).
+- **amber**: something to do (not paired, Joney's program closed, encoder not ready,
+  results not sent yet);
+- **red**: this PC was removed in Settings, or the lock program stopped answering (close
+  Joney's program and open it again, then restart the bridge).
 
-`bridge.log` records what the encoder answered (return codes, never card data).
+`bridge.log` records what the lock program answered (return codes, never card data).

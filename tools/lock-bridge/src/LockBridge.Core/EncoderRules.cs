@@ -3,20 +3,24 @@ namespace LockBridge.Core;
 /// <summary>
 /// What the encoder's DLL answers, learned on site from the probe log
 /// (tools/lock-bridge/probe). Until <see cref="Calibrated"/> is set, the real
-/// driver writes nothing: return codes and card-type names are not published
-/// anywhere, and guessing them could overwrite a master or system card.
+/// driver writes nothing: Joney's documentation gives 0 as success, but not the
+/// text GetCardTypeByCardDataStr gives each card type, and guessing that could
+/// overwrite a master or system card.
 /// </summary>
 public sealed record EncoderCalibration
 {
     public bool Calibrated { get; init; }
-    /// <summary>The DLL's USB type: 1 is the HID encoder (d12c.dll), as the hotel software uses.</summary>
+    /// <summary>The DLL's fUSB argument. Joney's 2021 DLL ignores it (their program drives the encoder); kept for the probe log.</summary>
     public byte UsbType { get; init; } = 1;
     public IReadOnlyList<int> InitOkCodes { get; init; } = [];
     public IReadOnlyList<int> ReadOkCodes { get; init; } = [];
     public IReadOnlyList<int> WriteOkCodes { get; init; } = [];
-    /// <summary>Card-type text the DLL gives a blank card. Such a card may be written.</summary>
+    /// <summary>
+    /// The card-type code (its first character, from GetCardTypeByCardDataStr) of a blank card.
+    /// Such a card may be written. Joney documents "F".
+    /// </summary>
     public IReadOnlyList<string> BlankCardTypes { get; init; } = [];
-    /// <summary>Card-type text for a guest card (any hotel, any room). Such a card may be overwritten.</summary>
+    /// <summary>The card-type code of a guest card (any hotel, any room). Such a card may be overwritten. Joney documents "6".</summary>
     public IReadOnlyList<string> GuestCardTypes { get; init; } = [];
     /// <summary>Short beep after a card checks out, if the encoder does not beep by itself.</summary>
     public bool BeepOnSuccess { get; init; }
@@ -30,6 +34,8 @@ public static class EncoderRules
     public static string Digits(string? s) => new((s ?? "").Where(char.IsAsciiDigit).ToArray());
 
     /// <summary>
+    /// What the DLL says the card is. Joney's GetCardTypeByCardDataStr gives a code
+    /// whose first character is the type (6 guest, F blank, B master, D floor...).
     /// Anything that is not known to be blank or a guest card is "other" and is
     /// never written over: it may be the hotel's master, floor, setup or backup card.
     /// </summary>
@@ -37,12 +43,34 @@ public static class EncoderRules
     {
         var t = (typeText ?? "").Trim();
         if (t.Length == 0) return CardKind.Other;
-        if (c.BlankCardTypes.Contains(t, StringComparer.OrdinalIgnoreCase)) return CardKind.Blank;
-        if (c.GuestCardTypes.Contains(t, StringComparer.OrdinalIgnoreCase)) return CardKind.Guest;
+        var code = t[..1];
+        if (c.BlankCardTypes.Contains(code, StringComparer.OrdinalIgnoreCase)) return CardKind.Blank;
+        if (c.GuestCardTypes.Contains(code, StringComparer.OrdinalIgnoreCase)) return CardKind.Guest;
         return CardKind.Other;
     }
 
-    public static bool LockMatches(string expected, string? decoded) => Digits(decoded) == expected;
+    /// <summary>
+    /// What the card's own data says it is, read the way Joney's demo reads it: a
+    /// card is present when characters 5-6 are "01", and characters 25-32 (the
+    /// card's serial) are FFFFFFFF on a blank card and start with 6 on a guest
+    /// card. A second opinion beside <see cref="Classify"/>: both must agree before
+    /// a card is written.
+    /// </summary>
+    public static CardKind FromCardData(string? hex)
+    {
+        var h = (hex ?? "").Trim();
+        if (h.Length < 32 || h.Substring(4, 2) != "01") return CardKind.Other;
+        var serial = h.Substring(24, 8);
+        if (string.Equals(serial, "FFFFFFFF", StringComparison.OrdinalIgnoreCase)) return CardKind.Blank;
+        return serial[0] == '6' ? CardKind.Guest : CardKind.Other;
+    }
+
+    /// <summary>The DLL's decoder gives the lock code as 6 hex characters; compare them, ignoring case and spaces.</summary>
+    public static bool LockMatches(string expected, string? decoded)
+    {
+        var d = new string((decoded ?? "").Where(c => !char.IsWhiteSpace(c) && c != '\0').ToArray());
+        return CardFormat.IsLockNo(expected) && string.Equals(d, expected, StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>The DLL may print the end time with a 4-digit year or with seconds; compare the minutes.</summary>
     public static bool EndMatches(string expected, string? decoded)

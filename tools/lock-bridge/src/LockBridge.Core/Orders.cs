@@ -8,7 +8,11 @@ using System.Text.RegularExpressions;
 
 namespace LockBridge.Core;
 
-/// <summary>A card order as the server signs it (netlify/functions/key-card-order.js).</summary>
+/// <summary>
+/// A card order as the server signs it (netlify/functions/key-card-order.js), v2.
+/// Dai is the same for every card of one stay and new for the next stay: a card
+/// with a new DAI, once used at the door, locks out cards with an older one.
+/// </summary>
 public sealed record GuestCardOrder(
     int V,
     string Kind,
@@ -21,7 +25,12 @@ public sealed record GuestCardOrder(
     string Begin,
     string End,
     DateTimeOffset ValidUntil,
-    IReadOnlyList<OrderCard> Cards);
+    int Dai,
+    IReadOnlyList<OrderCard> Cards)
+{
+    /// <summary>The only order version this bridge writes: 6-hex lock codes, with a DAI.</summary>
+    public const int Version = 2;
+}
 
 public sealed record OrderCard(int CardNo, IReadOnlyList<string> LockNos);
 
@@ -42,11 +51,11 @@ public static partial class CardFormat
 {
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    [GeneratedRegex(@"^\d{8}$")] private static partial Regex EightDigits();
+    [GeneratedRegex(@"^[0-9A-F]{6}$")] private static partial Regex SixHex();
     [GeneratedRegex(@"^\d{10}$")] private static partial Regex TenDigits();
 
-    /// <summary>8 digits, the first pair 00..15 (the encoder keeps it to 4 bits).</summary>
-    public static bool IsLockNo(string s) => EightDigits().IsMatch(s) && int.Parse(s[..2], CultureInfo.InvariantCulture) <= 15;
+    /// <summary>The 6-character code Joney's Lock Management System shows for a door: 0-9 and A-F, capitals (e.g. 01020A).</summary>
+    public static bool IsLockNo(string? s) => s is not null && SixHex().IsMatch(s);
 
     /// <summary>The card's yyMMddHHmm, in hotel time (Ghana: GMT all year, so UTC).</summary>
     public static bool TryParseCardTime(string s, out DateTimeOffset value)
@@ -119,10 +128,12 @@ public sealed class OrderVerifier(Guid encoderId, string serverPublicKeyB64, Cha
         GuestCardOrder? order;
         try { order = JsonSerializer.Deserialize<GuestCardOrder>(payload, CardFormat.Json); }
         catch (JsonException) { return VerifyResult.Fail("The order could not be read."); }
-        if (order is null || order.V != 1 || order.Kind != "guest-cards") return VerifyResult.Fail("Unknown order type.");
+        if (order is null || order.Kind != "guest-cards") return VerifyResult.Fail("Unknown order type.");
+        if (order.V != GuestCardOrder.Version) return VerifyResult.Fail("The order is in a format this lock bridge does not know. Update the lock bridge, or the website.");
         if (order.EncoderId != encoderId) return VerifyResult.Fail("This order was made for another encoder PC.");
         if (string.IsNullOrEmpty(order.Nonce) || order.Nonce.Length > 64) return VerifyResult.Fail("The order has no valid id.");
 
+        if (order.Dai is < 1 or > 255) return VerifyResult.Fail("The order's DAI is not valid.");
         if (order.Cards is null || order.Cards.Count is < 1 or > 8) return VerifyResult.Fail("An order holds 1 to 8 cards.");
         if (order.Cards.Select(c => c.CardNo).Distinct().Count() != order.Cards.Count) return VerifyResult.Fail("A card number appears twice.");
         foreach (var card in order.Cards)

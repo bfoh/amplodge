@@ -2,8 +2,11 @@ namespace LockBridge.Core;
 
 public enum CardWriteStatus { Issued, Failed, Unknown }
 
-/// <summary>What to write on one guest card. Times are yyMMddHHmm, hotel time.</summary>
-public sealed record GuestCardRequest(int CardNo, IReadOnlyList<string> LockNos, string Begin, string End);
+/// <summary>
+/// What to write on one guest card. Times are yyMMddHHmm, hotel time; lock codes
+/// are 6 hex characters; Dai (1..255) is the stay's override number.
+/// </summary>
+public sealed record GuestCardRequest(int CardNo, IReadOnlyList<string> LockNos, string Begin, string End, int Dai);
 
 /// <summary>The outcome of one write. Never carries the raw card data: that stays on this PC.</summary>
 public sealed record CardWriteResult(CardWriteStatus Status, string? Error = null);
@@ -11,8 +14,9 @@ public sealed record CardWriteResult(CardWriteStatus Status, string? Error = nul
 public sealed record DriverStatus(bool Ready, string? DllVersion, string Message);
 
 /// <summary>
-/// The card encoder. On the reception PC this is Joney's proUSB encoder through
-/// proRFL.dll (LockBridge.Win); for development it is the simulator.
+/// The card encoder. On the reception PC this is Joney's encoder, driven by their
+/// Lock Management System through proRFL.dll (LockBridge.Win); for development
+/// it is the simulator.
 /// Calls are made one at a time (CardWriter holds the lock).
 /// </summary>
 public interface ILockDriver

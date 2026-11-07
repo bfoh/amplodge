@@ -39,8 +39,9 @@ public static class Orders
         string begin = "2611071200",
         string end = "2611091200",
         object? cards = null,
-        int v = 1,
-        string kind = "guest-cards") =>
+        int v = 2,
+        string kind = "guest-cards",
+        int dai = 7) =>
         JsonSerializer.Serialize(new
         {
             v,
@@ -54,7 +55,8 @@ public static class Orders
             begin,
             end,
             validUntil = "2026-11-09T12:00:00.000Z",
-            cards = cards ?? new[] { new { cardNo = 0, lockNos = new[] { "01011004" } }, new { cardNo = 1, lockNos = new[] { "01011004" } } },
+            dai,
+            cards = cards ?? new[] { new { cardNo = 0, lockNos = new[] { "01030D" } }, new { cardNo = 1, lockNos = new[] { "01030D" } } },
         });
 
     public static string NonceOf(string payload) => JsonDocument.Parse(payload).RootElement.GetProperty("nonce").GetString()!;

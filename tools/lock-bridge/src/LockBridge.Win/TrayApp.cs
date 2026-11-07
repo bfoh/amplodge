@@ -8,7 +8,7 @@ namespace LockBridge.Win;
 /// <summary>
 /// The tray icon. Green: ready to make cards. Amber: something to do (not paired,
 /// results not yet sent, encoder not ready). Red: the server no longer knows this
-/// PC, or the encoder has hung.
+/// PC, or Joney's lock program has stopped answering.
 /// </summary>
 public sealed class TrayApp : ApplicationContext
 {

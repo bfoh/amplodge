@@ -57,7 +57,7 @@ const ROOM = crypto.randomUUID(), GUEST = crypto.randomUUID(), BOOKING = crypto.
 tables.rooms = [{ id: ROOM, room_number: '101' }]
 tables.guests = [{ id: GUEST, name: 'Ama Mensah' }]
 tables.bookings = [{ id: BOOKING, room_id: ROOM, guest_id: GUEST, status: 'checked-in', check_in: day(0), check_out: day(3) }]
-tables.room_locks = [{ id: crypto.randomUUID(), room_id: ROOM, lock_no: '01011001', label: null }]
+tables.room_locks = [{ id: crypto.randomUUID(), room_id: ROOM, lock_no: '01030A', label: null }]
 tables.lock_encoders = []; tables.key_cards = []; tables.activity_logs = []
 
 // ─── The server: the real handlers over HTTP ─────────────────────────────────

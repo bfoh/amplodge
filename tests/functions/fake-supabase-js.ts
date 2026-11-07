@@ -32,6 +32,7 @@ function databaseRules(table: string, row: Row) {
 
 class Query {
   private filters: Array<(r: Row) => boolean> = []
+  private sorts: Array<(a: Row, b: Row) => number> = []
   private op: 'select' | 'insert' | 'update' | 'delete' = 'select'
   private payload: any
   private wanted: 'single' | 'maybe' | null = null
@@ -55,7 +56,13 @@ class Query {
   in(c: string, vs: any[]) { const set = vs.map(String); this.filters.push((r) => set.includes(String(r[c]))); return this }
   lt(c: string, v: any) { this.filters.push((r) => String(r[c]) < String(v)); return this }
   gt(c: string, v: any) { this.filters.push((r) => String(r[c]) > String(v)); return this }
-  order() { return this }
+  /** Array column shares at least one value with vs (PostgREST `ov`). */
+  overlaps(c: string, vs: any[]) { this.filters.push((r) => Array.isArray(r[c]) && r[c].some((x: any) => vs.includes(x))); return this }
+  order(c: string, opts: { ascending?: boolean } = {}) {
+    const dir = opts.ascending === false ? -1 : 1
+    this.sorts.push((a, b) => (a[c] === b[c] ? 0 : a[c] == null ? 1 : b[c] == null ? -1 : String(a[c]) < String(b[c]) ? -dir : dir))
+    return this
+  }
   limit(n: number) { this.max = n; return this }
   single() { this.wanted = 'single'; return this }
   maybeSingle() { this.wanted = 'maybe'; return this }
@@ -86,7 +93,8 @@ class Query {
       matched.forEach((r) => { Object.assign(r, this.payload); writes.push({ table: this.table, op: 'update', row: r }) })
       return { data: matched, error: null }
     }
-    const out = matched.slice(0, this.max)
+    const sorted = this.sorts.length ? [...matched].sort((a, b) => { for (const f of this.sorts) { const d = f(a, b); if (d) return d } return 0 }) : matched
+    const out = sorted.slice(0, this.max)
     if (this.wanted === 'single') return out.length === 1 ? { data: out[0], error: null } : { data: null, error: { code: 'PGRST116', message: 'no rows' } }
     if (this.wanted === 'maybe') return { data: out[0] ?? null, error: null }
     return { data: out, error: null }

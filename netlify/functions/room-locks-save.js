@@ -1,5 +1,5 @@
 import { requireAdmin, jsonResponse, handleCors } from './_lib/auth.js'
-import { serviceClient, isLockNo, logActivity, parseBody, UUID } from './_lib/key-cards.js'
+import { serviceClient, isLockNo, normalizeLockNo, logActivity, parseBody, UUID } from './_lib/key-cards.js'
 
 /**
  * Sets the lock number(s) of one room. Admins only: this decides which door a
@@ -20,9 +20,9 @@ export const handler = async (event) => {
   const locks = Array.isArray(body.locks) ? body.locks : null
   if (typeof roomId !== 'string' || !UUID.test(roomId)) return jsonResponse(400, { error: 'roomId is required' })
   if (!locks || locks.length > 4) return jsonResponse(400, { error: 'locks must be a list of at most 4' })
-  const wanted = locks.map((l) => ({ lockNo: String(l?.lockNo ?? '').trim(), label: l?.label ? String(l.label).slice(0, 60) : null }))
+  const wanted = locks.map((l) => ({ lockNo: normalizeLockNo(l?.lockNo), label: l?.label ? String(l.label).slice(0, 60) : null }))
   const bad = wanted.find((l) => !isLockNo(l.lockNo))
-  if (bad) return jsonResponse(400, { error: `"${bad.lockNo}" is not a lock number: it must be 8 digits, starting 00 to 15.` })
+  if (bad) return jsonResponse(400, { error: `"${bad.lockNo.slice(0, 20)}" is not a lock number: it is the 6-character code the Lock Management System shows for the door, 0-9 and A-F (e.g. 01020A).` })
   if (new Set(wanted.map((l) => l.lockNo)).size !== wanted.length) return jsonResponse(400, { error: 'The same lock number is listed twice' })
 
   try {

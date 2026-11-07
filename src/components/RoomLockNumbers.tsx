@@ -5,7 +5,7 @@ import { db } from '@/lib/db'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { isLockNo, saveRoomLocks, type RoomLock } from '@/services/key-cards'
+import { isLockNo, normalizeLockNo, saveRoomLocks, type RoomLock } from '@/services/key-cards'
 
 interface RoomRow {
   id: string
@@ -13,12 +13,12 @@ interface RoomRow {
   name?: string
 }
 
-const split = (s: string) => s.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean)
+const split = (s: string) => s.split(/[\s,]+/).map(normalizeLockNo).filter(Boolean)
 
 /**
- * Admins set which door lock(s) each room's guest card opens. The numbers come
- * from the lock software's "Export LockNo" file. A room with two doors (a
- * suite) gets two numbers, separated by a comma.
+ * Admins set which door lock(s) each room's guest card opens: the 6-character
+ * code Joney's Lock Management System shows for each door (also in its "Export
+ * LockNo" file). A room with two doors (a suite) gets two, separated by a comma.
  */
 export function RoomLockNumbers({ rooms }: { rooms: RoomRow[] }) {
   const [locks, setLocks] = useState<RoomLock[]>([])
@@ -54,7 +54,7 @@ export function RoomLockNumbers({ rooms }: { rooms: RoomRow[] }) {
     const numbers = split(value)
     const bad = numbers.find((n) => !isLockNo(n))
     if (bad) {
-      toast.error(`"${bad}" is not a lock number: 8 digits, starting 00 to 15.`)
+      toast.error(`"${bad}" is not a lock number: 6 characters, 0-9 and A-F (e.g. 01020A).`)
       return
     }
     setSaving(room.id)
@@ -81,8 +81,9 @@ export function RoomLockNumbers({ rooms }: { rooms: RoomRow[] }) {
           Door lock numbers
         </CardTitle>
         <CardDescription>
-          The lock each room's key card opens, from the lock software's "Export LockNo" file: 8 digits.
-          For a room with two doors, enter both numbers separated by a comma.
+          The lock each room's key card opens: the 6-character code the Lock Management System shows for
+          the door (0-9 and A-F, also in its "Export LockNo" file). For a room with two doors, enter both
+          codes separated by a comma.
           {loaded && rooms.length > 0 && (withoutLock ? ` ${withoutLock} of ${rooms.length} rooms have no lock number yet.` : ' Every room has a lock number.')}
         </CardDescription>
       </CardHeader>
@@ -108,8 +109,10 @@ export function RoomLockNumbers({ rooms }: { rooms: RoomRow[] }) {
                   <Input
                     aria-label={`Lock number for room ${room.roomNumber}`}
                     className="flex-1 min-w-[10rem] font-mono"
-                    inputMode="numeric"
-                    placeholder="e.g. 01011001"
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="e.g. 01020A"
                     value={value}
                     onChange={(e) => setDrafts((d) => ({ ...d, [room.id]: e.target.value }))}
                   />

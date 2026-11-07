@@ -6,14 +6,14 @@
 import crypto from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { cardTime, publicKeyBase64, signOrder, verifyOrder } from '../../../../netlify/functions/_lib/key-cards.js'
+import { ORDER_VERSION, cardTime, publicKeyBase64, signOrder, verifyOrder } from '../../../../netlify/functions/_lib/key-cards.js'
 
 const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' })
 const encoderId = '7d1f4c2a-9b3e-4d5f-8a6b-0c1d2e3f4a5b'
 const begin = new Date(Date.UTC(2026, 10, 7, 13, 0))
 const end = new Date(Date.UTC(2026, 10, 9, 12, 0))
 const order = JSON.stringify({
-  v: 1,
+  v: ORDER_VERSION,
   kind: 'guest-cards',
   challenge: `${encoderId}.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`,
   nonce: crypto.randomBytes(18).toString('base64url'),
@@ -24,7 +24,8 @@ const order = JSON.stringify({
   begin: cardTime(begin),
   end: cardTime(end),
   validUntil: end.toISOString(),
-  cards: [{ cardNo: 0, lockNos: ['01011001', '01011002'] }, { cardNo: 1, lockNos: ['01011001', '01011002'] }],
+  dai: 3,
+  cards: [{ cardNo: 0, lockNos: ['010309', '01030A'] }, { cardNo: 1, lockNos: ['010309', '01030A'] }],
 })
 const publicKey = publicKeyBase64(privateKey)
 const signature = signOrder(order, privateKey)
