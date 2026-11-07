@@ -12,7 +12,7 @@ import { handler as order } from '../../netlify/functions/key-card-order.js'
 import { handler as receipt } from '../../netlify/functions/key-card-receipt.js'
 import { handler as mark } from '../../netlify/functions/key-card-mark.js'
 import { handler as lockout } from '../../netlify/functions/key-card-lockout.js'
-import { suggestDoorRoom } from '@/services/key-cards'
+import { doorsOf, suggestDoorRoom } from '@/services/key-cards'
 import { NO_BOOKING, cardTime, ceilToMinute, floorToMinute, isLockNo, nextDai, validityFor, verifyOrder } from '../../netlify/functions/_lib/key-cards.js'
 
 let failures = 0
@@ -295,6 +295,7 @@ check('only a cut-off card: "working" cannot be put back on any other card', [
   check('a room off the pattern means there is no pattern (the lock program numbers doors as they were set up)', suggestDoorRoom('0B0103', odd).roomId, null)
   check('one room is no pattern: 201 is …01 does not make …0B room 211', suggestDoorRoom('0B010B', [room('201', '0B0101'), room('211')]).roomId, null)
   check('not a door code: nothing', suggestDoorRoom('C9', floor).roomId, null)
+  check('a room has one door, two rooms joined ("110+109") have two', ['201', '110+109', 'FLAT', '1+2+3'].map(doorsOf), [1, 2, 1, 3])
 }
 
 // ─── Updating a card after the stay is extended ──────────────────────────────

@@ -348,17 +348,25 @@ export function suggestDoorRoom(lockNo: string, rooms: DoorPlacement['rooms']): 
 
 /** The rooms a door code read from a card could be added to, and the likely one. */
 export async function placeDoorCode(lockNo: string): Promise<DoorPlacement> {
+  const list = await loadDoorRooms()
+  const { roomId, basis } = suggestDoorRoom(lockNo, list)
+  return { rooms: list, suggested: roomId, basis }
+}
+
+/** Every room with its door codes now, in room-number order. */
+export async function loadDoorRooms(): Promise<DoorPlacement['rooms']> {
   const [rooms, locks] = await Promise.all([
     db.rooms.list({ limit: 1000 }) as Promise<Array<{ id: string; roomNumber: string | number | null }>>,
     db.roomLocks.list({ limit: 1000 }) as Promise<RoomLock[]>,
   ])
-  const list = rooms
+  return rooms
     .filter((r) => r.roomNumber != null && String(r.roomNumber).trim() !== '')
     .map((r) => ({ roomId: r.id, roomNumber: String(r.roomNumber), locks: locks.filter((l) => l.roomId === r.id) }))
     .sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true }))
-  const { roomId, basis } = suggestDoorRoom(lockNo, list)
-  return { rooms: list, suggested: roomId, basis }
 }
+
+/** How many doors a room has, going by its number: "110+109" is two rooms joined, so two doors. */
+export const doorsOf = (roomNumber: string) => Math.max(1, String(roomNumber).split('+').filter((p) => p.trim()).length)
 
 async function post(name: string, body: unknown) {
   const res = await callFunction(name, {

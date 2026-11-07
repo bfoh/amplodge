@@ -42,7 +42,8 @@ import { ExtendStayDialog } from '@/components/dialogs/ExtendStayDialog'
 import { GroupManageDialog } from '@/components/dialogs/GroupManageDialog'
 import { getGroupMembers } from '@/lib/booking-groups'
 import { Settings } from 'lucide-react'
-import { Receipt, CalendarPlus, MoreHorizontal, CreditCard, User, Users, Mail, Ban, MessageCircle, FileText } from 'lucide-react'
+import { Receipt, CalendarPlus, MoreHorizontal, CreditCard, User, Users, Mail, Ban, MessageCircle, FileText, KeyRound } from 'lucide-react'
+import { promptStayCards } from '@/services/key-card-prompt'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -108,6 +109,9 @@ function StatusBadge({ status }: { status: string }) {
     </span>
   )
 }
+
+/** Bookings that can have key cards: arriving, staying, or just left with cards to take back. */
+const KEY_CARD_STATUSES = ['confirmed', 'reserved', 'checked-in', 'checked-out']
 
 /** How far back the list reaches before "Show older" is used. Older stays live on the History page. */
 const HISTORY_WINDOW_DAYS = 60
@@ -1500,6 +1504,12 @@ export function ReservationsPage() {
                                         </DropdownMenuItem>
                                       </>
                                     )}
+                                    {KEY_CARD_STATUSES.includes(b.status) && (
+                                      <DropdownMenuItem onClick={() => void promptStayCards({ bookingId: b.id, guestName: displayName, roomNumber })}>
+                                        <KeyRound className="w-4 h-4 mr-2" />
+                                        <span>Key cards</span>
+                                      </DropdownMenuItem>
+                                    )}
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem onClick={() => handleDownloadInvoice(b)}>
                                       <Download className="w-4 h-4 mr-2" />
@@ -1629,6 +1639,11 @@ export function ReservationsPage() {
                                 <CalendarPlus className="w-4 h-4 mr-2" /> Extend Stay
                               </DropdownMenuItem>
                             </>
+                          )}
+                          {KEY_CARD_STATUSES.includes(b.status) && (
+                            <DropdownMenuItem onClick={() => void promptStayCards({ bookingId: b.id, guestName: displayName, roomNumber })}>
+                              <KeyRound className="w-4 h-4 mr-2" /> Key cards
+                            </DropdownMenuItem>
                           )}
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => handleDownloadInvoice(b)}>

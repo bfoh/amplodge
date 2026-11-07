@@ -5,7 +5,7 @@
  * prompt can follow without two dialogs fighting.
  */
 import { db } from '@/lib/db'
-import { endsBefore, loadStayCards, withinLocks, type KeyCard } from '@/services/key-cards'
+import { canOpenDoor, endsBefore, loadStayCards, withinLocks, type KeyCard } from '@/services/key-cards'
 
 export interface KeyCardRequest {
   bookingId: string
@@ -18,6 +18,8 @@ export interface KeyCardRequest {
   replace?: boolean
   /** A lock-out card for this room instead of guest cards (bookingId is then empty). */
   lockoutRoomId?: string
+  /** One of several stays carded in a row: which one, and how to stop the rest. */
+  queue?: { at: number; of: number; stop: () => void }
 }
 
 type Opener = (req: KeyCardRequest, closed: () => void) => void
@@ -31,7 +33,7 @@ export function subscribeKeyCardPrompt(fn: Opener | null): void {
 async function roomHasLock(bookingId: string): Promise<boolean> {
   const booking = (await db.bookings.get(bookingId)) as { roomId?: string } | null
   if (!booking?.roomId) return false
-  const locks = (await db.roomLocks.list({ where: { roomId: booking.roomId } })) as unknown[]
+  const locks = (await db.roomLocks.list({ where: { roomId: booking.roomId }, limit: 10 })) as unknown[]
   return locks.length > 0
 }
 
@@ -135,5 +137,47 @@ export async function promptCollectCards(req: StayCardsRequest): Promise<void> {
   }
   const open = collectOpener
   if (!open) return
+  await new Promise<void>((resolve) => open(req, resolve))
+}
+
+// ─── Several stays in a row ──────────────────────────────────────────────────
+
+/**
+ * Makes cards for several stays one after another (a group's rooms, or every
+ * stay on the Key cards page that needs one). Stays whose room has no lock,
+ * and stays that have a working card already, are left out. Resolves with how
+ * many stays were offered cards.
+ */
+export async function queueKeyCards(reqs: KeyCardRequest[]): Promise<number> {
+  const todo: KeyCardRequest[] = []
+  for (const r of reqs) {
+    try {
+      if (!(await roomHasLock(r.bookingId))) continue
+      const cards = await loadStayCards(r.bookingId)
+      if (cards.some((c) => canOpenDoor(c) && c.status !== 'not_returned')) continue
+      todo.push(r)
+    } catch (e) {
+      console.warn('[KeyCards] could not check a stay for the queue', e)
+    }
+  }
+  let stopped = false
+  for (let i = 0; i < todo.length && !stopped; i++) {
+    await promptKeyCards({ ...todo[i], queue: { at: i + 1, of: todo.length, stop: () => { stopped = true } } })
+  }
+  return todo.length
+}
+
+// ─── One stay's cards ────────────────────────────────────────────────────────
+
+let stayOpener: StayOpener | null = null
+
+export function subscribeStayPrompt(fn: StayOpener | null): void {
+  stayOpener = fn
+}
+
+/** Shows a stay's key cards and what can be done with them (from a booking's menu). */
+export async function promptStayCards(req: StayCardsRequest): Promise<void> {
+  const open = stayOpener
+  if (!open || !req.bookingId) return
   await new Promise<void>((resolve) => open(req, resolve))
 }

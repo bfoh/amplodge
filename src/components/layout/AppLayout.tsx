@@ -9,6 +9,7 @@ import { StaffSidebar } from './StaffSidebar'
 import { MobileBottomNav } from './MobileBottomNav'
 import { IdleWarningDialog } from './IdleWarningDialog'
 import { useIdleLogout } from '@/hooks/use-idle-logout'
+import { EncoderStatusPill } from '@/components/EncoderStatusPill'
 
 export function AppLayout() {
   const location = useLocation()
@@ -86,6 +87,7 @@ export function AppLayout() {
           <h1 className="text-lg font-bold tracking-tight text-foreground/90 truncate max-w-[200px]">{currentTitle}</h1>
         </div>
         <div className="flex items-center gap-1">
+          <EncoderStatusPill compact />
           <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full hover:bg-primary/5 active:scale-95 transition-all">
             <Bell className="w-5 h-5 text-foreground/70" />
           </Button>
@@ -104,6 +106,7 @@ export function AppLayout() {
         <div className="lg:flex items-center justify-between px-8 border-b hidden h-[72px] bg-white/50 backdrop-blur-sm">
           <h1 className="text-2xl font-bold tracking-tight text-[#0B1220]">{currentTitle}</h1>
           <div className="flex items-center gap-4">
+            <EncoderStatusPill />
             <Button variant="outline" size="icon" className="rounded-full h-10 w-10 border-primary/10 hover:bg-primary/5 transition-all">
               <Bell className="w-5 h-5" />
             </Button>

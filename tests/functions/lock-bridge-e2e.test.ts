@@ -28,7 +28,7 @@ import {
   pairThisPc, prepareCardUpdate, prepareKeyCards, prepareLockoutCard, readCard, writeKeyCard,
 } from '@/services/lock-bridge'
 import { identifyCard, markCard, placeDoorCode, saveRoomLocks } from '@/services/key-cards'
-import { cardsOut, cardsOutOfStep } from '@/services/key-card-prompt'
+import { cardsOut, cardsOutOfStep, queueKeyCards, subscribeKeyCardPrompt } from '@/services/key-card-prompt'
 
 let failures = 0
 const check = (label: string, got: unknown, want: unknown) => {
@@ -242,6 +242,31 @@ try {
     [amaAgain.records.map((c) => c.status), amaAgain.newer?.orderNonce], [['locked_out'], lo.nonce])
   await markCard(amaAgain.records[0].id, 'returned')
   check('it is handed in and marked returned', (await identifyCard(read)).records.map((c) => c.status), ['returned'])
+
+  // ── A queue of stays: only those with a door lock and no working card are offered ──
+  const R104 = crypto.randomUUID(), B2 = crypto.randomUUID(), B3 = crypto.randomUUID(), B4 = crypto.randomUUID()
+  tables.rooms.push({ id: R104, room_number: '104' })
+  tables.bookings.push(
+    { id: B2, room_id: R102, guest_id: GUEST, status: 'checked-in', check_in: day(0), check_out: day(2) },
+    { id: B3, room_id: R104, guest_id: GUEST, status: 'checked-in', check_in: day(0), check_out: day(2) },
+    { id: B4, room_id: R103, guest_id: GUEST, status: 'checked-in', check_in: day(0), check_out: day(2) },
+  )
+  tables.key_cards.push({
+    id: crypto.randomUUID(), kind: 'guest', booking_id: B4, room_id: R103, guest_name: 'Ama Mensah', room_number: '103', lock_nos: ['01030C'],
+    order_nonce: 'q', card_no: 0, dai: 1, issue_time: new Date().toISOString(), valid_until: `${day(2)}T12:00:00.000Z`, status: 'issued',
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+  })
+  const offered: string[] = []
+  subscribeKeyCardPrompt((req, closed) => { offered.push(`${req.roomNumber} ${req.queue?.at}/${req.queue?.of}`); closed() })
+  const n = await queueKeyCards([B2, B3, B4].map((id, i) => ({ bookingId: id, roomNumber: ['102', '104', '103'][i] })))
+  check('the queue offers only the stay with a lock and no working card', [n, offered], [1, ['102 1/1']])
+  offered.length = 0
+  subscribeKeyCardPrompt((req, closed) => { offered.push(String(req.roomNumber)); req.queue?.stop(); closed() })
+  const B5 = crypto.randomUUID()
+  tables.bookings.push({ id: B5, room_id: R102, guest_id: GUEST, status: 'checked-in', check_in: day(0), check_out: day(2) })
+  await queueKeyCards([{ bookingId: B2, roomNumber: '102' }, { bookingId: B5, roomNumber: '102b' }])
+  check('stopping the queue stops it', offered, ['102'])
+  subscribeKeyCardPrompt(null)
 
   // ── Unpairing ──
   clientSession.token = 'tok-admin'

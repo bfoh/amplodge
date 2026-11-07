@@ -188,7 +188,10 @@ export function KeyCardDialog() {
       )
       footer = (
         <>
-          <Button variant="outline" onClick={close}>Not now</Button>
+          {request?.queue && request.queue.at < request.queue.of && (
+            <Button variant="ghost" onClick={() => { request.queue!.stop(); close() }}>Stop the queue</Button>
+          )}
+          <Button variant="outline" onClick={close}>{request?.queue ? 'Skip this one' : 'Not now'}</Button>
           <Button onClick={() => void prepare(count)}><CreditCard className="mr-2 h-4 w-4" />Make {count === 1 ? 'the card' : `${count} cards`}</Button>
         </>
       )
@@ -285,7 +288,10 @@ export function KeyCardDialog() {
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5 text-primary" />{lockout ? 'Lock-out card' : 'Key cards'} for room {room}</DialogTitle>
-          <DialogDescription>{step.kind === 'elsewhere' ? 'This device cannot write key cards.' : guest}</DialogDescription>
+          <DialogDescription>
+            {step.kind === 'elsewhere' ? 'This device cannot write key cards.' : guest}
+            {request?.queue && ` · ${request.queue.at} of ${request.queue.of}`}
+          </DialogDescription>
         </DialogHeader>
         {body}
         {footer && <DialogFooter className="gap-2 sm:gap-0">{footer}</DialogFooter>}

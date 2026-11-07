@@ -17,9 +17,10 @@ import {
   STATUS_LABEL, hotelDay, hotelTime, loadKeyCardBoard, markCard,
   type CardMark, type KeyCard, type KeyCardBoard,
 } from '@/services/key-cards'
-import { promptKeyCards, promptLockoutCard, promptUpdateCards, type KeyCardRequest, type StayCardsRequest } from '@/services/key-card-prompt'
+import { promptKeyCards, promptLockoutCard, promptUpdateCards, queueKeyCards, type KeyCardRequest, type StayCardsRequest } from '@/services/key-card-prompt'
 import { bridgeStatus, getEncoderPc, type BridgeStatus } from '@/services/lock-bridge'
 import { ReadCardPanel } from '@/components/ReadCardPanel'
+import { DoorCodesCard } from '@/components/DoorCodeWalkthrough'
 
 const when = (iso: string) => format(new Date(iso), 'EEE d MMM, HH:mm')
 
@@ -58,6 +59,14 @@ export default function KeyCardsPage() {
 
   async function makeCards(n: KeyCardRequest) {
     await promptKeyCards(n)
+    await reload()
+    void checkBridge()
+  }
+
+  /** Cards for every stay that needs one, one after another. */
+  async function makeAll(list: KeyCardRequest[]) {
+    const offered = await queueKeyCards(list)
+    if (!offered) toast.info('Every stay on the list has its cards now.')
     await reload()
     void checkBridge()
   }
@@ -278,7 +287,16 @@ export default function KeyCardsPage() {
         'Checked in, or arriving today, with no working card. Cards are made at the reception PC that has the card encoder.',
         <CreditCard className="w-5 h-5 text-primary" />, needsCard.length,
         needsCard.length ? (
-          <>{needsCard.map((n) => (
+          <>
+          {encoderPc && needsCard.length > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 py-3">
+              <span className="text-sm text-muted-foreground">Have a pile of blank cards ready: the cards are made room after room.</span>
+              <Button size="sm" variant="outline" onClick={() => void makeAll(needsCard)}>
+                <CreditCard className="w-4 h-4 mr-1" /> Make cards for all {needsCard.length}
+              </Button>
+            </div>
+          )}
+          {needsCard.map((n) => (
             <div key={n.bookingId} className="flex flex-wrap items-center justify-between gap-3 py-3">
               <div>
                 <div className="font-semibold">Room {n.roomNumber} <span className="font-normal text-muted-foreground">· {n.guestName}</span></div>
@@ -293,7 +311,8 @@ export default function KeyCardsPage() {
                 )}
               </div>
             </div>
-          ))}</>
+          ))}
+          </>
         ) : nothing,
       )}
 
@@ -312,6 +331,8 @@ export default function KeyCardsPage() {
       )}
 
       {encoderPc && <ReadCardPanel isAdmin={isAdmin} onChanged={reload} />}
+
+      {encoderPc && isAdmin && <DoorCodesCard onChanged={reload} />}
 
       {encoderPc && (
         <Card>

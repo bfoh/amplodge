@@ -36,8 +36,9 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
     Loader2, Plus, Trash2, Users, AlertTriangle, Crown, Pencil, PlusCircle, Minus,
-    LogIn, LogOut, Ban, FileDown, Tag, Wrench, Lock,
+    LogIn, LogOut, Ban, FileDown, Tag, Wrench, Lock, KeyRound,
 } from 'lucide-react'
+import { queueKeyCards } from '@/services/key-card-prompt'
 import {
     AlertDialog,
     AlertDialogAction,
@@ -227,6 +228,14 @@ export function GroupManageDialog({
     }, [groupDates])
 
     const checkedInCount = members.filter(m => m.status === 'checked-in').length
+
+    /** Key cards for every checked-in room of the group that has none yet, one room after another. */
+    async function makeGroupCards() {
+        const offered = await queueKeyCards(members
+            .filter(m => m.status === 'checked-in')
+            .map(m => ({ bookingId: m.id, guestName: m.guestName, roomNumber: m.roomNumber })))
+        if (!offered) toast.info('Every checked-in room of the group has its key cards (or no door lock).')
+    }
     const checkedOutCount = members.filter(m => m.status === 'checked-out').length
     const totalAmount = useMemo(() => members.reduce((sum, m) => sum + m.totalPrice, 0), [members])
 
@@ -757,6 +766,11 @@ export function GroupManageDialog({
                                     <Button size="sm" variant="outline" onClick={openBillingEditor}>
                                         <Tag className="w-4 h-4 mr-1.5" /> Billing & Charges
                                     </Button>
+                                    {checkedInCount > 0 && (
+                                        <Button size="sm" variant="outline" onClick={() => void makeGroupCards()}>
+                                            <KeyRound className="w-4 h-4 mr-1.5" /> Key Cards
+                                        </Button>
+                                    )}
                                     <Button size="sm" variant="outline" onClick={handleDownloadInvoice} disabled={downloadingInvoice}>
                                         {downloadingInvoice ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <FileDown className="w-4 h-4 mr-1.5" />}
                                         Group Invoice
