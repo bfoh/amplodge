@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace LockBridge.Core;
 
 /// <summary>One Windows Firewall rule, with only what the port check needs (from INetFwRule).</summary>
@@ -11,9 +13,20 @@ public sealed record FirewallRule(bool Enabled, bool Inbound, bool Block, int Pr
 /// address except 127.x (which the DLL on this PC uses). Block rules win over Allow rules, so
 /// only Block rules matter, and a rule that can't be read can only make the answer "no".
 /// </summary>
+/// <summary>What Windows Firewall says: the network profiles in use, which of them have the firewall on, and the rules that may name the port.</summary>
+public sealed record FirewallView(int CurrentProfiles, IReadOnlyDictionary<int, bool> On, IReadOnlyList<FirewallRule> Rules)
+{
+    public bool BlocksInbound(int port) => Firewall.BlocksInbound(Rules, CurrentProfiles, b => On.GetValueOrDefault(b), port);
+
+    public string Describe(int port) =>
+        $"profiles in use {CurrentProfiles}, firewall on {string.Join(",", On.OrderBy(p => p.Key).Select(p => $"{p.Key}={p.Value}"))}, " +
+        $"{Rules.Count(r => Firewall.ListsPort(r.LocalPorts, port))} block rule(s) name port {port}";
+}
+
 public static class Firewall
 {
     public const int Tcp = 6;
+    public const int AllProfiles = 0x7FFFFFFF;
 
     // NET_FW_PROFILE2_DOMAIN, _PRIVATE and _PUBLIC; a rule for all of them has Profiles 0x7FFFFFFF.
     public static readonly int[] ProfileBits = [1, 2, 4];
@@ -86,6 +99,76 @@ public static class Firewall
         range = (first, first | ~mask);
         return true;
     }
+
+    /// <summary>
+    /// The PowerShell the probe used to read the firewall (it worked on the reception PC, where the
+    /// COM interface did not), answering in JSON for <see cref="FromPowerShell"/>: the enabled inbound
+    /// Block rules whose ports may include the port, the network categories in use, and the profiles.
+    /// One line, no double quotes: it is passed as powershell.exe's -Command argument.
+    /// </summary>
+    public static string PowerShellCheck(int port) => string.Join(" ", $$"""
+        $ErrorActionPreference = 'Stop';
+        $ProgressPreference = 'SilentlyContinue';
+        $port = '{{port}}';
+        $rules = @(Get-NetFirewallRule -PolicyStore ActiveStore -Direction Inbound -Action Block -Enabled True | ForEach-Object {
+          $rule = $_;
+          $pf = $rule | Get-NetFirewallPortFilter;
+          $ports = @(@($pf.LocalPort) | ForEach-Object { '' + $_ });
+          if (@($ports | Where-Object { $_ -eq $port -or $_ -match '^[0-9]+-[0-9]+$' }).Count -gt 0) {
+            $remote = @(@(($rule | Get-NetFirewallAddressFilter).RemoteAddress) | ForEach-Object { '' + $_ });
+            [pscustomobject]@{ protocol = '' + $pf.Protocol; ports = $ports -join ','; remote = $remote -join ','; profile = [int]$rule.Profile };
+          }
+        });
+        $nets = @(Get-NetConnectionProfile -ErrorAction SilentlyContinue | ForEach-Object { '' + $_.NetworkCategory });
+        $profiles = @(Get-NetFirewallProfile -PolicyStore ActiveStore | ForEach-Object { [pscustomobject]@{ name = '' + $_.Name; enabled = (('' + $_.Enabled) -eq 'True') } });
+        ConvertTo-Json -InputObject ([pscustomobject]@{ rules = $rules; nets = $nets; profiles = $profiles }) -Compress -Depth 4
+        """.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
+
+    /// <summary>
+    /// Reads <see cref="PowerShellCheck"/>'s answer. Its rules are enabled inbound Block rules already.
+    /// A rule's profile 0 is "Any"; network category DomainAuthenticated is the Domain profile.
+    /// PowerShell writes a one-item list as the item itself, so either is taken.
+    /// </summary>
+    public static FirewallView FromPowerShell(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        var current = 0;
+        foreach (var n in Many(root, "nets")) current |= ProfileBit(n.GetString());
+        var on = new Dictionary<int, bool>();
+        foreach (var p in Many(root, "profiles"))
+            if (ProfileBit(Text(p, "name")) is var bit and not 0) on[bit] = p.TryGetProperty("enabled", out var e) && e.ValueKind == JsonValueKind.True;
+        var rules = Many(root, "rules").Select(r =>
+        {
+            var protocol = Text(r, "protocol");
+            var remote = Text(r, "remote");
+            var profile = r.TryGetProperty("profile", out var pr) && pr.TryGetInt32(out var v) ? v : -1;
+            return new FirewallRule(
+                Enabled: true, Inbound: true, Block: true,
+                Protocol: string.Equals(protocol, "TCP", StringComparison.OrdinalIgnoreCase) ? Tcp : int.TryParse(protocol, out var no) ? no : -1,
+                LocalPorts: Text(r, "ports"),
+                RemoteAddresses: (remote ?? "").Split(',', StringSplitOptions.TrimEntries).Any(a => a.Equals("Any", StringComparison.OrdinalIgnoreCase)) ? "*" : remote,
+                Profiles: profile == 0 ? AllProfiles : profile is > 0 and <= 7 ? profile : 0);
+        }).ToList();
+        return new FirewallView(current, on, rules);
+    }
+
+    private static int ProfileBit(string? name) => name?.Trim().ToLowerInvariant() switch
+    {
+        "domain" or "domainauthenticated" => 1,
+        "private" => 2,
+        "public" => 4,
+        _ => 0,
+    };
+
+    private static string? Text(JsonElement e, string name) =>
+        e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private static IEnumerable<JsonElement> Many(JsonElement root, string name) =>
+        !root.TryGetProperty(name, out var v) ? []
+        : v.ValueKind == JsonValueKind.Array ? v.EnumerateArray().ToList()
+        : v.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined ? []
+        : [v];
 
     /// <summary>Exactly four dotted numbers 0-255 (IPAddress.TryParse would also take "1" or "1.2").</summary>
     private static bool TryV4(string s, out ulong value)

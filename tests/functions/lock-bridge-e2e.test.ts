@@ -153,7 +153,7 @@ try {
   const reported = await until(() => tables.key_cards.map((c) => c.status), (s) => s.every((x) => x === 'issued'))
   check('both cards reach the server as issued', reported, ['issued', 'issued'])
   const enc = tables.lock_encoders[0]
-  check('the server knows the bridge\'s version and that it is the simulator', [!!enc.last_seen_at, enc.bridge_version, enc.dll_version], [true, '0.1.0', 'simulator'])
+  check('the server knows the bridge\'s version and that it is the simulator', [!!enc.last_seen_at, enc.bridge_version, enc.dll_version], [true, '0.1.1', 'simulator'])
   check('both are in the activity log', tables.activity_logs.filter((l) => l.action === 'key_card_issued').length, 2)
   const status = await until(() => bridgeStatus(), (s) => s.unsentResults === 0)
   check('nothing is left unsent', status.unsentResults, 0)

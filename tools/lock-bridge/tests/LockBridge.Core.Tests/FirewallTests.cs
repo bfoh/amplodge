@@ -88,4 +88,77 @@ public class FirewallTests
         Assert.Equal(LockServerState.LocalOnly, LockServer.WithFirewall(LockServerState.LocalOnly, true));
         Assert.Equal(LockServerState.NotRunning, LockServer.WithFirewall(LockServerState.NotRunning, true));
     }
+
+    // PowerShellCheck's answer on a PC like the reception PC: on a Public network, the probe's rule in place.
+    private const string Answer = """
+        {"rules":[{"protocol":"TCP","ports":"10086","remote":"0.0.0.0-126.255.255.255,128.0.0.0-255.255.255.255","profile":0}],
+         "nets":["Public"],
+         "profiles":[{"name":"Domain","enabled":true},{"name":"Private","enabled":true},{"name":"Public","enabled":true}]}
+        """;
+
+    [Fact]
+    public void The_PowerShell_answer_on_the_reception_PC_keeps_other_computers_out()
+    {
+        var view = Firewall.FromPowerShell(Answer);
+        Assert.Equal(Public, view.CurrentProfiles);
+        Assert.Equal(AllProfiles, Assert.Single(view.Rules).Profiles); // profile 0 = Any
+        Assert.True(view.BlocksInbound(10086));
+        Assert.Equal("profiles in use 4, firewall on 1=True,2=True,4=True, 1 block rule(s) name port 10086", view.Describe(10086));
+    }
+
+    [Fact]
+    public void PowerShell_may_write_a_one_item_list_as_the_item()
+    {
+        var view = Firewall.FromPowerShell("""
+            {"rules":{"protocol":"6","ports":"10086","remote":"Any","profile":4},"nets":"Public","profiles":{"name":"Public","enabled":true}}
+            """);
+        Assert.True(view.BlocksInbound(10086));
+        Assert.Equal("*", view.Rules[0].RemoteAddresses);
+    }
+
+    [Theory]
+    [InlineData("""{"rules":[],"nets":["Public"],"profiles":[{"name":"Public","enabled":true}]}""")]                   // no rule
+    [InlineData("""{"rules":null,"nets":["Public"],"profiles":[{"name":"Public","enabled":true}]}""")]
+    [InlineData("""{"rules":[{"protocol":"TCP","ports":"10086","remote":"0.0.0.0-126.255.255.255,128.0.0.0-255.255.255.255","profile":0}],"nets":["Public"],"profiles":[{"name":"Public","enabled":false}]}""")] // firewall off
+    [InlineData("""{"rules":[{"protocol":"TCP","ports":"10086","remote":"0.0.0.0-126.255.255.255,128.0.0.0-255.255.255.255","profile":2}],"nets":["Public"],"profiles":[{"name":"Public","enabled":true}]}""")] // Private only
+    [InlineData("""{"rules":[{"protocol":"UDP","ports":"10086","remote":"Any","profile":0}],"nets":["Public"],"profiles":[{"name":"Public","enabled":true}]}""")]
+    [InlineData("""{"rules":[{"protocol":"TCP","ports":"10086","remote":"LocalSubnet","profile":0}],"nets":["Public"],"profiles":[{"name":"Public","enabled":true}]}""")]
+    [InlineData("""{"rules":[{"protocol":"TCP","ports":"10086","remote":"Any","profile":65535}],"nets":["Public"],"profiles":[{"name":"Public","enabled":true}]}""")] // NotApplicable
+    [InlineData("""{"rules":[{"protocol":"TCP","ports":"10086","remote":"Any","profile":0}],"nets":[],"profiles":[{"name":"Public","enabled":true}]}""")]  // no network
+    public void PowerShell_answers_that_do_not_keep_other_computers_out(string json) =>
+        Assert.False(Firewall.FromPowerShell(json).BlocksInbound(10086));
+
+    [Fact]
+    public void Rules_the_check_passes_on_are_judged_here()
+    {
+        // PowerShellCheck run against stand-in firewall cmdlets: the probe's rule, a UDP range and a
+        // TCP list for the local subnet only. Only the first keeps every other computer out.
+        var view = Firewall.FromPowerShell("""
+            {"rules":[{"protocol":"TCP","ports":"10086","remote":"0.0.0.0-126.255.255.255,128.0.0.0-255.255.255.255","profile":0},{"protocol":"UDP","ports":"10000-11000","remote":"Any","profile":4},{"protocol":"TCP","ports":"80,10086","remote":"LocalSubnet","profile":1}],"nets":["Public"],"profiles":[{"name":"Domain","enabled":true},{"name":"Private","enabled":true},{"name":"Public","enabled":true}]}
+            """);
+        Assert.Equal(3, view.Rules.Count);
+        Assert.True(view.BlocksInbound(10086));
+        Assert.False(new FirewallView(view.CurrentProfiles, view.On, view.Rules.Skip(1).ToList()).BlocksInbound(10086));
+    }
+
+    [Fact]
+    public void A_domain_network_is_the_Domain_profile()
+    {
+        var view = Firewall.FromPowerShell("""
+            {"rules":[{"protocol":"TCP","ports":"10000-11000","remote":"Any","profile":1}],"nets":["DomainAuthenticated"],"profiles":[{"name":"Domain","enabled":true}]}
+            """);
+        Assert.Equal(Domain, view.CurrentProfiles);
+        Assert.True(view.BlocksInbound(10086));
+    }
+
+    [Fact]
+    public void The_PowerShell_check_fits_on_one_command_line()
+    {
+        var script = Firewall.PowerShellCheck(10086);
+        Assert.DoesNotContain('"', script);
+        Assert.DoesNotContain('\n', script);
+        Assert.DoesNotContain('\r', script);
+        Assert.Contains("$port = '10086';", script);
+        Assert.True(script.All(c => c < 128), "ASCII only");
+    }
 }

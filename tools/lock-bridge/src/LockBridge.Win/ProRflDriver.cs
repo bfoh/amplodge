@@ -30,9 +30,11 @@ public sealed class ProRflDriver : ILockDriver, IDisposable
     private string? _dllVersion;
     private bool _initialised;
     private LockServerState? _serverState;
-    // The firewall is read at most every few minutes: hundreds of rules, one COM call each.
-    private static readonly TimeSpan FirewallRecheck = TimeSpan.FromMinutes(5);
+    // The firewall is read in the background, every few minutes: hundreds of rules, or a PowerShell run.
+    private static readonly TimeSpan FirewallRecheck = TimeSpan.FromMinutes(10);
+    private readonly Lock _firewallGate = new();
     private bool? _firewallBlocks;
+    private bool _firewallChecking;
     private string? _firewallDetail;
     private DateTimeOffset _firewallCheckedAt = DateTimeOffset.MinValue;
     private DriverStatus _lastStatus = new(false, null, "Starting…");
@@ -46,6 +48,7 @@ public sealed class ProRflDriver : ILockDriver, IDisposable
         _thread.SetApartmentState(ApartmentState.STA);
         _thread.Start();
         OnWorker(Load, CancellationToken.None).ContinueWith(t => _log.Write($"loading failed: {t.Exception?.GetBaseException().Message}"), TaskContinuationOptions.OnlyOnFaulted);
+        FirewallBlocks(); // so the answer is usually in before the first status check
     }
 
     public string Name => "proRFL";
@@ -157,14 +160,35 @@ public sealed class ProRflDriver : ILockDriver, IDisposable
         return LockServer.NotRunningMessage;
     }
 
+    /// <summary>
+    /// The firewall's last answer. A stale one is refreshed in the background, never on the
+    /// encoder's thread: reading the firewall can take seconds.
+    /// </summary>
     private bool? FirewallBlocks()
     {
-        var now = DateTimeOffset.UtcNow;
-        if (now - _firewallCheckedAt < FirewallRecheck) return _firewallBlocks;
-        _firewallCheckedAt = now;
-        _firewallBlocks = FirewallReader.BlocksInbound(LockServer.Port, out var detail);
-        if (detail != _firewallDetail) _log.Write(_firewallDetail = detail);
-        return _firewallBlocks;
+        lock (_firewallGate)
+        {
+            if (_firewallChecking || DateTimeOffset.UtcNow - _firewallCheckedAt < FirewallRecheck) return _firewallBlocks;
+            _firewallChecking = true;
+            _firewallCheckedAt = DateTimeOffset.UtcNow;
+        }
+        _ = Task.Run(() =>
+        {
+            bool? blocks = null;
+            string detail;
+            try { blocks = FirewallReader.BlocksInbound(LockServer.Port, out detail); }
+            catch (Exception ex) { detail = $"firewall check failed: {ex.Message}"; }
+            bool changed;
+            lock (_firewallGate)
+            {
+                _firewallBlocks = blocks;
+                _firewallChecking = false;
+                changed = detail != _firewallDetail;
+                _firewallDetail = detail;
+            }
+            if (changed) _log.Write(detail);
+        });
+        lock (_firewallGate) return _firewallBlocks;
     }
 
     /// <summary>initializeUSB connects the DLL to the lock program. It answers 0 even when that failed, hence ServerProblem.</summary>
