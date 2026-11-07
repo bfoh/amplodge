@@ -31,6 +31,8 @@ export function KeyCardDialog() {
   const [prepared, setPrepared] = useState<PreparedCards | null>(null)
   const [results, setResults] = useState<Record<number, CardResult>>({})
   const closed = useRef<(() => void) | null>(null)
+  // A lost card replaces the stay's cards once; a retry after that adds to the new set.
+  const replaced = useRef(false)
 
   useEffect(() => {
     subscribeKeyCardPrompt((req, onClosed) => {
@@ -40,6 +42,7 @@ export function KeyCardDialog() {
       setCount(1)
       setPrepared(null)
       setResults({})
+      replaced.current = false
       setStep(getEncoderPc() ? { kind: 'choose' } : { kind: 'elsewhere' })
     })
     return () => subscribeKeyCardPrompt(null)
@@ -58,8 +61,10 @@ export function KeyCardDialog() {
   async function prepare(n: number) {
     if (!request) return
     setStep({ kind: 'preparing' })
+    const replacing = !!request.replace && !replaced.current
     try {
-      const p = await prepareKeyCards(request.bookingId, n)
+      const p = await prepareKeyCards(request.bookingId, n, replacing)
+      if (replacing) replaced.current = true
       setPrepared(p)
       setResults({})
       setStep({ kind: 'card', index: 0 })
@@ -140,7 +145,12 @@ export function KeyCardDialog() {
     case 'choose':
       body = (
         <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">How many cards for {guest}?</p>
+          {request?.replace && (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              A lost card: the new cards replace every card of this stay. Once one of them opens the door, the old ones stop working there, including any the guest still has.
+            </p>
+          )}
+          <p className="text-sm text-muted-foreground">How many {request?.replace ? 'new cards' : 'cards'} for {guest}?</p>
           <div className="flex gap-2" role="radiogroup" aria-label="Number of cards">
             {[1, 2, 3, 4].map((n) => (
               <Button key={n} type="button" role="radio" aria-checked={count === n} variant={count === n ? 'default' : 'outline'} className="w-12" onClick={() => setCount(n)}>

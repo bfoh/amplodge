@@ -10,6 +10,11 @@ export interface KeyCardRequest {
   bookingId: string
   guestName?: string | null
   roomNumber?: string | null
+  /**
+   * A card was lost: the new cards get a new DAI and replace every card of the
+   * stay, which stop working once a new card has opened the door.
+   */
+  replace?: boolean
 }
 
 type Opener = (req: KeyCardRequest, closed: () => void) => void

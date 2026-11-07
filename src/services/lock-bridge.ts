@@ -156,12 +156,13 @@ export interface PreparedCards {
  * server's decision. What is shown to staff is read from the signed order
  * itself, so it is exactly what the bridge will write.
  */
-export async function prepareKeyCards(bookingId: string, count: number): Promise<PreparedCards> {
+/** replace: a card was lost, so the new cards replace all of the stay's cards (a new DAI). */
+export async function prepareKeyCards(bookingId: string, count: number, replace = false): Promise<PreparedCards> {
   const { challenge } = await call<{ challenge: string }>('/challenge', { method: 'POST', body: {} })
   const res = await callFunction('key-card-order', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ bookingId, count, challenge }),
+    body: JSON.stringify({ bookingId, count, challenge, ...(replace ? { replace: true } : {}) }),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data?.error || 'Could not prepare the key cards.')

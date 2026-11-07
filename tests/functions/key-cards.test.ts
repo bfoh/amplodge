@@ -163,14 +163,42 @@ await report(enc1.token, { nonce: extra.nonce, cards: [{ cardNo: 2, status: 'iss
 const amaCard = (no: number) => amaRows().find((c) => c.card_no === no)!
 r = await call(mark, bearer('staff'), { cardId: amaCard(0).id, status: 'not_returned', note: 'left early' })
 check('reception marks a card the guest kept', [r.status, amaCard(0).status], [200, 'not_returned'])
-check('...which still blocks the door until it expires', (await ask(B.esi)).status, 409)
-for (const no of [0, 1, 2]) await call(mark, bearer('staff'), { cardId: amaCard(no).id, status: 'killed_at_door' })
 r = await ask(B.esi)
-check('once the cards are cancelled at the door, the next guest gets a card', r.status, 200)
+check('...the cards nobody has accounted for still hold the door', [r.status, r.body.error?.includes('the guest kept it')], [409, true])
+await call(mark, bearer('staff'), { cardId: amaCard(1).id, status: 'returned' })
+await call(mark, bearer('staff'), { cardId: amaCard(2).id, status: 'killed_at_door' })
+r = await ask(B.esi)
+check('a card the guest kept does not hold the door: the next guest gets a card', r.status, 200)
 const esiOrder = JSON.parse(r.body.order)
 const esiCard = tables.key_cards.find((c) => c.order_nonce === esiOrder.nonce)!
-check('the next stay in the room gets the next DAI, so its card locks out the last guest\'s', [esiOrder.dai, esiCard.dai], [2, 2])
+check('the next stay in the room gets the next DAI, so its card locks out the kept one', [esiOrder.dai, esiCard.dai], [2, 2])
 check('a card still being written cannot be marked', (await call(mark, bearer('staff'), { cardId: esiCard.id, status: 'returned' })).status, 409)
+await report(enc1.token, { nonce: esiOrder.nonce, cards: [{ cardNo: 0, status: 'issued' }] })
+
+// ─── A lost card ─────────────────────────────────────────────────────────────
+const lost = (bookingId: string, count = 1) => call(order, bearer('staff'), { bookingId, count, challenge: challenge(), replace: true })
+r = await ask(B.esi, 1)
+const esiExtra = JSON.parse(r.body.order)
+await report(enc1.token, { nonce: esiExtra.nonce, cards: [{ cardNo: 1, status: 'issued' }] })
+check('Esi has two working cards, both on DAI 2', tables.key_cards.filter((c) => c.booking_id === B.esi).map((c) => [c.status, c.dai]), [['issued', 2], ['issued', 2]])
+const esiRows = () => tables.key_cards.filter((c) => c.booking_id === B.esi)
+for (const c of esiRows()) c.issue_time = new Date(Date.now() - 86400000).toISOString() // made yesterday
+r = await lost(B.esi, 2)
+const replaced = JSON.parse(r.body.order)
+check('one is lost: the stay gets new cards with a new DAI, numbered from 0, starting an hour back from now',
+  [r.status, replaced.dai, replaced.cards.map((c: { cardNo: number }) => c.cardNo), replaced.begin], [200, 3, [0, 1], cardTime(floorToMinute(new Date(Date.now() - 3600000)))])
+check('the stay\'s old cards are marked replaced, with why', esiRows().filter((c) => c.dai === 2).map((c) => [c.status, !!c.note]), [['replaced', true], ['replaced', true]])
+check('the order is logged with how many cards it replaced', tables.activity_logs.filter((l) => l.action === 'key_card_ordered').at(-1)?.details?.replaced, 2)
+r = await report(enc1.token, { nonce: esiOrder.nonce, cards: [{ cardNo: 0, status: 'unknown' }] })
+check('a late report cannot bring a replaced card back', [r.body.updated, esiRows().find((c) => c.order_nonce === esiOrder.nonce)!.status], [0, 'replaced'])
+await report(enc1.token, { nonce: replaced.nonce, cards: [{ cardNo: 0, status: 'issued' }, { cardNo: 1, status: 'issued' }] })
+r = await ask(B.esi, 1)
+check('an extra card after that takes the new DAI and the next number', [JSON.parse(r.body.order).dai, JSON.parse(r.body.order).cards[0].cardNo], [3, 2])
+const oldCard = esiRows().find((c) => c.order_nonce === esiExtra.nonce)!
+check('a replaced card can be marked returned when it turns up...', (await call(mark, bearer('staff'), { cardId: oldCard.id, status: 'returned' })).status, 200)
+const oldCard2 = esiRows().find((c) => c.order_nonce === esiOrder.nonce)!
+check('...but not "guest kept it", which would count it as opening the door again', (await call(mark, bearer('staff'), { cardId: oldCard2.id, status: 'not_returned' })).status, 409)
+check('no working cards, nothing to replace', (await lost(B.noLock)).status, 409)
 
 // ─── The suite, and a second PC ──────────────────────────────────────────────
 r = await ask(B.suite, 1)

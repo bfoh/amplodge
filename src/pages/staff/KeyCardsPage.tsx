@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, CreditCard, DoorClosed, KeyRound, Loader2, MonitorSmartphone, RefreshCw, UserX } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, CreditCard, DoorClosed, KeyRound, Loader2, MonitorSmartphone, RefreshCw, SearchX, UserX } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -16,7 +16,7 @@ import {
   STATUS_LABEL, loadKeyCardBoard, markCard,
   type CardMark, type KeyCard, type KeyCardBoard,
 } from '@/services/key-cards'
-import { promptKeyCards } from '@/services/key-card-prompt'
+import { promptKeyCards, type KeyCardRequest } from '@/services/key-card-prompt'
 import { bridgeStatus, getEncoderPc, type BridgeStatus } from '@/services/lock-bridge'
 
 const when = (iso: string) => format(new Date(iso), 'EEE d MMM, HH:mm')
@@ -39,6 +39,7 @@ export default function KeyCardsPage() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [confirmKill, setConfirmKill] = useState<KeyCard | null>(null)
+  const [confirmLost, setConfirmLost] = useState<KeyCard | null>(null)
   const [encoderPc] = useState(() => getEncoderPc())
   const [bridge, setBridge] = useState<{ status: BridgeStatus | null; error: string | null } | null>(null)
 
@@ -53,7 +54,7 @@ export default function KeyCardsPage() {
   }, [])
   useEffect(() => { void checkBridge() }, [checkBridge])
 
-  async function makeCards(n: { bookingId: string; guestName: string; roomNumber: string }) {
+  async function makeCards(n: KeyCardRequest) {
     await promptKeyCards(n)
     await reload()
     void checkBridge()
@@ -146,6 +147,9 @@ export default function KeyCardsPage() {
     )
   }
 
+  // Cards of a stay still under way in their own room: those a lost card can replace.
+  const current = new Set(board.live.filter((c) => c.bookingId && !board.shouldBeGone.includes(c) && !board.wrongRoom.includes(c)).map((c) => c.id))
+
   const cardActions = (card: KeyCard) => (
     <div className="flex flex-wrap gap-2">
       {card.status !== 'returned' && (
@@ -161,6 +165,11 @@ export default function KeyCardsPage() {
       <Button size="sm" variant="outline" disabled={busy === card.id} onClick={() => setConfirmKill(card)}>
         <DoorClosed className="w-4 h-4 mr-1" /> Cancelled at door
       </Button>
+      {encoderPc && current.has(card.id) && (
+        <Button size="sm" variant="outline" disabled={busy === card.id} onClick={() => setConfirmLost(card)}>
+          <SearchX className="w-4 h-4 mr-1" /> Card lost
+        </Button>
+      )}
     </div>
   )
 
@@ -203,7 +212,7 @@ export default function KeyCardsPage() {
 
       {shouldBeGone.length > 0 && section(
         'Still opens a door after the stay',
-        'The guest has checked out or the booking was cancelled, but this card still opens the door. Take it back, or cancel it at the door with the lock software\'s card.',
+        'The guest has checked out or the booking was cancelled, but this card still opens the door. Take it back. If the guest kept it, mark it so: the next guest\'s card locks it out the first time it opens the door. To lock it out sooner, cancel it at the door with the lock software\'s card.',
         <AlertTriangle className="w-5 h-5 text-red-600" />, shouldBeGone.length,
         <>{shouldBeGone.map((c) => cardRow(c))}</>, 'border-red-200',
       )}
@@ -266,6 +275,29 @@ export default function KeyCardsPage() {
             <AlertDialogCancel>Not yet</AlertDialogCancel>
             <AlertDialogAction onClick={() => { const c = confirmKill; setConfirmKill(null); if (c) void mark(c, 'killed_at_door') }}>
               Yes, cancelled at the door
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!confirmLost} onOpenChange={(open) => !open && setConfirmLost(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Make new cards for room {confirmLost?.roomNumber}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              For a lost card. The new cards replace every card of {confirmLost?.guestName ?? 'this guest'}'s stay: once one of them
+              opens the door, all the old cards stop working there, including the ones the guest still has. Make a card for each
+              one the guest needs, and take the old ones back.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Not now</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              const c = confirmLost
+              setConfirmLost(null)
+              if (c?.bookingId) void makeCards({ bookingId: c.bookingId, guestName: c.guestName, roomNumber: c.roomNumber, replace: true })
+            }}>
+              Make new cards
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

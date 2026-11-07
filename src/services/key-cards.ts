@@ -12,6 +12,7 @@ import { callFunction } from '@/lib/api'
 export type KeyCardStatus =
   | 'pending' | 'issued' | 'failed' | 'unknown'
   | 'returned' | 'not_returned' | 'killed_at_door' | 'erased'
+  | 'replaced'
 
 export interface KeyCard {
   id: string
@@ -79,6 +80,7 @@ export const STATUS_LABEL: Record<KeyCardStatus, string> = {
   not_returned: 'Guest kept it',
   killed_at_door: 'Cancelled at door',
   erased: 'Erased',
+  replaced: 'Replaced (lost)',
 }
 
 const LIVE: KeyCardStatus[] = ['issued', 'unknown', 'not_returned']

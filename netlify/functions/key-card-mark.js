@@ -4,13 +4,16 @@ import { serviceClient, logActivity, parseBody, UUID } from './_lib/key-cards.js
 /**
  * Staff record what happened to a card that the bridge cannot see:
  *   returned        the card is back at reception
- *   not_returned    the guest left with it (it opens the door until it expires)
+ *   not_returned    the guest left with it (it opens the door until it expires,
+ *                   or until the next stay's card opens the door)
  *   killed_at_door  cancelled at the door with the lock software's own card
+ *
+ * A card replaced after a loss can only be marked returned (it was found).
  *
  * POST { cardId, status, note? }   (staff)
  */
 const MARKS = ['returned', 'not_returned', 'killed_at_door']
-const FROM = ['issued', 'unknown', 'returned', 'not_returned']
+const FROM = ['issued', 'unknown', 'returned', 'not_returned', 'replaced']
 
 export const handler = async (event) => {
   const cors = handleCors(event); if (cors) return cors
@@ -27,7 +30,9 @@ export const handler = async (event) => {
     const sb = serviceClient()
     const { data: card } = await sb.from('key_cards').select('*').eq('id', body.cardId).maybeSingle()
     if (!card) return jsonResponse(404, { error: 'Card not found' })
-    if (!FROM.includes(card.status)) return jsonResponse(409, { error: `A ${card.status} card cannot be marked ${body.status}.` })
+    if (!FROM.includes(card.status) || (card.status === 'replaced' && body.status !== 'returned')) {
+      return jsonResponse(409, { error: `A ${card.status} card cannot be marked ${body.status}.` })
+    }
 
     const note = body.note ? String(body.note).slice(0, 300) : null
     const { error } = await sb.from('key_cards').update({

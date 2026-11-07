@@ -41,6 +41,8 @@ export const handler = async (event) => {
     return jsonResponse(400, { error: `Between 1 and ${POLICY.maxCardsPerOrder} cards at a time.` })
   }
   if (typeof body.bookingId !== 'string' || !UUID.test(body.bookingId)) return jsonResponse(400, { error: 'bookingId is required' })
+  // A lost card: new cards for the stay, with a new DAI, so its current cards stop at the door.
+  const replace = body.replace === true
   const m = CHALLENGE.exec(String(body.challenge || ''))
   if (!m || !UUID.test(m[1])) return jsonResponse(400, { error: 'The encoder PC sent no valid challenge. Is the lock bridge running?' })
   const encoderId = m[1].toLowerCase()
@@ -83,14 +85,21 @@ export const handler = async (event) => {
       .in('status', ['pending', ...LIVE_STATUSES]).gt('valid_until', now.toISOString())
     if (liveErr) throw liveErr
     const live = (maybeLive || []).filter((c) => isLive(c, now))
-    const blocking = live.find((c) => c.booking_id !== booking.id && sharesLock(c.lock_nos || [], locks))
+    // A card the last guest kept does not hold the door: this stay's new DAI locks it
+    // out the first time one of the new cards opens it (tested at a door, 2026-11-07).
+    const blocking = live.find((c) => c.booking_id !== booking.id && c.status !== 'not_returned' && sharesLock(c.lock_nos || [], locks))
     if (blocking) {
       return jsonResponse(409, {
-        error: `A card for ${blocking.guest_name || 'another guest'} (room ${blocking.room_number ?? '?'}) still opens this door until ${blocking.valid_until.slice(0, 16).replace('T', ' ')}. Mark it on the Key cards page first.`,
+        error: `A card for ${blocking.guest_name || 'another guest'} (room ${blocking.room_number ?? '?'}) still opens this door until ${blocking.valid_until.slice(0, 16).replace('T', ' ')}. Mark it on the Key cards page first (returned, or the guest kept it).`,
         blockingCardId: blocking.id,
       })
     }
-    const mine = live.filter((c) => c.booking_id === booking.id && sameLocks(c.lock_nos || [], locks))
+    const current = live.filter((c) => c.booking_id === booking.id && sameLocks(c.lock_nos || [], locks))
+    if (replace && !current.length) {
+      return jsonResponse(409, { error: 'This stay has no working cards to replace. Make cards as usual.' })
+    }
+    // Replacing: the stay starts over like a new one (new DAI, card numbers from 0).
+    const mine = replace ? [] : current
 
     const begin = mine.length ? new Date(mine[0].issue_time) : null
     const { begin: start, end, capped } = validityFor(booking.check_out, now, begin)
@@ -98,7 +107,8 @@ export const handler = async (event) => {
       return jsonResponse(409, { error: 'This stay has ended. Extend it first, then make the card.' })
     }
     const startCardNo = mine.length ? Math.max(...mine.map((c) => c.card_no)) + 1 : 0
-    const dai = await daiFor(sb, locks, mine)
+    let dai = await daiFor(sb, locks, mine)
+    while (replace && current.some((c) => c.dai === dai)) dai = nextDai(dai)
     const cards = planCards({ locks, count, startCardNo })
     if (cards[cards.length - 1].cardNo > 15) {
       return jsonResponse(409, { error: 'This booking already has 16 cards on its start time. Mark the old ones returned and make a fresh set.' })
@@ -123,6 +133,15 @@ export const handler = async (event) => {
       created_at: stamp,
       updated_at: stamp,
     }))
+    if (replace) {
+      const { error: repErr } = await sb.from('key_cards').update({
+        status: 'replaced',
+        note: 'A card was lost: the stay got new cards. This one stops once a new card opens the door.',
+        updated_by: ctx.staff?.id ?? null,
+        updated_at: stamp,
+      }).in('id', current.map((c) => c.id))
+      if (repErr) throw repErr
+    }
     const { error: insErr } = await sb.from('key_cards').insert(rows)
     if (insErr) throw insErr
 
@@ -145,7 +164,7 @@ export const handler = async (event) => {
       action: 'key_card_ordered',
       entityId: nonce,
       userId: ctx.user?.id,
-      details: { bookingId: booking.id, room: roomNumber, guest: guest?.name ?? null, cards: cards.length, validUntil: end.toISOString(), dai, extra: mine.length > 0 },
+      details: { bookingId: booking.id, room: roomNumber, guest: guest?.name ?? null, cards: cards.length, validUntil: end.toISOString(), dai, extra: mine.length > 0, replaced: replace ? current.length : 0 },
     })
     return jsonResponse(200, {
       order,

@@ -43,11 +43,14 @@ Two things come from Joney's program:
   of its data: `6` guest, `F` blank, also on cards the lock program has erased) must both
   say "blank" or "guest".
 - It reads every card back after writing it. A card counts as made only when the read-back
-  shows the right lock code and end time.
+  shows the right lock code, end time and DAI.
 - It loads only the `proRFL.dll` from Joney's V0925 SDK (checked by sha256), unless
   `encoder.json` names another build in `proRflSha256`.
-- A suite card (one card for two doors) and lost-card blocking aren't in Joney's SDK. A
-  two-door room gets one card per door.
+- A suite card (one card for two doors) isn't in Joney's SDK, so a two-door room gets one
+  card per door. Nor is a lost-card call. For a lost card, **Card lost** on the Key cards
+  page makes the stay new cards with a new DAI: once one of them opens the door, every old
+  card of the stay stops working there (tested at a door). Joney's own Lost Card in the
+  Lock Management System still works too.
 - Every step goes to a journal on disk **before** the encoder is touched. If a power cut
   or crash interrupts a write, that card shows as "unknown" on the Key cards page and
   is never written twice. If the internet is down, results wait in the journal and are
