@@ -14,8 +14,8 @@
   card work. So the program must be running, and every call can take up to
   about 3 seconds.
 
-  By default the probe only LOOKS. It never writes a card unless -IssueTest or
-  -EraseTest is given, and then asks you to type YES first.
+  By default the probe only LOOKS. It never writes a card unless -IssueTest,
+  -EraseTest or -DoorTest is given, and then asks you to type YES first.
     1. Checks the PC: 32-bit PowerShell, time zone, and that the lock program
        is listening on port 10086 (and whether other computers can reach it).
     2. Checks proRFL.dll: its fingerprint, version and exported functions.
@@ -47,6 +47,8 @@ param(
   [string]$EndTime,
   [byte]$CardNo = 0,
   [switch]$EraseTest,
+  # The guided door test (writes 3 test cards and erases 1): needs -HotelId and -LockNo, and someone at the door.
+  [switch]$DoorTest,
   [string]$LogFile
 )
 
@@ -397,6 +399,102 @@ if ($EraseTest) {
     $null = Read-OneCard 'the erased card, read back'
     Log 'Now try the test door: the card should no longer open it.'
   }
+}
+
+# ---- 8. Optional: the guided door test ------------------------------------------
+# Answers, at a real door, what Joney's SDK text leaves open. The test cards use DAI 250 and 251,
+# far from the 1, 2, 3... the server gives real stays, and end 30 minutes after the test starts.
+if ($DoorTest) {
+  if ($HotelId -eq 0) { Log 'STOP: -DoorTest needs -HotelId (the probe prints it from a guest card).'; exit 4 }
+  $LockNo = ('' + $LockNo).Trim().ToUpper()
+  if ($LockNo -notmatch '^[0-9A-F]{6}$') { Log 'STOP: -DoorTest needs -LockNo, the test door''s 6-character code (as the probe reads it from that room''s guest card).'; exit 4 }
+  $testEnd = (Get-Date).AddMinutes(30).ToString('yyMMddHHmm')
+  $answers = [ordered]@{}
+  $writeCodes = @()
+  Log ('DOOR TEST for lock ' + $LockNo + '. Test cards end at ' + $testEnd + ' (yyMMddHHmm).')
+  Log '  You need: someone at that door; this morning''s guest card for the room (made in the Lock Management System);'
+  Log '  and three spare cards (blank, or old guest cards), called A, B and C. Label them.'
+  Log '  The test writes cards A, B and C, then erases A. It refuses any card that is not blank or a guest card.'
+  $go = Read-Host 'Nobody staying in this room, and someone at the door? Type YES to start'
+  if ($go -ne 'YES') { Log 'Door test not started.'; exit 0 }
+
+  function Ask([string]$key, [string]$question) {
+    $a = ''
+    while ($a -ne 'y' -and $a -ne 'n') { $a = ('' + (Read-Host ($question + ' Type y or n'))).Trim().ToLower() }
+    Log ('  ' + $key + ': ' + $a)
+    $script:answers[$key] = $a
+  }
+  function Get-TypeCode([string]$hex) {
+    $t = New-Object System.Text.StringBuilder 64
+    try { $null = [ProRfl]::GetCardTypeByCardDataStr($hex, $t) } catch { return '' }
+    $s = $t.ToString()
+    if ($s.Length -gt 0) { return $s.Substring(0, 1).ToUpper() } else { return '' }
+  }
+  # A card may be written only if its data and the lock program both say blank, or both say guest.
+  function Test-Writable([string]$hex) {
+    if (-not $hex) { return $false }
+    $layout = Get-Layout $hex
+    $code = Get-TypeCode $hex
+    return (($layout -eq 'blank' -and $code -eq 'F') -or ($layout -eq 'guest' -and $code -eq '6'))
+  }
+  function Write-TestCard([string]$name, [byte]$no, [int]$dai) {
+    while ($true) {
+      $r = Read-Host ('Lay spare card ' + $name + ' on the encoder, then press Enter (or type stop)')
+      if (('' + $r).Trim().ToLower() -eq 'stop') { Log 'Door test stopped.'; exit 0 }
+      $before = Read-OneCard ('card ' + $name + ' before writing')
+      if (Test-Writable $before) { break }
+      Log ('  Card ' + $name + ' is not a blank or guest card: NOT written. Put it away and use another spare card.')
+    }
+    $out = New-Object System.Text.StringBuilder 4096
+    $begin = (Get-Date).ToString('yyMMddHHmm')
+    $rc = Invoke-Dll ('GuestCard card ' + $name + ' (cardNo ' + $no + ', dai ' + $dai + ', until ' + $script:testEnd + ')') { [ProRfl]::GuestCard($UsbType, $HotelId, $no, [byte]$dai, 0, 0, $begin, $script:testEnd, $LockNo, $out) }
+    $after = Read-OneCard ('card ' + $name + ', read back')
+    $onCard = if ($after -and $after.Length -ge 22) { ($after.Substring(20, 2) + $after.Substring(18, 2) + $after.Substring(16, 2)).ToUpper() } else { '' }
+    $good = [bool]$after -and (Get-Layout $after) -eq 'guest' -and $onCard -eq $LockNo
+    Log ('  card ' + $name + ': GuestCard returned ' + $rc + '; reads back as a guest card for ' + $LockNo + ': ' + $good)
+    if ($good) { $script:writeCodes += $rc }
+  }
+
+  Log '--- Step 1: card A, a new stay (DAI 250)'
+  Write-TestCard 'A' 0 250
+  Ask 'A_opens' 'Take card A to the door. Does it OPEN the door?'
+  Ask 'old_card_after_A' 'Now try this morning''s guest card for the room. Does it still open?'
+  Log '--- Step 2: card B, an extra card for the same stay (DAI 250 again)'
+  Write-TestCard 'B' 1 250
+  Ask 'B_opens' 'Card B at the door. Does it OPEN?'
+  Ask 'A_after_B' 'Card A again. Does it still open?'
+  Log '--- Step 3: card C, new cards for the stay, as for a lost card (DAI 251)'
+  Write-TestCard 'C' 2 251
+  Ask 'C_opens' 'Card C at the door. Does it OPEN?'
+  Ask 'A_after_C' 'Card A again. Does it still open?'
+  Ask 'B_after_C' 'Card B again. Does it still open?'
+  Log '--- Step 4: erase card A'
+  $null = Read-Host 'Lay card A on the encoder, then press Enter'
+  $beforeErase = Read-OneCard 'card A before erasing'
+  if (Test-Writable $beforeErase) {
+    $erase = New-Object System.Text.StringBuilder 4096
+    $erc = Invoke-Dll 'CardErase card A' { [ProRfl]::CardErase($UsbType, $HotelId, $erase) }
+    $afterErase = Read-OneCard 'card A, erased, read back'
+    Log ('  card A after erasing reads as: ' + $(if ($afterErase) { Get-Layout $afterErase } else { 'nothing readable' }) + ' (CardErase returned ' + $erc + ')')
+  } else { Log '  Card A is not a blank or guest card: not erased.' }
+
+  $expect = [ordered]@{ A_opens = 'y'; old_card_after_A = 'n'; B_opens = 'y'; A_after_B = 'y'; C_opens = 'y'; A_after_C = 'n'; B_after_C = 'n' }
+  $meaning = @{
+    A_opens = 'a card made through the SDK opens the door (the lock code is right)'
+    old_card_after_A = 'a new stay locks out the room''s older cards'
+    B_opens = 'an extra card for the same stay opens'
+    A_after_B = 'and it does not lock out the stay''s first card'
+    C_opens = 'new cards with a new DAI open (how a lost card is handled)'
+    A_after_C = 'and they lock out the stay''s old cards'
+    B_after_C = 'all of them'
+  }
+  Log '--- Door test results'
+  foreach ($k in $expect.Keys) {
+    $got = $answers[$k]
+    Log ('  ' + $(if ($got -eq $expect[$k]) { 'OK   ' } else { 'CHECK' }) + ' ' + $k + ' = ' + $got + ' (expected ' + $expect[$k] + '): ' + $meaning[$k])
+  }
+  Log ('  GuestCard return code(s) on cards that read back right: ' + ((Unique $writeCodes) -join ', ') + '   (Joney documents 0)')
+  Log ('Last check, after ' + $testEnd + ': card C must no longer open the door. Note it when you send this log.')
 }
 
 Log 'Done. Send this log file privately to the developer.'

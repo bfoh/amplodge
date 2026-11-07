@@ -74,7 +74,24 @@ At the end it prints a suggested `calibration` for the lock bridge.
   blocks port 10086", and the beep must still work. For proof, run the `Test-NetConnection`
   line it prints on another computer on the hotel network.
 
-## 4. Write tests (only with the developer on the call)
+## 4. The door test (only with the developer on the call)
+
+One guided run that answers, at a real door, what Joney's SDK text leaves open. You need
+someone at the test door, that room's guest card made in the Lock Management System
+(keep it aside: it is the "older card" of the test), and three spare cards labelled A, B
+and C (blank, or old guest cards of other rooms). Nobody may be staying in the room.
+
+```powershell
+...\powershell.exe -STA -ExecutionPolicy Bypass -File .\Probe-Encoder.ps1 -DllDir C:\AMPLock\sdk -NoRead -NoBeep -HotelId <hotel ID> -DoorTest -LockNo <the door's code, as the probe read it from the card>
+```
+
+It writes A (a new stay), B (an extra card for the same stay) and C (new cards for the stay,
+as for a lost card), asks after each whether the cards open the door, erases A, and ends
+with a table of what was expected and what happened. The test cards use DAI 250 and 251 and
+stop working 30 minutes after the start; check after that time that card C no longer opens.
+It refuses any card that is not blank or a guest card, and stops when you type `stop`.
+
+## 5. Single write tests
 
 These write to the card lying on the encoder. Use only the spare card and the empty test
 room. Never put a system, authorization, master, floor, setup or backup card on the
