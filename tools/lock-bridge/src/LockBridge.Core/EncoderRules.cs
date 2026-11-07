@@ -70,11 +70,37 @@ public static class EncoderRules
         };
     }
 
-    /// <summary>The DLL's decoder gives the lock code as 6 hex characters; compare them, ignoring case and spaces.</summary>
-    public static bool LockMatches(string expected, string? decoded)
+    /// <summary>
+    /// The lock code as the card holds it: characters 21-22, 19-20 and 17-18 of the card
+    /// data (building, floor, room; the bytes Joney's decoder reads). Null if not there.
+    /// </summary>
+    public static string? LockOnCard(string? hex)
     {
+        var h = (hex ?? "").Trim();
+        if (h.Length < 22) return null;
+        var code = (h.Substring(20, 2) + h.Substring(18, 2) + h.Substring(16, 2)).ToUpperInvariant();
+        return CardFormat.IsLockNo(code) ? code : null;
+    }
+
+    /// <summary>
+    /// What Joney's decoder (GetGuestLockNoByCardDataStr) shows for a lock code: it takes
+    /// each byte mod 128, so building 165 (A5) shows as 25. Its answer can't tell A5 from 25.
+    /// </summary>
+    public static string DecoderView(string lockNo) =>
+        string.Concat(Enumerable.Range(0, 3).Select(i => (Convert.ToByte(lockNo.Substring(i * 2, 2), 16) & 0x7F).ToString("X2")));
+
+    /// <summary>
+    /// Is the card made for this lock? The card's own bytes must be the code exactly, and
+    /// Joney's decoder must agree: on the seven bits of each byte it keeps, or on the whole
+    /// code (should a later DLL keep all eight).
+    /// </summary>
+    public static bool LockMatches(string expected, string? decoded, string? cardHex)
+    {
+        if (!CardFormat.IsLockNo(expected)) return false;
         var d = new string((decoded ?? "").Where(c => !char.IsWhiteSpace(c) && c != '\0').ToArray());
-        return CardFormat.IsLockNo(expected) && string.Equals(d, expected, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(LockOnCard(cardHex), expected, StringComparison.OrdinalIgnoreCase)
+            && (string.Equals(d, DecoderView(expected), StringComparison.OrdinalIgnoreCase)
+                || string.Equals(d, expected, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>The DLL may print the end time with a 4-digit year or with seconds; compare the minutes.</summary>
@@ -89,9 +115,9 @@ public static class EncoderRules
     /// What one write came to, from the DLL's return code and a read-back of the card.
     /// The card's own content decides; the code only matters when the card cannot be read.
     /// </summary>
-    public static CardWriteResult Judge(EncoderCalibration c, int writeCode, bool readBackOk, string? lockRead, string? endRead, string expectedLock, string expectedEnd)
+    public static CardWriteResult Judge(EncoderCalibration c, int writeCode, bool readBackOk, string? cardHex, string? lockRead, string? endRead, string expectedLock, string expectedEnd)
     {
-        if (readBackOk && LockMatches(expectedLock, lockRead) && EndMatches(expectedEnd, endRead))
+        if (readBackOk && LockMatches(expectedLock, lockRead, cardHex) && EndMatches(expectedEnd, endRead))
             return new(CardWriteStatus.Issued);
         if (!readBackOk)
             return new(CardWriteStatus.Unknown, $"The card could not be read back (code {writeCode}). It may have been moved. Try it at the door.");

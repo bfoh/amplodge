@@ -28,6 +28,11 @@ A-F, for example `01020A`). **Export LockNo** writes them all, with the hotel's 
 (Hotel CoID), to a `LockNo_....Txt` file on the Desktop. These codes go into the portal's
 Rooms page later. The file is private hotel data: send it only privately.
 
+The code is building, floor and room, two characters each. A building number above 127
+starts with 8-F (building 165 is `A5`). Joney's DLL decoder drops the top bit of each part
+(it shows `A5` as `25`), so the probe prints the code **as the card holds it**, which is
+the one to use.
+
 ## 2. The SDK file
 
 From Joney's `New Lock System SDK [V0925].rar`, only `proRFL.dll` is needed (the 2021

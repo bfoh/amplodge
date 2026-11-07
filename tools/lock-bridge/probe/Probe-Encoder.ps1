@@ -315,7 +315,11 @@ function Read-OneCard([string]$what) {
     elseif ($script:HotelId -ne $fromCard) { Log ('  WARNING: -HotelId is ' + $script:HotelId + ' but this card says ' + $fromCard) }
     $lock = New-Object System.Text.StringBuilder 64
     $null = Invoke-Dll ('GetGuestLockNoByCardDataStr(hotel ' + $script:HotelId + ')') { [ProRfl]::GetGuestLockNoByCardDataStr($script:HotelId, $hex, $lock) }
-    Log ('  lock code: "' + $lock.ToString() + '"   (compare with the room in the Lock Management System)')
+    # The card holds the code in characters 21-22, 19-20, 17-18 (building, floor, room). The DLL's
+    # decoder drops the top bit of each byte, so a building above 127 shows wrong there (A5 -> 25).
+    $onCard = ($hex.Substring(20, 2) + $hex.Substring(18, 2) + $hex.Substring(16, 2)).ToUpper()
+    Log ('  lock code on the card: "' + $onCard + '"   (the DLL decoder says "' + $lock.ToString() + '"; it drops the top bit of each byte)')
+    Log '  -> the code on the card is the door''s code: compare it with the room in the Lock Management System / Export LockNo.'
     $etime = New-Object System.Text.StringBuilder 64
     $null = Invoke-Dll ('GetGuestETimeByCardDataStr(hotel ' + $script:HotelId + ')') { [ProRfl]::GetGuestETimeByCardDataStr($script:HotelId, $hex, $etime) }
     Log ('  ends: "' + $etime.ToString() + '"   (yyMMddHHmm)')
