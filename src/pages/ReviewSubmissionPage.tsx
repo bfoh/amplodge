@@ -1,4 +1,5 @@
 
+import { BrandLoader } from '@/components/BrandLoader'
 import { useState, useEffect } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -90,11 +91,7 @@ export function ReviewSubmissionPage() {
     }
 
     if (loading) {
-        return (
-            <div className="flex h-screen items-center justify-center bg-gray-50">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-            </div>
-        )
+        return <BrandLoader variant="screen" />
     }
 
     if (error) {

@@ -1,3 +1,4 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -5,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { db, auth } from '@/lib/db'
-import { Loader2, Search, FileEdit, Trash2, UserPlus, Shield, Clock } from 'lucide-react'
+import { Search, FileEdit, Trash2, UserPlus, Shield, Clock } from 'lucide-react'
 import { format } from 'date-fns'
 import { safeFormatAny } from '@/lib/safe-date'
 
@@ -194,10 +195,7 @@ export function ActivityLogViewer({
         )}
 
         {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-            <span className="ml-2 text-muted-foreground">Loading activity logs...</span>
-          </div>
+          <BrandLoader variant="section" label="Loading activity logs" />
         ) : filteredLogs.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             {searchQuery || actionFilter !== 'all' 

@@ -1,3 +1,4 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { db, auth } from '@/lib/db'
@@ -147,18 +148,7 @@ export function TaskCompletionPage() {
   }
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-6">
-            <div className="text-center">
-              <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-muted-foreground">Loading task information...</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    )
+    return <BrandLoader variant="screen" label="Loading the task" />
   }
 
   if (error) {

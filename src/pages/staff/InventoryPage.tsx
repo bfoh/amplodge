@@ -1,3 +1,4 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useState, useEffect } from 'react'
 import { useSubscription } from '@/hooks/use-subscription'
 import { db, auth } from '@/lib/db'
@@ -38,8 +39,7 @@ import {
   ChevronDown,
   Calendar,
   Wallet,
-  TrendingDown,
-  Loader2
+  TrendingDown
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { analyticsService } from '@/services/analytics-service'
@@ -494,7 +494,7 @@ export function InventoryPage() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center">Loading inventory...</TableCell>
+                    <TableCell colSpan={6} className="p-0"><BrandLoader variant="section" label="Loading inventory" /></TableCell>
                   </TableRow>
                 ) : filteredItems.length === 0 ? (
                   <TableRow>
@@ -580,10 +580,7 @@ export function InventoryPage() {
           {/* Mobile Card View */}
           <div className="md:hidden divide-y divide-border border-t">
             {loading ? (
-              <div className="py-12 text-center text-muted-foreground flex flex-col items-center gap-2">
-                <Loader2 className="w-6 h-6 animate-spin" />
-                <span>Loading products...</span>
-              </div>
+              <BrandLoader variant="section" label="Loading products" />
             ) : filteredItems.length === 0 ? (
               <div className="py-12 text-center text-muted-foreground">No products found.</div>
             ) : (

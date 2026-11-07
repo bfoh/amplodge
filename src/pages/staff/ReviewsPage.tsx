@@ -1,4 +1,5 @@
 
+import { BrandLoader } from '@/components/BrandLoader'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -200,8 +201,8 @@ export function ReviewsPage() {
                                 <TableBody>
                                     {isLoading ? (
                                         <TableRow>
-                                            <TableCell colSpan={7} className="h-24 text-center">
-                                                <Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" />
+                                            <TableCell colSpan={7} className="p-0">
+                                                <BrandLoader variant="section" label="Loading reviews" />
                                             </TableCell>
                                         </TableRow>
                                     ) : filteredReviews.length === 0 ? (

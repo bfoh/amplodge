@@ -1,3 +1,4 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -438,14 +439,7 @@ export function StaffInvoiceManager() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <LoadingSpinner />
-          <p className="text-muted-foreground mt-4">Loading invoices...</p>
-        </div>
-      </div>
-    )
+    return <BrandLoader label="Loading invoices" />
   }
 
   return (

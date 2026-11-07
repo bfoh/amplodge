@@ -1,3 +1,4 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -125,7 +126,7 @@ export function InventoryTransactionsPage() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center">Loading transactions...</TableCell>
+                    <TableCell colSpan={7} className="p-0"><BrandLoader variant="section" label="Loading transactions" /></TableCell>
                   </TableRow>
                 ) : filteredTransactions.length === 0 ? (
                   <TableRow>

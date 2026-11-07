@@ -1,3 +1,4 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useEffect, useMemo, useState } from 'react'
 import { db, auth } from '@/lib/db'
 import type { RoomType } from '@/types'
@@ -250,14 +251,7 @@ export function SetPricesPage() {
   }
 
   if (loading && types.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <div className="flex items-center gap-3 text-muted-foreground">
-          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          <span>Loading room types...</span>
-        </div>
-      </div>
-    )
+    return <BrandLoader label="Loading room types" />
   }
 
   return (

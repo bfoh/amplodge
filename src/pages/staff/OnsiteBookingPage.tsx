@@ -1,3 +1,4 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db, auth } from '@/lib/db'
@@ -563,14 +564,7 @@ export function OnsiteBookingPage() {
   }
 
   if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-muted-foreground">Authenticating...</p>
-        </div>
-      </div>
-    )
+    return <BrandLoader label="Verifying access" />
   }
 
   return (
@@ -727,7 +721,7 @@ export function OnsiteBookingPage() {
                     ) : null}
 
                     {loadingRooms ? (
-                      <div className="py-12 text-center text-muted-foreground text-sm">Loading rooms…</div>
+                      <BrandLoader variant="section" label="Loading rooms" />
                     ) : !loadError && roomTypes.length === 0 ? (
                       <div className="py-12 text-center text-muted-foreground text-sm">No room types configured yet.</div>
                     ) : (

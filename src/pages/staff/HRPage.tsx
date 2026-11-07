@@ -1,3 +1,4 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { format, parseISO } from 'date-fns'
 import { safeFormatDate } from '@/lib/safe-date'
@@ -797,7 +798,7 @@ function AttendanceTab({ currentStaff }: { currentStaff: any }) {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+        <BrandLoader variant="section" label="Loading attendance" />
       ) : records.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">No attendance records yet. Staff can clock in by scanning the QR code above.</div>
       ) : (
@@ -1292,7 +1293,7 @@ function LeaveTab({ currentStaff }: { currentStaff: any }) {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+        <BrandLoader variant="section" label="Loading leave requests" />
       ) : records.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">No leave requests yet.</div>
       ) : (
@@ -1557,7 +1558,7 @@ function PayrollTab() {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+        <BrandLoader variant="section" label="Loading payroll" />
       ) : records.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">No payroll records yet.</div>
       ) : (
@@ -1733,7 +1734,7 @@ function PerformanceTab({ currentStaff }: { currentStaff: any }) {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+        <BrandLoader variant="section" label="Loading reviews" />
       ) : records.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">No performance reviews yet.</div>
       ) : (
@@ -1947,7 +1948,7 @@ function ApplicationsTab() {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+        <BrandLoader variant="section" label="Loading applications" />
       ) : records.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">No applications yet.</div>
       ) : (
@@ -2575,7 +2576,7 @@ function RevenueReportTab() {
 
       {/* Staff list */}
       {loading ? (
-        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+        <BrandLoader variant="section" label="Loading revenue reports" />
       ) : reports.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground text-sm">No revenue reports found for this week.</div>
       ) : (

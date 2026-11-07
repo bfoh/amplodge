@@ -1,3 +1,4 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -215,14 +216,7 @@ export function InvoicePage() {
   }
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-amber-700 mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading invoice...</p>
-        </div>
-      </div>
-    )
+    return <BrandLoader variant="screen" label="Loading invoice" />
   }
 
   if (error) {
@@ -335,9 +329,7 @@ export function InvoicePage() {
             }}
           />
         ) : (
-          <div className="flex items-center justify-center h-96">
-            <Loader2 className="h-8 w-8 animate-spin text-amber-700" />
-          </div>
+          <BrandLoader variant="section" label="Preparing the invoice" className="h-96" />
         )}
       </div>
     </div>

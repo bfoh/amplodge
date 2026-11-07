@@ -1,3 +1,4 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useState, useEffect } from "react"
 // import { useAuth } from "@/context/AuthContext"
 import { supabase } from "@/lib/supabase"
@@ -186,7 +187,7 @@ export default function MarketingPage() {
         }
     }
 
-    if (loading) return <div className="p-8">Loading templates...</div>
+    if (loading) return <BrandLoader label="Loading templates" />
 
 
     return (
