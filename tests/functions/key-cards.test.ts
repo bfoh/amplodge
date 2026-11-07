@@ -292,8 +292,8 @@ check('only a cut-off card: "working" cannot be put back on any other card', [
   check('no room with that number: no suggestion', suggestDoorRoom('0B0109', floor).roomId, null)
   check('another floor\'s pattern is not used', suggestDoorRoom('0B0203', floor).roomId, null)
   const odd = [...floor, room('205', '0B0109')]
-  check('one room off the pattern is outvoted', suggestDoorRoom('0B0103', odd), { roomId: 'id-203', basis: ['201', '204'] })
-  check('a tie is no pattern', suggestDoorRoom('0B0103', [room('201', '0B0101'), room('203'), room('205', '0B0109')]).roomId, null)
+  check('a room off the pattern means there is no pattern (the lock program numbers doors as they were set up)', suggestDoorRoom('0B0103', odd).roomId, null)
+  check('one room is no pattern: 201 is …01 does not make …0B room 211', suggestDoorRoom('0B010B', [room('201', '0B0101'), room('211')]).roomId, null)
   check('not a door code: nothing', suggestDoorRoom('C9', floor).roomId, null)
 }
 

@@ -237,7 +237,10 @@ export interface DoorPlacement {
 /**
  * The room a door code most likely belongs to, from the rooms whose codes start
  * the same way. Joney numbers doors building, floor, room: if room 201 is …01 and
- * 204 is …04, then …02 is 202. It is only a suggestion; staff confirm it.
+ * 204 is …04, then …02 is 202. But the lock program numbers doors in the order
+ * they were set up, which need not follow the room numbers (on site one room broke
+ * the pattern), so it suggests only when at least two rooms agree and none
+ * disagrees. It is only a suggestion; staff confirm it.
  */
 export function suggestDoorRoom(lockNo: string, rooms: DoorPlacement['rooms']): { roomId: string | null; basis: string[] } {
   const code = normalizeLockNo(lockNo)
@@ -252,10 +255,10 @@ export function suggestDoorRoom(lockNo: string, rooms: DoorPlacement['rooms']): 
       byOffset.set(offset, [...(byOffset.get(offset) ?? []), r.roomNumber])
     }
   }
-  const ranked = [...byOffset].sort((a, b) => b[1].length - a[1].length)
-  // A clear pattern only: the commonest offset must beat every other.
-  if (!ranked.length || (ranked[1] && ranked[1][1].length === ranked[0][1].length)) return { roomId: null, basis: [] }
-  const [offset, basis] = ranked[0]
+  // A clear pattern only: two rooms or more, all on the same offset.
+  if (byOffset.size !== 1) return { roomId: null, basis: [] }
+  const [offset, basis] = [...byOffset][0]
+  if (new Set(basis).size < 2) return { roomId: null, basis: [] }
   const number = String(offset + parseInt(code.slice(4), 16))
   const room = rooms.find((r) => r.roomNumber === number)
   return room ? { roomId: room.roomId, basis: [...new Set(basis)].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })) } : { roomId: null, basis: [] }

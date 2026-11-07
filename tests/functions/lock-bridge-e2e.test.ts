@@ -176,11 +176,14 @@ try {
   const stray = await identifyCard({ ...read, lockNo: '0a0b0c' })
   check('a door no room has: its code, to add on the Rooms page', [stray.room, stray.lockNo, stray.records.length], [null, '0A0B0C', 0])
   // A card made in Joney's program for a room whose code is not on record yet.
-  const R102 = crypto.randomUUID()
-  tables.rooms.push({ id: R102, room_number: '102' })
+  const R102 = crypto.randomUUID(), R103 = crypto.randomUUID()
+  tables.rooms.push({ id: R102, room_number: '102' }, { id: R103, room_number: '103' })
   const newDoor = { ...read, lockNo: '01030B', dai: 0 }
-  const place = await placeDoorCode((await identifyCard(newDoor)).lockNo)
-  check('its room is suggested from the codes on record (101 is …0A, so …0B is 102)', [place.suggested, place.basis], [R102, ['101']])
+  const alone = await placeDoorCode((await identifyCard(newDoor)).lockNo)
+  check('one room on record is no pattern: no room is suggested', [alone.suggested, alone.rooms.map((r) => r.roomNumber)], [null, ['101', '102', '103']])
+  tables.room_locks.push({ id: crypto.randomUUID(), room_id: R103, lock_no: '01030C', label: null })
+  const place = await placeDoorCode(newDoor.lockNo)
+  check('two rooms that agree are (101 is …0A and 103 is …0C, so …0B is 102)', [place.suggested, place.basis], [R102, ['101', '103']])
   clientSession.token = 'tok-admin'
   await saveRoomLocks(R102, [{ lockNo: '01030B' }])
   clientSession.token = 'tok-staff'
