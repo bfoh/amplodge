@@ -1,7 +1,7 @@
 import { requireStaff, jsonResponse, handleCors } from './_lib/auth.js'
 import { checkRateLimit, tooManyRequests } from './_lib/rate-limit.js'
 import {
-  POLICY, LIVE_STATUSES, ORDER_VERSION, serviceClient, signingKey, signOrder, validityFor, isLive, planCards,
+  POLICY, LIVE_STATUSES, ORDER_VERSION, serviceClient, signingKey, signOrder, validityFor, stayEnd, isLive, planCards,
   cardTime, hotelToday, sharesLock, withinLocks, nextDai, daiFor, encoderForChallenge, randomToken, logActivity, parseBody, UUID,
 } from './_lib/key-cards.js'
 
@@ -129,10 +129,16 @@ export const handler = async (event) => {
 
     // An update keeps its card's start time, but its 30 days count from now: that is
     // how a stay longer than a card may run gets its cards moved on.
-    const { begin: from, end, capped } = validityFor(booking.check_out, now, updating ? null : mine.length ? new Date(mine[0].issue_time) : null)
+    // Check-out day at check-out time, or the late check-out, or the last paid day (stayEnd).
+    const stay = stayEnd(booking)
+    const { begin: from, end, capped } = validityFor(stay.day, now, updating ? null : mine.length ? new Date(mine[0].issue_time) : null, stay.time)
     const start = updating ? new Date(updating.issue_time) : from
     if (end.getTime() <= now.getTime() + 5 * 60000) {
-      return jsonResponse(409, { error: 'This stay has ended. Extend it first, then make the card.' })
+      return jsonResponse(409, {
+        error: stay.early
+          ? 'The nights paid for are over. In the booking\'s Key cards, move "Cards work until" to a later day first.'
+          : 'This stay has ended. Extend it first, then make the card.',
+      })
     }
     if (updating && end.getTime() <= new Date(updating.valid_until).getTime() + 60000) {
       return jsonResponse(409, {

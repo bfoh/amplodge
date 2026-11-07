@@ -14,6 +14,9 @@ export interface HotelSettings {
   managerEmail?: string
   managerPhone?: string
   managerNotificationsEnabled?: boolean
+  // Door locks (20261109120000): the fee offered for a key card kept or lost, and the check-out morning SMS
+  keyCardFee?: number | null
+  checkoutMorningSms?: boolean
   createdAt: string
   updatedAt: string
 }

@@ -12,8 +12,8 @@ import { handler as order } from '../../netlify/functions/key-card-order.js'
 import { handler as receipt } from '../../netlify/functions/key-card-receipt.js'
 import { handler as mark } from '../../netlify/functions/key-card-mark.js'
 import { handler as lockout } from '../../netlify/functions/key-card-lockout.js'
-import { doorsOf, suggestDoorRoom } from '@/services/key-cards'
-import { NO_BOOKING, cardTime, ceilToMinute, floorToMinute, isLockNo, nextDai, validityFor, verifyOrder } from '../../netlify/functions/_lib/key-cards.js'
+import { doorsOf, stayKeyEnd, suggestDoorRoom } from '@/services/key-cards'
+import { NO_BOOKING, cardTime, ceilToMinute, floorToMinute, isLockNo, nextDai, stayEnd, validityFor, verifyOrder } from '../../netlify/functions/_lib/key-cards.js'
 
 let failures = 0
 const check = (label: string, got: any, want: any) => {
@@ -37,6 +37,26 @@ v = validityFor('2027-01-30', new Date('2026-11-07T09:30:00Z'))
 check('never valid for more than 30 days', [v.end.toISOString(), v.capped], ['2026-12-07T08:30:00.000Z', true])
 v = validityFor('2026-11-12', new Date('2026-11-08T10:00:00Z'), '2026-11-07T08:30:00.000Z')
 check('extra cards keep the booking\'s start time', v.begin.toISOString(), '2026-11-07T08:30:00.000Z')
+v = validityFor('2026-11-10', new Date('2026-11-07T09:30:00Z'), null, '14:00')
+check('a late check-out at 14:00: the card stops at 15:00', v.end.toISOString(), '2026-11-10T15:00:00.000Z')
+{
+  const stay = { check_in: '2026-11-07', check_out: '2026-11-10' }
+  const ends = (b: any) => { const e = stayEnd(b); return `${e.day} ${e.time}${e.early ? ' early' : ''}` }
+  check('a stay\'s cards stop on check-out day at 11:00 (plus the hour)', ends(stay), '2026-11-10 11:00')
+  check('a late check-out moves the time, 12:00 to 18:00 only',
+    ['14:00', '18:00', '19:00', '10:00', '11:00', 'soon', null].map((t) => ends({ ...stay, late_check_out: t })),
+    ['2026-11-10 14:00', '2026-11-10 18:00', '2026-11-10 11:00', '2026-11-10 11:00', '2026-11-10 11:00', '2026-11-10 11:00', '2026-11-10 11:00'])
+  check('a paid-up day before check-out moves the day; on or after check-out, or on arrival day, it is ignored',
+    ['2026-11-08', '2026-11-09', '2026-11-10', '2026-11-12', '2026-11-07', 'x'].map((d) => ends({ ...stay, key_cards_until: d })),
+    ['2026-11-08 11:00 early', '2026-11-09 11:00 early', '2026-11-10 11:00', '2026-11-10 11:00', '2026-11-10 11:00', '2026-11-10 11:00'])
+  check('a paid-up day wins over a late check-out (that is for the last day)',
+    ends({ ...stay, key_cards_until: '2026-11-08', late_check_out: '15:00' }), '2026-11-08 11:00 early')
+  // The portal works out the same end (to see which cards need updating).
+  const both = [stay, { ...stay, late_check_out: '16:00' }, { ...stay, key_cards_until: '2026-11-09' }, { ...stay, late_check_out: '20:00' }, { ...stay, key_cards_until: '2026-11-07' }]
+  check('the portal and the server agree on when a stay\'s cards stop',
+    both.map((b) => stayKeyEnd({ checkIn: b.check_in, checkOut: b.check_out, lateCheckOut: (b as any).late_check_out, keyCardsUntil: (b as any).key_cards_until })),
+    both.map((b) => { const e = stayEnd(b); return validityFor(e.day, new Date('2026-11-07T09:00:00Z'), null, e.time).end.toISOString() }))
+}
 check('lock numbers: the 6-hex code of the Lock Management System, in capitals', ['01020A', 'FFFFFF', '010309', '01020a', '01010101', '01020', '01020G'].map(isLockNo), [true, true, true, false, false, false, false])
 check('the DAI counts 1..255, then starts again at 1', [null, 0, 1, 254, 255].map(nextDai), [1, 1, 2, 255, 1])
 
@@ -372,6 +392,35 @@ check('only a cut-off card: "working" cannot be put back on any other card', [
   r = await updStopped()
   check('...but not once a card with another DAI was made for the door since: the lock may refuse it',
     [r.status, r.body.error?.startsWith('A newer card was made for this door')], [409, true])
+}
+
+// ─── Late check-out, and cards that stop on the last paid night ──────────────
+{
+  const R106 = id()
+  tables.rooms.push({ id: R106, room_number: '106' })
+  await call(saveLocks, bearer('admin'), { roomId: R106, locks: [{ lockNo: '0102B6' }] })
+  const Bp = id()
+  tables.bookings.push({ id: Bp, room_id: R106, guest_id: G.kofi, status: 'checked-in', check_in: day(0), check_out: day(3), late_check_out: null, key_cards_until: day(1) })
+  const stamp = (d: string, hm: string) => d.slice(2).replace(/-/g, '') + hm
+  const po = JSON.parse((await ask(Bp)).body.order)
+  check('a guest who has paid one night: the card stops on the paid day', po.end, stamp(day(1), '1200'))
+  await report(enc1.token, { nonce: po.nonce, cards: [{ cardNo: 0, status: 'issued' }] })
+  const first = tables.key_cards.find((c) => c.booking_id === Bp)!
+  const bp = tables.bookings.find((b) => b.id === Bp)!
+  bp.key_cards_until = day(2)
+  r = await call(order, bearer('staff'), { bookingId: Bp, challenge: challenge(), update: { cardId: first.id } })
+  check('they pay another night: the card is updated to the next day, same DAI', [r.status, JSON.parse(r.body.order).end, JSON.parse(r.body.order).dai], [200, stamp(day(2), '1200'), po.dai])
+  bp.key_cards_until = null
+  bp.late_check_out = '14:00'
+  const lo = JSON.parse((await ask(Bp)).body.order)
+  check('paid in full, with a late check-out at 14:00: a new card stops at 15:00 on check-out day', [lo.end, lo.dai], [stamp(day(3), '1500'), po.dai])
+  bp.late_check_out = '23:00'
+  check('a late check-out past 18:00 is not trusted', JSON.parse((await ask(Bp)).body.order).end, stamp(day(3), '1200'))
+  bp.late_check_out = null
+  bp.key_cards_until = day(-1)
+  bp.check_in = day(-3)
+  r = await ask(Bp)
+  check('once the paid nights are over, no card: the paid day has to move on first', [r.status, /nights paid for are over/.test(r.body.error)], [409, true])
 }
 
 // ─── A two-door room: extra cards and updates keep the stay's DAI ────────────

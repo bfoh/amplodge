@@ -1,6 +1,7 @@
 // SMS Service - Uses Netlify serverless function for Arkesel calls
 // This keeps API keys secure on the server side
 
+import { GUEST_INFO } from '@/lib/guest-info'
 import { callFunction } from '@/lib/api'
 
 interface SMSResult {
@@ -167,19 +168,21 @@ export async function sendCheckInSMS(params: {
     checkOutDate: string
     paymentMethod?: string
     totalAmount?: number | string
+    /** The room has a door lock: when the guest's key card stops, e.g. "Sat 8 Nov, 12:00". */
+    keyUntil?: string | null
 }): Promise<SMSResult> {
-    const { phone, guestName, roomNumber, checkOutDate, paymentMethod, totalAmount } = params
+    const { phone, guestName, roomNumber, checkOutDate, paymentMethod, totalAmount, keyUntil } = params
 
     const message = `Welcome ${guestName}!
 You are checked in to Room ${roomNumber}.
 Checkout: ${new Date(checkOutDate).toLocaleDateString()} @ 11AM
-${totalAmount && paymentMethod ? `Paid: ${totalAmount} (${paymentMethod})\nThis payment is not refundable.` : ''}
-WiFi: AMPLODGE FREE INTERNET / Pass: 987654321
-Breakfast: 8-10AM
-Dial +233555009697 for help.
+${keyUntil ? `Key card works until: ${keyUntil}. Please return it at checkout.\n` : ''}${totalAmount && paymentMethod ? `Paid: ${totalAmount} (${paymentMethod})\nThis payment is not refundable.` : ''}
+WiFi: ${GUEST_INFO.wifiName} / Pass: ${GUEST_INFO.wifiPassword}
+Breakfast: ${GUEST_INFO.breakfast}
+Dial ${GUEST_INFO.helpPhone} for help.
 
 Enjoy your stay @ AMP Lodge!
-www.amplodge.org`
+${GUEST_INFO.website}`
 
     return sendSMS(phone, message, 'Check-in Confirmation')
 }

@@ -263,7 +263,7 @@ export default function KeyCardsPage() {
             <div>
               <div className="font-semibold">Room {e.roomNumber} <span className="font-normal text-muted-foreground">· {e.guestName}</span></div>
               <div className="text-xs text-muted-foreground">
-                {e.cards === 1 ? 'The card stops' : `${e.cards} cards stop`} {hotelTime(e.validUntil)} · check-out {hotelDay(e.checkOut)}
+                {e.cards === 1 ? 'The card stops' : `${e.cards} cards stop`} {hotelTime(e.validUntil)} · {e.keyEnd.slice(0, 10) === e.checkOut ? `check-out ${hotelDay(e.checkOut)}` : `cards should work until ${hotelTime(e.keyEnd)}`}
               </div>
             </div>
             {encoderPc && (

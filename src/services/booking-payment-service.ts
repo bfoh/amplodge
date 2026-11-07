@@ -33,7 +33,7 @@ export interface RecordPaymentOptions {
 }
 
 /** Room price the booking is actually worth, after any discount. */
-function effectiveRoomPrice(booking: any): number {
+export function effectiveRoomPrice(booking: any): number {
   const gross = Number(booking?.totalPrice ?? booking?.total_price ?? 0) || 0
   const discount = Number(booking?.discountAmount ?? booking?.discount_amount ?? 0) || 0
   if (discount <= 0) return gross
@@ -106,6 +106,13 @@ export async function recordBookingPayment(opts: RecordPaymentOptions): Promise<
  * already been paid. Used to prefill the amount collected at check-out.
  */
 export function outstandingBalance(booking: any, chargesTotal: number = 0): number {
+  const paid = amountPaidOf(booking)
+  const owed = effectiveRoomPrice(booking) + (Number(chargesTotal) || 0) - paid
+  return Math.max(0, Math.round(owed * 100) / 100)
+}
+
+/** What the guest has paid on a booking so far: amountPaid, or the PAYMENT_DATA total in its notes. */
+export function amountPaidOf(booking: any): number {
   const specialReq: string = booking?.special_requests || booking?.specialRequests || ''
   let paid = Number(booking?.amountPaid ?? 0) || 0
   if (!paid) {
@@ -114,6 +121,5 @@ export function outstandingBalance(booking: any, chargesTotal: number = 0): numb
       try { paid = Number(JSON.parse(m[1]).amountPaid) || 0 } catch { /* ignore */ }
     }
   }
-  const owed = effectiveRoomPrice(booking) + (Number(chargesTotal) || 0) - paid
-  return Math.max(0, Math.round(owed * 100) / 100)
+  return paid
 }

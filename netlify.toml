@@ -1,6 +1,10 @@
 [functions.sync-channels]
   schedule = "*/30 * * * *"
 
+# Check-out morning SMS, 07:30 Ghana time (GMT). Switched on in Settings → Door locks.
+[functions.key-card-checkout-sms]
+  schedule = "30 7 * * *"
+
 [build]
   command = "npm run build && cd netlify/functions && npm install"
   publish = "dist"

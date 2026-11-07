@@ -1,17 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CalendarClock, CreditCard, KeyRound, Loader2, PackageCheck, SearchX } from 'lucide-react'
+import { AlertTriangle, CalendarClock, Clock, CreditCard, KeyRound, Loader2, PackageCheck, Printer, SearchX } from 'lucide-react'
+import { toast } from 'sonner'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { bookingChargesService } from '@/services/booking-charges-service'
+import { describeKeyEnd, hasStayRules, keyCardDays, paidNightsOf, printCardSleeve, setKeyCardsUntil, type PaidNights } from '@/services/key-card-stay'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { db } from '@/lib/db'
 import {
-  cardsOutOfStep, promptCollectCards, promptKeyCards, promptUpdateCards, subscribeStayPrompt,
+  cardsOutOfStep, promptCollectCards, promptKeyCards, promptLateCheckout, promptUpdateCards, subscribeStayPrompt,
   type KeyCardRequest, type StayCardsRequest,
 } from '@/services/key-card-prompt'
 import { STATUS_LABEL, canOpenDoor, hotelDay, hotelTime, loadStayCards, type KeyCard } from '@/services/key-cards'
 
 interface StayView {
+  /** The booking row: lateCheckOut and keyCardsUntil decide when the cards stop. */
+  booking: any
+  paid: PaidNights | null
   status: string
   checkIn: string
   checkOut: string
@@ -35,6 +42,7 @@ export function StayCardsDialog() {
   const [view, setView] = useState<StayView | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
   const [confirmLost, setConfirmLost] = useState(false)
+  const [savingDay, setSavingDay] = useState(false)
   const closed = useRef<(() => void) | null>(null)
 
   useEffect(() => {
@@ -52,15 +60,18 @@ export function StayCardsDialog() {
 
   async function load(req: StayCardsRequest) {
     try {
-      const b = (await db.bookings.get(req.bookingId)) as { roomId: string; status: string; checkIn: string; checkOut: string } | null
+      const b = (await db.bookings.get(req.bookingId)) as any
       if (!b) throw new Error('The booking could not be found.')
-      const [rooms, locks, cards, behind] = await Promise.all([
+      const [rooms, locks, cards, behind, charges] = await Promise.all([
         db.rooms.list({ where: { id: b.roomId }, limit: 1 }) as Promise<Array<{ roomNumber: string }>>,
         db.roomLocks.list({ where: { roomId: b.roomId }, limit: 10 }) as Promise<unknown[]>,
         loadStayCards(req.bookingId),
         cardsOutOfStep(req.bookingId),
+        bookingChargesService.getChargesForBooking(req.bookingId).catch(() => []),
       ])
       setView({
+        booking: b,
+        paid: paidNightsOf(b, charges as any),
         status: b.status,
         checkIn: String(b.checkIn).slice(0, 10),
         checkOut: String(b.checkOut).slice(0, 10),
@@ -79,6 +90,21 @@ export function StayCardsDialog() {
     const done = closed.current
     closed.current = null
     done?.()
+  }
+
+  /** Cards stop on this day (a guest paying night by night), or check-out day for the whole stay. */
+  async function changeDay(day: string) {
+    if (!request || !view) return
+    setSavingDay(true)
+    try {
+      await setKeyCardsUntil(request.bookingId, day, view.checkOut)
+      toast.success(day < view.checkOut ? `Cards now stop ${hotelDay(day)}` : 'Cards now work for the whole stay')
+      await load(request)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not change it')
+    } finally {
+      setSavingDay(false)
+    }
   }
 
   /** Closes this view, then opens the dialog that does the work. */
@@ -126,11 +152,43 @@ export function StayCardsDialog() {
                 </ul>
               ) : view.hasLock && <p className="text-muted-foreground">No cards have been made for this stay.</p>}
 
+              {view.hasLock && staying && (
+                <div className="space-y-2 rounded-lg border bg-muted/40 p-3">
+                  <p>Cards should work until <span className="font-medium">{describeKeyEnd(view.booking)}</span>.</p>
+                  {hasStayRules(view.booking) && keyCardDays(view.checkIn, view.checkOut).length > 1 && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-muted-foreground">Stop them on</span>
+                      <Select
+                        value={String(view.booking.keyCardsUntil ?? view.checkOut).slice(0, 10)}
+                        onValueChange={(d) => void changeDay(d)}
+                        disabled={savingDay}
+                      >
+                        <SelectTrigger className="h-8 w-56" aria-label="The day the cards stop on"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {keyCardDays(view.checkIn, view.checkOut).map((d, i, all) => (
+                            <SelectItem key={d} value={d}>
+                              {hotelDay(d)}{i === all.length - 1 ? ' (check-out)' : ` (${i + 1} night${i ? 's' : ''})`}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {savingDay && <Loader2 className="h-4 w-4 animate-spin" />}
+                    </div>
+                  )}
+                  {view.paid && view.paid.paid < view.paid.nights && (
+                    <p className="text-xs text-muted-foreground">
+                      Paid for {view.paid.paid} of {view.paid.nights} night{view.paid.nights === 1 ? '' : 's'}.
+                      {!view.booking.keyCardsUntil && ' The cards work for the whole stay unless you stop them sooner.'}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {view.outOfStep > 0 && (
                 <p className="flex items-start gap-2 text-amber-900">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   {view.outOfStep === 1 ? 'A card no longer matches' : `${view.outOfStep} cards no longer match`} the stay
-                  (check-out {hotelDay(view.checkOut)}, room {room}). Update {view.outOfStep === 1 ? 'it' : 'them'} at the encoder.
+                  (until {describeKeyEnd(view.booking)}, room {room}). Update {view.outOfStep === 1 ? 'it' : 'them'} at the encoder.
                 </p>
               )}
 
@@ -162,6 +220,22 @@ export function StayCardsDialog() {
                   {staying && working.length > 0 && (
                     <Button size="sm" variant="outline" onClick={() => setConfirmLost(true)}>
                       <SearchX className="mr-1 h-4 w-4" />Card lost
+                    </Button>
+                  )}
+                  {view.status === 'checked-in' && request && (
+                    <Button size="sm" variant="outline" onClick={() => then(() => promptLateCheckout({ bookingId: request.bookingId, guestName: guest, roomNumber: room }))}>
+                      <Clock className="mr-1 h-4 w-4" />Late check-out
+                    </Button>
+                  )}
+                  {staying && working.length > 0 && (
+                    <Button size="sm" variant="outline" onClick={() => {
+                      try {
+                        printCardSleeve({ roomNumber: room, guestName: guest, stay: view.booking, cards: working.length })
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : 'Could not print')
+                      }
+                    }}>
+                      <Printer className="mr-1 h-4 w-4" />Print the card sleeve
                     </Button>
                   )}
                   {!staying && out.length > 0 && request && (

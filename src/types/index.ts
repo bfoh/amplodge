@@ -55,6 +55,10 @@ export interface Booking {
   invoiceNumber?: string
   // Payment tracking fields
   amountPaid?: number          // Amount guest has paid so far
+  // Door locks (20261109120000): a late check-out time on check-out day ('14:00'),
+  // and the day key cards stop on for a guest paying night by night.
+  lateCheckOut?: string | null
+  keyCardsUntil?: string | null
   paymentStatus?: 'full' | 'part' | 'pending'  // Payment status
   // Discount fields
   discountAmount?: number      // Discount applied at check-in (in GH₵)
@@ -335,6 +339,9 @@ export interface HotelSettings {
   taxRate: number
   checkInTime: string
   checkOutTime: string
+  // Door locks (20261109120000)
+  keyCardFee?: number | null
+  checkoutMorningSms?: boolean
   updatedAt: string
 }
 

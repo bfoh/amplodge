@@ -174,7 +174,7 @@ function Described({ reading, identity, isAdmin, busy, mark, place, update }: {
   const staying = stay?.status === 'checked-in'
   const theirs = staying ? records.find((c) => c.bookingId === stay.bookingId && ['issued', 'unknown'].includes(c.status)) : undefined
   const moved = !!theirs && !!room && stay!.roomId !== room.roomId
-  const short = !!theirs && !moved && !!validUntil && validUntil.toISOString().slice(0, 10) < stay!.checkOut
+  const short = !!theirs && !moved && !!validUntil && validUntil.getTime() < Date.parse(stay!.keyEnd) - 60_000
   const fine = !expired && !newer && !!room && !moved && !short && (staying || madeInJoney || first?.kind === 'lockout')
   const guest = theirs?.guestName ?? 'The guest'
 
@@ -215,7 +215,7 @@ function Described({ reading, identity, isAdmin, busy, mark, place, update }: {
           <Warn>
             {moved
               ? <>{guest} has moved to room {stay!.roomNumber}, but this card still opens room {room!.roomNumber}.</>
-              : <>{guest}'s stay goes on until {hotelDay(stay!.checkOut)}, but this card {expired ? 'has stopped' : `stops ${when(validUntil!)}`}.</>}
+              : <>{guest}'s cards should work until {when(stay!.keyEnd)}, but this card {expired ? 'has stopped' : `stops ${when(validUntil!)}`}.</>}
           </Warn>
           <Button size="sm" disabled={busy} onClick={() => update(stay!.bookingId, theirs.guestName)}>
             {moved ? <KeyRound className="w-4 h-4 mr-1" /> : <CalendarClock className="w-4 h-4 mr-1" />}

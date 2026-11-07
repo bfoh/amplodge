@@ -8,6 +8,7 @@ import { STATUS_LABEL, hotelTime, identifyCard, loadStayCards, markCard, type Ke
 import { getEncoderPc, readCard, type CardReading } from '@/services/lock-bridge'
 import { useHandsFreeRead } from '@/hooks/use-hands-free-read'
 import { HandsFreeHint } from '@/components/HandsFreeHint'
+import { CardFeeOffer } from '@/components/CardFeeOffer'
 
 type Note = { tone: 'good' | 'bad'; text: string } | null
 
@@ -24,6 +25,8 @@ export function CollectCardsDialog() {
   const [busy, setBusy] = useState<string | null>(null)
   const [note, setNote] = useState<Note>(null)
   const [failed, setFailed] = useState<string | null>(null)
+  // Cards marked as kept by the guest here: the card fee is offered for them.
+  const [keptNow, setKeptNow] = useState(0)
   const closed = useRef<(() => void) | null>(null)
   const encoderPc = !!getEncoderPc()
 
@@ -36,6 +39,7 @@ export function CollectCardsDialog() {
       setKept([])
       setNote(null)
       setFailed(null)
+      setKeptNow(0)
       void refresh(req.bookingId)
     })
     return () => subscribeCollectPrompt(null)
@@ -64,6 +68,7 @@ export function CollectCardsDialog() {
     setBusy(card.id)
     try {
       await markCard(card.id, status, how)
+      if (status === 'not_returned') setKeptNow((n) => n + 1)
       setNote({ tone: 'good', text: status === 'returned' ? 'A card is marked returned.' : 'A card is marked as kept by the guest.' })
       await refresh(request.bookingId)
     } catch (e) {
@@ -177,6 +182,7 @@ export function CollectCardsDialog() {
               {allIn && kept.length === 0 && (
                 <p className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Every card is back.</p>
               )}
+              {request && keptNow > 0 && <CardFeeOffer bookingId={request.bookingId} why="kept" cards={keptNow} stillStaying={false} />}
               {kept.length > 0 && (
                 <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">
                   <p>

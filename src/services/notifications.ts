@@ -1,4 +1,6 @@
 import { formatCurrencySync } from '@/lib/utils'
+import { db } from '@/lib/db'
+import { hotelTime, stayKeyEnd } from '@/services/key-cards'
 import { hotelSettingsService } from '@/services/hotel-settings'
 import { sendTransactionalEmail } from '@/services/email-service'
 import { sendCheckInSMS, sendCheckOutSMS, sendBookingConfirmationSMS, sendManagerCheckInSMS } from '@/services/sms-service'
@@ -337,10 +339,17 @@ The AMP LODGE Team
 
     // SMS/WhatsApp notification (if phone number provided)
     if (guest.phone) {
+      // A room with a door lock: say when the key card stops (check-out day, an hour after check-out).
+      let keyUntil: string | null = null
+      try {
+        const locks = await db.roomLocks.list({ where: { roomId: room.id }, limit: 1 })
+        if (locks.length) keyUntil = hotelTime(stayKeyEnd(booking))
+      } catch { /* the SMS goes without it */ }
       await sendCheckInSMS({
         phone: guest.phone,
         guestName: guest.name,
         roomNumber: room.roomNumber,
+        keyUntil,
         checkOutDate: checkOutDate.toISOString(),
         paymentMethod: paymentDetails?.method,
         totalAmount: paymentDetails?.amount ? (typeof paymentDetails.amount === 'number' ? formatCurrencySync(paymentDetails.amount, currency) : paymentDetails.amount) : undefined

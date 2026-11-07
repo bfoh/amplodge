@@ -87,7 +87,7 @@ for s in room-types group-bookings accounting allocation cash-basis reservations
 echo "── end-to-end"
 for s in lifecycle groups-analytics group-membership group-invoice charges-repeat all-write-paths; do e2e "$s"; done
 echo "── functions"
-for s in concierge-rooms create-employee key-cards; do fn "$s"; done
+for s in concierge-rooms create-employee key-cards key-card-stay; do fn "$s"; done
 
 # The key-card loop across the real portal client, the .NET lock bridge (simulator)
 # and the handlers. Needs the .NET SDK to build the simulator; skipped without it.

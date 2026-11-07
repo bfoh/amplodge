@@ -44,7 +44,7 @@ export interface RoomLock {
   label: string | null
 }
 
-interface BookingRow {
+interface BookingRow extends StayTimes {
   id: string
   roomId: string
   guestId: string | null
@@ -66,6 +66,8 @@ export interface EndsEarly {
   guestName: string
   roomNumber: string
   checkOut: string
+  /** When the stay's cards should stop now (stayKeyEnd). */
+  keyEnd: string
   /** When the first of these cards stops. */
   validUntil: string
   cards: number
@@ -123,13 +125,54 @@ export const hotelTime = (iso: string | Date) =>
 export const hotelDay = (date: string) =>
   new Date(`${String(date).slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' })
 
+// ─── When a stay's cards stop: the server's rule (_lib/key-cards.js stayEnd), mirrored ───
+
+/** Check-out time, the hour cards work on after it, and the latest late check-out. */
+export const CHECK_OUT_TIME = '11:00'
+const GRACE_MINUTES = 60
+export const LATEST_CHECK_OUT = '18:00'
+/** The late check-out times staff can pick: on the hour, 12:00 to 18:00. */
+export const LATE_CHECK_OUT_TIMES = ['12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00']
+
+/** What decides when a stay's cards stop. lateCheckOut and keyCardsUntil arrive with 20261109120000. */
+export interface StayTimes {
+  checkIn?: string | null
+  checkOut?: string | null
+  /** A later check-out time on check-out day ('14:00'). */
+  lateCheckOut?: string | null
+  /** Cards stop on this day instead (a guest paying night by night). */
+  keyCardsUntil?: string | null
+}
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/
+const HOUR = /^\d{2}:\d{2}$/
+
+/** The day (and time) a stay's cards stop at, before the grace hour. A value out of range is ignored, as on the server. */
+export function stayEndDay(b: StayTimes): { day: string; time: string; early: boolean } {
+  const checkOut = String(b.checkOut ?? '').slice(0, 10)
+  const checkIn = String(b.checkIn ?? '').slice(0, 10)
+  const until = String(b.keyCardsUntil ?? '').slice(0, 10)
+  if (DAY.test(until) && until < checkOut && (!DAY.test(checkIn) || until > checkIn)) return { day: until, time: CHECK_OUT_TIME, early: true }
+  const late = String(b.lateCheckOut ?? '').slice(0, 5)
+  const time = HOUR.test(late) && late > CHECK_OUT_TIME && late <= LATEST_CHECK_OUT ? late : CHECK_OUT_TIME
+  return { day: checkOut, time, early: false }
+}
+
+/** When a stay's cards stop (ISO): the end day at its time, plus the grace hour. */
+export function stayKeyEnd(b: StayTimes): string {
+  const { day, time } = stayEndDay(b)
+  const [y, mo, d] = day.split('-').map(Number)
+  const [h, m] = time.split(':').map(Number)
+  return new Date(Date.UTC(y, mo - 1, d, h, m) + GRACE_MINUTES * 60000).toISOString()
+}
+
 /**
- * A card stops on a day before the stay's check-out day (cards stop on check-out
- * day, an hour after check-out time): the stay was extended, or is longer than a
- * card may run.
+ * A card stops before the stay's cards should (stayKeyEnd): the stay was extended,
+ * given a late check-out or more paid nights, or is longer than a card may run.
  */
-export function endsBefore(card: Pick<KeyCard, 'validUntil'>, checkOut: string): boolean {
-  return new Date(card.validUntil).toISOString().slice(0, 10) < String(checkOut).slice(0, 10)
+export function endsBefore(card: Pick<KeyCard, 'validUntil'>, stay: StayTimes): boolean {
+  if (!DAY.test(String(stay.checkOut ?? '').slice(0, 10))) return false
+  return Date.parse(card.validUntil) < Date.parse(stayKeyEnd(stay)) - 60_000
 }
 
 /** A card made for the room as it is now: it opens only doors of the room. */
@@ -193,7 +236,7 @@ export async function loadKeyCardBoard(now = new Date()): Promise<KeyCardBoard> 
     const b = c.bookingId ? known.get(c.bookingId) : undefined
     if (!b || !STAYING.includes(b.status)) shouldBeGone.push(c)
     else if (c.roomId && b.roomId !== c.roomId) wrongRoom.push(c)
-    else if (b.status === 'checked-in' && c.status !== 'not_returned' && endsBefore(c, b.checkOut)) {
+    else if (b.status === 'checked-in' && c.status !== 'not_returned' && endsBefore(c, b)) {
       const e = early.get(b.id)
       if (e) {
         e.cards++
@@ -204,6 +247,7 @@ export async function loadKeyCardBoard(now = new Date()): Promise<KeyCardBoard> 
           guestName: c.guestName ?? ((b.guestId && guestName.get(b.guestId)) || 'Guest'),
           roomNumber: roomNo.get(b.roomId) || c.roomNumber || '?',
           checkOut: String(b.checkOut).slice(0, 10),
+          keyEnd: stayKeyEnd(b),
           validUntil: c.validUntil,
           cards: 1,
         })
@@ -239,6 +283,8 @@ export interface CardStay {
   bookingId: string
   status: string
   checkOut: string
+  /** When the stay's cards should stop (stayKeyEnd). */
+  keyEnd: string
   /** The room the stay is in now, which may not be the card's. */
   roomId: string
   roomNumber: string
@@ -291,7 +337,7 @@ export async function identifyCard(reading: CardReading, now = new Date()): Prom
         const r = (await db.rooms.list({ where: { id: b.roomId }, limit: 1 })) as Array<{ roomNumber: string }>
         roomNumber = String(r[0]?.roomNumber ?? '?')
       }
-      stay = { bookingId, status: b.status, checkOut: String(b.checkOut).slice(0, 10), roomId: b.roomId, roomNumber }
+      stay = { bookingId, status: b.status, checkOut: String(b.checkOut).slice(0, 10), keyEnd: stayKeyEnd(b), roomId: b.roomId, roomNumber }
     }
   }
 

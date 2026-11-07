@@ -15,6 +15,8 @@ export const POLICY = Object.freeze({
   // Owner decisions, 2026-11-06: check-out at 11:00, cards work for an hour more.
   checkOutTime: '11:00',
   graceMinutes: 60,
+  // A late check-out (bookings.late_check_out) is on check-out day, at the latest this.
+  latestCheckOut: '18:00',
   // The start time written on a card is set back this far, so a lock whose
   // clock runs slow still opens for a card made a minute ago.
   clockSlackMinutes: 60,
@@ -73,15 +75,36 @@ export function hotelToday(now = new Date()) {
   return now.toISOString().slice(0, 10)
 }
 
+const DAY = /^\d{4}-\d{2}-\d{2}$/
+const HOUR = /^\d{2}:\d{2}$/
+
+/**
+ * The day and time a stay's cards stop at, before the grace hour: check-out day at
+ * check-out time. A late check-out (bookings.late_check_out, after 11:00 and at the latest
+ * 18:00) moves the time. key_cards_until, for guests who pay night by night, moves the day
+ * earlier, at the usual time. A value out of range is ignored, never trusted.
+ */
+export function stayEnd(booking) {
+  const checkOut = String(booking?.check_out ?? '').slice(0, 10)
+  const checkIn = String(booking?.check_in ?? '').slice(0, 10)
+  const until = String(booking?.key_cards_until ?? '').slice(0, 10)
+  if (DAY.test(until) && until < checkOut && (!DAY.test(checkIn) || until > checkIn)) return { day: until, time: POLICY.checkOutTime, early: true }
+  const late = String(booking?.late_check_out ?? '').slice(0, 5)
+  const time = HOUR.test(late) && late > POLICY.checkOutTime && late <= POLICY.latestCheckOut ? late : POLICY.checkOutTime
+  return { day: checkOut, time, early: false }
+}
+
 /**
  * When a card for a stay starts and ends.
  * begin: given (extra cards reuse their booking's start time) or now minus the clock slack.
- * end:   check-out day at check-out time plus grace, never more than maxDays after begin.
+ * end:   the end day at its time (check-out time, or a late check-out's) plus grace, never
+ *        more than maxDays after begin.
  */
-export function validityFor(checkOutDate, now = new Date(), begin = null) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(checkOutDate || '').slice(0, 10))) throw new Error('Bad check-out date')
+export function validityFor(checkOutDate, now = new Date(), begin = null, time = POLICY.checkOutTime) {
+  if (!DAY.test(String(checkOutDate || '').slice(0, 10))) throw new Error('Bad check-out date')
+  if (!HOUR.test(String(time))) throw new Error('Bad check-out time')
   const start = begin ? new Date(begin) : floorToMinute(new Date(now.getTime() - POLICY.clockSlackMinutes * 60000))
-  const [h, m] = POLICY.checkOutTime.split(':').map(Number)
+  const [h, m] = String(time).split(':').map(Number)
   const [y, mo, d] = String(checkOutDate).slice(0, 10).split('-').map(Number)
   let end = new Date(Date.UTC(y, mo - 1, d, h, m) + POLICY.graceMinutes * 60000)
   const cap = new Date(start.getTime() + POLICY.maxDays * 86400000)

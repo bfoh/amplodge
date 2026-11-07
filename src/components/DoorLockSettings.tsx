@@ -8,6 +8,9 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+import { useCurrency } from '@/hooks/use-currency'
+import { STAY_RULES_MIGRATION, loadKeyCardSettings, saveKeyCardSettings, type KeyCardSettings } from '@/services/key-card-stay'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -201,6 +204,8 @@ export function DoorLockSettings() {
           {!pairing && pairError && <p className="text-sm text-red-700">{pairError}</p>}
         </section>}
 
+        <KeyCardMoneySettings />
+
         <section className="space-y-2">
           <h3 className="text-sm font-semibold">Encoder PCs</h3>
           {loadError ? (
@@ -247,5 +252,80 @@ export function DoorLockSettings() {
         </AlertDialogContent>
       </AlertDialog>
     </Card>
+  )
+}
+
+/** The card fee and the check-out morning SMS (20261109120000). */
+function KeyCardMoneySettings() {
+  const { currency } = useCurrency()
+  const [settings, setSettings] = useState<KeyCardSettings | null>(null)
+  const [fee, setFee] = useState('')
+  const [sms, setSms] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [failed, setFailed] = useState<string | null>(null)
+
+  useEffect(() => {
+    loadKeyCardSettings().then((s) => {
+      setSettings(s)
+      setFee(s.fee ? String(s.fee) : '')
+      setSms(s.morningSms)
+    }, (e) => setFailed(e instanceof Error ? e.message : 'The settings could not be loaded.'))
+  }, [])
+
+  const amount = fee.trim() === '' ? null : Number(fee)
+  const valid = amount === null || (Number.isFinite(amount) && amount >= 0)
+  const changed = !!settings && ((amount || null) !== settings.fee || sms !== settings.morningSms)
+
+  async function save() {
+    if (!settings?.id || !valid) return
+    setSaving(true)
+    try {
+      await saveKeyCardSettings(settings.id, amount, sms)
+      const fresh = await loadKeyCardSettings()
+      setSettings(fresh)
+      setFee(fresh.fee ? String(fresh.fee) : '')
+      setSms(fresh.morningSms)
+      toast.success('Door lock settings saved')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="space-y-3">
+      <h3 className="text-sm font-semibold">Card fee and guest SMS</h3>
+      {failed ? <p className="text-sm text-red-700">{failed}</p>
+        : !settings ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        : !settings.ready ? (
+          <p className="text-sm text-amber-800">
+            These need a database update first: run <code className="text-xs">{STAY_RULES_MIGRATION}</code> in the Supabase SQL editor, then reload this page.
+          </p>
+        ) : (
+          <>
+            <div className="space-y-1">
+              <Label htmlFor="key-card-fee">Fee for a key card kept or lost ({currency})</Label>
+              <Input id="key-card-fee" className="w-40" inputMode="decimal" placeholder="No fee" value={fee} onChange={(e) => setFee(e.target.value)} />
+              <p className="text-xs text-muted-foreground">
+                When a guest keeps a card at check-out or loses one, staff are offered this charge, and can skip it. Leave it empty for no fee.
+              </p>
+              {!valid && <p className="text-xs text-red-700">Enter an amount, such as 20.</p>}
+            </div>
+            <div className="flex items-start gap-3">
+              <Switch id="checkout-sms" checked={sms} onCheckedChange={setSms} className="mt-0.5" />
+              <div className="space-y-0.5">
+                <Label htmlFor="checkout-sms">Check-out morning SMS</Label>
+                <p className="text-xs text-muted-foreground">
+                  At 7:30 on check-out day, guests leaving today get an SMS with their check-out time and when their key card stops, asking them to hand the cards in.
+                </p>
+              </div>
+            </div>
+            <Button size="sm" disabled={!changed || !valid || saving} onClick={() => void save()}>
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save
+            </Button>
+          </>
+        )}
+    </section>
   )
 }

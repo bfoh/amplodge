@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, CircleDashed, CreditCard, KeyRound, Loader2, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, CircleDashed, CreditCard, KeyRound, Loader2, Printer, XCircle } from 'lucide-react'
+import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { db } from '@/lib/db'
+import { bookingChargesService } from '@/services/booking-charges-service'
+import { hasStayRules, paidNightsOf, printCardSleeve, setKeyCardsUntil, type PaidNights } from '@/services/key-card-stay'
+import { CardFeeOffer } from '@/components/CardFeeOffer'
 import { subscribeKeyCardPrompt, type KeyCardRequest } from '@/services/key-card-prompt'
 import { getEncoderPc, prepareKeyCards, prepareLockoutCard, writeKeyCard, type CardResult, type PreparedCards } from '@/services/lock-bridge'
 import { useEncoderClaim } from '@/hooks/use-hands-free-read'
@@ -36,6 +42,9 @@ export function KeyCardDialog() {
   const closed = useRef<(() => void) | null>(null)
   // A lost card replaces the stay's cards once; a retry after that adds to the new set.
   const replaced = useRef(false)
+  // The stay, for the paid-nights choice and the card sleeve.
+  const [stay, setStay] = useState<{ booking: any; paid: PaidNights | null } | null>(null)
+  const [paidOnly, setPaidOnly] = useState(false)
 
   useEffect(() => {
     subscribeKeyCardPrompt((req, onClosed) => {
@@ -46,7 +55,10 @@ export function KeyCardDialog() {
       setPrepared(null)
       setResults({})
       replaced.current = false
+      setStay(null)
+      setPaidOnly(false)
       setStep(getEncoderPc() ? { kind: 'choose' } : { kind: 'elsewhere' })
+      if (!req.lockoutRoomId) void loadStay(req.bookingId)
     })
     return () => subscribeKeyCardPrompt(null)
   }, [])
@@ -63,11 +75,36 @@ export function KeyCardDialog() {
     done?.()
   }
 
+  async function loadStay(bookingId: string) {
+    try {
+      const [booking, charges] = await Promise.all([db.bookings.get(bookingId), bookingChargesService.getChargesForBooking(bookingId).catch(() => [])])
+      if (!booking) return
+      setStay({ booking, paid: paidNightsOf(booking, charges as any) })
+      setPaidOnly(!!(booking as any).keyCardsUntil)
+    } catch {
+      // Only the paid-nights choice and the sleeve need it.
+    }
+  }
+
+  /** Paid in part: the day the cards would stop on for the nights paid. */
+  const paidDay: string | null = stay && hasStayRules(stay.booking) && stay.paid
+    && (stay.paid.paid < stay.paid.nights || stay.booking.keyCardsUntil)
+    ? String(stay.booking.keyCardsUntil ?? stay.paid.paidUntil).slice(0, 10)
+    : null
+
   async function prepare(n: number) {
     if (!request) return
     setStep({ kind: 'preparing' })
     const replacing = !!request.replace && !replaced.current
     try {
+      // The paid-nights choice is saved on the booking first: the server sets the cards' end from it.
+      if (!request.lockoutRoomId && stay && paidDay) {
+        const want = paidOnly ? paidDay : null
+        if (want !== (stay.booking.keyCardsUntil ? String(stay.booking.keyCardsUntil).slice(0, 10) : null)) {
+          await setKeyCardsUntil(request.bookingId, want, String(stay.booking.checkOut))
+          setStay((s) => s && { ...s, booking: { ...s.booking, keyCardsUntil: want } })
+        }
+      }
       const p = request.lockoutRoomId ? await prepareLockoutCard(request.lockoutRoomId) : await prepareKeyCards(request.bookingId, n, replacing)
       if (replacing) replaced.current = true
       setPrepared(p)
@@ -179,6 +216,16 @@ export function KeyCardDialog() {
               A lost card: the new cards replace every card of this stay. Once one of them opens the door, the old ones stop working there, including any the guest still has.
             </p>
           )}
+          {paidDay && stay?.paid && (
+            <label className="flex items-start gap-2 rounded-lg border p-3 text-sm">
+              <Checkbox className="mt-0.5" checked={paidOnly} onCheckedChange={(v) => setPaidOnly(v === true)} />
+              <span>
+                Paid for {stay.paid.paid} of {stay.paid.nights} night{stay.paid.nights === 1 ? '' : 's'}.
+                {' '}Make the cards stop after the nights paid, on <strong>{hotelTime(`${paidDay}T12:00:00Z`)}</strong>.
+                <span className="block text-muted-foreground">When the guest pays for more nights, change it in the booking's Key cards and update the cards.</span>
+              </span>
+            </label>
+          )}
           <p className="text-sm text-muted-foreground">How many {request?.replace ? 'new cards' : 'cards'} for {guest}?</p>
           <div className="flex gap-2" role="radiogroup" aria-label="Number of cards">
             {[1, 2, 3, 4].map((n) => (
@@ -276,9 +323,25 @@ export function KeyCardDialog() {
           ) : (
             <p className="text-sm">{made === 1 ? 'The card is' : `All ${made} cards are`} ready. Take {made === 1 ? 'it' : 'the last one'} off the encoder.</p>
           )}
+          {!lockout && request?.replace && request.bookingId && (
+            <CardFeeOffer bookingId={request.bookingId} why="lost" cards={1} stillStaying={stay?.booking?.status === 'checked-in'} />
+          )}
         </div>
       )
-      footer = <Button onClick={close}>Done</Button>
+      footer = (
+        <>
+          {!lockout && made > 0 && (
+            <Button variant="outline" onClick={() => {
+              try {
+                printCardSleeve({ roomNumber: String(room), guestName: guest, stay: stay?.booking ?? {}, cards: made, until: prepared?.validUntil })
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : 'Could not print')
+              }
+            }}><Printer className="mr-2 h-4 w-4" />Print the card sleeve</Button>
+          )}
+          <Button onClick={close}>Done</Button>
+        </>
+      )
       break
   }
 

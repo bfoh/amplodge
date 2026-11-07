@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from '@/components/ui/button'
 import { db } from '@/lib/db'
 import { cardsOutOfStep, subscribeUpdatePrompt, type StayCardsRequest } from '@/services/key-card-prompt'
-import { hotelDay, hotelTime, identifyCard, markCard, withinLocks, type KeyCard } from '@/services/key-cards'
+import { hotelDay, hotelTime, identifyCard, markCard, stayKeyEnd, withinLocks, type KeyCard, type StayTimes } from '@/services/key-cards'
 import { OrderRefused, getEncoderPc, prepareCardUpdate, prepareKeyCards, readCard, writeKeyCard, type CardReading } from '@/services/lock-bridge'
 import { useHandsFreeRead } from '@/hooks/use-hands-free-read'
 import { HandsFreeHint } from '@/components/HandsFreeHint'
@@ -15,6 +15,8 @@ interface Stay {
   roomNumber: string
   doors: string[]
   checkOut: string
+  /** When the cards should stop now: check-out, a late check-out or the last paid day (stayKeyEnd). */
+  keyEnd: string
 }
 
 type Phase =
@@ -76,14 +78,14 @@ export function UpdateCardsDialog() {
 
   async function load(req: StayCardsRequest) {
     try {
-      const booking = (await db.bookings.get(req.bookingId)) as { roomId: string; checkOut: string } | null
+      const booking = (await db.bookings.get(req.bookingId)) as (StayTimes & { roomId: string; checkOut: string }) | null
       if (!booking) throw new Error('The booking could not be found.')
       const [locks, rooms, cards] = await Promise.all([
         db.roomLocks.list({ where: { roomId: booking.roomId }, limit: 10 }) as Promise<Array<{ lockNo: string }>>,
         db.rooms.list({ where: { id: booking.roomId }, limit: 1 }) as Promise<Array<{ roomNumber: string }>>,
         cardsOutOfStep(req.bookingId),
       ])
-      setStay({ roomNumber: String(rooms[0]?.roomNumber ?? req.roomNumber ?? '?'), doors: locks.map((l) => l.lockNo), checkOut: String(booking.checkOut).slice(0, 10) })
+      setStay({ roomNumber: String(rooms[0]?.roomNumber ?? req.roomNumber ?? '?'), doors: locks.map((l) => l.lockNo), checkOut: String(booking.checkOut).slice(0, 10), keyEnd: stayKeyEnd(booking) })
       setTodo(cards)
       setPhase(cards.length ? { kind: 'ready' } : { kind: 'done' })
     } catch (e) {
@@ -195,7 +197,9 @@ export function UpdateCardsDialog() {
   const firstStop = todo.map((c) => c.validUntil).sort()[0]
   const why = stay && (moved
     ? <>{guest} has moved to room {stay.roomNumber}, but {todo.length === 1 ? 'the card still opens' : `${todo.length} cards still open`} room {todo[0]?.roomNumber ?? 'the old room'}.</>
-    : <>The stay now ends {hotelDay(stay.checkOut)}, but {todo.length === 1 ? 'the card stops' : `${todo.length} cards stop`} {firstStop ? hotelTime(firstStop) : 'sooner'}.</>)
+    : stay.keyEnd.slice(0, 10) === stay.checkOut && stay.keyEnd.slice(11, 16) === '12:00'
+      ? <>The stay now ends {hotelDay(stay.checkOut)}, but {todo.length === 1 ? 'the card stops' : `${todo.length} cards stop`} {firstStop ? hotelTime(firstStop) : 'sooner'}.</>
+      : <>The cards should now work until {hotelTime(stay.keyEnd)}, but {todo.length === 1 ? 'the card stops' : `${todo.length} cards stop`} {firstStop ? hotelTime(firstStop) : 'sooner'}.</>)
 
   let body: ReactNode = null
   let footer: ReactNode = null

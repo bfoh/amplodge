@@ -12,6 +12,7 @@ import { KeyCardDialog } from './components/KeyCardDialog'
 import { UpdateCardsDialog } from './components/UpdateCardsDialog'
 import { CollectCardsDialog } from './components/CollectCardsDialog'
 import { StayCardsDialog } from './components/StayCardsDialog'
+import { LateCheckoutDialog } from './components/LateCheckoutDialog'
 // Staff routes are lazy-loaded so the public marketing site doesn't pay
 // the cost of recharts, invoice services, etc. on first paint. The existing
 // <Suspense> below already covers them.
@@ -180,6 +181,7 @@ function App() {
           <UpdateCardsDialog />
           <CollectCardsDialog />
           <StayCardsDialog />
+          <LateCheckoutDialog />
           <RoutedVoiceWidget />
           <RoutedStaffAssistant />
           <Suspense fallback={<div className="flex items-center justify-center py-12"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>}>

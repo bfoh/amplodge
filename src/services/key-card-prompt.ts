@@ -5,7 +5,7 @@
  * prompt can follow without two dialogs fighting.
  */
 import { db } from '@/lib/db'
-import { canOpenDoor, endsBefore, loadStayCards, withinLocks, type KeyCard } from '@/services/key-cards'
+import { canOpenDoor, endsBefore, loadStayCards, withinLocks, type KeyCard, type StayTimes } from '@/services/key-cards'
 
 export interface KeyCardRequest {
   bookingId: string
@@ -92,7 +92,7 @@ const OUT: KeyCard['status'][] = ['issued', 'unknown']
  * (it was extended), or open a room the guest has left.
  */
 export async function cardsOutOfStep(bookingId: string): Promise<KeyCard[]> {
-  const booking = (await db.bookings.get(bookingId)) as { roomId?: string; checkOut?: string; status?: string } | null
+  const booking = (await db.bookings.get(bookingId)) as (StayTimes & { roomId?: string; status?: string }) | null
   if (!booking?.roomId || booking.status !== 'checked-in') return []
   const [cards, locks] = await Promise.all([
     loadStayCards(bookingId),
@@ -101,7 +101,7 @@ export async function cardsOutOfStep(bookingId: string): Promise<KeyCard[]> {
   if (!locks.length) return []
   const doors = locks.map((l) => l.lockNo)
   return cards.filter((c) => OUT.includes(c.status)
-    && (!withinLocks(c.lockNos ?? [], doors) || endsBefore(c, String(booking.checkOut))))
+    && (!withinLocks(c.lockNos ?? [], doors) || endsBefore(c, booking)))
 }
 
 /**
@@ -178,6 +178,19 @@ export function subscribeStayPrompt(fn: StayOpener | null): void {
 /** Shows a stay's key cards and what can be done with them (from a booking's menu). */
 export async function promptStayCards(req: StayCardsRequest): Promise<void> {
   const open = stayOpener
+  if (!open || !req.bookingId) return
+  await new Promise<void>((resolve) => open(req, resolve))
+}
+
+let lateOpener: StayOpener | null = null
+
+export function subscribeLatePrompt(fn: StayOpener | null): void {
+  lateOpener = fn
+}
+
+/** Late check-out for a stay: a later time on check-out day, an optional charge, then the cards are updated. */
+export async function promptLateCheckout(req: StayCardsRequest): Promise<void> {
+  const open = lateOpener
   if (!open || !req.bookingId) return
   await new Promise<void>((resolve) => open(req, resolve))
 }

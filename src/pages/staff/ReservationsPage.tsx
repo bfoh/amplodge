@@ -42,8 +42,8 @@ import { ExtendStayDialog } from '@/components/dialogs/ExtendStayDialog'
 import { GroupManageDialog } from '@/components/dialogs/GroupManageDialog'
 import { getGroupMembers } from '@/lib/booking-groups'
 import { Settings } from 'lucide-react'
-import { Receipt, CalendarPlus, MoreHorizontal, CreditCard, User, Users, Mail, Ban, MessageCircle, FileText, KeyRound } from 'lucide-react'
-import { promptStayCards } from '@/services/key-card-prompt'
+import { Receipt, CalendarPlus, MoreHorizontal, CreditCard, User, Users, Mail, Ban, MessageCircle, FileText, KeyRound, Clock } from 'lucide-react'
+import { promptLateCheckout, promptStayCards } from '@/services/key-card-prompt'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1510,6 +1510,12 @@ export function ReservationsPage() {
                                         <span>Key cards</span>
                                       </DropdownMenuItem>
                                     )}
+                                    {b.status === 'checked-in' && (
+                                      <DropdownMenuItem onClick={() => void promptLateCheckout({ bookingId: b.id, guestName: displayName, roomNumber })}>
+                                        <Clock className="w-4 h-4 mr-2" />
+                                        <span>Late check-out</span>
+                                      </DropdownMenuItem>
+                                    )}
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem onClick={() => handleDownloadInvoice(b)}>
                                       <Download className="w-4 h-4 mr-2" />
@@ -1643,6 +1649,11 @@ export function ReservationsPage() {
                           {KEY_CARD_STATUSES.includes(b.status) && (
                             <DropdownMenuItem onClick={() => void promptStayCards({ bookingId: b.id, guestName: displayName, roomNumber })}>
                               <KeyRound className="w-4 h-4 mr-2" /> Key cards
+                            </DropdownMenuItem>
+                          )}
+                          {b.status === 'checked-in' && (
+                            <DropdownMenuItem onClick={() => void promptLateCheckout({ bookingId: b.id, guestName: displayName, roomNumber })}>
+                              <Clock className="w-4 h-4 mr-2" /> Late check-out
                             </DropdownMenuItem>
                           )}
                           <DropdownMenuSeparator />
