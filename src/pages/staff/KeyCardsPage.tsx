@@ -21,6 +21,9 @@ import { promptKeyCards, promptLockoutCard, promptUpdateCards, queueKeyCards, ty
 import { bridgeStatus, getEncoderPc, type BridgeStatus } from '@/services/lock-bridge'
 import { ReadCardPanel } from '@/components/ReadCardPanel'
 import { DoorCodesCard } from '@/components/DoorCodeWalkthrough'
+import { KeyCardDayReport } from '@/components/KeyCardDayReport'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useStaffRole } from '@/hooks/use-staff-role'
 
 const when = (iso: string) => format(new Date(iso), 'EEE d MMM, HH:mm')
 
@@ -38,6 +41,9 @@ const STATUS_TONE: Partial<Record<KeyCard['status'], string>> = {
  */
 export default function KeyCardsPage() {
   const { isAdmin } = useIsAdmin()
+  const { role } = useStaffRole()
+  const oversight = role === 'owner' || role === 'admin' || role === 'manager'
+  const [tab, setTab] = useState('desk')
   const [board, setBoard] = useState<KeyCardBoard | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
@@ -235,11 +241,8 @@ export default function KeyCardsPage() {
   const { needsCard, shouldBeGone, wrongRoom, endsEarly, unknown, live, lockouts, doors } = board
   const nothing = <p className="py-3 text-sm text-muted-foreground">Nothing here.</p>
 
-  return (
-    <div className="space-y-6 animate-fade-in">
-      {header}
-      {bridgeLine}
-
+  const desk = (
+    <>
       {shouldBeGone.length > 0 && section(
         'Still opens a door after the stay',
         'The guest has checked out or the booking was cancelled, but this card still opens the door until its end time. Take it back. If the guest kept it, mark it so: the next guest\'s card locks it out the first time it opens the door. To stop it now, make a lock-out card at the reception PC ("Lock out the door") and hold it to the lock once.',
@@ -360,6 +363,24 @@ export default function KeyCardsPage() {
           </CardContent>
         </Card>
       )}
+    </>
+  )
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      {header}
+      {bridgeLine}
+
+      {oversight ? (
+        <Tabs value={tab} onValueChange={setTab} className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="desk">At the desk</TabsTrigger>
+            <TabsTrigger value="day">Day report</TabsTrigger>
+          </TabsList>
+          <TabsContent value="desk" className="space-y-6">{desk}</TabsContent>
+          <TabsContent value="day"><KeyCardDayReport /></TabsContent>
+        </Tabs>
+      ) : <div className="space-y-6">{desk}</div>}
 
       <AlertDialog open={!!confirmLost} onOpenChange={(open) => !open && setConfirmLost(null)}>
         <AlertDialogContent>

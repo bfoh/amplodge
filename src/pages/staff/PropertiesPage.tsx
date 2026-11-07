@@ -31,6 +31,8 @@ import {
 import { usePermissions } from '@/hooks/use-permissions'
 import { Permission } from '@/components/Permission'
 import { RoomLockNumbers } from '@/components/RoomLockNumbers'
+import { DoorStatusChip } from '@/components/DoorStatus'
+import { useDoorStatus } from '@/hooks/use-door-status'
 import { useIsAdmin } from '@/hooks/use-is-admin'
 import { cn, formatCurrencySync } from '@/lib/utils'
 import { useCurrency } from '@/hooks/use-currency'
@@ -78,6 +80,7 @@ export function PropertiesPage() {
   const permissions = usePermissions()
   const { isAdmin } = useIsAdmin()
   const { currency } = useCurrency()
+  const doors = useDoorStatus()
   const [properties, setProperties] = useState<any[]>([])
   const [bookings, setBookings] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -603,7 +606,7 @@ export function PropertiesPage() {
                 <CardHeader className="p-4 sm:p-6 pb-2">
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0 pr-4">
-                      <div className="flex items-center gap-2 mb-1.5">
+                      <div className="flex flex-wrap items-center gap-2 mb-1.5">
                         <span className={cn(
                           "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border",
                           statusBg
@@ -615,6 +618,7 @@ export function PropertiesPage() {
                             #{property.roomNumber}
                           </span>
                         )}
+                        <DoorStatusChip status={doors?.byRoomId.get(property.id) ?? doors?.byRoomNumber.get(String(property.roomNumber ?? ''))} />
                       </div>
                       <CardTitle className="text-lg font-bold leading-tight text-stone-800 line-clamp-1 group-hover:text-primary transition-colors">
                         {property.name}

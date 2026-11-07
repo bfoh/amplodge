@@ -12,6 +12,7 @@ import { handler as order } from '../../netlify/functions/key-card-order.js'
 import { handler as receipt } from '../../netlify/functions/key-card-receipt.js'
 import { handler as mark } from '../../netlify/functions/key-card-mark.js'
 import { handler as lockout } from '../../netlify/functions/key-card-lockout.js'
+import { handler as record } from '../../netlify/functions/key-card-record.js'
 import { doorsOf, stayKeyEnd, suggestDoorRoom } from '@/services/key-cards'
 import { NO_BOOKING, cardTime, ceilToMinute, floorToMinute, isLockNo, nextDai, stayEnd, validityFor, verifyOrder } from '../../netlify/functions/_lib/key-cards.js'
 
@@ -439,6 +440,34 @@ check('only a cut-off card: "working" cannot be put back on any other card', [
   const door2 = tables.key_cards.find((c) => c.booking_id === Bs && c.card_no === 1)!
   const u = JSON.parse((await call(order, bearer('staff'), { bookingId: Bs, count: 1, challenge: challenge(), update: { cardId: door2.id } })).body.order)
   check('updating one of its cards writes that card only, for its own door', [u.dai, u.cards], [o.dai, [{ cardNo: 4, lockNos: ['0102C1'] }]])
+}
+
+// ─── A card made in Joney's program (LQ015), recorded against a stay ─────────
+{
+  const R107 = id()
+  tables.rooms.push({ id: R107, room_number: '107' })
+  await call(saveLocks, bearer('admin'), { roomId: R107, locks: [{ lockNo: '0102B7' }] })
+  const Bj = id()
+  tables.bookings.push({ id: Bj, room_id: R107, guest_id: G.esi, status: 'checked-in', check_in: day(0), check_out: day(2) })
+  const first = JSON.parse((await ask(Bj)).body.order)
+  await report(enc1.token, { nonce: first.nonce, cards: [{ cardNo: 0, status: 'issued' }] })
+  const until = `${day(2)}T12:00:00.000Z`
+  r = await call(record, bearer('staff'), { bookingId: Bj, lockNo: '0102b7', validUntil: until })
+  check('a card made in LQ015 is recorded against the stay', [r.status, r.body.stopped], [200, 1])
+  const rec = tables.key_cards.find((c) => c.id === r.body.id)!
+  check('...as a working card with DAI 0, for its door, by the receptionist',
+    [rec.status, rec.dai, rec.lock_nos, rec.booking_id, rec.valid_until, !!rec.issued_by], ['issued', 0, ['0102B7'], Bj, until, true])
+  check('...and the app\'s card it stops (another DAI) is marked so', tables.key_cards.find((c) => c.order_nonce === first.nonce)!.status, 'locked_out')
+  check('read twice, it is recorded once', (await call(record, bearer('staff'), { bookingId: Bj, lockNo: '0102B7', validUntil: until })).status, 409)
+  check('an expired card is not recorded', (await call(record, bearer('staff'), { bookingId: Bj, lockNo: '0102B7', validUntil: `${day(-1)}T12:00:00.000Z` })).status, 409)
+  check('nor a card for another room\'s door', (await call(record, bearer('staff'), { bookingId: Bj, lockNo: '01020A', validUntil: until })).status, 409)
+  check('nor against a stay that is over', (await call(record, bearer('staff'), { bookingId: B.gone, lockNo: '01020A', validUntil: until })).status, 409)
+  check('nor without a staff login', (await call(record, null, { bookingId: Bj, lockNo: '0102B7', validUntil: until })).status, 401)
+  r = await call(order, bearer('staff'), { bookingId: Bj, challenge: challenge(), update: { cardId: rec.id } })
+  check('the app does not update an LQ015 card', [r.status, /Joney/.test(r.body.error)], [409, true])
+  const next = JSON.parse((await ask(Bj)).body.order)
+  check('new cards from the app never take DAI 0: they follow the door\'s last app DAI', next.dai, nextDai(first.dai))
+  check('...and they replace the LQ015 card', rec.status, 'replaced')
 }
 
 // ─── Unpairing ───────────────────────────────────────────────────────────────

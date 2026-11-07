@@ -154,6 +154,13 @@ export const normalizeLockNo = (s) => String(s ?? '').trim().toUpperCase()
  * doors, 1..255, and 255 is followed by 1. The lock refuses a card whose DAI
  * differs from the newest one it has seen, so only "different" matters.
  */
+/**
+ * The DAI of a card made in Joney's own program (LQ015). Such a card can be recorded
+ * against a stay (key-card-record) when the app could not make one; the app never
+ * writes this DAI, and never counts it when choosing the next one.
+ */
+export const JONEY_DAI = 0
+
 export function nextDai(last) {
   return Number.isInteger(last) && last >= 1 && last < 255 ? last + 1 : 1
 }
@@ -165,12 +172,13 @@ export function nextDai(last) {
  * its doors, whatever became of that card: two stays in a row must never share one.
  */
 export async function daiFor(sb, locks, mine = []) {
-  const own = [...mine].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).find((c) => Number.isInteger(c.dai))
+  const ours = (c) => Number.isInteger(c.dai) && c.dai !== JONEY_DAI
+  const own = [...mine].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).find(ours)
   if (own) return own.dai
   const { data, error } = await sb.from('key_cards').select('dai, created_at')
     .overlaps('lock_nos', locks).order('created_at', { ascending: false }).limit(20)
   if (error) throw error
-  return nextDai((data || []).find((c) => Number.isInteger(c.dai))?.dai ?? null)
+  return nextDai((data || []).find(ours)?.dai ?? null)
 }
 
 /**

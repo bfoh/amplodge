@@ -2,7 +2,7 @@ import { requireStaff, jsonResponse, handleCors } from './_lib/auth.js'
 import { checkRateLimit, tooManyRequests } from './_lib/rate-limit.js'
 import {
   POLICY, LIVE_STATUSES, ORDER_VERSION, serviceClient, signingKey, signOrder, validityFor, stayEnd, isLive, planCards,
-  cardTime, hotelToday, sharesLock, withinLocks, nextDai, daiFor, encoderForChallenge, randomToken, logActivity, parseBody, UUID,
+  cardTime, hotelToday, sharesLock, withinLocks, nextDai, daiFor, encoderForChallenge, randomToken, logActivity, parseBody, UUID, JONEY_DAI,
 } from './_lib/key-cards.js'
 
 /**
@@ -104,6 +104,9 @@ export const handler = async (event) => {
     }
     // This stay's cards for the room as it is now. A two-door room's cards each open one door.
     const current = live.filter((c) => c.booking_id === booking.id && withinLocks(c.lock_nos || [], locks))
+    // A card made in Joney's program and recorded against the stay (key-card-record) has
+    // another DAI: cards from this app take their own, and replace it (below).
+    const joney = current.filter((c) => c.dai === JONEY_DAI)
     if (replace && !current.length) {
       return jsonResponse(409, { error: 'This stay has no working cards to replace. Make cards as usual.' })
     }
@@ -116,6 +119,9 @@ export const handler = async (event) => {
       if (!updating) {
         return jsonResponse(409, { error: 'That card is not one of this stay\'s cards for its room, so it was not updated. Read the card again.' })
       }
+      if (updating.dai === JONEY_DAI) {
+        return jsonResponse(409, { error: 'That card was made in Joney\'s program, so this app cannot update it. Make new cards for the stay instead: they replace it.' })
+      }
       // Once a card with another DAI has been made for the door, the lock may refuse this DAI.
       const { data: since, error: sinceErr } = await sb.from('key_cards').select('dai, status')
         .overlaps('lock_nos', updating.lock_nos).gt('created_at', updating.created_at).limit(50)
@@ -125,7 +131,7 @@ export const handler = async (event) => {
       }
     }
     // Replacing: the stay starts over like a new one (new DAI, card numbers from 0).
-    const mine = replace ? [] : current
+    const mine = replace ? [] : current.filter((c) => c.dai !== JONEY_DAI)
 
     // An update keeps its card's start time, but its 30 days count from now: that is
     // how a stay longer than a card may run gets its cards moved on.
@@ -184,6 +190,14 @@ export const handler = async (event) => {
         updated_at: stamp,
       }).in('id', current.map((c) => c.id))
       if (repErr) throw repErr
+    } else if (joney.length && !updating) {
+      const { error: joneyErr } = await sb.from('key_cards').update({
+        status: 'replaced',
+        note: 'The stay got cards from this app: this card, made in Joney\'s program, stops once one of them opens the door.',
+        updated_by: ctx.staff?.id ?? null,
+        updated_at: stamp,
+      }).in('id', joney.map((c) => c.id))
+      if (joneyErr) throw joneyErr
     }
     const { error: insErr } = await sb.from('key_cards').insert(rows)
     if (insErr) throw insErr

@@ -32,6 +32,8 @@ import { sendTaskAssignmentEmail } from '@/services/task-notification-service'
 
 import { housekeepingService } from '@/services/housekeeping-service'
 import type { HousekeepingTask, Staff, Room } from '@/types'
+import { DoorStatusNote } from '@/components/DoorStatus'
+import { useDoorStatus } from '@/hooks/use-door-status'
 
 export default function HousekeepingPage() {
   const [tasks, setTasks] = useState<HousekeepingTask[]>([])
@@ -56,6 +58,7 @@ export default function HousekeepingPage() {
 
   // Notification-diagnostic state
   const { role } = useStaffRole()
+  const doors = useDoorStatus()
   const isAdmin = role === 'admin' || role === 'owner'
   const [diagOpen, setDiagOpen] = useState(false)
   const [diagBusy, setDiagBusy] = useState(false)
@@ -736,6 +739,10 @@ export default function HousekeepingPage() {
                           <span className="font-medium">Notes:</span> {task.notes}
                         </p>
                       )}
+
+                      {task.status !== 'completed' && (
+                        <DoorStatusNote status={doors?.byRoomNumber.get(String(task.roomNumber ?? '').trim())} onChanged={doors?.reload} />
+                      )}
                     </div>
 
                     <div className="flex flex-col gap-2 md:w-48">
@@ -804,6 +811,8 @@ export default function HousekeepingPage() {
               )}
             </DialogDescription>
           </DialogHeader>
+
+          <DoorStatusNote status={doors?.byRoomNumber.get(String(selectedTask?.roomNumber ?? '').trim())} onChanged={doors?.reload} />
 
           <div className="space-y-4 py-4">
             <div className="space-y-2">

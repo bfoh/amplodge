@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CalendarClock, CheckCircle2, DoorOpen, KeyRound, Loader2, ScanLine } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CheckCircle2, CreditCard, DoorOpen, KeyRound, Link2, Loader2, ScanLine } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -13,10 +13,10 @@ import { useHandsFreeRead } from '@/hooks/use-hands-free-read'
 import { HandsFreeHint } from '@/components/HandsFreeHint'
 import { readCard, type CardReading } from '@/services/lock-bridge'
 import {
-  STATUS_LABEL, hotelDay, identifyCard, markCard, placeDoorCode, saveRoomLocks,
-  type CardIdentity, type CardMark, type DoorPlacement, type KeyCard,
+  STATUS_LABEL, hotelDay, identifyCard, markCard, placeDoorCode, recordJoneyCard, saveRoomLocks, staysInRoom,
+  type CardIdentity, type CardMark, type DoorPlacement, type KeyCard, type RoomStay,
 } from '@/services/key-cards'
-import { promptUpdateCards } from '@/services/key-card-prompt'
+import { promptKeyCards, promptUpdateCards } from '@/services/key-card-prompt'
 
 const when = (d: string | Date) => format(new Date(d), 'EEE d MMM, HH:mm')
 /** What key-card-mark lets staff mark returned. */
@@ -83,6 +83,34 @@ export function ReadCardPanel({ isAdmin, onChanged }: { isAdmin: boolean; onChan
     await onChanged()
   }
 
+  /** A card made in Joney's program can't be updated here: the stay gets new cards from the app, which replace it. */
+  async function remake(bookingId: string, guestName: string | null, roomNumber: string) {
+    setBusy(true)
+    try {
+      await promptKeyCards({ bookingId, guestName, roomNumber })
+    } finally {
+      setBusy(false)
+    }
+    setResult(null)
+    await onChanged()
+  }
+
+  /** A card made in Joney's program (the app could not make one): recorded against the stay. */
+  async function record(stay: RoomStay, r: CardReading) {
+    if (!r.lockNo || !r.validUntil) return
+    setBusy(true)
+    try {
+      const { stopped } = await recordJoneyCard(stay.bookingId, r.lockNo, r.validUntil)
+      toast.success(`Recorded as ${stay.guestName}'s card${stopped ? `. ${stopped} older card${stopped === 1 ? '' : 's'} for the door marked as stopping` : ''}`)
+      setResult({ reading: r, identity: await identifyCard(r) })
+      await onChanged()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not record the card')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const handsFree = useHandsFreeRead(byItself, reading || busy, (r) => read(r))
   function chooseByItself(on: boolean) {
     setByItself(on)
@@ -131,7 +159,7 @@ export function ReadCardPanel({ isAdmin, onChanged }: { isAdmin: boolean; onChan
           <div role="status" className="rounded-lg border p-4 text-sm space-y-2">
             {'error' in result
               ? <Warn>{result.error}</Warn>
-              : <Described reading={result.reading} identity={result.identity} isAdmin={isAdmin} busy={busy} mark={mark} place={place} update={update} />}
+              : <Described reading={result.reading} identity={result.identity} isAdmin={isAdmin} busy={busy} mark={mark} place={place} update={update} remake={remake} record={record} />}
           </div>
         )}
       </CardContent>
@@ -143,7 +171,7 @@ const Warn = ({ children }: { children: ReactNode }) => (
   <p className="flex items-start gap-2 text-amber-900"><AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />{children}</p>
 )
 
-function Described({ reading, identity, isAdmin, busy, mark, place, update }: {
+function Described({ reading, identity, isAdmin, busy, mark, place, update, remake, record }: {
   reading: CardReading
   identity: CardIdentity | null
   isAdmin: boolean
@@ -151,6 +179,8 @@ function Described({ reading, identity, isAdmin, busy, mark, place, update }: {
   mark: (card: KeyCard, status: CardMark, r: CardReading) => void
   place: (room: PlaceRoom, lockNo: string, replace: boolean, r: CardReading) => void
   update: (bookingId: string, guestName: string | null) => void
+  remake: (bookingId: string, guestName: string | null, roomNumber: string) => void
+  record: (stay: RoomStay, r: CardReading) => void
 }) {
   switch (reading.kind) {
     case 'none':
@@ -217,10 +247,16 @@ function Described({ reading, identity, isAdmin, busy, mark, place, update }: {
               ? <>{guest} has moved to room {stay!.roomNumber}, but this card still opens room {room!.roomNumber}.</>
               : <>{guest}'s cards should work until {when(stay!.keyEnd)}, but this card {expired ? 'has stopped' : `stops ${when(validUntil!)}`}.</>}
           </Warn>
-          <Button size="sm" disabled={busy} onClick={() => update(stay!.bookingId, theirs.guestName)}>
-            {moved ? <KeyRound className="w-4 h-4 mr-1" /> : <CalendarClock className="w-4 h-4 mr-1" />}
-            {moved ? `Write it for room ${stay!.roomNumber}` : 'Update this card'}
-          </Button>
+          {theirs.dai === 0 ? (
+            <Button size="sm" disabled={busy} onClick={() => remake(stay!.bookingId, theirs.guestName, stay!.roomNumber)}>
+              <CreditCard className="w-4 h-4 mr-1" /> Make new cards for the stay
+            </Button>
+          ) : (
+            <Button size="sm" disabled={busy} onClick={() => update(stay!.bookingId, theirs.guestName)}>
+              {moved ? <KeyRound className="w-4 h-4 mr-1" /> : <CalendarClock className="w-4 h-4 mr-1" />}
+              {moved ? `Write it for room ${stay!.roomNumber}` : 'Update this card'}
+            </Button>
+          )}
         </div>
       )}
       {fine && (
@@ -235,6 +271,9 @@ function Described({ reading, identity, isAdmin, busy, mark, place, update }: {
           {newer.kind === 'lockout' ? ' (a lock-out card)' : newer.guestName ? ` (${newer.guestName})` : ''}. Once that one
           has been used at the door, the lock refuses this card.
         </Warn>
+      )}
+      {madeInJoney && !first && room && validUntil && !expired && (
+        <RecordJoney roomId={room.roomId} roomNumber={room.roomNumber} busy={busy} onRecord={(st) => record(st, reading)} />
       )}
       {!room && (isAdmin
         ? <PlaceDoor lockNo={lockNo} busy={busy} onPlace={(r, replace) => place(r, lockNo, replace, reading)} />
@@ -259,6 +298,56 @@ function Described({ reading, identity, isAdmin, busy, mark, place, update }: {
         </div>
       )}
     </>
+  )
+}
+
+/**
+ * A card made in Joney's program while the app could not make one (no internet): recorded
+ * against the stay in its room, so it is collected at check-out like the app's cards.
+ */
+function RecordJoney({ roomId, roomNumber, busy, onRecord }: { roomId: string; roomNumber: string; busy: boolean; onRecord: (stay: RoomStay) => void }) {
+  const [stays, setStays] = useState<RoomStay[] | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [chosen, setChosen] = useState('')
+
+  useEffect(() => {
+    let alive = true
+    setStays(null)
+    staysInRoom(roomId)
+      .then((s) => { if (alive) setStays(s) })
+      .catch(() => { if (alive) setFailed(true) })
+    return () => { alive = false }
+  }, [roomId])
+
+  if (failed) return <Warn>The stays in room {roomNumber} could not be loaded.</Warn>
+  if (!stays) return <p className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" />Looking for the stay in room {roomNumber}…</p>
+  if (!stays.length) return <p className="text-muted-foreground">No guest is staying in room {roomNumber} today, so there is no stay to record it against.</p>
+
+  const stay = stays.find((s) => s.bookingId === chosen) ?? (stays.length === 1 ? stays[0] : undefined)
+  return (
+    <div className="space-y-2 rounded-md bg-muted/40 p-3">
+      <p className="flex items-center gap-2 font-medium"><Link2 className="w-4 h-4" />Record it against the stay</p>
+      <p className="text-muted-foreground">
+        For a card made in Joney's program while this app could not make one. Once recorded, it is collected at check-out like the app's cards.
+      </p>
+      {stays.length > 1 && (
+        <Select value={chosen} onValueChange={setChosen}>
+          <SelectTrigger className="w-full sm:w-72" aria-label="The stay this card is for"><SelectValue placeholder="Whose card is it?" /></SelectTrigger>
+          <SelectContent>
+            {stays.map((s) => <SelectItem key={s.bookingId} value={s.bookingId}>{s.guestName} · until {hotelDay(s.checkOut)}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      )}
+      {stay && stay.appCards > 0 && (
+        <Warn>
+          {stay.guestName} has {stay.appCards === 1 ? 'a card' : `${stay.appCards} cards`} from this app. This card has another code (DAI): once it
+          opens the door, the lock refuses the app's cards. Record it only if the guest is to use this one.
+        </Warn>
+      )}
+      <Button size="sm" disabled={!stay || busy} onClick={() => stay && onRecord(stay)}>
+        <Link2 className="w-4 h-4 mr-1" /> {stay ? `Record it as ${stay.guestName}'s card` : 'Record it'}
+      </Button>
+    </div>
   )
 }
 

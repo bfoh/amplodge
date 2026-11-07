@@ -31,6 +31,8 @@ export interface KeyCard {
   issueTime: string
   validUntil: string
   status: KeyCardStatus
+  /** staff.id of who ordered it. */
+  issuedBy?: string | null
   error: string | null
   note: string | null
   createdAt: string
@@ -55,6 +57,7 @@ interface BookingRow extends StayTimes {
 
 export interface NeedsCard {
   bookingId: string
+  roomId: string
   guestName: string
   roomNumber: string
   checkOut: string
@@ -222,6 +225,7 @@ export async function loadKeyCardBoard(now = new Date()): Promise<KeyCardBoard> 
     .filter((b) => !working.has(b.id))
     .map((b) => ({
       bookingId: b.id,
+      roomId: b.roomId,
       guestName: (b.guestId && guestName.get(b.guestId)) || 'Guest',
       roomNumber: roomNo.get(b.roomId) || '?',
       checkOut: String(b.checkOut).slice(0, 10),
@@ -433,6 +437,41 @@ export type CardMark = 'returned' | 'not_returned' | 'killed_at_door' | 'issued'
 
 export function markCard(cardId: string, status: CardMark, note?: string) {
   return post('key-card-mark', { cardId, status, note })
+}
+
+/** A stay a card read at the encoder can be recorded against: in the room now, checked in or arriving today. */
+export interface RoomStay {
+  bookingId: string
+  guestName: string
+  status: string
+  checkOut: string
+  /** Cards this app made for the stay that open a door now. */
+  appCards: number
+}
+
+/** The stays in a room a card made in Joney's program can be recorded against. */
+export async function staysInRoom(roomId: string, now = new Date()): Promise<RoomStay[]> {
+  const today = hotelToday(now)
+  const rows = (await db.bookings.list({ where: { roomId, status: { in: ['checked-in', 'confirmed', 'reserved'] } }, limit: 50 })) as BookingRow[]
+  const here = rows.filter((b) => b.status === 'checked-in' || (String(b.checkIn).slice(0, 10) <= today && String(b.checkOut).slice(0, 10) >= today))
+  if (!here.length) return []
+  const [guests, cards] = await Promise.all([
+    db.guests.list({ where: { id: { in: [...new Set(here.map((b) => b.guestId).filter(Boolean))] } } }) as Promise<Array<{ id: string; name: string }>>,
+    db.keyCards.list({ where: { bookingId: { in: here.map((b) => b.id) } }, limit: 200 }) as Promise<KeyCard[]>,
+  ])
+  const name = new Map(guests.map((g) => [g.id, g.name]))
+  return here.map((b) => ({
+    bookingId: b.id,
+    guestName: (b.guestId && name.get(b.guestId)) || 'Guest',
+    status: b.status,
+    checkOut: String(b.checkOut).slice(0, 10),
+    appCards: cards.filter((c) => c.bookingId === b.id && c.kind !== 'lockout' && c.dai !== 0 && canOpenDoor(c, now)).length,
+  }))
+}
+
+/** Records a card made in Joney's program (DAI 0) against a stay, from what was read off it. */
+export function recordJoneyCard(bookingId: string, lockNo: string, validUntil: string): Promise<{ id: string; stopped: number }> {
+  return post('key-card-record', { bookingId, lockNo, validUntil })
 }
 
 export function saveRoomLocks(roomId: string, locks: Array<{ lockNo: string; label?: string | null }>): Promise<{ locks: unknown[] }> {

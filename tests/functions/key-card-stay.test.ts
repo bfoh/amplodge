@@ -9,6 +9,8 @@ import { checkoutMessage, runCheckoutSms } from '../../netlify/functions/key-car
 import { serviceClient } from '../../netlify/functions/_lib/key-cards.js'
 import { ghanaNumber } from '../../netlify/functions/_lib/sms.js'
 import { cardSleeveHtml, keyCardDays, paidNightsOf } from '@/services/key-card-stay'
+import { doorStatuses, doorTone } from '@/services/door-status'
+import { summarizeKeyCardDay } from '@/services/key-card-report'
 
 let failures = 0
 const check = (label: string, got: any, want: any) => {
@@ -102,6 +104,67 @@ check('the sleeve: room, late check-out, key end, first name only, escaped',
   [sleeve.includes('>201<'), sleeve.includes('Tue 10 Nov, 14:00'), sleeve.includes('Tue 10 Nov, 15:00'), sleeve.includes('Welcome, Ama<'), sleeve.includes('<b>Mensah')], [true, true, true, true, false])
 const paidSleeve = cardSleeveHtml({ roomNumber: '201', stay: { checkIn: '2026-11-07', checkOut: '2026-11-10', keyCardsUntil: '2026-11-08' } })
 check('a sleeve for paid nights says the key stops after them', [paidSleeve.includes('Sun 8 Nov, 12:00'), paidSleeve.includes('nights paid for')], [true, true])
+
+// ─── Door status (Rooms, Calendar, Housekeeping) ─────────────────────────────
+const card = (o: any) => ({
+  id: id(), kind: 'guest', bookingId: null, roomId: null, guestName: null, roomNumber: null, lockNos: [], orderNonce: 'n', cardNo: 0,
+  issueTime: '', validUntil: '2026-11-12T12:00:00.000Z', status: 'issued', error: null, note: null,
+  createdAt: '2026-11-10T08:00:00.000Z', updatedAt: '', ...o,
+})
+{
+  const [A, Bm, C, D, E] = [id(), id(), id(), id(), id()]
+  const kept = card({ roomId: A, validUntil: '2026-11-11T12:00:00.000Z', status: 'not_returned' })
+  const moved = card({ roomId: Bm })
+  const own = card({ roomId: C })
+  const lockoutCard = card({ kind: 'lockout', roomId: D, validUntil: '2026-11-10T08:20:00.000Z' })
+  const board = {
+    configured: true, endsEarly: [], unknown: [],
+    doors: [A, Bm, C, D, E].map((r, i) => ({ roomId: r, roomNumber: String(201 + i) })),
+    live: [kept, moved, own], shouldBeGone: [kept], wrongRoom: [moved], lockouts: [lockoutCard],
+    needsCard: [{ bookingId: id(), roomId: E, guestName: 'Yaw', roomNumber: '205', checkOut: '2026-11-12', arrivingToday: true }],
+  }
+  const s = doorStatuses(board as any)
+  check('door status: a past stay\'s kept card, a moved guest\'s card, the guest\'s own, a lock-out to hold, a guest without one',
+    [A, Bm, C, D, E].map((r) => doorTone(s.get(r)!)), ['old-card', 'old-card', 'guest', 'lockout', 'needs-card'])
+  check('...the kept card counts until it stops', [s.get(A)!.oldCards, s.get(A)!.oldCardUntil], [1, '2026-11-11T12:00:00.000Z'])
+  check('...the lock-out card is the one to hold to the lock', s.get(D)!.lockout, { cardId: lockoutCard.id, madeAt: lockoutCard.createdAt, until: lockoutCard.validUntil })
+  check('a door with nothing on it is secure', doorTone({ ...s.get(E)!, needsCard: false }), 'secure')
+}
+
+// ─── The day's key cards ─────────────────────────────────────────────────────
+{
+  const d = '2026-11-10'
+  const staffRows = [{ id: 's1', userId: 'u1', name: 'Akosua' }, { id: 's2', userId: 'u2', name: 'Kwame' }]
+  const k = (o: any) => card({ createdAt: `${d}T09:00:00.000Z`, issuedBy: 's1', roomNumber: '201', guestName: 'Ama', bookingId: 'b1', ...o })
+  const cards = [
+    k({ orderNonce: 'o1', cardNo: 0 }), k({ orderNonce: 'o1', cardNo: 1, status: 'returned' }),
+    k({ orderNonce: 'o2', cardNo: 2, createdAt: `${d}T13:00:00.000Z` }),
+    k({ orderNonce: 'o3', cardNo: 3, createdAt: `${d}T15:00:00.000Z`, issuedBy: 's2' }),
+    k({ orderNonce: 'o4', cardNo: 0, createdAt: `${d}T23:10:00.000Z`, issuedBy: 's2' }),
+    k({ orderNonce: 'o5', kind: 'lockout', roomNumber: '202', guestName: null, bookingId: null, createdAt: `${d}T11:00:00.000Z` }),
+    k({ orderNonce: 'o6', status: 'failed' }), k({ orderNonce: 'o6', cardNo: 1, status: 'failed' }), k({ orderNonce: 'o6', cardNo: 2, status: 'failed' }),
+    k({ orderNonce: 'o7', createdAt: '2026-11-09T09:00:00.000Z' }),
+  ]
+  const log = (action: string, at: string, details: any = {}, userId = 'u1', entityId = '') => ({ action, entityId, userId, createdAt: `${d}T${at}:00.000Z`, details })
+  const logs = [
+    log('key_card_ordered', '09:00', { extra: false, replaced: 0, updated: null }, 'u1', 'o1'),
+    log('key_card_ordered', '13:00', { extra: true, replaced: 0, updated: null }, 'u1', 'o2'),
+    log('key_card_ordered', '15:00', { extra: true, replaced: 0, updated: 'x' }, 'u2', 'o3'),
+    log('key_card_ordered', '23:10', { room: '201', guest: 'Ama', extra: false, replaced: 2, updated: null }, 'u2', 'o4'),
+    log('key_card_returned', '10:00', { guest: 'Ama' }), log('key_card_returned', '11:15', { guest: null }),
+    log('key_card_not_returned', '12:00', { guest: 'Kofi' }),
+  ]
+  const rep = summarizeKeyCardDay(d, cards as any, logs, staffRows, new Map([['b1', 5]]))
+  check('day report: cards written (not failed ones, not other days), updates, lock-outs, failures',
+    [rep.written, rep.updated, rep.lockouts, rep.failed], [6, 1, 1, 3])
+  check('...returned (a lock-out card brought back does not count), kept, lost', [rep.returned, rep.kept, rep.lost], [1, 1, 1])
+  check('...what each card was and who made it', rep.cards.map((c) => `${c.time} ${c.what} ${c.by}`),
+    ['09:00 New cards Akosua', '09:00 New cards Akosua', '11:00 Lock-out Akosua', '13:00 Extra card Akosua', '15:00 Updated Kwame', '23:10 Lost card: new cards Kwame'])
+  check('...cards by staff', rep.byStaff, [{ name: 'Akosua', cards: 4 }, { name: 'Kwame', cards: 2 }])
+  check('...alerts: new cards for a lost card at night, too many cards for one stay, failed writes',
+    [rep.alerts.length, /23:10, at night, Kwame/.test(rep.alerts[0]), /5 cards/.test(rep.alerts[1]), /3 card writes failed/.test(rep.alerts[2])], [3, true, true, true])
+  check('a quiet day has no alerts', summarizeKeyCardDay(d, cards.slice(0, 2) as any, logs.slice(0, 1), staffRows, new Map()).alerts, [])
+}
 
 console.log(failures ? `FAILURE: ${failures} failed` : 'ALL PASS key card stay: check-out morning SMS, paid nights, card sleeve')
 process.exit(failures ? 1 : 0)

@@ -28,6 +28,8 @@ import { recordBookingPayment } from '@/services/booking-payment-service'
 import { ExtendStayDialog } from '@/components/dialogs/ExtendStayDialog'
 import { formatCurrencySync } from '../lib/utils'
 import { useCurrency } from '../hooks/use-currency'
+import { useDoorStatus } from '@/hooks/use-door-status'
+import { DoorStatusIcon } from '@/components/DoorStatus'
 
 interface CalendarTimelineProps {
   currentDate: Date
@@ -49,6 +51,7 @@ export function CalendarTimeline({
   user
 }: CalendarTimelineProps) {
   const { currency } = useCurrency()
+  const doors = useDoorStatus()
   const [checkInDialog, setCheckInDialog] = useState<any>(null)
   const [checkOutDialog, setCheckOutDialog] = useState<any>(null)
   const [extendStayDialog, setExtendStayDialog] = useState<any>(null)
@@ -650,6 +653,7 @@ export function CalendarTimeline({
                     <div className="text-xs text-gray-300 flex items-center gap-1 mt-1">
                       <Users className="w-3 h-3" />
                       <span>x{property.maxGuests || 0}</span>
+                      <DoorStatusIcon status={doors?.byRoomId.get(property.id) ?? doors?.byRoomNumber.get(String(property.roomNumber ?? ''))} className="ml-2" />
                     </div>
                   </div>
                 </div>
