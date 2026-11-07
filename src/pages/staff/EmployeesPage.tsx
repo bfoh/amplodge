@@ -1,3 +1,4 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -742,9 +743,8 @@ export function EmployeesPage() {
           </div>
           <Card>
             {isLoading ? (
-              <CardContent className="py-16 text-center text-muted-foreground">
-                <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
-                Loading employees...
+              <CardContent className="p-0">
+                <BrandLoader variant="section" label="Loading employees" />
               </CardContent>
             ) : filteredEmployees.length === 0 ? (
               <CardContent className="py-16 text-center text-muted-foreground">

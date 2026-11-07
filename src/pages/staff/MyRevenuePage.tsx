@@ -4,6 +4,7 @@
  * Visible to all authenticated staff. Data scoped to the current user only.
  */
 
+import { BrandLoader } from '@/components/BrandLoader'
 import { useEffect, useState, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -550,11 +551,7 @@ export function MyRevenuePage() {
   }
 
   if (roleLoading || loading) {
-    return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    )
+    return <BrandLoader label="Loading your revenue" />
   }
 
   if (!userId) {

@@ -1,3 +1,4 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { Toaster } from 'sonner'
@@ -184,7 +185,7 @@ function App() {
           <LateCheckoutDialog />
           <RoutedVoiceWidget />
           <RoutedStaffAssistant />
-          <Suspense fallback={<div className="flex items-center justify-center py-12"><div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
+          <Suspense fallback={<BrandLoader variant="screen" />}>
             <Routes>
               {/* Guest Portal Routes */}
               <Route path="/guest" element={<GuestLoginPage />} />

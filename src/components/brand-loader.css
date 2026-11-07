@@ -1,0 +1,179 @@
+/*
+ * The AMP Lodge loader (BrandLoader.tsx). One 2.2 s loop, every piece on the same clock:
+ *
+ *   0-38%   the A, M and P are drawn with a pen, one after the other
+ *   30-50%  the gold LODGE bar wipes in from the left
+ *   42-59%  the two dots drop in and land with a bounce, gold, then settle to burgundy
+ *   58-70%  the mark gives a small pop as a sheen crosses it
+ *   84-100% the ink fades back to the faint outline, and it starts again
+ *
+ * Each element's resting style is its finished state; the keyframes start it from nothing.
+ * So with reduced motion (animations off) the whole logo stands still and only breathes.
+ */
+
+.bl {
+  --bl-ink: #5d2f31;
+  --bl-gold: #b9b065;
+  --bl-plate: #5d2f31;
+  --bl-ghost: 0.08;
+  --bl-ghost-bar: 0.26;
+  --bl-loop: 2200ms;
+  --bl-delay: 0ms;
+  --bl-pen: cubic-bezier(0.65, 0, 0.35, 1);
+}
+.dark .bl {
+  --bl-ink: #f5f0e8;
+  --bl-ghost: 0.12;
+  --bl-ghost-bar: 0.22;
+}
+
+.bl-appear {
+  animation: bl-appear 320ms cubic-bezier(0.2, 0.7, 0.2, 1) 140ms both;
+}
+.bl-label {
+  animation: bl-appear 320ms cubic-bezier(0.2, 0.7, 0.2, 1) 260ms both;
+}
+/* Taking over from a loader that was just on screen: no fade, no restart. */
+.bl[data-handover] .bl-appear,
+.bl[data-handover] .bl-label {
+  animation: none;
+}
+
+.bl-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.bl-mark {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: bl-pop var(--bl-loop) linear var(--bl-delay) infinite both;
+}
+
+.bl-ghost {
+  fill: var(--bl-ink);
+  opacity: var(--bl-ghost);
+}
+.bl-ghost-bar {
+  fill: var(--bl-gold);
+  opacity: var(--bl-ghost-bar);
+}
+
+.bl-ink {
+  animation: bl-ink var(--bl-loop) linear var(--bl-delay) infinite both;
+}
+.bl-letter {
+  fill: var(--bl-ink);
+}
+.bl-plate {
+  fill: var(--bl-plate);
+}
+.bl-bar {
+  fill: var(--bl-gold);
+}
+
+/* Mask pens: white strokes that reveal the letter under them as they are drawn (width: LOGO_STROKE_MASK_WIDTH). */
+.bl-pen {
+  fill: none;
+  stroke: #fff;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1 2;
+  stroke-dashoffset: 0;
+}
+.bl-pen--a { animation: bl-pen-a var(--bl-loop) var(--bl-pen) var(--bl-delay) infinite both; }
+.bl-pen--m { animation: bl-pen-m var(--bl-loop) var(--bl-pen) var(--bl-delay) infinite both; }
+.bl-pen--p { animation: bl-pen-p var(--bl-loop) var(--bl-pen) var(--bl-delay) infinite both; }
+.bl-pen--bar {
+  stroke-width: 96;
+  stroke-linecap: butt;
+  animation: bl-pen-bar var(--bl-loop) cubic-bezier(0.5, 1, 0.89, 1) var(--bl-delay) infinite both;
+}
+
+.bl-dot {
+  fill: var(--bl-ink);
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+}
+.bl-dot--a { animation: bl-dot-a var(--bl-loop) linear var(--bl-delay) infinite both; }
+.bl-dot--m { animation: bl-dot-m var(--bl-loop) linear var(--bl-delay) infinite both; }
+
+.bl-sheen {
+  transform: translateX(-200px);
+  opacity: 0;
+  animation: bl-sheen var(--bl-loop) cubic-bezier(0.45, 0, 0.25, 1) var(--bl-delay) infinite both;
+}
+
+@keyframes bl-appear {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Pens start a little past the end of their dash so the round cap does not peek out. */
+@keyframes bl-pen-a {
+  0% { stroke-dashoffset: 1.1; }
+  24%, 100% { stroke-dashoffset: 0; }
+}
+@keyframes bl-pen-m {
+  0%, 7% { stroke-dashoffset: 1.1; }
+  31%, 100% { stroke-dashoffset: 0; }
+}
+@keyframes bl-pen-p {
+  0%, 14% { stroke-dashoffset: 1.1; }
+  38%, 100% { stroke-dashoffset: 0; }
+}
+@keyframes bl-pen-bar {
+  0%, 30% { stroke-dashoffset: 1; }
+  50%, 100% { stroke-dashoffset: 0; }
+}
+
+@keyframes bl-dot-a {
+  0%, 42% { opacity: 0; transform: translateY(-70px) scale(0.4); fill: var(--bl-gold); animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1); }
+  53% { opacity: 1; transform: none; fill: var(--bl-gold); animation-timing-function: ease-in-out; }
+  64%, 100% { opacity: 1; transform: none; fill: var(--bl-ink); }
+}
+@keyframes bl-dot-m {
+  0%, 48% { opacity: 0; transform: translateY(-70px) scale(0.4); fill: var(--bl-gold); animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1); }
+  59% { opacity: 1; transform: none; fill: var(--bl-gold); animation-timing-function: ease-in-out; }
+  70%, 100% { opacity: 1; transform: none; fill: var(--bl-ink); }
+}
+
+@keyframes bl-pop {
+  0%, 58% { transform: none; animation-timing-function: cubic-bezier(0.3, 0, 0.6, 1); }
+  63% { transform: scale(1.035); animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1); }
+  72%, 100% { transform: none; }
+}
+
+@keyframes bl-sheen {
+  0%, 57% { transform: translateX(-200px); opacity: 0; }
+  60% { opacity: 1; }
+  78% { transform: translateX(1300px); opacity: 1; }
+  79%, 100% { transform: translateX(1300px); opacity: 0; }
+}
+
+@keyframes bl-ink {
+  0%, 84% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes bl-breathe {
+  from { opacity: 1; }
+  to { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bl *,
+  .bl .bl-appear,
+  .bl .bl-label {
+    animation: none !important;
+  }
+  .bl .bl-sheen {
+    display: none;
+  }
+  /* Still alive, without anything moving. */
+  .bl .bl-ink {
+    animation: bl-breathe 1.4s ease-in-out infinite alternate !important;
+  }
+}

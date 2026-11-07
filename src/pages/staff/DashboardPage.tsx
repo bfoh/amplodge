@@ -1,3 +1,4 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useEffect, useState } from 'react'
 import { Building2, Calendar, Users, DollarSign, TrendingUp, Clock, BarChart2, Home } from 'lucide-react'
 import { db, auth } from '@/lib/db'
@@ -250,12 +251,7 @@ export function DashboardPage() {
   }, [bookingsUpdate, propertiesUpdate])
 
   if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center h-96 gap-3">
-        <div className="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
-        <p className="text-sm text-muted-foreground animate-pulse">Loading dashboard...</p>
-      </div>
-    )
+    return <BrandLoader label="Loading dashboard" />
   }
 
   return (

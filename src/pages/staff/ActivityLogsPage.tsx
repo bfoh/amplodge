@@ -1,10 +1,11 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Loader2, Download, Filter, Search, Calendar, User, FileText, RefreshCw } from 'lucide-react'
+import { Download, Filter, Search, Calendar, User, FileText, RefreshCw } from 'lucide-react'
 import { activityLogService } from '@/services/activity-log-service'
 import type { ActivityLog, ActivityAction, EntityType } from '@/types'
 import { format } from 'date-fns'
@@ -615,10 +616,7 @@ export function ActivityLogsPage() {
       <Card className="hidden md:block">
         <CardContent className="p-0">
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-              <span className="ml-2 text-muted-foreground">Loading activity logs...</span>
-            </div>
+            <BrandLoader variant="section" label="Loading activity logs" />
           ) : filteredLogs.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               {searchQuery || actionFilter !== 'all' || entityTypeFilter !== 'all'
@@ -683,10 +681,7 @@ export function ActivityLogsPage() {
       {/* Mobile Card List View */}
       <div className="md:hidden space-y-3 pb-20">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-            <Loader2 className="w-8 h-8 animate-spin mb-2" />
-            <p>Loading activity logs...</p>
-          </div>
+          <BrandLoader variant="section" label="Loading activity logs" />
         ) : filteredLogs.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground border rounded-xl bg-white/50">
             No activity logs match your filters

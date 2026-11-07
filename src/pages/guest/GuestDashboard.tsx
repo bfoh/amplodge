@@ -1,8 +1,9 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { Loader2, Moon, Utensils, Wifi, CalendarCheck, MapPin } from "lucide-react";
+import { Moon, Utensils, Wifi, CalendarCheck, MapPin } from "lucide-react";
 import { toast } from "sonner";
 
 export default function GuestDashboard() {
@@ -30,12 +31,7 @@ export default function GuestDashboard() {
     }, [token]);
 
     if (loading) {
-        return (
-            <div className="flex flex-col items-center justify-center min-h-[50vh] text-muted-foreground">
-                <Loader2 className="w-8 h-8 animate-spin mb-4" />
-                <p>Loading your stay...</p>
-            </div>
-        );
+        return <BrandLoader label="Loading your stay" />;
     }
 
     if (!data) return <div className="p-4 text-center">Invalid Access Link</div>;

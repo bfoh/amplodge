@@ -1,3 +1,4 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSubscription } from '../../hooks/use-subscription'
@@ -887,11 +888,7 @@ export function BookingsPage() {
 
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
+    return <BrandLoader label="Loading bookings" />
   }
 
   return (

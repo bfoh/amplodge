@@ -12,6 +12,7 @@
  * Route: /staff/clock?t=TOKEN
  */
 
+import { BrandLoader } from '@/components/BrandLoader'
 import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
@@ -384,11 +385,7 @@ export function ClockPage() {
   }
 
   if (roleLoading || phase === 'loading') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    )
+    return <BrandLoader variant="screen" />
   }
 
   // ─── Action area per phase ──────────────────────────────────────────────────

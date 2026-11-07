@@ -1,6 +1,7 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CalendarClock, CheckCircle2, CreditCard, DoorClosed, KeyRound, Loader2, MonitorSmartphone, RefreshCw, SearchX, UserX } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CheckCircle2, CreditCard, DoorClosed, KeyRound, MonitorSmartphone, RefreshCw, SearchX, UserX } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
@@ -124,11 +125,7 @@ export default function KeyCardsPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    )
+    return <BrandLoader label="Loading key cards" />
   }
 
   const header = (

@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { BrandLoader } from '@/components/BrandLoader'
+import { Suspense, useState, useEffect } from 'react'
 import React from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { Button } from '../ui/button'
@@ -115,7 +116,10 @@ export function AppLayout() {
 
         <div className="flex-1 overflow-auto pt-[60px] pb-16 lg:pt-0 lg:pb-0 scroll-smooth">
           <div className="px-4 lg:px-8 py-6 lg:py-10 max-w-[1600px] mx-auto w-full">
-            <Outlet />
+            {/* A page still downloading shows the loader here, so the sidebar stays put. */}
+            <Suspense fallback={<BrandLoader />}>
+              <Outlet />
+            </Suspense>
           </div>
         </div>
       </main>

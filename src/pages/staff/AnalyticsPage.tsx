@@ -1,3 +1,4 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useEffect, useRef, useState } from 'react'
 import { useSubscription } from '@/hooks/use-subscription'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -486,12 +487,7 @@ export function AnalyticsPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center h-96 gap-3">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm text-muted-foreground">Loading analytics…</p>
-      </div>
-    )
+    return <BrandLoader label="Loading analytics" />
   }
 
   // Payment method data for horizontal bar visualization

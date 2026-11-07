@@ -1,9 +1,10 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { db, auth } from '@/lib/db'
-import { CalendarPlus, UserPlus, Loader2, FileText, Users, Mail, CreditCard, CheckCircle, XCircle } from 'lucide-react'
+import { CalendarPlus, UserPlus, FileText, Users, Mail, CreditCard, CheckCircle, XCircle } from 'lucide-react'
 import { format, parseISO, isToday } from 'date-fns'
 import { safeFormatDate, safeParseISO } from '@/lib/safe-date'
 import { toast } from 'sonner'
@@ -480,8 +481,8 @@ export function ReservationHistoryPage() {
 
       {loading ? (
         <Card>
-          <CardContent className="py-12 flex justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <CardContent className="p-0">
+            <BrandLoader variant="section" label="Loading history" />
           </CardContent>
         </Card>
       ) : filteredActivities.length === 0 ? (

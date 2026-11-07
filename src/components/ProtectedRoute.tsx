@@ -1,9 +1,9 @@
+import { BrandLoader } from '@/components/BrandLoader'
 import { ReactNode, useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useStaffRole } from '@/hooks/use-staff-role'
 import { canAccessRoute } from '@/lib/rbac'
 import { toast } from 'sonner'
-import { Loader2 } from 'lucide-react'
 import { auth } from '@/lib/db'
 
 interface ProtectedRouteProps {
@@ -113,14 +113,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   // --- Render ---
 
   if (isLoading || isAuthorized === null) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-secondary/30">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-primary" />
-          <p className="text-muted-foreground">Verifying access...</p>
-        </div>
-      </div>
-    )
+    return <BrandLoader variant="screen" label="Verifying access" />
   }
 
   if (!isAuthorized) {
