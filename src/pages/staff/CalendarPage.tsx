@@ -1,4 +1,5 @@
 import { BrandLoader } from '@/components/BrandLoader'
+import { RoomPicker, type PickerRoom } from '@/components/RoomPicker'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent } from '../../components/ui/card'
@@ -218,9 +219,10 @@ export function CalendarPage() {
     return aStart < bEnd && bStart < aEnd
   }
 
-  const isPropertyBooked = (propertyId: string) => {
-    if (!formData.checkIn || !formData.checkOut) return false
-    return bookings.some((b) => {
+  /** The booking that has this room on the chosen dates, if any. */
+  const bookingOnProperty = (propertyId: string) => {
+    if (!formData.checkIn || !formData.checkOut) return undefined
+    return bookings.find((b) => {
       const bRoomId = b.propertyId ?? b.roomId
       if (bRoomId !== propertyId) return false
       if (!activeStatuses.has(b.status)) return false
@@ -229,6 +231,7 @@ export function CalendarPage() {
       return isOverlap(formData.checkIn, formData.checkOut, b.checkIn, b.checkOut)
     })
   }
+  const isPropertyBooked = (propertyId: string) => !!bookingOnProperty(propertyId)
 
   // Room dropdown only lists rooms that can actually be booked right now:
   // not under maintenance, and not already booked for the selected dates
@@ -238,6 +241,22 @@ export function CalendarPage() {
   const availableProperties = useMemo(() => {
     return properties.filter((p: any) => !!p.id && p.status !== 'maintenance' && !isPropertyBooked(p.id))
   }, [properties, bookings, formData.checkIn, formData.checkOut])
+
+  // The room picker shows every room: the free ones to choose, the others greyed out with why.
+  const pickerRooms = useMemo<PickerRoom[]>(() => properties
+    .filter((p: any) => !!p.id)
+    .map((p: any) => {
+      const roomType = roomTypes.find((rt: any) => rt.id === p.propertyTypeId)
+      const clash = p.status === 'maintenance' ? undefined : bookingOnProperty(p.id)
+      return {
+        id: p.id,
+        number: String(p.roomNumber || p.name || ''),
+        typeName: roomType?.name || 'Room',
+        price: Number(roomType?.basePrice) || 0,
+        state: p.status === 'maintenance' ? 'maintenance' : clash ? 'booked' : 'free',
+        bookedBy: clash ? { guest: clash.guestName, checkIn: clash.checkIn, checkOut: clash.checkOut } : undefined,
+      }
+    }), [properties, roomTypes, bookings, formData.checkIn, formData.checkOut])
 
   // If the selected room drops out of the available list — dates changed to
   // overlap another booking, or another staff member just booked it — clear
@@ -567,26 +586,28 @@ export function CalendarPage() {
               </DialogHeader>
 
               <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="checkIn">Check-in Date*</Label>
+                    <Input id="checkIn" type="date" min={new Date().toLocaleDateString('en-CA')} value={formData.checkIn} onChange={(e) => setFormData({ ...formData, checkIn: e.target.value })} required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="checkOut">Check-out Date*</Label>
+                    <Input id="checkOut" type="date" min={formData.checkIn || new Date().toLocaleDateString('en-CA')} value={formData.checkOut} onChange={(e) => setFormData({ ...formData, checkOut: e.target.value })} required />
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="propertyId">Room*</Label>
-                  <select
+                  <RoomPicker
                     id="propertyId"
-                    className="w-full px-3 py-2 border rounded-md"
+                    rooms={pickerRooms}
                     value={formData.propertyId}
-                    onChange={(e) => setFormData({ ...formData, propertyId: e.target.value })}
-                    required
-                  >
-                    <option value="">Select a room</option>
-                    {availableProperties.map((property: any) => {
-                      const roomType = roomTypes.find((rt: any) => rt.id === property.propertyTypeId)
-                      const pricePerNight = Number(roomType?.basePrice) || 0
-                      return (
-                        <option key={property.id} value={property.id}>
-                          {property.name} (Room {property.roomNumber}) - {roomType?.name || ''} - {formatCurrencySync(pricePerNight, currency)}/night
-                        </option>
-                      )
-                    })}
-                  </select>
+                    onChange={(propertyId) => setFormData((prev) => ({ ...prev, propertyId }))}
+                    currency={currency}
+                    checkIn={formData.checkIn}
+                    checkOut={formData.checkOut}
+                  />
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
@@ -608,17 +629,6 @@ export function CalendarPage() {
                   <div className="space-y-2">
                     <Label htmlFor="guestAddress">Guest Address</Label>
                     <Input id="guestAddress" value={formData.guestAddress} onChange={(e) => setFormData({ ...formData, guestAddress: e.target.value })} />
-                  </div>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="checkIn">Check-in Date*</Label>
-                    <Input id="checkIn" type="date" min={new Date().toLocaleDateString('en-CA')} value={formData.checkIn} onChange={(e) => setFormData({ ...formData, checkIn: e.target.value })} required />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="checkOut">Check-out Date*</Label>
-                    <Input id="checkOut" type="date" min={formData.checkIn || new Date().toLocaleDateString('en-CA')} value={formData.checkOut} onChange={(e) => setFormData({ ...formData, checkOut: e.target.value })} required />
                   </div>
                 </div>
 
