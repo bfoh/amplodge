@@ -48,6 +48,26 @@ export function DoorStatusChip({ status, className }: { status?: DoorStatus | nu
   )
 }
 
+/** True when the door needs someone to do something: an old card still works, a lock-out card waits, or the guest has no card. */
+export function doorNeedsAttention(status?: DoorStatus | null): boolean {
+  if (!status) return false
+  const tone = doorTone(status)
+  return tone === 'old-card' || tone === 'lockout' || tone === 'needs-card'
+}
+
+/** A short line only when a door needs something (room tiles). */
+export function DoorAlert({ status, className }: { status?: DoorStatus | null; className?: string }) {
+  if (!status || !doorNeedsAttention(status)) return null
+  const tone = doorTone(status)
+  const { label, Icon } = CHIP[tone]
+  return (
+    <span title={doorText(status)} className={cn('inline-flex min-w-0 items-start gap-1 text-[11px] font-semibold leading-tight', tone === 'old-card' ? 'text-red-700' : 'text-amber-800', className)}>
+      <Icon className="mt-px h-3 w-3 shrink-0" aria-hidden />
+      <span>{label}</span>
+    </span>
+  )
+}
+
 /** An icon only when a door needs something (Calendar rows). */
 export function DoorStatusIcon({ status, className }: { status?: DoorStatus | null; className?: string }) {
   if (!status) return null

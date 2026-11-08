@@ -1,24 +1,19 @@
 import { BrandLoader } from '@/components/BrandLoader'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSubscription } from '@/hooks/use-subscription'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card'
+import { Card, CardContent } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog'
-import { Plus, Building2, Bed, Users, DollarSign, MoreVertical, Pencil, Trash2, ShieldAlert } from 'lucide-react'
+import { Plus, Building2, Search } from 'lucide-react'
 import { db, auth } from '@/lib/db'
 import { bookingEngine } from '@/services/booking-engine'
 import type { RoomType } from '@/types'
 import { toast } from 'sonner'
 import { activityLogService } from '@/services/activity-log-service'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '../../components/ui/dropdown-menu'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,9 +25,9 @@ import {
   AlertDialogTitle,
 } from "../../components/ui/alert-dialog"
 import { usePermissions } from '@/hooks/use-permissions'
-import { Permission } from '@/components/Permission'
-import { RoomLockNumbers } from '@/components/RoomLockNumbers'
-import { DoorStatusChip } from '@/components/DoorStatus'
+import { RoomLockNumbers, useRoomLocks, type RoomLocks } from '@/components/RoomLockNumbers'
+import { doorNeedsAttention } from '@/components/DoorStatus'
+import { ROOM_STATES, RoomDetails, RoomTile, byRoomNumber, groupByFloor, type BoardRoom, type RoomState } from '@/components/RoomBoard'
 import { useDoorStatus } from '@/hooks/use-door-status'
 import { useIsAdmin } from '@/hooks/use-is-admin'
 import { cn, formatCurrencySync } from '@/lib/utils'
@@ -91,6 +86,12 @@ export function PropertiesPage() {
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
   const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState(EMPTY_FORM)
+  const roomLocks = useRoomLocks(isAdmin)
+  const [tab, setTab] = useState('rooms')
+  const [filter, setFilter] = useState<'all' | RoomState | 'doors'>('all')
+  const [query, setQuery] = useState('')
+  const [openId, setOpenId] = useState<string | null>(null)
+  const openedFrom = useRef<HTMLElement | null>(null)
 
   // One choice per room type: the row the website shows and bookings charge,
   // not the ~65 old duplicates the page's former auto-seeding left behind.
@@ -395,9 +396,141 @@ export function PropertiesPage() {
     }
   }
 
+  // ─── The room board ────────────────────────────────────────────────────────
+  const doorOf = (property: any) =>
+    doors?.byRoomId.get(property.id) ?? doors?.byRoomNumber.get(String(property.roomNumber ?? '')) ?? null
+
+  const boardRooms: BoardRoom[] = properties
+    .map((property: any) => {
+      const { status, booking } = getRoomStatus(property)
+      return {
+        id: property.id,
+        number: String(property.roomNumber || '').trim() || '—',
+        name: property.name || '',
+        typeName: property.roomTypeName || property.propertyType || 'Room',
+        price: Number(property.displayPrice) || 0,
+        state: (ROOM_STATES[status as RoomState] ? status : 'available') as RoomState,
+        guest: booking ? booking.guest?.fullName || booking.guest?.name || booking.guestName : undefined,
+        checkIn: booking ? (booking.dates?.checkIn || booking.checkIn || '').split('T')[0] : undefined,
+        checkOut: booking ? (booking.dates?.checkOut || booking.checkOut || '').split('T')[0] : undefined,
+        beds: property.bedrooms != null ? Number(property.bedrooms) : undefined,
+        bathrooms: property.bathrooms != null ? Number(property.bathrooms) : undefined,
+        maxGuests: property.maxGuests != null ? Number(property.maxGuests) : undefined,
+        description: property.description || '',
+        door: doorOf(property),
+      }
+    })
+    .sort(byRoomNumber)
+
+  const counts = {
+    available: boardRooms.filter((r) => r.state === 'available').length,
+    occupied: boardRooms.filter((r) => r.state === 'occupied').length,
+    cleaning: boardRooms.filter((r) => r.state === 'cleaning').length,
+    maintenance: boardRooms.filter((r) => r.state === 'maintenance').length,
+    doors: boardRooms.filter((r) => doorNeedsAttention(r.door)).length,
+  }
+  const needle = query.trim().toLowerCase()
+  const shown = boardRooms.filter((r) =>
+    (filter === 'all' || (filter === 'doors' ? doorNeedsAttention(r.door) : r.state === filter))
+    && (!needle || [r.number, r.name, r.typeName, r.guest].some((v) => v && v.toLowerCase().includes(needle))))
+  const floors = groupByFloor(shown)
+  const openRoom = boardRooms.find((r) => r.id === openId) ?? null
+  const missingLocks = roomLocks.loaded ? boardRooms.filter((r) => !roomLocks.codes.has(r.id)).length : 0
+  // A saved lock code can change what the doors show.
+  const locks: RoomLocks = {
+    ...roomLocks,
+    save: async (room, value) => {
+      const ok = await roomLocks.save(room, value)
+      if (ok) doors?.reload()
+      return ok
+    },
+  }
+
+  const editRoom = (property: any) => {
+    setEditingId(property.id)
+    setFormData({
+      name: property.name || '',
+      roomNumber: property.roomNumber || '',
+      address: property.address || '',
+      propertyTypeId: typeForRoom(property),
+      bedrooms: Number(property.bedrooms ?? 1),
+      bathrooms: Number(property.bathrooms ?? 1),
+      maxGuests: Number(property.maxGuests ?? 2),
+      description: property.description || ''
+    })
+    setDialogOpen(true)
+  }
+
   if (loading) {
     return <BrandLoader label="Loading rooms" />
   }
+
+  const chip = (key: 'all' | RoomState | 'doors', label: string, count: number, dot: string) => (
+    <button
+      key={key}
+      type="button"
+      aria-pressed={filter === key}
+      onClick={() => setFilter(filter === key && key !== 'all' ? 'all' : key)}
+      className={cn(
+        'inline-flex min-h-[36px] items-center gap-1.5 rounded-full border px-3 text-sm font-medium transition-colors [@media(pointer:coarse)]:min-h-[40px]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
+        filter === key ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-200 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-50',
+      )}
+    >
+      <span className={cn('h-2 w-2 shrink-0 rounded-full', dot)} aria-hidden />
+      <span className="font-semibold tabular-nums">{count}</span>
+      <span>{label}</span>
+    </button>
+  )
+
+  const board = (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div role="group" aria-label="Show rooms" className="flex flex-wrap gap-1.5 sm:gap-2">
+          {chip('all', 'all', boardRooms.length, 'bg-stone-400')}
+          {chip('available', 'free', counts.available, ROOM_STATES.available.dot)}
+          {chip('occupied', 'occupied', counts.occupied, ROOM_STATES.occupied.dot)}
+          {chip('cleaning', 'cleaning', counts.cleaning, ROOM_STATES.cleaning.dot)}
+          {chip('maintenance', 'maintenance', counts.maintenance, ROOM_STATES.maintenance.dot)}
+          {counts.doors > 0 && chip('doors', counts.doors === 1 ? 'door to check' : 'doors to check', counts.doors, 'bg-red-500')}
+        </div>
+        <div className="relative lg:w-64 lg:shrink-0">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <Input
+            type="search"
+            aria-label="Find a room, room type or guest"
+            placeholder="Find a room, type or guest"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="h-10 pl-9"
+          />
+        </div>
+      </div>
+
+      {floors.map((floor) => (
+        <section key={floor.key} aria-labelledby={`floor-${floor.key}`}>
+          <h2 id={`floor-${floor.key}`} className="mb-2.5 flex items-baseline gap-2 font-sans text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">
+            {floor.label}
+            <span className="font-normal normal-case tracking-normal text-stone-400">· {floor.rooms.length} room{floor.rooms.length === 1 ? '' : 's'}</span>
+          </h2>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-3 md:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8">
+            {floor.rooms.map((room) => (
+              <RoomTile key={room.id} room={room} currency={currency} onOpen={(tile) => { openedFrom.current = tile; setOpenId(room.id) }} />
+            ))}
+          </div>
+        </section>
+      ))}
+
+      {floors.length === 0 && (
+        <div className="rounded-xl border border-dashed py-12 text-center text-sm text-muted-foreground">
+          No rooms match.{' '}
+          <button type="button" className="font-medium text-primary underline underline-offset-2" onClick={() => { setFilter('all'); setQuery('') }}>
+            Show all rooms
+          </button>
+        </div>
+      )}
+    </div>
+  )
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -409,7 +542,7 @@ export function PropertiesPage() {
             </div>
             <h1 className="text-2xl font-bold tracking-tight">Rooms</h1>
           </div>
-          <p className="text-sm text-muted-foreground">Manage your rooms inventory — {properties.length} total</p>
+          <p className="text-sm text-muted-foreground">{properties.length} room{properties.length === 1 ? '' : 's'} · {counts.available} free today</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
@@ -560,149 +693,41 @@ export function PropertiesPage() {
             </Button>
           </CardContent>
         </Card>
+      ) : isAdmin ? (
+        <Tabs value={tab} onValueChange={setTab} className="space-y-5">
+          <TabsList>
+            <TabsTrigger value="rooms">Rooms</TabsTrigger>
+            <TabsTrigger value="locks" className="gap-1.5">
+              Door locks
+              {missingLocks > 0 && <span className="rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-800">{missingLocks}</span>}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="rooms" className="mt-0">{board}</TabsContent>
+          <TabsContent value="locks" className="mt-0">
+            <RoomLockNumbers rooms={boardRooms.map((r) => ({ id: r.id, roomNumber: r.number, name: r.name, typeName: r.typeName }))} locks={locks} />
+          </TabsContent>
+        </Tabs>
       ) : (
-        <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-          {properties.map((property: any) => {
-            const { status, booking } = getRoomStatus(property)
-
-            let statusColor = 'bg-emerald-500'
-            let statusBg = 'bg-emerald-50 text-emerald-700 border-emerald-100'
-            let statusText = 'Available'
-            let tooltipText = 'Room is available for booking'
-
-            if (status === 'occupied') {
-              statusColor = 'bg-rose-500'
-              statusBg = 'bg-rose-50 text-rose-700 border-rose-100'
-              statusText = 'Occupied'
-              if (booking) {
-                const guestName = booking.guest?.fullName || booking.guest?.name || 'Guest'
-                const checkOut = (booking.dates?.checkOut || booking.checkOut || '').split('T')[0]
-                tooltipText = `Occupied by ${guestName} until ${checkOut}`
-              }
-            } else if (status === 'cleaning') {
-              statusColor = 'bg-sky-500'
-              statusBg = 'bg-sky-50 text-sky-700 border-sky-100'
-              statusText = 'Cleaning'
-              tooltipText = 'Awaiting housekeeping — room becomes available when the cleaning task is completed.'
-            } else if (status === 'maintenance') {
-              statusColor = 'bg-amber-500'
-              statusBg = 'bg-amber-50 text-amber-700 border-amber-100'
-              statusText = 'Maintenance'
-              tooltipText = 'Room is under maintenance'
-            }
-
-            return (
-              <Card 
-                key={property.id} 
-                className="group relative overflow-hidden border-border/40 hover:border-primary/20 hover:shadow-xl transition-all duration-300 active:scale-[0.98] sm:active:scale-100" 
-                title={tooltipText}
-              >
-                {/* Visual Status Indicator (Mobile Focused) */}
-                <div className={cn("absolute top-0 right-0 h-1.5 w-1/3 rounded-bl-full z-10", statusColor)} />
-
-                <CardHeader className="p-4 sm:p-6 pb-2">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0 pr-4">
-                      <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                        <span className={cn(
-                          "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border",
-                          statusBg
-                        )}>
-                          {statusText}
-                        </span>
-                        {property.roomNumber && (
-                          <span className="text-[10px] font-black bg-stone-100 text-stone-600 px-2 py-0.5 rounded shadow-sm">
-                            #{property.roomNumber}
-                          </span>
-                        )}
-                        <DoorStatusChip status={doors?.byRoomId.get(property.id) ?? doors?.byRoomNumber.get(String(property.roomNumber ?? ''))} />
-                      </div>
-                      <CardTitle className="text-lg font-bold leading-tight text-stone-800 line-clamp-1 group-hover:text-primary transition-colors">
-                        {property.name}
-                      </CardTitle>
-                      <p className="text-xs font-medium text-stone-400 mt-0.5 truncate">
-                        {property.roomTypeName || property.propertyType || 'Standard Unit'}
-                      </p>
-                    </div>
-
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-10 w-10 -mt-1 -mr-2 rounded-full hover:bg-stone-100 active:bg-stone-200 shrink-0">
-                          <MoreVertical className="h-5 w-5 text-stone-400" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuItem onClick={() => {
-                          setEditingId(property.id)
-                          setFormData({
-                            name: property.name || '',
-                            roomNumber: property.roomNumber || '',
-                            address: property.address || '',
-                            propertyTypeId: typeForRoom(property),
-                            bedrooms: Number(property.bedrooms ?? 1),
-                            bathrooms: Number(property.bathrooms ?? 1),
-                            maxGuests: Number(property.maxGuests ?? 2),
-                            description: property.description || ''
-                          })
-                          setDialogOpen(true)
-                        }} className="py-2.5">
-                          <Pencil className="h-4 w-4 mr-2" />
-                          Edit Details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => handleDeleteClick(property.id)}
-                          className="text-destructive focus:text-destructive py-2.5"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Delete Room
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </CardHeader>
-
-                <CardContent className="p-4 sm:p-6 pt-2 space-y-4">
-                  {/* Features Grid */}
-                  <div className="grid grid-cols-2 gap-3 bg-stone-50/50 rounded-xl p-3 border border-stone-100/50">
-                    <div className="flex items-center gap-2">
-                      <div className="p-1.5 rounded-lg bg-white shadow-sm border border-stone-100">
-                        <Bed className="w-3.5 h-3.5 text-primary" />
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter leading-none">Beds</span>
-                        <span className="text-xs font-bold text-stone-700">{property.bedrooms} Units</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 border-l border-stone-200 pl-3">
-                      <div className="p-1.5 rounded-lg bg-white shadow-sm border border-stone-100">
-                        <Users className="w-3.5 h-3.5 text-primary" />
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter leading-none">Guests</span>
-                        <span className="text-xs font-bold text-stone-700">Max {property.maxGuests}</span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center justify-between pt-1">
-                    <div className="flex flex-col">
-                      <span className="text-xl font-black text-primary tracking-tighter leading-none">
-                        {formatCurrencySync(property.displayPrice, currency)}
-                      </span>
-                      <span className="text-[10px] text-stone-400 font-bold uppercase tracking-widest mt-1">per night</span>
-                    </div>
-                    <Button variant="outline" size="sm" className="h-9 px-4 rounded-xl text-[11px] font-bold uppercase tracking-wider border-stone-200 hover:bg-primary hover:text-white hover:border-primary transition-all duration-300">
-                      View Details
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
+        board
       )}
 
-      {isAdmin && properties.length > 0 && <RoomLockNumbers rooms={properties} />}
+      <RoomDetails
+        room={openRoom}
+        returnFocus={openedFrom}
+        onClose={() => setOpenId(null)}
+        currency={currency}
+        locks={locks}
+        canEditLocks={isAdmin}
+        onEdit={(room) => {
+          setOpenId(null)
+          const property = properties.find((p: any) => p.id === room.id)
+          if (property) editRoom(property)
+        }}
+        onDelete={(room) => {
+          setOpenId(null)
+          handleDeleteClick(room.id)
+        }}
+      />
 
       <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
         <AlertDialogContent>
